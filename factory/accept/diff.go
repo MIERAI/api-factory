@@ -181,7 +181,7 @@ func runDiff(ctx context.Context, conn *pgx.Conn, url string, plan *ir.Plan, api
 		results = append(results, env.pageExitCases(url)...)
 	}
 	// 覆盖条件: 单条 → 找到和找不到都出现;分页 → 出现多行(要翻页)和 0 行
-	cover := fmt.Sprintf("数据 %d 行(拒绝 %d)/ 结果 0 行 %d 次、1 行 %d 次、多行 %d 次、不合法 %d 次", inserted, rejected, hits["0"], hits["1"], hits["n"], hits["invalid"])
+	cover := fmt.Sprintf("数据 %d 行(拒绝 %d,来源 %d 行)/ 结果 0 行 %d 次、1 行 %d 次、多行 %d 次、不合法 %d 次", inserted, rejected, len(env.anchors), hits["0"], hits["1"], hits["n"], hits["invalid"])
 	okCover := hits["0"] > 0 && hits["1"]+hits["n"] > 0
 	if api.Pattern == "list_keyset" || api.Pattern == "list_all" {
 		okCover = okCover && hits["n"] > 0
@@ -265,7 +265,7 @@ func (e *diffEnv) value(c core.NamedType, i int, unique bool) any {
 }
 
 func (e *diffEnv) scalar(kind core.Kind, unique bool, i int) any {
-	if cs := e.consts[kind]; len(cs) > 0 && !unique && e.rnd.Intn(4) == 0 {
+	if cs := e.consts[kind]; len(cs) > 0 && !unique && e.rnd.Intn(8) == 0 {
 		return cs[e.rnd.Intn(len(cs))] // 流水线里的常量
 	}
 	switch kind {
@@ -319,7 +319,11 @@ func (e *diffEnv) load() (int, int, error) {
 	}
 	insert := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", ident, strings.Join(names, ", "), strings.Join(holders, ", "))
 	rejected := 0
-	for i := 0; i < diffRows; i++ {
+	n := diffRows
+	if len(e.json) > 0 { // 多版本的来源(JSON版本 等): 一个键有好几行,多生成一些
+		n = diffRows * 3
+	}
+	for i := 0; i < n; i++ {
 		var args []any
 		for _, c := range e.cols {
 			args = append(args, sqlValue(e.value(c, i, unique[c.Name])))
