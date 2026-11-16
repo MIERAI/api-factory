@@ -26,20 +26,47 @@
 ```sh
 brew install go bufbuild/buf/buf sqlc   # 另需 docker 和 claude CLI
 make db-up                              # 本地 Postgres(端口 55432)
-make loop SPEC=specs/jobs/get-job-status/spec.yaml
+make loop SPEC=specs/jobs/get-job-status/spec.yaml          # MODEL=local 可让实现用本地模型(审查总是强模型)
 ```
 
-## 目录与分层
+## 架构: 各环节通过文件契约串起来
 
-| 层 | 路径 | 谁来写 | 换公司时 |
+```
+式样书 + 领域层 + proto + schema
+        │
+   [编译器] factory/compiler        语言无关。SQL 分析只用 sqlc 的 json 输出
+        │
+   API 计划(IR)  .factory/plan.json  ← 契约(factory/ir,有版本号)
+        │      + db/queries/*.sql
+   ┌────┼──────────────┬───────────────────┐
+[验收生成]          [审查]           [语言适配器] factory/adapters/golang
+factory/acceptgen   factory/prompts   IR → Go 代码(sqlc-go / buf / handler / enum / wiring)
+语言无关             review.md         清单 manifest.yaml: AI 改哪些文件 / 闸门规则 / prompt / 工具
+   │                                          │
+gen/acceptance/*.yaml                 [AI 实现] factory ai(模型和角色在 factory.yaml)
+   │                                          │
+   │                                  [闸门] factory guard(规则来自清单)
+   │                                          │
+   └──────────→ [验收执行器] factory accept ←─┘   黑盒: 只要 URL + fixture 用的 DB + IR
+                 [测试环境]   factory serve-test   启动被测服务器(DB 会话关掉索引扫描)
+```
+
+| 环节 | 包 | 输入 → 输出 | 换什么时要改 |
 |---|---|---|---|
-| 式样书 | `specs/**/spec.yaml`, `proto/` | 人(review 后合并) | 每家公司各自写 |
-| 工厂核心 | `factory/spec` `factory/guard` `factory/accept` `factory/prompts` | 平台 | **不变**(资产) |
-| 模板适配器 | `factory/prepare` | 平台 | 换语言时替换 |
-| 运行时模板 | `platform/` | 平台 | 换语言时替换 |
-| DB 结构 | `db/schema.sql` | 人 | 每家公司各自维护 |
-| 确定性生成 | `gen/` `db/queries/` `*_gen.go` | 工厂(勿手改) | — |
-| 业务实现 | `internal/handler/**`(只限 `ai_may_edit`) | AI | — |
+| 编译器 | `factory/compiler` | 式样书 / 领域层 / proto / schema → IR + SQL | 式样书格式 |
+| 验收生成 | `factory/acceptgen` | IR → `gen/acceptance` | 模式的测试策略 |
+| 审查 | `factory/prompts/review.md` | 式样书 + IR 派生物 → findings | 审查规则 |
+| 语言适配器 | `factory/adapters/<lang>` + `manifest.yaml` | IR → 代码 | 换语言: 写新适配器,改 `factory.yaml` 的 adapter |
+| AI 调用 | `factory/ai` + `factory.yaml` | prompt → 结果 | 换模型: 只改 `factory.yaml` |
+| 闸门 | `factory/guard` | git 改动 + 清单 → 违规 | 规则在清单里 |
+| 验收执行器 | `factory/accept` | URL + DB + IR → 结果 | 不用改(任何说 Connect 的服务都能测) |
+| 运行时平台 | `platform/` | — | 换语言时由适配器提供对应的平台 |
+
+| 层 | 路径 | 谁来写 |
+|---|---|---|
+| 式样书 / 领域层 | `specs/<domain>/`, `proto/`, `db/schema/<domain>.sql` | 人 |
+| 确定性生成 | `gen/`, `db/queries/`, `*_gen.go`, `.factory/plan.json` | 工厂(勿手改) |
+| 业务实现 | 清单 `ai_files` 指定的文件(compute 的逻辑函数等) | AI |
 
 ## 模式(一个 API 由哪些部件组成)
 
@@ -80,6 +107,6 @@ make loop SPEC=specs/jobs/get-job-status/spec.yaml
 
 ```sh
 scripts/trial.sh claude specs/jobs/get-job-summary/spec.yaml 3   # 开发用(快)
-scripts/trial.sh local  specs/jobs/get-job-summary/spec.yaml 3   # 最终验证: 本地模型(winpc Ollama)
+scripts/trial.sh local  specs/jobs/get-job-summary/spec.yaml 3   # 最终验证: 本地模型(factory.yaml 的 ai.models.local)
 ```
 结果追加到 `.factory/trials/results.jsonl`,每次的 prompt/diff/闸门/验收输出在 `.factory/trials/<run>/`。
