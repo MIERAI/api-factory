@@ -1,0 +1,93 @@
+# =============================================================================
+# API 式样书: GetJobStatus
+#   人 review 的唯一真相。代码、查询、测试全部从这里和 proto 推导出来。
+# =============================================================================
+spec_version: "0.1"
+
+api:
+  id: jobs.get-job-status
+  summary: 按 id 返回一个异步任务的处理状态
+  description: |
+    调用方在提交异步任务后,轮询这个 API 等待任务结束。
+  rpc: factory.jobs.v1.JobService/GetJobStatus     # 类型的唯一真相在 proto
+  proto: proto/factory/jobs/v1/jobs.proto
+  owner: platform-team
+  risk_level: low          # low = 单表只读 / 无写入 / 不涉及金额和权限
+
+# -----------------------------------------------------------------------------
+# 数据源: AI 只能通过这里声明的查询访问数据
+#   工厂会把 query 确定性地转成 sqlc 查询,生成类型安全的函数
+# -----------------------------------------------------------------------------
+datasource:
+  access: read_only
+  tables:
+    - name: jobs
+      columns: [id, status]
+  query:
+    name: GetJobStatus     # 生成的函数名: Queries.GetJobStatus(ctx, jobID int64) (int32, error)
+    cardinality: one       # one = 0..1 行(查不到返回 no rows)
+    sql: |
+      SELECT status
+      FROM jobs
+      WHERE id = @job_id
+
+# -----------------------------------------------------------------------------
+# 行为: AI 要实现的就是这一节
+# -----------------------------------------------------------------------------
+behavior:
+  - when: 记录存在
+    then: OK, 返回 status
+  - when: 记录不存在
+    then: 'NOT_FOUND, message="job not found: {job_id}"'
+  - when: job_id <= 0 或未指定
+    then: INVALID_ARGUMENT(proto 的 protovalidate 规则自动处理,handler 不用写)
+  - when: DB 连接失败或超时
+    then: UNAVAILABLE(平台拦截器自动转换,handler 只需原样返回 error)
+
+non_functional:
+  latency_p99_ms: 100
+  timeout_ms: 3000
+
+# -----------------------------------------------------------------------------
+# 验收条件: 人定的判定标准,验收执行器原样执行(与 AI 无关)
+# -----------------------------------------------------------------------------
+acceptance:
+  fixtures:
+    jobs:
+      - { id: 101, status: 0 }
+      - { id: 102, status: 1 }
+      - { id: 103, status: 2 }
+      - { id: 3000000000, status: 1 }   # 超过 int32 范围
+  cases:
+    - name: 未完成
+      request: { job_id: 101 }
+      expect: { code: OK, response: { status: 0 } }
+    - name: 成功
+      request: { job_id: 102 }
+      expect: { code: OK, response: { status: 1 } }
+    - name: 失败
+      request: { job_id: 103 }
+      expect: { code: OK, response: { status: 2 } }
+    - name: 超过 int32 的 id
+      request: { job_id: 3000000000 }
+      expect: { code: OK, response: { status: 1 } }
+    - name: 不存在的 id
+      request: { job_id: 999 }
+      expect: { code: NOT_FOUND }
+    - name: 0 是非法值
+      request: { job_id: 0 }
+      expect: { code: INVALID_ARGUMENT }
+    - name: 负数是非法值
+      request: { job_id: -1 }
+      expect: { code: INVALID_ARGUMENT }
+    - name: 未指定
+      request: {}
+      expect: { code: INVALID_ARGUMENT }
+
+# -----------------------------------------------------------------------------
+# 生成范围: 路径闸门会机械检查,超出范围的改动直接失败
+# -----------------------------------------------------------------------------
+generation:
+  ai_may_edit:
+    - internal/handler/jobs/get_job_status.go
+    - internal/handler/jobs/get_job_status_test.go

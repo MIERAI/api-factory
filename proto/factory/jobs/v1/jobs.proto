@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package factory.jobs.v1;
+
+import "buf/validate/validate.proto";
+
+option go_package = "apifactory/gen/factory/jobs/v1;jobsv1";
+
+// 异步任务的状态查询
+service JobService {
+  // 按 id 返回一个任务的 status
+  //   OK               : 存在
+  //   NOT_FOUND        : 不存在
+  //   INVALID_ARGUMENT : job_id <= 0
+  rpc GetJobStatus(GetJobStatusRequest) returns (GetJobStatusResponse);
+}
+
+message GetJobStatusRequest {
+  // jobs.id (> 0)。校验由 protovalidate 确定性执行,不交给 AI
+  int64 job_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message GetJobStatusResponse {
+  // 0: 未完成 / 1: 成功 / 2: 失败
+  int32 status = 1;
+}
