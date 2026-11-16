@@ -1,0 +1,2 @@
+# 工厂的配置。换语言模板时只改 adapter
+adapter: factory/adapters/golang

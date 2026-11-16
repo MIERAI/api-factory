@@ -178,23 +178,6 @@ func (s *Spec) Cardinality() string {
 	return "many"
 }
 
-// AIMayEdit: AI 可以创建/修改的文件。compute 的第一个是逻辑文件。
-func (s *Spec) AIMayEdit() []string {
-	p, err := s.RPCParts()
-	if err != nil {
-		return nil
-	}
-	dir := "internal/handler/" + p.Domain() + "/"
-	base := Snake(p.Method)
-	switch s.PatternKind() {
-	case "compute":
-		return []string{dir + base + "_logic.go", dir + base + "_logic_test.go"}
-	case "custom":
-		return []string{dir + base + ".go", dir + base + "_test.go"}
-	}
-	return nil
-}
-
 // RPCParts 是 rpc 字段拆解后的结果。
 type RPCParts struct {
 	ProtoPackage string // factory.jobs.v1

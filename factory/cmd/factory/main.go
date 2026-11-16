@@ -19,6 +19,7 @@ import (
 
 	"apifactory/factory/accept"
 	"apifactory/factory/acceptgen"
+	"apifactory/factory/adapter"
 	"apifactory/factory/adapters/golang"
 	"apifactory/factory/compiler"
 	"apifactory/factory/guard"
@@ -175,29 +176,37 @@ func cmdPrompt(args []string) error {
 	if !s.AIWrites() {
 		return fmt.Errorf("pattern %s is fully generated; nothing for AI to do", s.PatternKind())
 	}
+	m, err := adapter.Load()
+	if err != nil {
+		return err
+	}
+	// proto 文件等事实来自编译器输出的 IR(prepare 之后才有)
+	plan, err := ir.Load(ir.DefaultPath)
+	if err != nil {
+		return fmt.Errorf("IR not found (run factory prepare first): %w", err)
+	}
 	parts, _ := s.RPCParts()
+	vars := adapter.Vars{ID: s.ID(), Domain: parts.Domain(), Method: parts.Method}
+	for _, svc := range plan.Services {
+		if svc.ProtoPackage == parts.ProtoPackage && svc.Name == parts.Service {
+			vars.ProtoFile = svc.ProtoFile
+		}
+	}
 	raw, err := os.ReadFile(args[0])
 	if err != nil {
 		return err
 	}
-	segs := strings.Split(parts.ProtoPackage, ".")
-	handlerDir := filepath.Join("internal/handler", parts.Domain())
-	protoFile, err := protoFileOf(s)
-	if err != nil {
-		return err
-	}
-	protoBase := strings.TrimSuffix(filepath.Base(protoFile), ".proto")
-	aiFiles := s.AIMayEdit()
+	aiFiles := m.AIFilesFor(s.PatternKind(), vars)
 	data := map[string]any{
 		"RPC":            s.API.RPC,
 		"AIMayEdit":      aiFiles,
-		"HandlerDir":     handlerDir,
+		"HandlerDir":     m.Reference("handler_dir", vars),
 		"HandlerFile":    aiFiles[0],
 		"LogicFile":      aiFiles[0],
-		"HandlerGenFile": filepath.Join(handlerDir, spec.Snake(parts.Method)+"_gen.go"),
-		"QueryFile":      filepath.Join("gen/db", s.ID()+".sql.go"),
-		"PBFile":         filepath.Join("gen", filepath.Join(segs...), protoBase+".pb.go"),
-		"ConnectFile":    filepath.Join("gen", filepath.Join(segs...), parts.Domain()+segs[len(segs)-1]+"connect", protoBase+".connect.go"),
+		"HandlerGenFile": m.Reference("handler_gen", vars),
+		"QueryFile":      m.Reference("query", vars),
+		"PBFile":         m.Reference("pb", vars),
+		"ConnectFile":    m.Reference("connect", vars),
 		"SpecPath":       args[0],
 		"SpecYAML":       strings.TrimSpace(string(raw)),
 	}
@@ -206,19 +215,21 @@ func cmdPrompt(args []string) error {
 		domainPath, domainRaw = s.Domain.Path, strings.TrimSpace(s.Domain.Raw)
 	}
 	data["DomainPath"], data["Domain"] = domainPath, domainRaw
-	tmpl := prompts.Implement
 	if s.PatternKind() == "compute" {
-		// 签名以 prepare 生成的桩为准,不在两处各写一份
+		// 签名以适配器生成的桩为准,不在两处各写一份
 		stub, err := os.ReadFile(aiFiles[0])
 		if err != nil {
 			return fmt.Errorf("logic stub not found (run factory prepare first): %w", err)
 		}
-		sig := regexp.MustCompile(`(?m)^func \w+Logic\(.*\) \(.*\)`).Find(stub)
+		sig := regexp.MustCompile(m.LogicSignature).Find(stub)
 		if sig == nil {
 			return fmt.Errorf("cannot find the logic function signature in %s", aiFiles[0])
 		}
 		data["Signature"] = string(sig)
-		tmpl = prompts.Compute
+	}
+	tmpl, err := m.Prompt(s.PatternKind())
+	if err != nil {
+		return err
 	}
 	return template.Must(template.New("").Parse(tmpl)).Execute(os.Stdout, data)
 }
@@ -228,7 +239,11 @@ func cmdGuard(args []string) error {
 	if err != nil {
 		return err
 	}
-	changed, violations, err := guard.Check(specs)
+	m, err := adapter.Load()
+	if err != nil {
+		return err
+	}
+	changed, violations, err := guard.Check(specs, m)
 	if err != nil {
 		return err
 	}
@@ -293,8 +308,13 @@ func cmdAIPaths(args []string) error {
 	if err != nil {
 		return err
 	}
+	m, err := adapter.Load()
+	if err != nil {
+		return err
+	}
+	parts, _ := s.RPCParts()
 	fmt.Println(s.ID())
-	for _, p := range s.AIMayEdit() {
+	for _, p := range m.AIFilesFor(s.PatternKind(), adapter.Vars{ID: s.ID(), Domain: parts.Domain(), Method: parts.Method}) {
 		fmt.Println(p)
 	}
 	return nil

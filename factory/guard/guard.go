@@ -5,31 +5,17 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"regexp"
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
 
+	"apifactory/factory/adapter"
 	"apifactory/factory/spec"
 )
 
-// AI 写的代码里禁止出现的 import: 数据访问必须走 sqlc 生成的 Queries。
-var forbiddenImports = []string{
-	`"database/sql"`,
-	`"github.com/jackc/pgx`,
-	`"os/exec"`,
-	`"net/http"`,
-	`"unsafe"`,
-}
-
-// compute 模式的逻辑文件必须是纯函数: 追加禁止项。
-var impureImports = []string{`"context"`, `"os"`, `"net"`, `"math/rand"`, `"sync"`, `"apifactory/platform`, `"apifactory/gen/db"`}
-var impureCalls = regexp.MustCompile(`\btime\.(Now|Since|Until|Sleep|After|Tick)\(|\bgo\s+func\b`)
-
-var sqlLiteral = regexp.MustCompile("(?i)[\"`]\\s*(select|insert|update|delete)\\s")
-
 // Check 对比 git 工作区相对于最近一次提交的改动。
-func Check(specs []*spec.Spec) ([]string, []string, error) {
+// 允许的路径和代码检查规则都来自适配器清单(核心不知道是哪种语言)。
+func Check(specs []*spec.Spec, m *adapter.Manifest) ([]string, []string, error) {
 	changed, err := changedFiles()
 	if err != nil {
 		return nil, nil, err
@@ -37,19 +23,20 @@ func Check(specs []*spec.Spec) ([]string, []string, error) {
 	var allowed []string
 	logicFiles := map[string]bool{}
 	for _, s := range specs {
-		allowed = append(allowed, s.AIMayEdit()...)
-		if s.PatternKind() == "compute" {
-			logicFiles[s.AIMayEdit()[0]] = true
+		p, _ := s.RPCParts()
+		files := m.AIFilesFor(s.PatternKind(), adapter.Vars{ID: s.ID(), Domain: p.Domain(), Method: p.Method})
+		allowed = append(allowed, files...)
+		if s.PatternKind() == "compute" && len(files) > 0 {
+			logicFiles[files[0]] = true
 		}
 	}
+	g := m.Guard
+	rawSQL, pureCalls := g.RawSQLRegexp(), g.PureCallsRegexp()
 
 	var violations []string
 	for _, f := range changed {
 		if !matchAny(allowed, f) {
-			violations = append(violations, fmt.Sprintf("%s: outside generation.ai_may_edit", f))
-			continue
-		}
-		if !strings.HasSuffix(f, ".go") {
+			violations = append(violations, fmt.Sprintf("%s: outside the files AI may edit (adapter %s)", f, m.Name))
 			continue
 		}
 		b, err := os.ReadFile(f)
@@ -60,22 +47,22 @@ func Check(specs []*spec.Spec) ([]string, []string, error) {
 			return nil, nil, err
 		}
 		src := string(b)
-		for _, imp := range forbiddenImports {
+		for _, imp := range g.ForbiddenImports {
 			if strings.Contains(src, imp) {
 				violations = append(violations, fmt.Sprintf("%s: forbidden import %s", f, imp))
 			}
 		}
 		if logicFiles[f] {
-			for _, imp := range impureImports {
+			for _, imp := range g.Pure.ForbiddenImports {
 				if strings.Contains(src, imp) {
 					violations = append(violations, fmt.Sprintf("%s: logic must be pure, forbidden import %s", f, imp))
 				}
 			}
-			if m := impureCalls.FindString(src); m != "" {
-				violations = append(violations, fmt.Sprintf("%s: logic must be pure, forbidden call %q", f, m))
+			if c := pureCalls.FindString(src); c != "" {
+				violations = append(violations, fmt.Sprintf("%s: logic must be pure, forbidden call %q", f, c))
 			}
 		}
-		if !strings.HasSuffix(f, "_test.go") && sqlLiteral.MatchString(src) {
+		if (g.RawSQLSkipSuffix == "" || !strings.HasSuffix(f, g.RawSQLSkipSuffix)) && rawSQL.MatchString(src) {
 			violations = append(violations, fmt.Sprintf("%s: raw SQL literal (queries must come from spec)", f))
 		}
 	}
