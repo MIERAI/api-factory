@@ -12,11 +12,11 @@ import (
 
 const getCustomerOrderStats = `-- name: GetCustomerOrderStats :many
 
-SELECT id, status, total_amount
-FROM orders
-WHERE customer_id = $1::int8
-  AND ($2::timestamptz IS NULL OR ordered_at >= $2::timestamptz)
-  AND ($3::timestamptz IS NULL OR ordered_at < $3::timestamptz)
+SELECT t1.id AS id, t1.status AS status, t1.total_amount AS total_amount
+FROM orders AS t1
+WHERE (t1.customer_id = $1::int8)
+  AND (($2::timestamptz IS NULL) OR (t1.ordered_at >= $2::timestamptz))
+  AND (($3::timestamptz IS NULL) OR (t1.ordered_at < $3::timestamptz))
 `
 
 type GetCustomerOrderStatsParams struct {

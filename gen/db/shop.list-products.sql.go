@@ -12,17 +12,17 @@ import (
 
 const listProducts = `-- name: ListProducts :many
 
-SELECT id, sku, name, category, status, created_at FROM (
-  SELECT id, sku, name, category, status, created_at
-  FROM products
-  WHERE ($1::text IS NULL OR category = $1::text)
-    AND ($2::int4 IS NULL OR status = $2::int4)
-    AND ($3::text IS NULL OR name LIKE replace(replace(replace($3::text, '\', '\\'), '%', '\%'), '_', '\_') || '%')
-) AS base
-WHERE ($4::timestamptz IS NULL
-       OR (base.created_at, base.id) < ($4::timestamptz, $5::bigint))
-ORDER BY base.created_at DESC, base.id DESC
-LIMIT $6::int
+SELECT t2.id, t2.sku, t2.name, t2.category, t2.status, t2.created_at
+FROM (
+    SELECT t1.id AS id, t1.sku AS sku, t1.name AS name, t1.category AS category, t1.status AS status, t1.created_at AS created_at
+    FROM products AS t1
+    WHERE (($1::text IS NULL) OR (t1.category = $1::text))
+      AND (($2::int4 IS NULL) OR (t1.status = $2::int4))
+      AND (($3::text IS NULL) OR (t1.name LIKE replace(replace(replace($3::text, '\', '\\'), '%', '\%'), '_', '\_') || '%'))
+) AS t2
+WHERE ($4::timestamptz IS NULL OR (t2.created_at, t2.id) < ($4::timestamptz, $5::int8))
+ORDER BY t2.created_at DESC, t2.id DESC
+LIMIT $6::int4
 `
 
 type ListProductsParams struct {

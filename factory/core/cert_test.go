@@ -222,6 +222,16 @@ func TestCertification(t *testing.T) {
 			env.check(fmt.Sprintf("filter t %s %v", op, v), p, Params{"p": v})
 		}
 	}
+	// limit 来自参数
+	pl := &Pipeline{Params: []ParamDecl{{Name: "n", Type: Type{Kind: Int32}, Required: true}}, Steps: all(Sort(SortKey{"t", false}, byK), LimitParam("n"))}
+	for _, n := range []int64{0, 1, 7, 1000} {
+		env.check(fmt.Sprintf("limit 参数 %d", n), pl, Params{"n": n})
+	}
+	// 必填参数: or(absent(p), cmp) 化简为 cmp
+	pr := &Pipeline{Params: []ParamDecl{{Name: "p", Type: Type{Kind: Int32}, Required: true}}, Steps: all(Filter(Or(Absent("p"), Cmp("=", Col("i"), Param("p")))), Sort(byK))}
+	for _, v := range certDomain["i"][1:] {
+		env.check(fmt.Sprintf("必填 等于 %v", v), pr, Params{"p": v})
+	}
 	// 11. 组合: json 投影 → 每键取最新 → 筛选 → 排序 → 截取(JSON版本 这类单元的形状)
 	comp := &Pipeline{Params: []ParamDecl{opt("p", Text)}, Steps: all(
 		Project(NamedExpr{"g", Col("g")}, NamedExpr{"k", Col("k")}, NamedExpr{"n", JSONField(Col("j"), "n", Type{Kind: Int32})}, NamedExpr{"s", JSONField(Col("j"), "s", Type{Kind: Text})}),
@@ -277,7 +287,7 @@ func (e *certEnv) insert(r Row) {
 
 // run: SQL 后端在 Postgres 上的结果(规范文本)
 func (e *certEnv) run(p *Pipeline, params Params) ([]string, *SQL, error) {
-	q, err := ToSQL(p, true)
+	q, err := ToSQL(p, Options{TextOutput: true})
 	if err != nil {
 		e.t.Fatalf("ToSQL: %v", err)
 	}

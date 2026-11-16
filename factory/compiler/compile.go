@@ -16,6 +16,8 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 
+	"apifactory/factory/cells"
+	"apifactory/factory/core"
 	"apifactory/factory/ir"
 	"apifactory/factory/protoload"
 	"apifactory/factory/spec"
@@ -45,11 +47,15 @@ func Compile(specs []*spec.Spec) (*ir.Plan, error) {
 	}
 	cat := a0.catalog
 
-	// 第 1 遍: 声明 → 基础查询,分析结果列(keyset 的游标类型要用)
+	lib, err := cells.Load()
+	if err != nil {
+		return nil, err
+	}
+
+	// 声明 → 单元展开 → 流水线 → SQL(core 的 SQL 后端);逃生口的 SQL 原样使用
 	plan := &ir.Plan{Version: ir.Version}
 	apis := make([]ir.API, len(specs))
-	base := map[string]string{}
-	filtersOf := map[*spec.Spec][]resolvedFilter{}
+	final := map[string]string{}
 	for i, s := range specs {
 		md := methods[s]
 		api, err := apiSkeleton(s, md, cat)
@@ -69,33 +75,48 @@ func Compile(specs []*spec.Spec) (*ir.Plan, error) {
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", s.Path, err)
 			}
-			filtersOf[s] = filters
 			api.Query.Select = cols
 			for _, f := range filters {
 				api.Filters = append(api.Filters, ir.Filter{Field: f.Name, Column: f.Column.Name, ColumnType: f.Column.Type, Op: f.Op, SQLOp: f.SQLOp, Presence: f.Presence})
 			}
-			sql = baseSQL(s, cols, filters)
+			pl, err := buildPipeline(s, lib, cols, filters, cat)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", s.Path, err)
+			}
+			q, err := core.ToSQL(pl, core.Options{ParamRef: core.Sqlc})
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", s.Path, err)
+			}
+			api.Pipeline = pl
+			sql = q.Text
 		}
 		api.Query.SQL = sql
 		apis[i] = api
-		base[s.ID()] = queryFile(s, sql)
+		final[s.ID()] = queryFile(s, sql)
 	}
-	a1, err := analyze(base)
-	if err != nil {
-		return nil, err
-	}
-
-	// 第 2 遍: list_keyset 追加游标条件 / ORDER BY / LIMIT,分析最终的查询(参数和结果列)
-	final := map[string]string{}
+	// 逃生口的 SQL + 分页: SQL 对核心代数不透明,仍然用 keysetSQL 包一层(游标列的类型来自 sqlc 对基础查询的分析)
+	escBase := map[string]string{}
 	for i, s := range specs {
-		if s.PatternKind() == "list_keyset" {
+		if apis[i].Pipeline == nil && s.PatternKind() == "list_keyset" {
+			escBase[s.ID()] = final[s.ID()]
+		}
+	}
+	if len(escBase) > 0 {
+		a1, err := analyze(escBase)
+		if err != nil {
+			return nil, err
+		}
+		for i, s := range specs {
+			if _, ok := escBase[s.ID()]; !ok {
+				continue
+			}
 			sql, err := keysetSQL(s, apis[i].Query.SQL, a1.queries[s.QueryName()].Columns)
 			if err != nil {
 				return nil, err
 			}
 			apis[i].Query.SQL = sql
+			final[s.ID()] = queryFile(s, sql)
 		}
-		final[s.ID()] = queryFile(s, apis[i].Query.SQL)
 	}
 	a2, err := analyze(final)
 	if err != nil {

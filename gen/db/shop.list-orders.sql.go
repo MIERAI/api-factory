@@ -12,18 +12,18 @@ import (
 
 const listOrders = `-- name: ListOrders :many
 
-SELECT id, customer_id, status, ordered_at, shipped_at, total_amount FROM (
-  SELECT id, customer_id, status, ordered_at, shipped_at, total_amount
-  FROM orders
-  WHERE ($1::int8 IS NULL OR customer_id = $1::int8)
-    AND ($2::int4 IS NULL OR status = $2::int4)
-    AND ($3::timestamptz IS NULL OR ordered_at >= $3::timestamptz)
-    AND ($4::timestamptz IS NULL OR ordered_at < $4::timestamptz)
-) AS base
-WHERE ($5::timestamptz IS NULL
-       OR (base.ordered_at, base.id) < ($5::timestamptz, $6::bigint))
-ORDER BY base.ordered_at DESC, base.id DESC
-LIMIT $7::int
+SELECT t2.id, t2.customer_id, t2.status, t2.ordered_at, t2.shipped_at, t2.total_amount
+FROM (
+    SELECT t1.id AS id, t1.customer_id AS customer_id, t1.status AS status, t1.ordered_at AS ordered_at, t1.shipped_at AS shipped_at, t1.total_amount AS total_amount
+    FROM orders AS t1
+    WHERE (($1::int8 IS NULL) OR (t1.customer_id = $1::int8))
+      AND (($2::int4 IS NULL) OR (t1.status = $2::int4))
+      AND (($3::timestamptz IS NULL) OR (t1.ordered_at >= $3::timestamptz))
+      AND (($4::timestamptz IS NULL) OR (t1.ordered_at < $4::timestamptz))
+) AS t2
+WHERE ($5::timestamptz IS NULL OR (t2.ordered_at, t2.id) < ($5::timestamptz, $6::int8))
+ORDER BY t2.ordered_at DESC, t2.id DESC
+LIMIT $7::int4
 `
 
 type ListOrdersParams struct {

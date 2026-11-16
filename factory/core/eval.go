@@ -111,8 +111,16 @@ func Eval(p *Pipeline, tables map[string][]Row, params Params) (*Result, error) 
 			}
 			ordered = true
 		case "limit":
-			if len(rows) > st.N {
-				rows = rows[:st.N]
+			n := st.N
+			if st.Param != "" {
+				v, _ := params[st.Param].(int64)
+				n = int(v)
+			}
+			if n < 0 {
+				return nil, fmt.Errorf("limit: 负数 %d", n)
+			}
+			if len(rows) > n {
+				rows = rows[:n]
 			}
 		default:
 			return nil, fmt.Errorf("eval: unknown step %q", st.Kind)

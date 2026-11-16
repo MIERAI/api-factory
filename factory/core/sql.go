@@ -32,31 +32,48 @@ type sqlLevel struct {
 	distinct []string
 	dOrder   []SortKey
 	order    []SortKey
-	limit    int
+	limit    string
 	out      Schema
 }
 
 type sqlGen struct {
+	ref    func(ParamDecl, int) string
 	p      *Pipeline
 	params []ParamDecl
 	index  map[string]int
 	n      int // 别名计数
 }
 
-// ToSQL: textOutput = 输出列全部 ::text(元件认证用,比较时不依赖驱动的类型映射)。
-func ToSQL(p *Pipeline, textOutput bool) (*SQL, error) {
+// Options: SQL 的写法。
+type Options struct {
+	TextOutput bool // 输出列全部 ::text(元件认证用,比较时不依赖驱动的类型映射)
+	// ParamRef: 参数的写法。nil = $1, $2 …;Sqlc = sqlc.arg(名字) / sqlc.narg(名字)
+	ParamRef func(d ParamDecl, index int) string
+}
+
+// Sqlc: sqlc 的参数写法(必填 / 列表 → sqlc.arg,可选的标量 → sqlc.narg)。
+func Sqlc(d ParamDecl, _ int) string {
+	if d.Required || d.List {
+		return "sqlc.arg(" + d.Name + ")"
+	}
+	return "sqlc.narg(" + d.Name + ")"
+}
+
+// ToSQL: 流水线 → SQL。
+func ToSQL(p *Pipeline, opt Options) (*SQL, error) {
+	textOutput := opt.TextOutput
 	out, err := Check(p)
 	if err != nil {
 		return nil, err
 	}
-	g := &sqlGen{p: p, index: map[string]int{}}
+	g := &sqlGen{p: p, index: map[string]int{}, ref: opt.ParamRef}
 	var lv *sqlLevel
 	for _, st := range p.Steps {
 		switch st.Kind {
 		case "scan":
 			lv = g.newLevel(quoteIdent(st.Table), Schema(st.Columns))
 		case "filter":
-			if lv.project != nil || lv.distinct != nil || lv.order != nil || lv.limit > 0 {
+			if lv.project != nil || lv.distinct != nil || lv.order != nil || lv.limit != "" {
 				lv = g.wrap(lv, false)
 			}
 			w, err := g.expr(st.Pred, lv)
@@ -65,7 +82,7 @@ func ToSQL(p *Pipeline, textOutput bool) (*SQL, error) {
 			}
 			lv.where = append(lv.where, w)
 		case "project":
-			if lv.project != nil || lv.distinct != nil || lv.order != nil || lv.limit > 0 {
+			if lv.project != nil || lv.distinct != nil || lv.order != nil || lv.limit != "" {
 				lv = g.wrap(lv, false)
 			}
 			lv.project = st.Project
@@ -79,20 +96,24 @@ func ToSQL(p *Pipeline, textOutput bool) (*SQL, error) {
 			}
 			lv.out = s
 		case "pick_per_key":
-			if lv.project != nil || lv.distinct != nil || lv.order != nil || lv.limit > 0 {
+			if lv.project != nil || lv.distinct != nil || lv.order != nil || lv.limit != "" {
 				lv = g.wrap(lv, false)
 			}
 			lv.distinct, lv.dOrder = st.Keys, st.Order
 		case "sort":
-			if lv.project != nil || lv.distinct != nil || lv.order != nil || lv.limit > 0 {
+			if lv.project != nil || lv.distinct != nil || lv.order != nil || lv.limit != "" {
 				lv = g.wrap(lv, false)
 			}
 			lv.order = st.Order
 		case "limit":
-			if lv.limit > 0 {
+			if lv.limit != "" {
 				lv = g.wrap(lv, false)
 			}
-			lv.limit = st.N
+			if st.Param != "" {
+				lv.limit, _ = g.param(st.Param)
+			} else {
+				lv.limit = fmt.Sprint(st.N)
+			}
 		}
 	}
 	text, err := g.render(lv, textOutput)
@@ -161,8 +182,8 @@ func (g *sqlGen) render(lv *sqlLevel, textOutput bool) (string, error) {
 	if len(order) > 0 {
 		b.WriteString("\nORDER BY " + strings.Join(order, ", "))
 	}
-	if lv.limit > 0 {
-		fmt.Fprintf(&b, "\nLIMIT %d", lv.limit)
+	if lv.limit != "" {
+		b.WriteString("\nLIMIT " + lv.limit)
 	}
 	return b.String(), nil
 }
@@ -194,7 +215,11 @@ func (g *sqlGen) param(name string) (string, *ParamDecl) {
 	if d.List {
 		cast += "[]"
 	}
-	return fmt.Sprintf("$%d::%s", i, cast), d
+	ref := fmt.Sprintf("$%d", i)
+	if g.ref != nil {
+		ref = g.ref(*d, i)
+	}
+	return ref + "::" + cast, d
 }
 
 func (g *sqlGen) expr(e *Expr, lv *sqlLevel) (string, error) {
@@ -228,7 +253,16 @@ func (g *sqlGen) expr(e *Expr, lv *sqlLevel) (string, error) {
 			if err != nil {
 				return "", err
 			}
+			if s == "FALSE" && e.Op == "or" { // 化简: 必填参数的 absent 恒为 FALSE
+				continue
+			}
 			xs = append(xs, s)
+		}
+		switch len(xs) {
+		case 0:
+			return "FALSE", nil
+		case 1:
+			return xs[0], nil
 		}
 		return "(" + strings.Join(xs, " "+strings.ToUpper(e.Op)+" ") + ")", nil
 	case "not":

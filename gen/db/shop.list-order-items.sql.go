@@ -11,15 +11,15 @@ import (
 
 const listOrderItems = `-- name: ListOrderItems :many
 
-SELECT line_no, product_id, quantity, unit_price FROM (
-  SELECT line_no, product_id, quantity, unit_price
-  FROM order_items
-  WHERE order_id = $1::int8
-) AS base
-WHERE ($2::int IS NULL
-       OR (base.line_no) > ($2::int))
-ORDER BY base.line_no ASC
-LIMIT $3::int
+SELECT t2.line_no, t2.product_id, t2.quantity, t2.unit_price
+FROM (
+    SELECT t1.line_no AS line_no, t1.product_id AS product_id, t1.quantity AS quantity, t1.unit_price AS unit_price
+    FROM order_items AS t1
+    WHERE (t1.order_id = $1::int8)
+) AS t2
+WHERE ($2::int4 IS NULL OR (t2.line_no) > ($2::int4))
+ORDER BY t2.line_no
+LIMIT $3::int4
 `
 
 type ListOrderItemsParams struct {

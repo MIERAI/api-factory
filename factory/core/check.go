@@ -79,7 +79,12 @@ func Check(p *Pipeline) (Schema, error) {
 		case "sort":
 			checkOrder(cur, st.Order, at, add)
 		case "limit":
-			if st.N <= 0 {
+			if st.Param != "" {
+				d := p.Param(st.Param)
+				if d == nil || d.List || !d.Required || (d.Type.Kind != Int32 && d.Type.Kind != Int64) {
+					add("%s: 参数 %s 必须是必填的整数", at, st.Param)
+				}
+			} else if st.N <= 0 {
 				add("%s: N 必须 > 0", at)
 			}
 		default:

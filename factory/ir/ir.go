@@ -8,11 +8,13 @@ package ir
 
 import (
 	"encoding/json"
+
+	"apifactory/factory/core"
 	"fmt"
 	"os"
 )
 
-const Version = "1"
+const Version = "2" // 2: API 带核心代数的流水线(Pipeline)
 
 // DefaultPath: 编译器输出的位置。
 const DefaultPath = ".factory/plan.json"
@@ -45,9 +47,10 @@ type API struct {
 	Request  Message `json:"request"`
 	Response Message `json:"response"`
 
-	Query        Query    `json:"query"`
-	Filters      []Filter `json:"filters,omitempty"`       // 声明式 datasource 才有
-	TableColumns []Column `json:"table_columns,omitempty"` // datasource.table 的全部列(合成测试数据用)
+	Query        Query          `json:"query"`
+	Pipeline     *core.Pipeline `json:"pipeline,omitempty"`      // 声明式查询: 只含基本元件(逃生口的 SQL 没有)
+	Filters      []Filter       `json:"filters,omitempty"`       // 声明式 datasource 才有
+	TableColumns []Column       `json:"table_columns,omitempty"` // datasource.table 的全部列(合成测试数据用)
 
 	GetByID *GetByID `json:"get_by_id,omitempty"`
 	Keyset  *Keyset  `json:"keyset,omitempty"`

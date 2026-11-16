@@ -12,18 +12,18 @@ import (
 
 const listJobs = `-- name: ListJobs :many
 
-SELECT id, job_type, status, created_at FROM (
-  SELECT id, job_type, status, created_at
-  FROM jobs
-  WHERE ($1::int4 IS NULL OR status = $1::int4)
-    AND ($2::text IS NULL OR job_type = $2::text)
-    AND ($3::timestamptz IS NULL OR created_at >= $3::timestamptz)
-    AND ($4::timestamptz IS NULL OR created_at < $4::timestamptz)
-) AS base
-WHERE ($5::timestamptz IS NULL
-       OR (base.created_at, base.id) < ($5::timestamptz, $6::bigint))
-ORDER BY base.created_at DESC, base.id DESC
-LIMIT $7::int
+SELECT t2.id, t2.job_type, t2.status, t2.created_at
+FROM (
+    SELECT t1.id AS id, t1.job_type AS job_type, t1.status AS status, t1.created_at AS created_at
+    FROM jobs AS t1
+    WHERE (($1::int4 IS NULL) OR (t1.status = $1::int4))
+      AND (($2::text IS NULL) OR (t1.job_type = $2::text))
+      AND (($3::timestamptz IS NULL) OR (t1.created_at >= $3::timestamptz))
+      AND (($4::timestamptz IS NULL) OR (t1.created_at < $4::timestamptz))
+) AS t2
+WHERE ($5::timestamptz IS NULL OR (t2.created_at, t2.id) < ($5::timestamptz, $6::int8))
+ORDER BY t2.created_at DESC, t2.id DESC
+LIMIT $7::int4
 `
 
 type ListJobsParams struct {

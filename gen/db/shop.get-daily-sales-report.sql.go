@@ -12,10 +12,10 @@ import (
 
 const getDailySalesReport = `-- name: GetDailySalesReport :many
 
-SELECT id, status, ordered_at, total_amount
-FROM orders
-WHERE ($1::timestamptz IS NULL OR ordered_at >= $1::timestamptz)
-  AND ($2::timestamptz IS NULL OR ordered_at < $2::timestamptz)
+SELECT t1.id AS id, t1.status AS status, t1.ordered_at AS ordered_at, t1.total_amount AS total_amount
+FROM orders AS t1
+WHERE (($1::timestamptz IS NULL) OR (t1.ordered_at >= $1::timestamptz))
+  AND (($2::timestamptz IS NULL) OR (t1.ordered_at < $2::timestamptz))
 `
 
 type GetDailySalesReportParams struct {

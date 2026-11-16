@@ -12,11 +12,11 @@ import (
 
 const getJobSummary = `-- name: GetJobSummary :many
 
-SELECT id, status, created_at, finished_at
-FROM jobs
-WHERE job_type = $1::text
-  AND ($2::timestamptz IS NULL OR created_at >= $2::timestamptz)
-  AND ($3::timestamptz IS NULL OR created_at < $3::timestamptz)
+SELECT t1.id AS id, t1.status AS status, t1.created_at AS created_at, t1.finished_at AS finished_at
+FROM jobs AS t1
+WHERE (t1.job_type = $1::text)
+  AND (($2::timestamptz IS NULL) OR (t1.created_at >= $2::timestamptz))
+  AND (($3::timestamptz IS NULL) OR (t1.created_at < $3::timestamptz))
 `
 
 type GetJobSummaryParams struct {

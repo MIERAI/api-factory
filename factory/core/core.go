@@ -129,7 +129,7 @@ var cmpOps = map[string]bool{"=": true, "<>": true, "<": true, "<=": true, ">": 
 //	project       Project: 新的列(名字 → 表达式),只保留这些列
 //	pick_per_key  Keys: 每个键(NULL 视为相等)按 Order 取第一行
 //	sort          Order: 文本按字节;NULL 在 ASC 时最后、DESC 时最前
-//	limit         N
+//	limit         N;或者 Param = 参数名(必填的整数参数,例如分页的 row_limit)
 type Step struct {
 	Kind    string      `json:"kind"`
 	Table   string      `json:"table,omitempty"`
@@ -139,7 +139,8 @@ type Step struct {
 	Keys    []string    `json:"keys,omitempty"`
 	Order   []SortKey   `json:"order,omitempty"`
 	N       int         `json:"n,omitempty"`
-	From    string      `json:"from,omitempty"` // 来自哪个单元 / 设计稿哪一行(审查和报错用)
+	Param   string      `json:"param,omitempty"` // limit: 行数来自参数
+	From    string      `json:"from,omitempty"`  // 来自哪个单元 / 设计稿哪一行(审查和报错用)
 }
 
 type NamedType struct {
@@ -167,6 +168,7 @@ func PickPerKey(keys []string, order ...SortKey) Step {
 }
 func Sort(order ...SortKey) Step { return Step{Kind: "sort", Order: order} }
 func Limit(n int) Step           { return Step{Kind: "limit", N: n} }
+func LimitParam(p string) Step   { return Step{Kind: "limit", Param: p} }
 
 // Pipeline: 一条查询。Params = 请求参数的类型(列表参数 List = true)。
 type Pipeline struct {
