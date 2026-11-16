@@ -42,4 +42,7 @@ run "enum 筛选: proto→DB 映射错"         $E 's/case jobsv1\.JobStatus_JOB
 P=gen/db/shop.list-products.sql.go
 run "前缀: 去掉 % 的转义"               $P "s/, '%', '\\\\%'\\)/, '%', '%')/"
 run "前缀: 去掉 _ 的转义"               $P "s/, '_', '\\\\_'\\)/, '_', '_')/"
+L=gen/db/jobs.list-jobs-by-types.sql.go
+run "属于: 不传时没有 coalesce(试用里的真 bug)" $L 's/\(coalesce\(cardinality\(\$1::text\[\]\), 0\) = 0\)/(cardinality(\$1::text[]) = 0)/'
+run "属于: 忽略列表条件"                $L 's/OR \(t1\.id = ANY\(\$2::int8\[\]\)\)/OR TRUE/'
 go build -o bin/server ./cmd/server; git status --short

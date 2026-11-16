@@ -26,6 +26,14 @@
         JOB_STATUS_FAILED: 3
         JOB_STATUS_PENDING: 1
         JOB_STATUS_SUCCEEDED: 2
+    ListJobsByTypesRequest:
+        job_ids: 4
+        job_types: 3
+        page_size: 1
+        page_token: 2
+    ListJobsByTypesResponse:
+        jobs: 1
+        next_page_token: 2
     ListJobsRequest:
         created_after: 5
         created_before: 6

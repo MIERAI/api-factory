@@ -190,6 +190,18 @@ func (c *ctx) request(req *message, n *yaml.Node) (map[string]any, error) {
 		if f == nil {
 			return nil, fmt.Errorf("第 %d 行: %s 不是输入", p.Line, p.Key)
 		}
+		if f.Repeated { // 列表输入: [a, b]
+			list := []any{}
+			for _, it := range p.Val.Content {
+				v, err := c.value(f.kind, it)
+				if err != nil {
+					return nil, fmt.Errorf("第 %d 行 %s: %v", it.Line, p.Key, err)
+				}
+				list = append(list, v)
+			}
+			out[p.Key] = list
+			continue
+		}
 		v, err := c.value(f.kind, p.Val)
 		if err != nil {
 			return nil, fmt.Errorf("第 %d 行 %s: %v", p.Line, p.Key, err)

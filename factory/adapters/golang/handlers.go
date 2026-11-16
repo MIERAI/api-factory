@@ -60,6 +60,12 @@ func goKind(f *ir.Field) (string, error) {
 // reqExpr: 请求字段 → 查询参数类型 的转换表达式。
 func (g *genCtx) reqExpr(f *ir.Field, paramType string) (string, error) {
 	goName := goCamelCase(f.Name)
+	if f.List { // 列表参数: []string / []int32 / []int64(枚举的列表还不支持)
+		if k, err := goKind(&ir.Field{Name: f.Name, Kind: f.Kind}); err == nil && paramType == "[]"+k {
+			return fmt.Sprintf("m.Get%s()", goName), nil
+		}
+		return "", fmt.Errorf("list request field %s (%s) cannot be mapped to query param type %s", f.Name, f.Kind, paramType)
+	}
 	if f.Kind == "enum" && !f.List {
 		column := f.Name
 		if c, ok := g.filterCol[norm(column)]; ok {

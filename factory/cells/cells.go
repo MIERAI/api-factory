@@ -90,6 +90,12 @@ func (l *Library) Filter(name, column, param string) (*core.Expr, error) {
 	})
 }
 
+// HasFilter: 有没有这个筛选单元。
+func (l *Library) HasFilter(name string) bool { _, ok := l.Filters[name]; return ok }
+
+// FilterNames: 全部筛选单元的名字(报错时列出)。
+func (l *Library) FilterNames() []string { return l.names() }
+
 func (l *Library) names() []string {
 	var out []string
 	for k := range l.Filters {

@@ -1,0 +1,41 @@
+# ============================================================================
+# ListJobsByTypes: 按任务类型 / id 的列表筛选任务(「属于」单元的示例)
+# ============================================================================
+API: ListJobsByTypes
+说明: 按任务类型和 id 的列表筛选任务,新的在前,分页
+背景: 运维画面一次看几种任务类型
+负责人: platform-team
+风险: 低
+
+种类: 一览
+数据来源: jobs
+
+输入:                             # 列表: 不传或空列表 = 不按这个条件筛选
+  job_types: { 类型: 文本列表,   必填: 否, 说明: 任务类型(任意一个), 筛选: job_type 属于 }
+  job_ids:   { 类型: 整数64列表, 必填: 否, 说明: 任务 id(任意一个),   筛选: id 属于 }
+
+输出:
+  id:         任务 id
+  job_type:   任务类型
+  status:     处理状态(JobStatus)
+  created_at: 创建时间
+
+排序: [created_at 新到旧, id 大到小]
+分页: { 默认每页: 20, 每页最多: 100 }
+
+例子:
+  准备数据:
+    jobs:
+      - { id: 1, job_type: export, status: SUCCEEDED, created_at: 2026-11-01 09:00 }
+      - { id: 2, job_type: import, status: PENDING,   created_at: 2026-11-02 09:00 }
+      - { id: 3, job_type: report, status: FAILED,    created_at: 2026-11-03 09:00 }
+  用例:
+    - 说明: 两种类型
+      输入: { job_types: [export, report] }
+      结果: { jobs: [3, 1] }
+    - 说明: 类型和 id 同时指定 = 两个条件都满足
+      输入: { job_types: [export, import], job_ids: [2, 3] }
+      结果: { jobs: [2] }
+    - 说明: 空列表 = 不筛选
+      输入: { job_types: [] }
+      结果: { jobs: [3, 2, 1] }

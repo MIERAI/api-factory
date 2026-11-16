@@ -313,6 +313,37 @@ func (e *diffEnv) requests() []core.Params {
 		ps := core.Params{}
 		for _, d := range e.userParams() {
 			f := e.filter[d.Name]
+			if d.List { // 列表参数: 0~3 个值(锚的值 / 别的行的值 / 不存在的值);必填至少 1 个
+				n := e.rnd.Intn(4)
+				if i == 0 && !d.Required {
+					continue
+				}
+				if d.Required && n == 0 {
+					n = 1
+				}
+				l := []any{}
+				for j := 0; j < n; j++ {
+					var v any
+					switch {
+					case j == 0 && e.rnd.Intn(4) > 0: // 1/4 的机会不放锚的值(可能 0 行)
+						v = anchor[f.Column]
+					case j == 0:
+						v = missing(d.Type.Kind)
+					case e.rnd.Intn(3) == 0:
+						v = missing(d.Type.Kind)
+					default:
+						v = e.rows[e.rnd.Intn(len(e.rows))][f.Column]
+					}
+					if v != nil {
+						l = append(l, v)
+					}
+				}
+				if d.Required && len(l) == 0 {
+					l = append(l, missing(d.Type.Kind))
+				}
+				ps[d.Name] = l
+				continue
+			}
 			choice := e.rnd.Intn(4)
 			if i == 0 { // 第一个: 可选参数全部不传
 				choice = 3
@@ -390,6 +421,12 @@ func (e *diffEnv) present(column string, v any) any {
 	switch x := v.(type) {
 	case nil:
 		return nil
+	case []any:
+		out := make([]any, len(x))
+		for i, y := range x {
+			out[i] = e.present(column, y)
+		}
+		return out
 	case time.Time:
 		if t, _ := e.colType(column); t.Kind == core.Date {
 			return x.Format("2006-01-02")
@@ -581,8 +618,12 @@ func (e *diffEnv) pageExitCases(url string) []Result {
 			if v == nil || core.Canonical(v) == core.Canonical(base[d.Name]) {
 				continue
 			}
-			changed := with(map[string]any{d.Name: e.present(f.Column, v), "page_size": 1, "page_token": "$prev.next_page_token"})
-			probe := with(map[string]any{d.Name: e.present(f.Column, v), "page_size": 1})
+			nv := e.present(f.Column, v)
+			if d.List {
+				nv = []any{nv}
+			}
+			changed := with(map[string]any{d.Name: nv, "page_size": 1, "page_token": "$prev.next_page_token"})
+			probe := with(map[string]any{d.Name: nv, "page_size": 1})
 			if bad, err := e.invalid(probe); err != nil || bad {
 				continue
 			}

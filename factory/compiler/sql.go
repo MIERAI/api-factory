@@ -21,6 +21,7 @@ type resolvedFilter struct {
 	Op       string    // eq / gt / gte / lt / lte / prefix
 	SQLOp    string    // = / > / >= / < / <= / LIKE
 	Presence bool      // true: 未指定时不筛选
+	List     bool      // 列表参数(repeated)
 }
 
 func resolveFilters(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalog) ([]resolvedFilter, error) {
@@ -47,7 +48,13 @@ func resolveFilters(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalog
 		if !ok {
 			return nil, fmt.Errorf("datasource.filters.%s: column %q is not in table %s", name, f.Column, table)
 		}
-		out = append(out, resolvedFilter{Field: fd, Name: name, Column: col, Op: f.Op, SQLOp: spec.FilterOps[f.Op], Presence: fd.HasPresence()})
+		rf := resolvedFilter{Field: fd, Name: name, Column: col, Op: f.Op, SQLOp: spec.FilterOps[f.Op], Presence: fd.HasPresence()}
+		if fd.IsList() { // 列表参数: 至少 1 个(min_items ≥ 1)时必填
+			rf.List = true
+			r := convRules(fd)
+			rf.Presence = !(r != nil && r.MinItems != nil && *r.MinItems > 0)
+		}
+		out = append(out, rf)
 	}
 	for name := range ds.Filters {
 		if !used[name] {

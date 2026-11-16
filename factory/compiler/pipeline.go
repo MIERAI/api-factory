@@ -49,10 +49,10 @@ func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []re
 		if err != nil {
 			return nil, err
 		}
-		p.Params = append(p.Params, core.ParamDecl{Name: f.Name, Type: core.Type{Kind: t.Kind}, Required: !f.Presence})
+		p.Params = append(p.Params, core.ParamDecl{Name: f.Name, Type: core.Type{Kind: t.Kind}, Required: !f.Presence, List: f.List})
 		cell, ok := filterCells[f.Op]
 		if !ok {
-			return nil, fmt.Errorf("筛选 %s: 运算 %s 没有对应的单元", f.Name, f.Op)
+			cell = f.Op // 直接写单元名(属于 / 有效期包含 …)
 		}
 		e, err := lib.Filter(cell, f.Column.Name, f.Name)
 		if err != nil {

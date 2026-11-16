@@ -103,6 +103,12 @@ func convRules(fd protoreflect.FieldDescriptor) *ir.Rules {
 		for _, v := range x.GetIn() {
 			out.In = append(out.In, int64(v))
 		}
+	case r.HasRepeated():
+		x := r.GetRepeated()
+		out.Type = "repeated"
+		if x.HasMinItems() {
+			out.MinItems = ptr(x.GetMinItems())
+		}
 	case r.HasInt64():
 		x := r.GetInt64()
 		out.Type = "int64"

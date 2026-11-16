@@ -307,8 +307,8 @@ func (s *Spec) Check() []string {
 		if f.Column == "" {
 			add("datasource.filters.%s: column is required", field)
 		}
-		if _, ok := FilterOps[f.Op]; !ok {
-			add("datasource.filters.%s: op must be eq/gt/gte/lt/lte/prefix (got %q)", field, f.Op)
+		if _, ok := FilterOps[f.Op]; !ok && f.Op == "" {
+			add("datasource.filters.%s: op is required (eq/gt/gte/lt/lte/prefix,或单元库里的筛选单元名)", field)
 		}
 	}
 	if s.PatternKind() == "compute" && ds.SQL == "" && len(ds.Columns) == 0 {

@@ -31,6 +31,9 @@ service JobService {
 
   // 按条件列出任务,新的在前,分页
   rpc ListJobs(ListJobsRequest) returns (ListJobsResponse);
+
+  // 按任务类型和 id 的列表筛选任务,新的在前,分页
+  rpc ListJobsByTypes(ListJobsByTypesRequest) returns (ListJobsByTypesResponse);
 }
 
 // 按 id 返回一个任务的处理状态
@@ -120,6 +123,25 @@ message ListJobsRequest {
 
 // 按条件列出任务,新的在前,分页
 message ListJobsResponse {
+  repeated Job jobs = 1;
+  // 还有下一页时不为空
+  string next_page_token = 2;
+}
+
+// 按任务类型和 id 的列表筛选任务,新的在前,分页
+message ListJobsByTypesRequest {
+  // 每页件数。0 = 默认 20,最多 100
+  int32 page_size = 1 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
+  // 上一页返回的 next_page_token(不透明的字符串)
+  string page_token = 2;
+  // 任务类型(任意一个)(空列表 = 不按这个条件筛选)
+  repeated string job_types = 3;
+  // 任务 id(任意一个)(空列表 = 不按这个条件筛选)
+  repeated int64 job_ids = 4;
+}
+
+// 按任务类型和 id 的列表筛选任务,新的在前,分页
+message ListJobsByTypesResponse {
   repeated Job jobs = 1;
   // 还有下一页时不为空
   string next_page_token = 2;

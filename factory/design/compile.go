@@ -16,6 +16,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"apifactory/factory/adapter"
+	"apifactory/factory/cells"
 	"apifactory/factory/compiler"
 	"apifactory/factory/spec"
 )
@@ -47,6 +48,7 @@ func LoadConfig() (Config, error) {
 
 // 编译一个领域需要的上下文
 type ctx struct {
+	lib     *cells.Library
 	cfg     Config
 	d       *Domain
 	cat     map[string][]compiler.Column
@@ -99,7 +101,11 @@ func CompileDir(dir string, m *adapter.Manifest) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	c := &ctx{cfg: cfg, d: d, cat: cat, tz: tz, lock: lock, msgByNm: map[string]*message{},
+	lib, err := cells.Load()
+	if err != nil {
+		return nil, err
+	}
+	c := &ctx{lib: lib, cfg: cfg, d: d, cat: cat, tz: tz, lock: lock, msgByNm: map[string]*message{},
 		pkg: cfg.PackagePrefix + "." + d.Name + "." + cfg.Version, service: pascal(singular(d.Name)) + "Service"}
 
 	var specs []*spec.Spec
@@ -234,12 +240,23 @@ var (
 )
 
 func (c *ctx) inputField(a *API, in *Input, e *errs) *field {
-	pt, kind, ok := c.typeOf(in.Type)
+	elemType, isList := strings.CutSuffix(in.Type, "列表")
+	pt, kind, ok := c.typeOf(elemType)
 	if !ok {
-		e.add(in.Line, "输入 %s: 类型 %q 无法识别(整数32 / 整数64 / 文本 / 时间 / 布尔 / 小数 / 领域里定义的枚举名)", in.Name, in.Type)
+		e.add(in.Line, "输入 %s: 类型 %q 无法识别(整数32 / 整数64 / 文本 / 时间 / 布尔 / 小数 / 领域里定义的枚举名,后面加「列表」表示多个)", in.Name, in.Type)
 		return nil
 	}
 	f := &field{Name: in.Name, Type: pt, Desc: in.Desc, kind: kind}
+	if isList {
+		f.Repeated = true
+		if in.Required {
+			f.Rules = append(f.Rules, "repeated.min_items = 1")
+		}
+		if in.Desc != "" && !in.Required {
+			f.Desc = in.Desc + "(空列表 = 不按这个条件筛选)"
+		}
+		return f
+	}
 	scalarRule := map[string]string{"int32": "int32", "int64": "int64"}[pt]
 	switch {
 	case strings.HasPrefix(kind, "enum:"):
@@ -303,9 +320,12 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 			op, ok := "", false
 			if len(parts) == 2 {
 				op, ok = filterOps[parts[1]]
+				if !ok && c.lib.HasFilter(parts[1]) { // 单元库里的筛选单元: 直接用单元名
+					op, ok = parts[1], true
+				}
 			}
 			if !ok {
-				e.add(in.Line, "输入 %s: 筛选 %q 无法识别。写成 \"列 等于/大于/大于等于/小于/小于等于/前缀匹配\"", in.Name, in.Filter)
+				e.add(in.Line, "输入 %s: 筛选 %q 无法识别。写成 \"列 <筛选单元>\",单元库里有: %s", in.Name, in.Filter, strings.Join(c.lib.FilterNames(), " / "))
 				continue
 			}
 			if _, has := c.column(table, parts[0]); !has {
