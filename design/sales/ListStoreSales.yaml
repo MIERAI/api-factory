@@ -1,0 +1,38 @@
+# ============================================================================
+# ListStoreSales: 指定日の店舗別売上(多条 = 不分页,有上限)
+# ============================================================================
+API: ListStoreSales
+说明: 指定した売上日の、店舗別の売上を返す(分页なし)
+背景: 日次の店舗比較画面。1 日の店舗数は 10 店以下の前提。超えたらエラーにして気づけるようにする
+负责人: sales-team
+风险: 低
+
+种类: 多条
+数据来源: daily_sales
+
+输入:
+  sales_date:  { 类型: 日期,       必填: 是, 说明: 売上日, 筛选: sales_date 等于 }
+  store_codes: { 类型: 整数32列表, 必填: 否, 说明: 店舗コード(不指定 = 全店), 筛选: store_code 属于 }
+
+输出:
+  store_code: 店舗コード
+  amount:     売上金額
+  discount:   値引き額
+
+排序: [store_code 小到大]
+上限: 10
+输出行名: StoreSale
+
+例子:
+  准备数据:
+    daily_sales:
+      - { sales_date: 2026-11-01, store_code: 2, amount: 10,  discount: null, closed_on: null }
+      - { sales_date: 2026-11-01, store_code: 1, amount: 9.5, discount: 0.5,  closed_on: null }
+      - { sales_date: 2026-11-02, store_code: 1, amount: 1,   discount: null, closed_on: null }
+  用例:
+    - 说明: 全店(店舗コード順)
+      输入: { sales_date: 2026-11-01 }
+      结果: { daily_sales: [1, 2] }
+    - 说明: 店舗を指定
+      输入: { sales_date: 2026-11-01, store_codes: [2] }
+      结果: { daily_sales: [{ store_code: 2, amount: "10", discount: 不设置 }] }

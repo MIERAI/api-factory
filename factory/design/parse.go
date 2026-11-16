@@ -313,6 +313,7 @@ type API struct {
 	OrderBy     []string
 	Desc_       bool // 排序方向
 	PageDefault int32
+	MaxRows     int32 // 多条: 上限
 	PageMax     int32
 	ItemName    string // 一览的行 message 名(默认: 表名的单数形)
 	ListField   string // 一览的列表字段名(默认: 表名)
@@ -345,7 +346,7 @@ type Output struct {
 
 type Behavior struct{ When, Then string }
 
-var kinds = map[string]string{"按键取一条": "get_by_id", "一览": "list_keyset", "计算": "compute", "自定义": "custom"}
+var kinds = map[string]string{"按键取一条": "get_by_id", "一览": "list_keyset", "多条": "list_all", "计算": "compute", "自定义": "custom"}
 var risks = map[string]string{"低": "low", "中": "medium", "高": "high"}
 
 func loadAPI(path string) (*API, error) {
@@ -355,7 +356,7 @@ func loadAPI(path string) (*API, error) {
 	}
 	e := &errs{file: path}
 	checkKeys(e, root, "API", "API", "说明", "背景", "负责人", "风险", "种类", "数据来源", "使用的列", "输入", "输入之间的规则",
-		"输出", "找不到时", "排序", "分页", "输出行名", "输出列表名", "业务规则", "例子", "计算例子")
+		"输出", "找不到时", "排序", "分页", "上限", "输出行名", "输出列表名", "业务规则", "例子", "计算例子")
 	checkKeys(e, get(root, "例子"), "例子", "准备数据", "用例")
 	checkKeys(e, get(root, "分页"), "分页", "默认每页", "每页最多")
 	a := &API{
@@ -418,6 +419,15 @@ func loadAPI(path string) (*API, error) {
 		}
 		if _, err := fmt.Sscan(str(pg, "每页最多"), &a.PageMax); err != nil {
 			e.add(root.Line, "一览: 分页.每页最多 必须是整数")
+		}
+	}
+	if a.Kind == "list_all" {
+		a.OrderBy, a.Desc_, err = parseOrder(strList(get(root, "排序")))
+		if err != nil {
+			e.add(root.Line, "%v", err)
+		}
+		if _, err := fmt.Sscan(str(root, "上限"), &a.MaxRows); err != nil || a.MaxRows <= 0 {
+			e.add(root.Line, "多条: 上限 必须是正整数(超过上限时返回错误,不会悄悄截断)")
 		}
 	}
 	if a.Kind == "get_by_id" && a.NotFound == "" {

@@ -19,3 +19,4 @@
   单条: [filter: $筛选, project: $输出列]
   分页: [filter: $筛选, project: $输出列, filter: $游标, sort: $排序, limit: $行数]
   计算: [filter: $筛选, project: $输出列]
+  多条: [filter: $筛选, project: $输出列, sort: $排序, limit: $上限]   # $上限 = 上限 + 1(多取一行,用来判断超限)

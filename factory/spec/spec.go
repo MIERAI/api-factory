@@ -56,6 +56,7 @@ type ReviewDecision struct {
 // Pattern 决定 handler 由谁写:
 //   - get_by_id   : 工厂生成。按请求字段查 1 行,查不到 → NOT_FOUND
 //   - list_keyset : 工厂生成。筛选 + keyset 分页
+//   - list_all    : 工厂生成。筛选 + 排序,不分页(有上限,超过时报错)
 //   - compute     : 工厂生成 handler(映射 + 查询),AI 只写纯函数 <method>Logic(req, rows)
 //   - custom      : AI 写整个 handler(逃生口)
 type Pattern struct {
@@ -64,6 +65,7 @@ type Pattern struct {
 	OrderBy         []string `yaml:"order_by"`          // list_keyset: 游标列,最后一列必须唯一
 	Direction       string   `yaml:"direction"`         // list_keyset: desc / asc
 	PageSize        PageSize `yaml:"page_size"`
+	MaxRows         int32    `yaml:"max_rows,omitempty"` // list_all: 最多返回的件数(超过时报错,不悄悄截断)
 }
 
 type PageSize struct {
@@ -374,8 +376,21 @@ func (s *Spec) Check() []string {
 		if regexp.MustCompile(`(?i)\b(order\s+by|limit|offset)\b`).MatchString(ds.SQL) {
 			add("pattern list_keyset: sql must not contain ORDER BY / LIMIT / OFFSET (the factory adds them)")
 		}
+	case "list_all":
+		if len(s.Pattern.OrderBy) == 0 {
+			add("pattern list_all: order_by is required (results must have a stable order)")
+		}
+		if s.Pattern.Direction != "asc" && s.Pattern.Direction != "desc" {
+			add("pattern list_all: direction must be asc or desc")
+		}
+		if s.Pattern.MaxRows <= 0 {
+			add("pattern list_all: max_rows > 0 is required")
+		}
+		if ds.SQL != "" {
+			add("pattern list_all: 只支持声明式(不能用 datasource.sql)")
+		}
 	default:
-		add("pattern.kind must be custom / compute / get_by_id / list_keyset")
+		add("pattern.kind must be custom / compute / get_by_id / list_keyset / list_all")
 	}
 	return errs
 }

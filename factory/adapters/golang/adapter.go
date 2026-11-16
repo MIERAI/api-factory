@@ -70,6 +70,8 @@ func Run(plan *ir.Plan) error {
 			src, err = genGetByID(g)
 		case "list_keyset":
 			src, err = genListKeyset(g)
+		case "list_all":
+			src, err = genListAll(g)
 		case "compute":
 			src, err = genCompute(g)
 			if err == nil {

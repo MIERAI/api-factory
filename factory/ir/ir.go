@@ -53,6 +53,7 @@ type API struct {
 
 	GetByID *GetByID `json:"get_by_id,omitempty"`
 	Keyset  *Keyset  `json:"keyset,omitempty"`
+	ListAll *ListAll `json:"list_all,omitempty"`
 	Compute *Compute `json:"compute,omitempty"`
 
 	// BaseRequest: 第一个 code: OK 的人写用例的请求(自动生成校验边界用例时作为"其他字段都合法"的基础)
@@ -136,6 +137,14 @@ type Filter struct {
 
 type GetByID struct {
 	NotFoundMessage string `json:"not_found_message"` // "job not found: {job_id}"
+}
+
+// ListAll: 多条(不分页)。超过 MaxRows 时报错(查询多取一行来判断)。
+type ListAll struct {
+	OrderBy    []string `json:"order_by"`
+	Desc       bool     `json:"desc"`
+	MaxRows    int32    `json:"max_rows"`
+	ItemsField string   `json:"items_field"`
 }
 
 type Keyset struct {

@@ -74,7 +74,7 @@ func (e *diffEnv) invalid(req map[string]any) (bool, error) {
 
 func runDiff(ctx context.Context, conn *pgx.Conn, url string, plan *ir.Plan, api *ir.API) []Result {
 	p := api.Pipeline
-	if p == nil || (api.Pattern != "get_by_id" && api.Pattern != "list_keyset") {
+	if p == nil || (api.Pattern != "get_by_id" && api.Pattern != "list_keyset" && api.Pattern != "list_all") {
 		return nil
 	}
 	fail := func(format string, args ...any) []Result {
@@ -112,6 +112,9 @@ func runDiff(ctx context.Context, conn *pgx.Conn, url string, plan *ir.Plan, api
 	for i, params := range env.requests() {
 		name := fmt.Sprintf("#%02d %s", i+1, env.describe(params))
 		ok, detail, n := env.runOne(url, params)
+		if api.ListAll != nil && n > int(api.ListAll.MaxRows) {
+			hits["over"]++
+		}
 		switch {
 		case n < 0:
 			hits["invalid"]++
@@ -130,8 +133,14 @@ func runDiff(ctx context.Context, conn *pgx.Conn, url string, plan *ir.Plan, api
 	// 覆盖条件: 单条 → 找到和找不到都出现;分页 → 出现多行(要翻页)和 0 行
 	cover := fmt.Sprintf("数据 %d 行(拒绝 %d)/ 结果 0 行 %d 次、1 行 %d 次、多行 %d 次、不合法 %d 次", inserted, rejected, hits["0"], hits["1"], hits["n"], hits["invalid"])
 	okCover := hits["0"] > 0 && hits["1"]+hits["n"] > 0
-	if api.Pattern == "list_keyset" {
+	if api.Pattern == "list_keyset" || api.Pattern == "list_all" {
 		okCover = okCover && hits["n"] > 0
+	}
+	if api.ListAll != nil {
+		cover += fmt.Sprintf("、超过上限 %d 次", hits["over"])
+		if hits["over"] == 0 {
+			cover += fmt.Sprintf("(上限 %d ≥ 测试数据量,超限的出口行为没有测到)", api.ListAll.MaxRows)
+		}
 	}
 	results = append(results, Result{Spec: api.ID, Suite: "diff", Case: "覆盖条件", Passed: okCover, Detail: cover})
 	return results
@@ -520,6 +529,19 @@ func (e *diffEnv) runOne(url string, ps core.Params) (bool, string, int) {
 		}
 		ok, detail := runCase(url, c, &e.api.Response)
 		return ok, detail, n
+	case "list_all":
+		la := e.api.ListAll
+		if n > int(la.MaxRows) { // 多取的那一行: 超过上限 → 报错,不截断
+			ok, detail := runCase(url, spec.Case{Request: req, Expect: spec.Expect{Code: "FAILED_PRECONDITION", MessageContains: "too many"}}, &e.api.Response)
+			return ok, fmt.Sprintf("超过上限(%d 行以上): %s", n, detail), n
+		}
+		msg := e.api.Response.Field(la.ItemsField).Message
+		list := []any{}
+		for _, r := range res.Rows {
+			list = append(list, e.item(r, msg))
+		}
+		ok, detail := runCase(url, spec.Case{Request: req, Expect: spec.Expect{Code: "OK", Response: map[string]any{la.ItemsField: list}}}, &e.api.Response)
+		return ok, fmt.Sprintf("%d 行: %s", n, detail), n
 	case "list_keyset":
 		items := e.api.Keyset.ItemsField
 		msg := e.api.Response.Field(items).Message

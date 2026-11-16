@@ -27,7 +27,7 @@ func coreType(table string, c catColumn) (core.Type, error) {
 }
 
 // patternCells: 式样书的模式 → 单元库里的模式(套装)
-var patternCells = map[string]string{"get_by_id": "单条", "list_keyset": "分页", "compute": "计算"}
+var patternCells = map[string]string{"get_by_id": "单条", "list_keyset": "分页", "compute": "计算", "list_all": "多条"}
 
 // filterCells: 式样书的筛选运算 → 单元库里的筛选单元
 var filterCells = map[string]string{"eq": "等于", "gt": "大于", "gte": "大于等于", "lt": "小于", "lte": "小于等于", "prefix": "前缀匹配"}
@@ -81,6 +81,12 @@ func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []re
 		parts.Cursor = core.TupleAfter(s.Pattern.OrderBy, params, s.Pattern.Direction != "asc")
 		parts.Rows = "row_limit"
 		p.Params = append(p.Params, core.ParamDecl{Name: "row_limit", Type: core.Type{Kind: core.Int32}, Required: true})
+	}
+	if s.PatternKind() == "list_all" {
+		for _, c := range s.Pattern.OrderBy {
+			parts.Order = append(parts.Order, core.SortKey{Col: c, Desc: s.Pattern.Direction == "desc"})
+		}
+		parts.Limit = int(s.Pattern.MaxRows) + 1
 	}
 	name, ok := patternCells[s.PatternKind()]
 	if !ok {

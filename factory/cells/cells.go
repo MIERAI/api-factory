@@ -112,6 +112,7 @@ type Parts struct {
 	Cursor  *core.Expr       // $游标
 	Order   []core.SortKey   // $排序
 	Rows    string           // $行数(参数名)
+	Limit   int              // $上限(常数)
 }
 
 // Pattern: 模式 → 关系元件的流水线(不含 scan)。
@@ -140,6 +141,8 @@ func (l *Library) Pattern(name string, parts Parts) ([]core.Step, error) {
 				steps = append(steps, core.Step{Kind: "sort", Order: parts.Order, From: from})
 			case "limit $行数":
 				steps = append(steps, core.Step{Kind: "limit", Param: parts.Rows, From: from})
+			case "limit $上限":
+				steps = append(steps, core.Step{Kind: "limit", N: parts.Limit, From: from})
 			default:
 				return nil, fmt.Errorf("模式 %s: 不认识的部件 %s: %s", name, kind, part)
 			}

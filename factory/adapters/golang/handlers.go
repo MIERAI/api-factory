@@ -560,3 +560,58 @@ func snake(s string) string {
 func handlerGenPath(svc service, method string) string {
 	return filepath.Join("internal/handler", svc.Domain, snake(method)+"_gen.go")
 }
+
+// genListAll: 多条(不分页)。查询取 上限+1 行,超过上限时报错(不悄悄截断: 截断的结果会被当成"全部")。
+func genListAll(g *genCtx) (string, error) {
+	in, out := &g.api.Request, &g.api.Response
+	la := g.api.ListAll
+	g.use("apifactory/platform/apierr", "")
+	items := out.Field(la.ItemsField)
+	if items == nil || items.Message == nil {
+		return "", fmt.Errorf("pattern list_all: %s has no repeated message field %s", out.Name, la.ItemsField)
+	}
+	call, err := g.queryCall()
+	if err != nil {
+		return "", err
+	}
+	row, rowType := g.db.rowFields(g.query)
+	if row == nil {
+		return "", fmt.Errorf("pattern list_all: query must return rows, got %s", rowType)
+	}
+	elem := items.Message
+	var elemLines []string
+	for i := range elem.Fields {
+		f := &elem.Fields[i]
+		col, ok := fieldByNorm(row, f.Name)
+		if !ok {
+			return "", fmt.Errorf("response field %s.%s has no matching query column", elem.Name, f.Name)
+		}
+		e, err := g.resExpr("r."+col.Name, col.Type, f)
+		if err != nil {
+			return "", err
+		}
+		elemLines = append(elemLines, fmt.Sprintf("%s: %s,", goCamelCase(f.Name), e))
+	}
+	itemsGo := goCamelCase(items.Name)
+	body := fmt.Sprintf(`// %s %s
+func (h *Handler) %s(ctx context.Context, req *connect.Request[%s]) (*connect.Response[%s], error) {
+	m := req.Msg
+	rows, err := %s
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) > %d {
+		return nil, apierr.FailedPrecondition("too many results (more than %d); narrow the conditions")
+	}
+	res := &%s{%s: make([]*%s, 0, len(rows))}
+	for _, r := range rows {
+		res.%s = append(res.%s, &%s{
+			%s
+		})
+	}
+	return connect.NewResponse(res), nil
+}
+`, g.api.Method, g.api.Summary, g.api.Method, g.pbType(in), g.pbType(out), call, la.MaxRows, la.MaxRows,
+		g.pbType(out), itemsGo, g.pbType(elem), itemsGo, itemsGo, g.pbType(elem), strings.Join(elemLines, "\n"))
+	return g.header(body), nil
+}

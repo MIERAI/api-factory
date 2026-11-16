@@ -82,7 +82,7 @@ func selectColumns(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalog)
 	switch s.PatternKind() {
 	case "get_by_id":
 		msg = md.Output()
-	case "list_keyset":
+	case "list_keyset", "list_all":
 		out := md.Output()
 		for i := 0; i < out.Fields().Len(); i++ {
 			if fd := out.Fields().Get(i); fd.IsList() && fd.Kind() == protoreflect.MessageKind {
@@ -90,7 +90,7 @@ func selectColumns(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalog)
 			}
 		}
 		if msg == nil {
-			return nil, fmt.Errorf("pattern list_keyset: %s has no repeated message field", out.Name())
+			return nil, fmt.Errorf("pattern %s: %s has no repeated message field", s.PatternKind(), out.Name())
 		}
 	default:
 		return nil, fmt.Errorf("datasource.columns is required for pattern %s", s.PatternKind())

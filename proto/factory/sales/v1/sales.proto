@@ -11,8 +11,35 @@ option go_package = "apifactory/gen/factory/sales/v1;salesv1";
 
 // 日别・店别の売上
 service SaleService {
+  // 指定した売上日の、店舗別の売上を返す(分页なし)
+  rpc ListStoreSales(ListStoreSalesRequest) returns (ListStoreSalesResponse);
+
   // 売上金額の多い順に、日別・店別の売上を返す
   rpc ListTopSales(ListTopSalesRequest) returns (ListTopSalesResponse);
+}
+
+// 日别・店别の売上(一天一店一行)
+message StoreSale {
+  // 店舗コード
+  int32 store_code = 1;
+  // 売上金額
+  string amount = 2;
+  // 値引き額
+  optional string discount = 3;
+}
+
+// 指定した売上日の、店舗別の売上を返す(分页なし)
+message ListStoreSalesRequest {
+  // 売上日
+  string sales_date = 1 [(buf.validate.field).string.pattern = "^\\d{4}-\\d{2}-\\d{2}$"];
+  // 店舗コード(不指定 = 全店)(空列表 = 不按这个条件筛选)
+  repeated int32 store_codes = 2;
+}
+
+// 指定した売上日の、店舗別の売上を返す(分页なし)
+message ListStoreSalesResponse {
+  // 最多 10 件;超过时返回错误(不会截断)
+  repeated StoreSale daily_sales = 1;
 }
 
 // 日别・店别の売上(一天一店一行)

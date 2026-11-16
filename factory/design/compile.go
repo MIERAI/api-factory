@@ -393,7 +393,7 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 	}
 	itemKey := ""
 	switch a.Kind {
-	case "list_keyset":
+	case "list_keyset", "list_all":
 		itemName := a.ItemName
 		if itemName == "" {
 			itemName = pascal(singular(table))
@@ -413,9 +413,11 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 		} else {
 			c.addMessage(item)
 		}
-		resp.Fields = []*field{
-			{Name: listField, Type: item.Name, Repeated: true, kind: "message:" + item.Name},
-			{Name: "next_page_token", Type: "string", kind: "string", Desc: "还有下一页时不为空"},
+		resp.Fields = []*field{{Name: listField, Type: item.Name, Repeated: true, kind: "message:" + item.Name}}
+		if a.Kind == "list_keyset" {
+			resp.Fields = append(resp.Fields, &field{Name: "next_page_token", Type: "string", kind: "string", Desc: "还有下一页时不为空"})
+		} else {
+			resp.Fields[0].Desc = fmt.Sprintf("最多 %d 件;超过时返回错误(不会截断)", a.MaxRows)
 		}
 		itemKey = a.OrderBy[len(a.OrderBy)-1]
 	case "get_by_id":
@@ -433,13 +435,17 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 	s := &spec.Spec{SpecVersion: spec.Version}
 	s.API = spec.API{RPC: c.pkg + "." + c.service + "/" + a.Name, Owner: a.Owner, RiskLevel: a.Risk, Description: a.Background}
 	s.Pattern = spec.Pattern{Kind: a.Kind, NotFoundMessage: a.NotFound}
-	if a.Kind == "list_keyset" {
+	if a.Kind == "list_keyset" || a.Kind == "list_all" {
 		dir := "asc"
 		if a.Desc_ {
 			dir = "desc"
 		}
 		s.Pattern.OrderBy, s.Pattern.Direction = a.OrderBy, dir
-		s.Pattern.PageSize = spec.PageSize{Default: a.PageDefault, Max: a.PageMax}
+		if a.Kind == "list_keyset" {
+			s.Pattern.PageSize = spec.PageSize{Default: a.PageDefault, Max: a.PageMax}
+		} else {
+			s.Pattern.MaxRows = a.MaxRows
+		}
 	}
 	s.Datasource = spec.Datasource{Table: table, Filters: filters}
 	if a.Kind == "compute" {

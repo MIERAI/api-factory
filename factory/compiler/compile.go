@@ -207,6 +207,17 @@ func apiSkeleton(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalog) (
 	switch s.PatternKind() {
 	case "get_by_id":
 		api.GetByID = &ir.GetByID{NotFoundMessage: s.Pattern.NotFoundMessage}
+	case "list_all":
+		la := &ir.ListAll{OrderBy: s.Pattern.OrderBy, Desc: s.Pattern.Direction == "desc", MaxRows: s.Pattern.MaxRows}
+		for _, f := range api.Response.Fields {
+			if f.List && f.Kind == "message" {
+				la.ItemsField = f.Name
+			}
+		}
+		if la.ItemsField == "" {
+			return api, fmt.Errorf("pattern list_all: %s has no repeated message field", api.Response.Name)
+		}
+		api.ListAll = la
 	case "list_keyset":
 		k := &ir.Keyset{OrderBy: s.Pattern.OrderBy, Desc: s.Pattern.Direction == "desc", DefaultSize: s.Pattern.PageSize.Default, MaxSize: s.Pattern.PageSize.Max}
 		for _, f := range api.Response.Fields {

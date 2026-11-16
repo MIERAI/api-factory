@@ -6,6 +6,11 @@
         discount: 4
         sales_date: 1
         store_code: 2
+    ListStoreSalesRequest:
+        sales_date: 1
+        store_codes: 2
+    ListStoreSalesResponse:
+        daily_sales: 1
     ListTopSalesRequest:
         date_from: 4
         min_amount: 5
@@ -15,3 +20,7 @@
     ListTopSalesResponse:
         daily_sales: 1
         next_page_token: 2
+    StoreSale:
+        amount: 2
+        discount: 3
+        store_code: 1

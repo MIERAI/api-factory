@@ -48,4 +48,8 @@ run "属于: 忽略列表条件"                $L 's/OR \(t1\.id = ANY\(\$2::in
 S=gen/db/sales.list-top-sales.sql.go
 run "小数: 按文本比较(试用里的真 bug)"    $S 's/\(t1\.amount >= \$3::numeric\)/(t1.amount::text >= \$3::text)/'
 run "小数: 按文本排序(试用里的真 bug)"    $S 's/ORDER BY t2\.amount DESC/ORDER BY t2.amount::text DESC/'
+M=gen/db/sales.list-store-sales.sql.go
+MH=internal/handler/sales/list_store_sales_gen.go
+run "多条: 超限时悄悄截断"             $MH 's/if len\(rows\) > 10 \{\n\t\treturn nil, apierr\.FailedPrecondition\([^\n]*\n\t\}/if len(rows) > 10 {\n\t\trows = rows[:10]\n\t}/'
+run "多条: 没有多取一行(LIMIT 10)"     $M 's/LIMIT 11/LIMIT 10/'
 go build -o bin/server ./cmd/server; git status --short
