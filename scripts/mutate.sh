@@ -50,6 +50,6 @@ run "小数: 按文本比较(试用里的真 bug)"    $S 's/\(t1\.amount >= \$3:
 run "小数: 按文本排序(试用里的真 bug)"    $S 's/ORDER BY t2\.amount DESC/ORDER BY t2.amount::text DESC/'
 M=gen/db/sales.list-store-sales.sql.go
 MH=internal/handler/sales/list_store_sales_gen.go
-run "多条: 超限时悄悄截断"             $MH 's/if len\(rows\) > 10 \{\n\t\treturn nil, apierr\.FailedPrecondition\([^\n]*\n\t\}/if len(rows) > 10 {\n\t\trows = rows[:10]\n\t}/'
+run "多条: 超限时悄悄截断"             $MH 's/return nil, (apierr\.FailedPrecondition\([^\n]*\))/rows, _ = rows[:10], $1/'
 run "多条: 没有多取一行(LIMIT 10)"     $M 's/LIMIT 11/LIMIT 10/'
 go build -o bin/server ./cmd/server; git status --short
