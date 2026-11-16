@@ -22,6 +22,7 @@ type Manifest struct {
 	Guard           Guard               `yaml:"guard"`
 	LogicSignature  string              `yaml:"logic_signature"`
 	AITools         string              `yaml:"ai_tools"`
+	ProtoOptions    []string            `yaml:"proto_file_options"`
 }
 
 type Guard struct {
@@ -84,6 +85,16 @@ func (m *Manifest) AIFilesFor(pattern string, v Vars) []string {
 	var out []string
 	for _, p := range m.AIFiles[pattern] {
 		out = append(out, r.Replace(p))
+	}
+	return out
+}
+
+// ProtoFileOptions: 生成 proto 时要加的文件级选项(占位符已替换)。
+func (m *Manifest) ProtoFileOptions(v Vars) []string {
+	r := v.replacer()
+	var out []string
+	for _, o := range m.ProtoOptions {
+		out = append(out, r.Replace(o))
 	}
 	return out
 }

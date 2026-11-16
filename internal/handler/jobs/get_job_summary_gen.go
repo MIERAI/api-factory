@@ -22,7 +22,7 @@ type getJobSummaryRow struct {
 	FinishedAt *time.Time
 }
 
-// GetJobSummary 按 job_type 和期间汇总任务的处理情况(成功率 / 平均处理时间 / SLA 违约 / 健康度)
+// GetJobSummary 按任务类型和期间,汇总任务的处理情况
 // 业务逻辑在 getJobSummaryLogic(纯函数,由 AI 实现)。
 func (h *Handler) GetJobSummary(ctx context.Context, req *connect.Request[jobsv1.GetJobSummaryRequest]) (*connect.Response[jobsv1.GetJobSummaryResponse], error) {
 	m := req.Msg

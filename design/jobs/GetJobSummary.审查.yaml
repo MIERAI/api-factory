@@ -1,0 +1,64 @@
+# ============================================================================
+# GetJobSummary: 审查记录
+#   这个文件由工厂写入,不用自己写。审查时工厂提出问题,你选择或输入回答,工厂把结果记在这里。
+#   和 GetJobSummary.yaml 合起来就是最终版本。
+# ============================================================================
+问答:
+  - 问题: 恰好 300 秒算不算违约?
+    选项: [算, 不算]
+    回答: 不算
+    补充规则: { 情况: SLA 的边界, 结果: 有效处理时间 > 300 秒的已结束任务数,成功和失败都算;恰好 300 秒不算 }
+
+  - 问题: finished_at 早于 created_at(处理时间为负)时,这一行算不算进平均时间和 SLA?
+    选项: [不算(但照常计入成功/失败), 照常算]
+    回答: 不算(但照常计入成功/失败)
+    补充规则: { 情况: 处理时间为负(finished_at 早于 created_at), 结果: 照常计入 succeeded / failed,但不参与平均和 SLA }
+
+  - 问题: 成功或失败的任务,finished_at 却为空时怎么办?
+    选项: [计入成功/失败,不参与平均和 SLA, 当作未完成]
+    回答: 计入成功/失败,不参与平均和 SLA
+    补充规则:
+      - { 情况: 成功或失败但 finished_at 为空, 结果: 计入 succeeded / failed,不参与平均和 SLA }
+      - { 情况: 未完成但 finished_at 不为空, 结果: 按未完成计,忽略 finished_at }
+
+  - 问题: 没有结束的任务时,成功率和平均时间返回 0 还是不设置?
+    选项: [不设置, 返回 0]
+    回答: 不设置
+    补充规则: { 情况: 已结束为 0 件, 结果: success_rate 和 avg_duration_seconds 不设置;没有有效处理时间时 avg_duration_seconds 也不设置 }
+
+  - 问题: "健康度用四舍五入之前还是之后的成功率判定?(例: 0.94996 显示为 0.95)"
+    选项: [四舍五入之前, 四舍五入之后]
+    回答: 四舍五入之前
+    补充规则: { 情况: 健康度的判定, 结果: 用四舍五入之前的成功率;没有有效处理时间本身不影响健康度 }
+
+  - 问题: 四舍五入用哪种方式?(0.25 → 0.2 还是 0.3)
+    选项: [0.5 远离零(0.3), 银行家舍入(0.2)]
+    回答: 0.5 远离零(0.3)
+    补充规则: { 情况: 四舍五入的方式, 结果: "float64 计算后 math.Round(x × 10^n) / 10^n(0.5 远离零)" }
+
+  - 问题: 读到不认识的状态(写入方先上线了新状态)时,这一行算不算进 total?
+    选项: [从所有统计中排除, 计入 total 但不算成功/失败/未完成]
+    回答: 从所有统计中排除
+    补充规则: { 情况: status 是"未指定", 结果: 这一行从所有统计中排除(total 也不计)。平台已记录监控指标 }
+    补充计算例子:
+      - 说明: UNSPECIFIED(读到不认识的 DB 值)的行从所有统计中排除
+        输入行:
+          - { 重复: 2, status: SUCCEEDED, created_at: 2026-11-01 09:00, finished_at: 2026-11-01 09:00:10 }
+          - { status: 未指定, created_at: 2026-11-01 10:00, finished_at: 2026-11-01 11:00 }
+        结果: { total: 2, succeeded: 2, failed: 0, pending: 0, success_rate: 1.0, avg_duration_seconds: 10.0, sla_breaches: 0, health: OK }
+      - 说明: 全部是 UNSPECIFIED → 0 件 NO_DATA
+        输入行:
+          - { status: 未指定, created_at: 2026-11-01 09:00, finished_at: null }
+        结果: { total: 0, success_rate: 不设置, avg_duration_seconds: 不设置, health: NO_DATA }
+      - 说明: health 用四舍五入前的值 — 23749/25000 = 0.94996 显示为 0.95,但判定为 DEGRADED
+        输入行:
+          - { 重复: 23749, status: SUCCEEDED, created_at: 2026-11-01 09:00, finished_at: 2026-11-01 09:00:10 }
+          - { 重复: 1251, status: FAILED, created_at: 2026-11-01 09:00, finished_at: 2026-11-01 09:00:10 }
+        结果: { total: 25000, success_rate: 0.95, sla_breaches: 0, health: DEGRADED }
+      - 说明: health 用四舍五入前的值 — 19999/25000 = 0.79996 显示为 0.8,但判定为 CRITICAL
+        输入行:
+          - { 重复: 19999, status: SUCCEEDED, created_at: 2026-11-01 09:00, finished_at: 2026-11-01 09:00:10 }
+          - { 重复: 5001, status: FAILED, created_at: 2026-11-01 09:00, finished_at: 2026-11-01 09:00:10 }
+        结果: { total: 25000, success_rate: 0.8, health: CRITICAL }
+
+# 属于"数据本身"的问题(所有 jobs 的 API 共用)记在 领域.审查.yaml

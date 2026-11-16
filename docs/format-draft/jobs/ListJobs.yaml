@@ -1,0 +1,50 @@
+# ============================================================================
+# ListJobs: 按条件列出任务,新的在前,分页
+# ============================================================================
+API: ListJobs
+说明: 按条件列出任务,新的在前,分页
+背景: 管理画面的任务一览。数据量大
+负责人: platform-team
+风险: 低
+
+种类: 一览
+数据来源: jobs
+
+输入:                             # 必填: 否 = 不指定时不按这个条件筛选
+  status:         { 类型: JobStatus, 必填: 否, 说明: 处理状态,       筛选: status 等于 }
+  job_type:       { 类型: 文本,      必填: 否, 长度: 1~64, 说明: 任务类型, 筛选: job_type 等于 }
+  created_after:  { 类型: 时间,      必填: 否, 说明: 创建时间的下限(含), 筛选: created_at 大于等于 }
+  created_before: { 类型: 时间,      必填: 否, 说明: 创建时间的上限(不含), 筛选: created_at 小于 }
+
+输入之间的规则:
+  - created_after 早于 created_before      # 两个都指定时才检查
+
+输出:                             # 每一行的字段
+  id:         任务 id
+  job_type:   任务类型
+  status:     处理状态(JobStatus)
+  created_at: 创建时间
+
+排序: [created_at 新到旧, id 大到小]       # 最后一个必须能唯一确定一行
+分页: { 默认每页: 20, 每页最多: 100 }       # 翻页的方式由工厂提供
+
+例子:
+  准备数据:
+    jobs:
+      - { id: 1, job_type: export, status: SUCCEEDED, created_at: 2026-11-01 00:00 }
+      - { id: 2, job_type: import, status: PENDING,   created_at: 2026-11-02 00:00 }
+      - { id: 3, job_type: export, status: FAILED,    created_at: 2026-11-03 00:00 }
+      - { id: 4, job_type: export, status: PENDING,   created_at: 2026-11-04 00:00 }
+      - { id: 5, job_type: import, status: SUCCEEDED, created_at: 2026-11-05 00:00 }
+      - { id: 6, job_type: export, status: SUCCEEDED, created_at: 2026-11-06 00:00 }
+      - { id: 7, job_type: export, status: SUCCEEDED, created_at: 2026-11-06 00:00 }   # 和 6 同一时间
+  用例:
+    - 说明: 时间范围包含下限、不包含上限。业务上"11/2 到 11/5"指 11/2 当天到 11/4 当天
+      输入: { created_after: 2026-11-02 00:00, created_before: 2026-11-05 00:00 }
+      结果: { jobs: [4, 3, 2] }               # 只写 id,按顺序
+    - 说明: 管理画面最常用的查询 — 某类型的成功任务,新的在前
+      输入: { job_type: export, status: SUCCEEDED }
+      结果: { jobs: [7, 6, 1] }
+    - 说明: 时间范围颠倒
+      输入: { created_after: 2026-11-05 00:00, created_before: 2026-11-02 00:00 }
+      结果: 参数错误

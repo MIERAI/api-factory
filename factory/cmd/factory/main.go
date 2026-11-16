@@ -23,6 +23,7 @@ import (
 	"apifactory/factory/adapters/golang"
 	"apifactory/factory/ai"
 	"apifactory/factory/compiler"
+	"apifactory/factory/design"
 	"apifactory/factory/guard"
 	"apifactory/factory/ir"
 	"apifactory/factory/prompts"
@@ -58,6 +59,8 @@ func main() {
 		err = cmdServeTest(args)
 	case "ai":
 		err = cmdAI(args)
+	case "design":
+		err = cmdDesign(args)
 	default:
 		usage()
 	}
@@ -471,4 +474,25 @@ func cmdAI(args []string) error {
 		}
 	}
 	return ai.Run(*role, *model, *experiment, extra, os.Stdin, os.Stdout, os.Stderr)
+}
+
+// cmdDesign: 中文式样书(design/<领域>/)→ proto + specs/<领域>/(生成)。
+func cmdDesign(args []string) error {
+	root := "design"
+	if len(args) > 0 {
+		root = args[0]
+	}
+	m, err := adapter.Load()
+	if err != nil {
+		return err
+	}
+	dirs, _ := filepath.Glob(filepath.Join(root, "*", "领域.yaml"))
+	for _, d := range dirs {
+		files, err := design.CompileDir(filepath.Dir(d), m)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("✓ %s → %d 个文件\n", filepath.Dir(d), len(files))
+	}
+	return nil
 }

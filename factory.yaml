@@ -1,6 +1,11 @@
 # 工厂的配置。换语言模板时改 adapter;换模型时改 ai。脚本不写死任何模型和调用方式。
 adapter: factory/adapters/golang
 
+# 中文式样书(design/<领域>/)→ proto 时的包名: <package_prefix>.<领域>.<version>
+proto:
+  package_prefix: factory
+  version: v1
+
 ai:
   # 模型: 怎么调用(命令 + 环境变量)
   models:

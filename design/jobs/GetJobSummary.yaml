@@ -1,0 +1,135 @@
+# ============================================================================
+# GetJobSummary: 设计者写的版本
+#   只写设计者自己知道的东西。没想到的情况,审查时工厂会来问(见 GetJobSummary.审查.yaml)
+# ============================================================================
+API: GetJobSummary
+说明: 按任务类型和期间,汇总任务的处理情况
+背景: 运维看板用。看某类任务最近是否正常
+负责人: platform-team
+风险: 低
+
+种类: 计算                        # 工厂负责取数据,AI 写"输入行 → 输出"的计算函数
+数据来源: jobs
+使用的列: [id, status, created_at, finished_at]
+
+输入:
+  job_type:     { 类型: 文本, 必填: 是, 长度: 1~64, 说明: 任务类型,     筛选: job_type 等于 }
+  period_start: { 类型: 时间, 必填: 是, 说明: 期间的开始(含),         筛选: created_at 大于等于 }
+  period_end:   { 类型: 时间, 必填: 是, 说明: 期间的结束(不含),       筛选: created_at 小于 }
+
+输入之间的规则:
+  - period_start 早于 period_end
+  - period_start 到 period_end 不超过 31 天
+
+输出:
+  total:                { 类型: 整数64, 说明: 任务数 }
+  succeeded:            { 类型: 整数64, 说明: 成功数 }
+  failed:               { 类型: 整数64, 说明: 失败数 }
+  pending:              { 类型: 整数64, 说明: 未完成数 }
+  success_rate:         { 类型: 小数, 可以不设置: 是, 说明: 成功率 }
+  avg_duration_seconds: { 类型: 小数, 可以不设置: 是, 说明: 平均处理时间(秒) }
+  sla_breaches:         { 类型: 整数64, 说明: SLA 违约数 }
+  health:               { 类型: 文本, 说明: 健康度 OK / DEGRADED / CRITICAL / NO_DATA }
+
+业务规则:
+  - 情况: 计数
+    结果: 按 status 分别数成功、失败、未完成
+  - 情况: 成功率
+    结果: 成功 / (成功 + 失败),小数 4 位
+  - 情况: 平均处理时间
+    结果: 结束的任务的 finished_at - created_at 的平均(秒),小数 1 位
+  - 情况: SLA
+    结果: 处理时间超过 300 秒算违约
+  - 情况: 健康度
+    结果: |
+      没有结束的任务 → NO_DATA
+      成功率 >= 0.95 且没有违约 → OK
+      成功率 >= 0.80 → DEGRADED
+      其他 → CRITICAL
+
+例子:
+  准备数据:
+    jobs:
+      # alpha: 19 成功 1 失败 → 成功率 0.95 刚好 OK;期间外的 2 行不计
+      - { 重复: 19, id: 1~19, job_type: alpha, status: SUCCEEDED, created_at: 2026-11-01 09:01 起每行 +1分钟, finished_at: created_at +60秒 }
+      - { id: 20, job_type: alpha, status: FAILED, created_at: 2026-11-01 09:20, finished_at: 2026-11-01 09:21 }
+      - { id: 21, job_type: alpha, status: FAILED, created_at: 2026-11-01 08:59:59, finished_at: 2026-11-01 09:00:59 }
+      - { id: 22, job_type: alpha, status: FAILED, created_at: 2026-11-08 09:00, finished_at: 2026-11-08 09:01 }
+      - { id: 31, job_type: beta, status: SUCCEEDED, created_at: 2026-11-02 09:00, finished_at: 2026-11-02 09:05 }
+      - { id: 32, job_type: beta, status: SUCCEEDED, created_at: 2026-11-02 10:00, finished_at: 2026-11-02 10:05:01 }
+      - { id: 33, job_type: beta, status: FAILED, created_at: 2026-11-02 11:00, finished_at: 2026-11-02 11:01:40 }
+      - { id: 34, job_type: beta, status: PENDING, created_at: 2026-11-02 12:00, finished_at: 2026-11-02 12:00:10 }
+      - { id: 35, job_type: beta, status: SUCCEEDED, created_at: 2026-11-02 13:00, finished_at: null }
+      - { id: 41, job_type: gamma, status: PENDING, created_at: 2026-11-03 09:00, finished_at: null }
+      - { id: 42, job_type: gamma, status: PENDING, created_at: 2026-11-03 10:00, finished_at: null }
+      - { id: 51, job_type: delta, status: SUCCEEDED, created_at: 2026-11-04 09:00, finished_at: 2026-11-04 09:00:10 }
+      - { id: 52, job_type: delta, status: SUCCEEDED, created_at: 2026-11-04 10:00, finished_at: 2026-11-04 10:00:10 }
+      - { id: 53, job_type: delta, status: SUCCEEDED, created_at: 2026-11-04 11:00, finished_at: 2026-11-04 11:00:10 }
+      - { id: 54, job_type: delta, status: SUCCEEDED, created_at: 2026-11-04 12:00, finished_at: 2026-11-04 12:00:10 }
+      - { id: 55, job_type: delta, status: FAILED, created_at: 2026-11-04 13:00, finished_at: 2026-11-04 13:00:10 }
+      - { id: 61, job_type: epsilon, status: SUCCEEDED, created_at: 2026-11-05 09:00, finished_at: 2026-11-05 09:06:40 }
+      - { id: 62, job_type: epsilon, status: SUCCEEDED, created_at: 2026-11-05 10:00, finished_at: 2026-11-05 10:00:10 }
+      - { id: 71, job_type: zeta, status: SUCCEEDED, created_at: 2026-11-06 09:00, finished_at: 2026-11-06 09:00:01 }
+      - { id: 72, job_type: zeta, status: SUCCEEDED, created_at: 2026-11-06 10:00, finished_at: 2026-11-06 10:00:02 }
+      - { id: 73, job_type: zeta, status: FAILED, created_at: 2026-11-06 11:00, finished_at: 2026-11-06 11:00:02 }
+      - { id: 82, job_type: eta, status: SUCCEEDED, created_at: 2026-11-07 10:00, finished_at: 2026-11-07 09:59 }
+      - { id: 83, job_type: eta, status: FAILED, created_at: 2026-11-07 11:00, finished_at: 2026-11-07 11:10 }
+      - { id: 84, job_type: eta, status: SUCCEEDED, created_at: 2026-11-07 12:00, finished_at: 2026-11-07 12:00:20 }
+      - { id: 91, job_type: theta, status: SUCCEEDED, created_at: 2026-11-07 13:00, finished_at: null }
+      - { id: 92, job_type: theta, status: SUCCEEDED, created_at: 2026-11-07 14:00, finished_at: null }
+      - { id: 101, job_type: kappa, status: SUCCEEDED, created_at: 2026-11-07 16:00, finished_at: 2026-11-07 16:00:00.5 }
+      - { id: 102, job_type: kappa, status: FAILED, created_at: 2026-11-07 16:10, finished_at: 2026-11-07 16:10 }
+      - { id: 111, job_type: lambda, status: FAILED, created_at: 2026-11-07 17:00, finished_at: 2026-11-07 17:00:01 }
+      - { id: 121, job_type: mu, status: SUCCEEDED, created_at: 2026-11-07 18:00, finished_at: 2026-11-07 18:05:00.5 }
+  用例:
+    - 说明: alpha — 0.95 刚好 OK,期间边界外不计
+      输入: { job_type: alpha, period_end: 2026-11-08 09:00, period_start: 2026-11-01 09:00 }
+      结果: { total: 20, succeeded: 19, failed: 1, pending: 0, success_rate: 0.95, avg_duration_seconds: 60.0, sla_breaches: 0, health: OK }
+    - 说明: beta — 300 秒不算违约 / 数据不一致的行 / 0.75 CRITICAL
+      输入: { job_type: beta, period_end: 2026-11-08 09:00, period_start: 2026-11-01 09:00 }
+      结果: { total: 5, succeeded: 3, failed: 1, pending: 1, success_rate: 0.75, avg_duration_seconds: 233.7, sla_breaches: 1, health: CRITICAL }
+    - 说明: gamma — 全部未完成 → NO_DATA,比率和平均不设置
+      输入: { job_type: gamma, period_end: 2026-11-08 09:00, period_start: 2026-11-01 09:00 }
+      结果: { total: 2, succeeded: 0, failed: 0, pending: 2, success_rate: 不设置, avg_duration_seconds: 不设置, sla_breaches: 0, health: NO_DATA }
+    - 说明: delta — 0.80 刚好 DEGRADED
+      输入: { job_type: delta, period_end: 2026-11-08 09:00, period_start: 2026-11-01 09:00 }
+      结果: { total: 5, succeeded: 4, failed: 1, success_rate: 0.8, avg_duration_seconds: 10.0, sla_breaches: 0, health: DEGRADED }
+    - 说明: epsilon — 成功率 1.0 但有违约 → DEGRADED
+      输入: { job_type: epsilon, period_end: 2026-11-08 09:00, period_start: 2026-11-01 09:00 }
+      结果: { total: 2, succeeded: 2, success_rate: 1.0, avg_duration_seconds: 205.0, sla_breaches: 1, health: DEGRADED }
+    - 说明: zeta — 2/3 → 0.6667,平均 1.666… → 1.7
+      输入: { job_type: zeta, period_end: 2026-11-08 09:00, period_start: 2026-11-01 09:00 }
+      结果: { total: 3, succeeded: 2, failed: 1, success_rate: 0.6667, avg_duration_seconds: 1.7, health: CRITICAL }
+    - 说明: eta — 负的处理时间不参与平均和 SLA / 失败任务也算违约
+      输入: { job_type: eta, period_end: 2026-11-08 09:00, period_start: 2026-11-01 09:00 }
+      结果: { total: 3, succeeded: 2, failed: 1, pending: 0, success_rate: 0.6667, avg_duration_seconds: 310.0, sla_breaches: 1, health: CRITICAL }
+    - 说明: theta — finished_at 全部为 NULL → 平均不设置,health 仍为 OK
+      输入: { job_type: theta, period_end: 2026-11-08 09:00, period_start: 2026-11-01 09:00 }
+      结果: { total: 2, succeeded: 2, failed: 0, success_rate: 1.0, avg_duration_seconds: 不设置, sla_breaches: 0, health: OK }
+    - 说明: kappa — 小数秒 / 0 秒有效 / 0.25 → 0.3(0.5 远离零)
+      输入: { job_type: kappa, period_end: 2026-11-08 09:00, period_start: 2026-11-01 09:00 }
+      结果: { total: 2, succeeded: 1, failed: 1, success_rate: 0.5, avg_duration_seconds: 0.3, sla_breaches: 0, health: CRITICAL }
+    - 说明: lambda — 全部失败 → success_rate 设置为 0.0
+      输入: { job_type: lambda, period_end: 2026-11-08 09:00, period_start: 2026-11-01 09:00 }
+      结果: { total: 1, failed: 1, success_rate: 0.0, avg_duration_seconds: 1.0, health: CRITICAL }
+    - 说明: mu — 300.5 秒算违约
+      输入: { job_type: mu, period_end: 2026-11-08 09:00, period_start: 2026-11-01 09:00 }
+      结果: { total: 1, succeeded: 1, success_rate: 1.0, avg_duration_seconds: 300.5, sla_breaches: 1, health: DEGRADED }
+    - 说明: 不存在的 job_type → 0 件 NO_DATA
+      输入: { job_type: nothing, period_end: 2026-11-08 09:00, period_start: 2026-11-01 09:00 }
+      结果: { total: 0, success_rate: 不设置, avg_duration_seconds: 不设置, health: NO_DATA }
+    - 说明: 期间缩小后只剩 alpha 的前 3 件
+      输入: { job_type: alpha, period_end: 2026-11-01 09:04, period_start: 2026-11-01 09:00 }
+      结果: { total: 3, succeeded: 3, success_rate: 1.0, health: OK }
+    - 说明: 期间颠倒
+      输入: { job_type: alpha, period_end: 2026-11-01 09:00, period_start: 2026-11-08 09:00 }
+      结果: 参数错误
+    - 说明: 期间恰好 31 天(744 小时)是允许的
+      输入: { job_type: alpha, period_end: 2026-11-08 09:00, period_start: 2026-10-08 09:00 }
+      结果: { total: 21 }
+    - 说明: period_start = period_end
+      输入: { job_type: alpha, period_end: 2026-11-01 09:00, period_start: 2026-11-01 09:00 }
+      结果: 参数错误
+    - 说明: 期间超过 31 天
+      输入: { job_type: alpha, period_end: 2026-11-08 09:00, period_start: 2026-10-01 09:00 }
+      结果: 参数错误

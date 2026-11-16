@@ -7,7 +7,7 @@ SPEC    ?= specs/jobs/get-job-status/spec.yaml
 MODEL   ?= claude
 ACCEPT_SPECS ?= specs
 
-.PHONY: db-up db-down db-schema check prepare build test guard accept loop
+.PHONY: db-up db-down db-schema design check prepare build test guard accept loop
 
 db-up:            ## 启动本地 Postgres 并应用 schema
 	@docker start $(PG_NAME) >/dev/null 2>&1 || docker run -d --name $(PG_NAME) \
@@ -23,7 +23,10 @@ db-schema:
 db-down:
 	@docker rm -f $(PG_NAME) >/dev/null 2>&1 || true
 
-check:            ## ① 式样书闸门
+design:           ## 中文式样书(design/<领域>/)→ proto + specs(生成)
+	@$(FACTORY) design
+
+check: design     ## ① 式样书闸门
 	@$(FACTORY) check
 	@buf lint
 

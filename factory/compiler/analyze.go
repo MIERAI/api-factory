@@ -14,7 +14,7 @@ import (
 
 const analyzeDir = ".factory/analyze"
 
-type catColumn struct {
+type catColumn struct { // 导出别名: Column
 	Name    string
 	Type    string // int4 / int8 / text / timestamptz ...
 	NotNull bool
@@ -138,3 +138,15 @@ sql:
 	}
 	return a, nil
 }
+
+// Catalog: schema 目录(表 → 列),给设计编译器用(中文式样书里不重复写列的类型)。
+func Catalog() (map[string][]catColumn, error) {
+	a, err := analyze(nil)
+	if err != nil {
+		return nil, err
+	}
+	return a.catalog.tables, nil
+}
+
+// Column 是导出给其他包用的列信息。
+type Column = catColumn
