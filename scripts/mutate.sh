@@ -19,9 +19,9 @@ run() { # $1=名称 $2=文件 $3=perl 替换式
 }
 Q=gen/db/jobs.list-jobs.sql.go
 H=internal/handler/jobs/list_jobs_gen.go
-run "游标比较 < 改成 <="           $Q 's/\(base\.created_at, base\.id\) < \(/(base.created_at, base.id) <= (/'
-run "去掉 id 的次级排序"            $Q 's/ORDER BY base\.created_at DESC, base\.id DESC/ORDER BY base.created_at DESC/'
-run "id 的次级排序方向反了"          $Q 's/base\.created_at DESC, base\.id DESC/base.created_at DESC, base.id ASC/'
+run "游标比较 < 改成 <="           $Q 's/\(t2\.created_at, t2\.id\) < \(/(t2.created_at, t2.id) <= (/'
+run "去掉 id 的次级排序"            $Q 's/ORDER BY t2\.created_at DESC, t2\.id DESC/ORDER BY t2.created_at DESC/'
+run "id 的次级排序方向反了"          $Q 's/t2\.created_at DESC, t2\.id DESC/t2.created_at DESC, t2.id ASC/'
 run "created_after: >= 改成 >"      $Q 's/created_at >= \$3/created_at > \$3/'
 run "created_before: < 改成 <="     $Q 's/created_at < \$4/created_at <= \$4/'
 run "status 筛选条件被忽略"             $H 's/Status:(\s+)jobsStatusPtrToDB\(m\.Status\),/Status:${1}nil,/'
