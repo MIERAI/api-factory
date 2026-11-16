@@ -26,13 +26,13 @@ datasource:
 acceptance:
   fixtures:
     jobs:
-      - { id: 1, job_type: export, status: 1, created_at: "2026-11-01T00:00:00Z" }
-      - { id: 2, job_type: import, status: 0, created_at: "2026-11-02T00:00:00Z" }
-      - { id: 3, job_type: export, status: 2, created_at: "2026-11-03T00:00:00Z" }
-      - { id: 4, job_type: export, status: 0, created_at: "2026-11-04T00:00:00Z" }
-      - { id: 5, job_type: import, status: 1, created_at: "2026-11-05T00:00:00Z" }
-      - { id: 6, job_type: export, status: 1, created_at: "2026-11-06T00:00:00Z" }
-      - { id: 7, job_type: export, status: 1, created_at: "2026-11-06T00:00:00Z" }  # 与 6 同一时间
+      - { id: 1, job_type: export, status: JOB_STATUS_SUCCEEDED, created_at: "2026-11-01T00:00:00Z" }
+      - { id: 2, job_type: import, status: JOB_STATUS_PENDING, created_at: "2026-11-02T00:00:00Z" }
+      - { id: 3, job_type: export, status: JOB_STATUS_FAILED, created_at: "2026-11-03T00:00:00Z" }
+      - { id: 4, job_type: export, status: JOB_STATUS_PENDING, created_at: "2026-11-04T00:00:00Z" }
+      - { id: 5, job_type: import, status: JOB_STATUS_SUCCEEDED, created_at: "2026-11-05T00:00:00Z" }
+      - { id: 6, job_type: export, status: JOB_STATUS_SUCCEEDED, created_at: "2026-11-06T00:00:00Z" }
+      - { id: 7, job_type: export, status: JOB_STATUS_SUCCEEDED, created_at: "2026-11-06T00:00:00Z" }  # 与 6 同一时间
   # 机制(每个筛选条件、排序与并列、翻页、page_token、page_size/status/job_type 的边界)由工厂自动生成:
   #   gen/acceptance/jobs.list-jobs.yaml
   # 这里只写业务意图

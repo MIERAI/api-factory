@@ -49,7 +49,7 @@ func Run(ctx context.Context, baseURL, fixturesDB string, plan *ir.Plan, specs [
 		if !ok {
 			return nil, fmt.Errorf("%s: not in the IR (run factory prepare first)", s.ID())
 		}
-		if err := loadFixtures(ctx, conn, s.Acceptance.Fixtures); err != nil {
+		if err := loadFixtures(ctx, conn, plan, s.Acceptance.Fixtures); err != nil {
 			return nil, fmt.Errorf("%s fixtures: %w", s.ID(), err)
 		}
 		url := fmt.Sprintf("%s/%s.%s/%s", strings.TrimRight(baseURL, "/"), api.ProtoPackage, api.Service, api.Method)
@@ -66,7 +66,7 @@ func Run(ctx context.Context, baseURL, fixturesDB string, plan *ir.Plan, specs [
 		if auto != nil {
 			for _, suite := range auto.Suites {
 				if suite.Fixtures != nil {
-					if err := loadFixtures(ctx, conn, suite.Fixtures); err != nil {
+					if err := loadFixtures(ctx, conn, plan, suite.Fixtures); err != nil {
 						return nil, fmt.Errorf("%s auto %s fixtures: %w", s.ID(), suite.Name, err)
 					}
 				}
@@ -80,7 +80,9 @@ func Run(ctx context.Context, baseURL, fixturesDB string, plan *ir.Plan, specs [
 	return results, nil
 }
 
-func loadFixtures(ctx context.Context, conn *pgx.Conn, fixtures map[string][]map[string]any) error {
+// loadFixtures: enum 列可以写 proto 的值名(JOB_STATUS_SUCCEEDED),按领域层的映射转换成 DB 值。
+// fixture 和期待值用同一种表示,避免"DB 值和 proto 编号"混淆(第一波实测: 本地模型审查的误报大多来自这里)。
+func loadFixtures(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, fixtures map[string][]map[string]any) error {
 	tables := make([]string, 0, len(fixtures))
 	for t := range fixtures {
 		tables = append(tables, t)
@@ -101,7 +103,11 @@ func loadFixtures(ctx context.Context, conn *pgx.Conn, fixtures map[string][]map
 			for i, c := range cols {
 				idents[i] = pgx.Identifier{c}.Sanitize()
 				holders[i] = "$" + strconv.Itoa(i+1)
-				args[i] = row[c]
+				v, err := fixtureValue(plan, table, c, row[c])
+				if err != nil {
+					return fmt.Errorf("fixture %s: %w", table, err)
+				}
+				args[i] = v
 			}
 			sql := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", ident, strings.Join(idents, ","), strings.Join(holders, ","))
 			if _, err := conn.Exec(ctx, sql, args...); err != nil {
@@ -372,4 +378,30 @@ func toFloat(v any) (float64, bool) {
 		return f, err == nil
 	}
 	return 0, false
+}
+
+// fixtureValue: enum 列写了值名时转换成 DB 值;写数字时原样使用。
+func fixtureValue(plan *ir.Plan, table, column string, v any) (any, error) {
+	name, ok := v.(string)
+	if !ok {
+		return v, nil
+	}
+	e := plan.Enum(table, column)
+	if e == nil {
+		return v, nil
+	}
+	for _, ev := range e.Values {
+		if ev.Name == name {
+			return ev.DB, nil
+		}
+	}
+	return nil, fmt.Errorf("%s.%s: %q is not a value of %s (domain layer maps: %v)", table, column, name, e.ProtoEnum, enumNames(e))
+}
+
+func enumNames(e *ir.Enum) []string {
+	var out []string
+	for _, v := range e.Values {
+		out = append(out, v.Name)
+	}
+	return out
 }

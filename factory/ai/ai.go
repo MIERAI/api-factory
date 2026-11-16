@@ -46,7 +46,7 @@ func Load() (*Config, error) {
 }
 
 // Resolve: 角色 + (可选的)模型 → 要执行的命令和环境变量。违反角色的策略时报错。
-func (c *Config) Resolve(role, model string, extra []string) ([]string, []string, time.Duration, error) {
+func (c *Config) Resolve(role, model string, experiment bool, extra []string) ([]string, []string, time.Duration, error) {
 	r, ok := c.Roles[role]
 	if !ok {
 		return nil, nil, 0, fmt.Errorf("ai: unknown role %q", role)
@@ -54,7 +54,9 @@ func (c *Config) Resolve(role, model string, extra []string) ([]string, []string
 	if model == "" {
 		model = r.Model
 	}
-	if len(r.Allowed) > 0 && !slices.Contains(r.Allowed, model) {
+	if experiment && !slices.Contains(r.Allowed, model) {
+		fmt.Fprintf(os.Stderr, "⚠ ai: experiment mode — model %q is outside the policy for role %q (allowed: %v)\n", model, role, r.Allowed)
+	} else if len(r.Allowed) > 0 && !slices.Contains(r.Allowed, model) {
 		return nil, nil, 0, fmt.Errorf("ai: model %q is not allowed for role %q (allowed: %v; see factory.yaml)", model, role, r.Allowed)
 	}
 	m, ok := c.Models[model]
@@ -74,12 +76,12 @@ func (c *Config) Resolve(role, model string, extra []string) ([]string, []string
 }
 
 // Run: prompt 从 stdin 进,结果写到 stdout。
-func Run(role, model string, extra []string, stdin io.Reader, stdout, stderr io.Writer) error {
+func Run(role, model string, experiment bool, extra []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	c, err := Load()
 	if err != nil {
 		return err
 	}
-	argv, env, timeout, err := c.Resolve(role, model, extra)
+	argv, env, timeout, err := c.Resolve(role, model, experiment, extra)
 	if err != nil {
 		return err
 	}

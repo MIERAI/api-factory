@@ -22,10 +22,10 @@ behavior:
 acceptance:
   fixtures:
     orders:
-      - { id: 1, customer_id: 1, status: 2, ordered_at: "2026-10-01T00:00:00Z", shipped_at: "2026-10-02T00:00:00Z", total_amount: 1000 }
-      - { id: 2, customer_id: 1, status: 3, ordered_at: "2026-10-02T00:00:00Z", shipped_at: null, total_amount: 5000 }
-      - { id: 3, customer_id: 1, status: 0, ordered_at: "2026-10-03T00:00:00Z", shipped_at: null, total_amount: 2001 }
-      - { id: 4, customer_id: 2, status: 2, ordered_at: "2026-10-03T00:00:00Z", shipped_at: "2026-10-04T00:00:00Z", total_amount: 9999 }
+      - { id: 1, customer_id: 1, status: ORDER_STATUS_DELIVERED, ordered_at: "2026-10-01T00:00:00Z", shipped_at: "2026-10-02T00:00:00Z", total_amount: 1000 }
+      - { id: 2, customer_id: 1, status: ORDER_STATUS_CANCELLED, ordered_at: "2026-10-02T00:00:00Z", shipped_at: null, total_amount: 5000 }
+      - { id: 3, customer_id: 1, status: ORDER_STATUS_PLACED, ordered_at: "2026-10-03T00:00:00Z", shipped_at: null, total_amount: 2001 }
+      - { id: 4, customer_id: 2, status: ORDER_STATUS_DELIVERED, ordered_at: "2026-10-03T00:00:00Z", shipped_at: "2026-10-04T00:00:00Z", total_amount: 9999 }
   cases:
     - name: 取消的订单计入件数和取消率,但不计入金额
       request: { customer_id: 1, period_start: "2026-10-01T00:00:00Z", period_end: "2026-11-01T00:00:00Z" }

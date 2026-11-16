@@ -17,9 +17,9 @@ datasource:
 acceptance:
   fixtures:
     products:
-      - { id: 1, sku: A-1, name: 有机咖啡豆, category: food, status: 0, created_at: "2025-01-01T00:00:00Z" }
-      - { id: 2, sku: A-2, name: 有机红茶, category: food, status: 0, created_at: "2025-01-02T00:00:00Z" }
-      - { id: 3, sku: A-3, name: 咖啡杯, category: kitchen, status: 0, created_at: "2025-01-03T00:00:00Z" }
+      - { id: 1, sku: A-1, name: 有机咖啡豆, category: food, status: PRODUCT_STATUS_ACTIVE, created_at: "2025-01-01T00:00:00Z" }
+      - { id: 2, sku: A-2, name: 有机红茶, category: food, status: PRODUCT_STATUS_ACTIVE, created_at: "2025-01-02T00:00:00Z" }
+      - { id: 3, sku: A-3, name: 咖啡杯, category: kitchen, status: PRODUCT_STATUS_ACTIVE, created_at: "2025-01-03T00:00:00Z" }
   cases:
     - name: 按前缀搜索 "有机",新的在前
       request: { name_prefix: 有机 }

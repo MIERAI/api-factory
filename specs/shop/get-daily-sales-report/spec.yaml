@@ -27,9 +27,9 @@ behavior:
 acceptance:
   fixtures:
     orders:
-      - { id: 1, customer_id: 1, status: 2, ordered_at: "2026-10-01T14:59:59Z", shipped_at: null, total_amount: 1000 }  # JST 10/1 23:59:59
-      - { id: 2, customer_id: 1, status: 2, ordered_at: "2026-10-01T15:00:00Z", shipped_at: null, total_amount: 2000 }  # JST 10/2 00:00
-      - { id: 3, customer_id: 1, status: 3, ordered_at: "2026-10-01T16:00:00Z", shipped_at: null, total_amount: 9000 }  # 取消,不计
+      - { id: 1, customer_id: 1, status: ORDER_STATUS_DELIVERED, ordered_at: "2026-10-01T14:59:59Z", shipped_at: null, total_amount: 1000 }  # JST 10/1 23:59:59
+      - { id: 2, customer_id: 1, status: ORDER_STATUS_DELIVERED, ordered_at: "2026-10-01T15:00:00Z", shipped_at: null, total_amount: 2000 }  # JST 10/2 00:00
+      - { id: 3, customer_id: 1, status: ORDER_STATUS_CANCELLED, ordered_at: "2026-10-01T16:00:00Z", shipped_at: null, total_amount: 9000 }  # 取消,不计
   cases:
     - name: 按日本时间划分日期;取消不计;没有订单的日子也返回 0
       request: { period_start: "2026-09-30T15:00:00Z", period_end: "2026-10-03T15:00:00Z" }   # JST 10/1 ~ 10/3

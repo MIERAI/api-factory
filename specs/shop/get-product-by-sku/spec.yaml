@@ -12,8 +12,8 @@ datasource:
 acceptance:
   fixtures:
     products:
-      - { id: 10, sku: SKU-0001, name: 有机咖啡豆, category: food, status: 0, created_at: "2025-01-10T00:00:00Z" }
-      - { id: 11, sku: SKU-0002, name: 旧款马克杯, category: kitchen, status: 1, created_at: "2024-06-01T00:00:00Z" }
+      - { id: 10, sku: SKU-0001, name: 有机咖啡豆, category: food, status: PRODUCT_STATUS_ACTIVE, created_at: "2025-01-10T00:00:00Z" }
+      - { id: 11, sku: SKU-0002, name: 旧款马克杯, category: kitchen, status: PRODUCT_STATUS_DISCONTINUED, created_at: "2024-06-01T00:00:00Z" }
   cases:
     - name: 扫到停售商品也能查到(仓库要处理退货)
       request: { sku: SKU-0002 }

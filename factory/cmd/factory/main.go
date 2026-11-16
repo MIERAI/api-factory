@@ -458,6 +458,7 @@ func cmdAI(args []string) error {
 	fs := flag.NewFlagSet("ai", flag.ExitOnError)
 	role := fs.String("role", "", "review / implement")
 	model := fs.String("model", "", "覆盖角色的默认模型(必须在 allowed 里)")
+	experiment := fs.Bool("experiment", false, "对比实验用: 允许 allowed 以外的模型(会打印警告)")
 	_ = fs.Parse(args)
 	extra := fs.Args()
 	if *role == "implement" {
@@ -469,5 +470,5 @@ func cmdAI(args []string) error {
 			extra = append([]string{"--allowedTools", m.AITools}, extra...)
 		}
 	}
-	return ai.Run(*role, *model, extra, os.Stdin, os.Stdout, os.Stderr)
+	return ai.Run(*role, *model, *experiment, extra, os.Stdin, os.Stdout, os.Stderr)
 }
