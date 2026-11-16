@@ -1,0 +1,336 @@
+package core
+
+// SQL 后端: 流水线 → 一条 Postgres SQL(参数 $1, $2 …,每个都带显式 cast)。
+//
+// 规则(每一条都在元件认证里被验证):
+//   - 列引用一律带表别名(t1.col)。ORDER BY 里不带别名的名字会先匹配输出列的别名(曾经因此按 ::text 排序)
+//   - 文本的大小比较和排序加 COLLATE "C"(按字节,与参考求值器一致;数据库默认的排序规则可能不是按字节)
+//   - NULL 的位置用 Postgres 的默认(ASC NULLS LAST / DESC NULLS FIRST),与参考求值器一致
+//   - 一层 SELECT 能装下就合并,装不下就把前面的包成子查询
+
+import (
+	"fmt"
+	"math/big"
+	"regexp"
+	"strings"
+	"time"
+)
+
+// SQL: 生成的查询。Params[i] 对应 $i+1。
+type SQL struct {
+	Text    string
+	Params  []ParamDecl
+	Columns Schema
+}
+
+type sqlLevel struct {
+	from     string
+	alias    string
+	in       Schema // 这一层能看到的列
+	where    []string
+	project  []NamedExpr
+	distinct []string
+	dOrder   []SortKey
+	order    []SortKey
+	limit    int
+	out      Schema
+}
+
+type sqlGen struct {
+	p      *Pipeline
+	params []ParamDecl
+	index  map[string]int
+	n      int // 别名计数
+}
+
+// ToSQL: textOutput = 输出列全部 ::text(元件认证用,比较时不依赖驱动的类型映射)。
+func ToSQL(p *Pipeline, textOutput bool) (*SQL, error) {
+	out, err := Check(p)
+	if err != nil {
+		return nil, err
+	}
+	g := &sqlGen{p: p, index: map[string]int{}}
+	var lv *sqlLevel
+	for _, st := range p.Steps {
+		switch st.Kind {
+		case "scan":
+			lv = g.newLevel(quoteIdent(st.Table), Schema(st.Columns))
+		case "filter":
+			if lv.project != nil || lv.distinct != nil || lv.order != nil || lv.limit > 0 {
+				lv = g.wrap(lv, false)
+			}
+			w, err := g.expr(st.Pred, lv)
+			if err != nil {
+				return nil, err
+			}
+			lv.where = append(lv.where, w)
+		case "project":
+			if lv.project != nil || lv.distinct != nil || lv.order != nil || lv.limit > 0 {
+				lv = g.wrap(lv, false)
+			}
+			lv.project = st.Project
+			var s Schema
+			for _, x := range st.Project {
+				t, err := p.typeOf(x.Expr, lv.in)
+				if err != nil {
+					return nil, err
+				}
+				s = append(s, NamedType{x.Name, t})
+			}
+			lv.out = s
+		case "pick_per_key":
+			if lv.project != nil || lv.distinct != nil || lv.order != nil || lv.limit > 0 {
+				lv = g.wrap(lv, false)
+			}
+			lv.distinct, lv.dOrder = st.Keys, st.Order
+		case "sort":
+			if lv.project != nil || lv.distinct != nil || lv.order != nil || lv.limit > 0 {
+				lv = g.wrap(lv, false)
+			}
+			lv.order = st.Order
+		case "limit":
+			if lv.limit > 0 {
+				lv = g.wrap(lv, false)
+			}
+			lv.limit = st.N
+		}
+	}
+	text, err := g.render(lv, textOutput)
+	if err != nil {
+		return nil, err
+	}
+	return &SQL{Text: text, Params: g.params, Columns: out}, nil
+}
+
+func (g *sqlGen) newLevel(from string, in Schema) *sqlLevel {
+	g.n++
+	alias := fmt.Sprintf("t%d", g.n)
+	return &sqlLevel{from: from + " AS " + alias, alias: alias, in: in, out: in}
+}
+
+func (g *sqlGen) wrap(lv *sqlLevel, _ bool) *sqlLevel {
+	sub, _ := g.render(lv, false)
+	return g.newLevel("(\n"+indent(sub)+"\n)", lv.out)
+}
+
+func (g *sqlGen) render(lv *sqlLevel, textOutput bool) (string, error) {
+	var sel []string
+	if lv.project != nil {
+		for _, x := range lv.project {
+			e, err := g.expr(x.Expr, lv)
+			if err != nil {
+				return "", err
+			}
+			if textOutput {
+				e = "(" + e + ")::text"
+			}
+			sel = append(sel, e+" AS "+quoteIdent(x.Name))
+		}
+	} else {
+		for _, c := range lv.out {
+			e := lv.alias + "." + quoteIdent(c.Name)
+			if textOutput {
+				sel = append(sel, e+"::text AS "+quoteIdent(c.Name))
+			} else {
+				sel = append(sel, e)
+			}
+		}
+	}
+	var b strings.Builder
+	b.WriteString("SELECT ")
+	if lv.distinct != nil {
+		var ks []string
+		for _, k := range lv.distinct {
+			ks = append(ks, lv.alias+"."+quoteIdent(k))
+		}
+		fmt.Fprintf(&b, "DISTINCT ON (%s) ", strings.Join(ks, ", "))
+	}
+	b.WriteString(strings.Join(sel, ", "))
+	b.WriteString("\nFROM " + lv.from)
+	if len(lv.where) > 0 {
+		b.WriteString("\nWHERE " + strings.Join(lv.where, "\n  AND "))
+	}
+	var order []string
+	if lv.distinct != nil {
+		for _, k := range lv.distinct {
+			order = append(order, lv.alias+"."+quoteIdent(k))
+		}
+		order = append(order, g.orderItems(lv, lv.dOrder)...)
+	}
+	order = append(order, g.orderItems(lv, lv.order)...)
+	if len(order) > 0 {
+		b.WriteString("\nORDER BY " + strings.Join(order, ", "))
+	}
+	if lv.limit > 0 {
+		fmt.Fprintf(&b, "\nLIMIT %d", lv.limit)
+	}
+	return b.String(), nil
+}
+
+func (g *sqlGen) orderItems(lv *sqlLevel, order []SortKey) []string {
+	var out []string
+	for _, o := range order {
+		e := lv.alias + "." + quoteIdent(o.Col)
+		if t, _ := lv.in.Col(o.Col); t.Kind == Text {
+			e += ` COLLATE "C"`
+		}
+		if o.Desc {
+			e += " DESC"
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+func (g *sqlGen) param(name string) (string, *ParamDecl) {
+	d := g.p.Param(name)
+	i, ok := g.index[name]
+	if !ok {
+		g.params = append(g.params, *d)
+		i = len(g.params)
+		g.index[name] = i
+	}
+	cast := d.Type.Kind.SQLType()
+	if d.List {
+		cast += "[]"
+	}
+	return fmt.Sprintf("$%d::%s", i, cast), d
+}
+
+func (g *sqlGen) expr(e *Expr, lv *sqlLevel) (string, error) {
+	sub := func(x *Expr) (string, error) { return g.expr(x, lv) }
+	switch e.Op {
+	case "col":
+		return lv.alias + "." + quoteIdent(e.Name), nil
+	case "const":
+		return constSQL(e.Value, e.Type.Kind)
+	case "param":
+		s, _ := g.param(e.Name)
+		return s, nil
+	case "cmp":
+		a, err := sub(e.Args[0])
+		if err != nil {
+			return "", err
+		}
+		b, err := sub(e.Args[1])
+		if err != nil {
+			return "", err
+		}
+		t, _ := g.p.typeOf(e.Args[0], lv.in)
+		if t.Kind == Text && e.Name != "=" && e.Name != "<>" {
+			a += ` COLLATE "C"`
+		}
+		return fmt.Sprintf("(%s %s %s)", a, e.Name, b), nil
+	case "and", "or":
+		var xs []string
+		for _, x := range e.Args {
+			s, err := sub(x)
+			if err != nil {
+				return "", err
+			}
+			xs = append(xs, s)
+		}
+		return "(" + strings.Join(xs, " "+strings.ToUpper(e.Op)+" ") + ")", nil
+	case "not":
+		s, err := sub(e.Args[0])
+		return "(NOT " + s + ")", err
+	case "is_null":
+		s, err := sub(e.Args[0])
+		return "(" + s + " IS NULL)", err
+	case "absent":
+		if g.p.Param(e.Name).Required { // 必填: 恒为 FALSE(不登记参数,否则 SQL 里有用不到的 $n)
+			return "FALSE", nil
+		}
+		p, d := g.param(e.Name)
+		switch {
+		case d.List:
+			return fmt.Sprintf("(coalesce(cardinality(%s), 0) = 0)", p), nil
+		}
+		return "(" + p + " IS NULL)", nil
+	case "in_list":
+		a, err := sub(e.Args[0])
+		if err != nil {
+			return "", err
+		}
+		p, _ := g.param(e.Name)
+		return fmt.Sprintf("(%s = ANY(%s))", a, p), nil
+	case "starts_with":
+		a, err := sub(e.Args[0])
+		if err != nil {
+			return "", err
+		}
+		p, _ := g.param(e.Name)
+		return fmt.Sprintf(`(%s LIKE replace(replace(replace(%s, '\', '\\'), '%%', '\%%'), '_', '\_') || '%%')`, a, p), nil
+	case "json_field":
+		a, err := sub(e.Args[0])
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("((%s ->> %s)::%s)", a, quoteLit(e.Name), e.Type.Kind.SQLType()), nil
+	case "tuple_after":
+		var cols, ps []string
+		var first string
+		for i, c := range e.Args {
+			s, err := sub(c)
+			if err != nil {
+				return "", err
+			}
+			if t, _ := g.p.typeOf(c, lv.in); t.Kind == Text {
+				s += ` COLLATE "C"`
+			}
+			cols = append(cols, s)
+			p, _ := g.param(e.Params[i])
+			if i == 0 {
+				first = p
+			}
+			ps = append(ps, p)
+		}
+		op := ">"
+		if e.Desc {
+			op = "<"
+		}
+		return fmt.Sprintf("(%s IS NULL OR (%s) %s (%s))", first, strings.Join(cols, ", "), op, strings.Join(ps, ", ")), nil
+	}
+	return "", fmt.Errorf("sql: unknown expr %q", e.Op)
+}
+
+func constSQL(v any, k Kind) (string, error) {
+	if v == nil {
+		return "NULL::" + k.SQLType(), nil
+	}
+	switch x := v.(type) {
+	case int64:
+		return fmt.Sprintf("%d::%s", x, k.SQLType()), nil
+	case string:
+		return quoteLit(x) + "::" + k.SQLType(), nil
+	case bool:
+		if x {
+			return "TRUE", nil
+		}
+		return "FALSE", nil
+	case *big.Rat:
+		return quoteLit(RatString(x)) + "::numeric", nil
+	case time.Time:
+		if k == Date {
+			return quoteLit(x.Format("2006-01-02")) + "::date", nil
+		}
+		return quoteLit(x.UTC().Format(time.RFC3339Nano)) + "::timestamptz", nil
+	}
+	return "", fmt.Errorf("sql: unsupported const %T", v)
+}
+
+var plainIdent = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
+
+var reserved = map[string]bool{"from": true, "to": true, "order": true, "group": true, "select": true, "where": true,
+	"user": true, "table": true, "limit": true, "offset": true, "desc": true, "asc": true, "end": true, "default": true}
+
+func quoteIdent(s string) string {
+	if plainIdent.MatchString(s) && !reserved[s] {
+		return s
+	}
+	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
+}
+
+func quoteLit(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+
+func indent(s string) string { return "    " + strings.ReplaceAll(s, "\n", "\n    ") }
