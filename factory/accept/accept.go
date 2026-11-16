@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"sort"
@@ -43,7 +44,7 @@ func Run(ctx context.Context, serverBin, databaseURL string, specs []*spec.Spec)
 	base := "http://127.0.0.1:" + strconv.Itoa(port)
 
 	srv := exec.CommandContext(ctx, serverBin)
-	srv.Env = append(os.Environ(), "PORT="+strconv.Itoa(port), "DATABASE_URL="+databaseURL)
+	srv.Env = append(os.Environ(), "PORT="+strconv.Itoa(port), "DATABASE_URL="+planAgnostic(databaseURL))
 	logFile, err := os.Create(".factory/server.log")
 	if err != nil {
 		return nil, err
@@ -107,6 +108,22 @@ func Run(ctx context.Context, serverBin, databaseURL string, specs []*spec.Spec)
 		}
 	}
 	return results, nil
+}
+
+// planAgnostic 让被测服务器的 DB 会话不使用索引扫描。
+// 验收结果不能依赖执行计划: 正确的顺序必须由 SQL 本身保证,而不是碰巧由某个索引保证。
+// (实测: 去掉 keyset 的次级排序这种 bug,在用到索引时会被索引顺序掩盖,验收全绿)
+func planAgnostic(databaseURL string) string {
+	u, err := url.Parse(databaseURL)
+	if err != nil {
+		return databaseURL
+	}
+	q := u.Query()
+	opts := strings.TrimSpace(q.Get("options") + " -c enable_indexscan=off -c enable_indexonlyscan=off -c enable_bitmapscan=off")
+	q.Set("options", opts)
+	// url.Values.Encode 把空格编码成 "+",pgx 不会还原,必须用 %20
+	u.RawQuery = strings.ReplaceAll(q.Encode(), "+", "%20")
+	return u.String()
 }
 
 func loadFixtures(ctx context.Context, conn *pgx.Conn, fixtures map[string][]map[string]any) error {

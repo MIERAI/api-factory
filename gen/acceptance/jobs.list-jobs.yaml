@@ -11,6 +11,7 @@ coverage:
     - 'list_keyset: 筛选 job_type → job_type =(presence=true)'
     - 'list_keyset: 筛选 created_after → created_at >=(presence=true)'
     - 'list_keyset: 筛选 created_before → created_at <(presence=true)'
+    - 'list_keyset: eq 条件组合(不依赖索引顺序的排序)'
     - 'list_keyset: 翻页(并列行跨页 / 最后一页不满 / 最后一页刚好满)'
     - 'list_keyset: page_token(改 page_size 允许 / 改筛选条件失效 / 非法 token)'
 suites:
@@ -116,32 +117,32 @@ suites:
               status: 0
             - created_at: "2026-01-01T00:00:00Z"
               id: 2
-              job_type: beta
-              status: 1
+              job_type: alpha
+              status: 0
             - created_at: "2026-01-01T01:00:00Z"
               id: 3
-              job_type: alpha
-              status: 2
+              job_type: beta
+              status: 1
             - created_at: "2026-01-01T01:00:00Z"
               id: 4
               job_type: beta
-              status: 0
+              status: 1
             - created_at: "2026-01-01T02:00:00Z"
               id: 5
               job_type: alpha
-              status: 1
+              status: 2
             - created_at: "2026-01-01T02:00:00Z"
               id: 6
-              job_type: beta
+              job_type: alpha
               status: 2
             - created_at: "2026-01-01T03:00:00Z"
               id: 7
-              job_type: alpha
+              job_type: beta
               status: 0
             - created_at: "2026-01-01T03:00:00Z"
               id: 8
               job_type: beta
-              status: 1
+              status: 0
       cases:
         - name: 无筛选 — 排序与字段映射(含并列行)
           request: {}
@@ -152,31 +153,31 @@ suites:
                     - created_at: "2026-01-01T03:00:00Z"
                       id: 8
                       job_type: beta
-                      status: 1
+                      status: 0
                     - created_at: "2026-01-01T03:00:00Z"
                       id: 7
-                      job_type: alpha
+                      job_type: beta
                       status: 0
                     - created_at: "2026-01-01T02:00:00Z"
                       id: 6
-                      job_type: beta
+                      job_type: alpha
                       status: 2
                     - created_at: "2026-01-01T02:00:00Z"
                       id: 5
                       job_type: alpha
-                      status: 1
+                      status: 2
                     - created_at: "2026-01-01T01:00:00Z"
                       id: 4
                       job_type: beta
-                      status: 0
+                      status: 1
                     - created_at: "2026-01-01T01:00:00Z"
                       id: 3
-                      job_type: alpha
-                      status: 2
-                    - created_at: "2026-01-01T00:00:00Z"
-                      id: 2
                       job_type: beta
                       status: 1
+                    - created_at: "2026-01-01T00:00:00Z"
+                      id: 2
+                      job_type: alpha
+                      status: 0
                     - created_at: "2026-01-01T00:00:00Z"
                       id: 1
                       job_type: alpha
@@ -190,8 +191,9 @@ suites:
             code: OK
             response:
                 jobs:
+                    - id: 8
                     - id: 7
-                    - id: 4
+                    - id: 2
                     - id: 1
           steps: []
         - name: 筛选 status = 1
@@ -201,9 +203,8 @@ suites:
             code: OK
             response:
                 jobs:
-                    - id: 8
-                    - id: 5
-                    - id: 2
+                    - id: 4
+                    - id: 3
           steps: []
         - name: 筛选 status = 2
           request:
@@ -213,7 +214,7 @@ suites:
             response:
                 jobs:
                     - id: 6
-                    - id: 3
+                    - id: 5
           steps: []
         - name: 筛选 job_type = alpha
           request:
@@ -222,9 +223,9 @@ suites:
             code: OK
             response:
                 jobs:
-                    - id: 7
+                    - id: 6
                     - id: 5
-                    - id: 3
+                    - id: 2
                     - id: 1
           steps: []
         - name: 筛选 job_type = beta
@@ -235,9 +236,9 @@ suites:
             response:
                 jobs:
                     - id: 8
-                    - id: 6
+                    - id: 7
                     - id: 4
-                    - id: 2
+                    - id: 3
           steps: []
         - name: 筛选 created_after >= 2026-01-01T01:00:00Z
           request:
@@ -256,6 +257,17 @@ suites:
         - name: 筛选 created_before < 2026-01-01T01:00:00Z
           request:
             created_before: "2026-01-01T01:00:00Z"
+          expect:
+            code: OK
+            response:
+                jobs:
+                    - id: 2
+                    - id: 1
+          steps: []
+        - name: 所有 eq 条件组合(筛选后排序,并列行次序)
+          request:
+            job_type: alpha
+            status: 0
           expect:
             code: OK
             response:

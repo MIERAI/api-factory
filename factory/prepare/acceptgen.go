@@ -311,9 +311,14 @@ func synthesize(cat *catalog, table string, n int, plan synthPlan, needed map[st
 	var rows []map[string]any
 	for i := 0; i < n; i++ {
 		row := map[string]any{}
+		group := i // 并列组: tieCol 有值时每两行一组
+		if plan.tieCol != "" {
+			group = i / 2
+		}
 		for _, c := range cat.tables[table] {
 			if vals, ok := plan.eqValues[c.Name]; ok {
-				row[c.Name] = vals[i%len(vals)]
+				// 同一并列组共享筛选值: 筛选后的结果里也必须有并列行,否则"并列时的次级排序"测不到
+				row[c.Name] = vals[group%len(vals)]
 				continue
 			}
 			if !c.NotNull && !needed[c.Name] {
@@ -585,6 +590,8 @@ func listKeysetSuite(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalo
 		map[string]any{itemName: items(all, itemFields), "next_page_token": tokenFor(len(all) > int(p.PageSize.Default))})
 	cov = append(cov, fmt.Sprintf("list_keyset: 排序 %v %s(合成数据含并列值)与字段映射", p.OrderBy, p.Direction))
 
+	key := p.OrderBy[len(p.OrderBy)-1]
+
 	// 每个筛选条件单独
 	for _, f := range filters {
 		var vals []any
@@ -603,8 +610,24 @@ func listKeysetSuite(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalo
 		cov = append(cov, fmt.Sprintf("list_keyset: 筛选 %s → %s %s(presence=%v)", f.Name, f.Column.Name, f.SQLOp, f.Presence))
 	}
 
+	// 所有 eq 条件组合: 让执行计划从"按索引顺序扫描"变成"筛选后排序",暴露依赖物理顺序的排序 bug
+	combo := map[string]any{}
+	for _, f := range filters {
+		if vals := plan.eqValues[f.Column.Name]; vals != nil {
+			combo[f.Name] = vals[0]
+		}
+	}
+	if len(combo) >= 2 {
+		got := list(combo)
+		req := map[string]any{}
+		for k, v := range combo {
+			req[k] = jsonValue(v)
+		}
+		add("所有 eq 条件组合(筛选后排序,并列行次序)", req, map[string]any{itemName: items(got, []string{key})})
+		cov = append(cov, "list_keyset: eq 条件组合(不依赖索引顺序的排序)")
+	}
+
 	// 翻页走到底: k=1(并列行跨页)、k=3(最后一页不满)、k=n/2(最后一页刚好满)
-	key := p.OrderBy[len(p.OrderBy)-1]
 	for _, k := range []int{1, 3, synthRows / 2} {
 		var steps []spec.Step
 		for start := 0; start < len(all); start += k {
