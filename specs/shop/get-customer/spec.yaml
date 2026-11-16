@@ -1,0 +1,19 @@
+# R1: 客服按顾客 id 查看顾客信息
+spec_version: "0.2"
+api:
+  rpc: factory.shop.v1.ShopService/GetCustomer
+  owner: cs-team
+  risk_level: low
+pattern:
+  kind: get_by_id
+  not_found_message: "customer not found: {customer_id}"
+datasource:
+  table: customers
+acceptance:
+  fixtures:
+    customers:
+      - { id: 1, name: 山田太郎, email: taro@example.com, tier: 2, created_at: "2025-04-01T00:00:00Z" }
+  cases:
+    - name: 金卡会员的信息(含 enum 和时间)
+      request: { customer_id: 1 }
+      expect: { code: OK, response: { name: 山田太郎, email: taro@example.com, tier: CUSTOMER_TIER_GOLD, created_at: "2025-04-01T00:00:00Z" } }

@@ -1,0 +1,41 @@
+# R3: 订单一览
+spec_version: "0.2"
+api:
+  rpc: factory.shop.v1.ShopService/ListOrders
+  owner: cs-team
+  risk_level: low
+pattern:
+  kind: list_keyset
+  order_by: [ordered_at, id]
+  direction: desc
+  page_size: { default: 20, max: 100 }
+# customer_id / status → 同名列;ordered_after/before → ordered_at(命名约定)
+datasource:
+  table: orders
+acceptance:
+  fixtures:
+    orders:
+      - { id: 1, customer_id: 1, status: 2, ordered_at: "2026-10-01T10:00:00Z", shipped_at: "2026-10-02T09:00:00Z", total_amount: 3200 }
+      - { id: 2, customer_id: 1, status: 0, ordered_at: "2026-10-05T10:00:00Z", shipped_at: null, total_amount: 1500 }
+      - { id: 3, customer_id: 2, status: 3, ordered_at: "2026-10-06T10:00:00Z", shipped_at: null, total_amount: 800 }
+  cases:
+    - name: 客服查某位顾客的订单,新的在前;未发货的订单没有 shipped_at
+      request: { customer_id: 1 }
+      expect:
+        code: OK
+        response:
+          orders:
+            - { id: 2, status: ORDER_STATUS_PLACED, shipped_at: $absent, total_amount: 1500 }
+            - { id: 1, status: ORDER_STATUS_DELIVERED, shipped_at: "2026-10-02T09:00:00Z" }
+    - name: 期间是左闭右开(10/5 10:00 下单的订单属于 "10/5 10:00 之后")
+      request: { ordered_after: "2026-10-05T10:00:00Z", ordered_before: "2026-10-06T10:00:00Z" }
+      expect: { code: OK, response: { orders: [{ id: 2 }] } }
+    - name: 期间颠倒(消息级 CEL 规则,不自动生成)
+      request: { ordered_after: "2026-10-06T00:00:00Z", ordered_before: "2026-10-05T00:00:00Z" }
+      expect: { code: INVALID_ARGUMENT }
+
+review_decisions:
+  - question: status 为 SHIPPED/DELIVERED 但 shipped_at 为 NULL(违反不变量)的行怎么返回?反过来 PLACED 但 shipped_at 有值呢?
+    decision: 都原样返回存储的值(shipped_at 按列的值设置或不设置)。查询 API 不修正数据;不变量的违反由写入方修复
+  - question: total_amount 与明细合计不一致时返回哪个?
+    decision: 返回 orders.total_amount 存储的值,不重新计算也不标记

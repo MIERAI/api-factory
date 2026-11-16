@@ -1,0 +1,28 @@
+# R2: 仓库扫码,按 SKU 查商品
+spec_version: "0.2"
+api:
+  rpc: factory.shop.v1.ShopService/GetProductBySku
+  owner: warehouse-team
+  risk_level: low
+pattern:
+  kind: get_by_id
+  not_found_message: "product not found: {sku}"
+datasource:
+  table: products
+acceptance:
+  fixtures:
+    products:
+      - { id: 10, sku: SKU-0001, name: 有机咖啡豆, category: food, status: 0, created_at: "2025-01-10T00:00:00Z" }
+      - { id: 11, sku: SKU-0002, name: 旧款马克杯, category: kitchen, status: 1, created_at: "2024-06-01T00:00:00Z" }
+  cases:
+    - name: 扫到停售商品也能查到(仓库要处理退货)
+      request: { sku: SKU-0002 }
+      expect: { code: OK, response: { id: 11, name: 旧款马克杯, status: PRODUCT_STATUS_DISCONTINUED } }
+
+review_decisions:
+  - question: SKU 带前后空白或大小写不一致时,是规范化后匹配还是原样匹配?
+    decision: 原样精确匹配。SKU 的正规形式是大写、无空白;规范化由扫码客户端负责(API 不猜测)
+  - question: DB 里超过 32 字符的 SKU 会永远查不到?
+    decision: SKU 规格最长 32 字符,在 schema 加 CHECK (char_length(sku) <= 32),DB 里不会出现
+  - question: DRAFT(未上架)的商品扫到时怎么办?
+    decision: 照常返回(仓库需要处理入库中的商品)

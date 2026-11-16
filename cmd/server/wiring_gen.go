@@ -7,7 +7,9 @@ import (
 
 	"apifactory/gen/db"
 	"apifactory/gen/factory/jobs/v1/jobsv1connect"
+	"apifactory/gen/factory/shop/v1/shopv1connect"
 	jobshandler "apifactory/internal/handler/jobs"
+	shophandler "apifactory/internal/handler/shop"
 	"apifactory/platform/server"
 )
 
@@ -16,6 +18,10 @@ func services(deps server.Deps, opts ...connect.HandlerOption) []server.Service 
 	var out []server.Service
 	{
 		path, h := jobsv1connect.NewJobServiceHandler(jobshandler.New(q, deps.Pager), opts...)
+		out = append(out, server.Service{Path: path, Handler: h})
+	}
+	{
+		path, h := shopv1connect.NewShopServiceHandler(shophandler.New(q, deps.Pager), opts...)
 		out = append(out, server.Service{Path: path, Handler: h})
 	}
 	return out

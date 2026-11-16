@@ -1,0 +1,46 @@
+# 领域层: shop(电商订单)。列和类型 → db/schema.sql;对外类型 → proto/factory/shop/v1/shop.proto
+domain_version: "0.1"
+
+entities:
+  customers:
+    natural_key: [id]
+    policy: mutable
+    columns:
+      tier:
+        enum:
+          proto: factory.shop.v1.CustomerTier
+          values: { 0: CUSTOMER_TIER_REGULAR, 1: CUSTOMER_TIER_SILVER, 2: CUSTOMER_TIER_GOLD }
+        on_unknown: unspecified
+  products:
+    natural_key: [id]
+    policy: mutable
+    columns:
+      status:
+        enum:
+          proto: factory.shop.v1.ProductStatus
+          values: { 0: PRODUCT_STATUS_ACTIVE, 1: PRODUCT_STATUS_DISCONTINUED, 2: PRODUCT_STATUS_DRAFT }
+        on_unknown: unspecified
+  product_prices:
+    natural_key: [product_id, valid_from]
+    policy: versioned            # 只追加;某时点的价格 = valid_from <= 该时点 的最新一行
+  orders:
+    natural_key: [id]
+    policy: mutable
+    columns:
+      status:
+        enum:
+          proto: factory.shop.v1.OrderStatus
+          values: { 0: ORDER_STATUS_PLACED, 1: ORDER_STATUS_SHIPPED, 2: ORDER_STATUS_DELIVERED, 3: ORDER_STATUS_CANCELLED }
+        on_unknown: unspecified
+    invariants:
+      - rule: status 为 SHIPPED/DELIVERED 时 shipped_at 非 NULL
+        enforced: false
+      - rule: total_amount = 该订单 order_items 的 quantity × unit_price 之和
+        enforced: false          # 写入方计算,可能因 bug 不一致
+  order_items:
+    natural_key: [order_id, line_no]
+    policy: mutable
+
+review_decisions:
+  - question: 金额的单位?
+    decision: 一律是最小货币单位(円)的整数,没有小数
