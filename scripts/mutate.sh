@@ -2,7 +2,7 @@
 # 变异测试: 往生成的代码里植入 bug,确认自动生成的验收用例能抓到。每个变异之后用 git 还原。
 set -uo pipefail
 DB_URL=${DB_URL:-postgres://factory:factory@127.0.0.1:55432/factory?sslmode=disable}
-SHARD_BASE=${DB_URL%%/factory?*}
+SHARD_BASE=${DB_URL%/factory\?*}
 export FACTORY_SHARDS=${FACTORY_SHARDS:-"1-2=$SHARD_BASE/shard_a?sslmode=disable;*=$SHARD_BASE/shard_b?sslmode=disable"}
 go build -o .factory/factory ./factory/cmd/factory
 run() { # $1=名称 $2=文件 $3=perl 替换式
