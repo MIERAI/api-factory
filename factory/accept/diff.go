@@ -34,7 +34,7 @@ import (
 
 const (
 	diffRows     = 40
-	diffRequests = 24
+	diffRequests = 40
 	diffPageSize = 3
 )
 
