@@ -37,6 +37,7 @@ for i in $(seq 1 "$N"); do
   cd "$WT"
   # 重置到 AI 动手前: 删掉该 API 由 AI 负责的文件
   for f in $AI_FILES; do rm -f "$f"; done
+  $F prepare > "$OUT/prepare.txt" 2>&1 || { echo "prepare failed"; cat "$OUT/prepare.txt"; exit 1; }  # 重新生成桩
   git add -A && git -c user.name=trial -c user.email=trial@localhost commit -q -m "trial baseline" --allow-empty
 
   $F prompt "$SPEC" > "$OUT/prompt.md"
