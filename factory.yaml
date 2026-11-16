@@ -1,2 +1,34 @@
-# 工厂的配置。换语言模板时只改 adapter
+# 工厂的配置。换语言模板时改 adapter;换模型时改 ai。脚本不写死任何模型和调用方式。
 adapter: factory/adapters/golang
+
+ai:
+  # 模型: 怎么调用(命令 + 环境变量)
+  models:
+    claude:
+      command: [claude, -p]
+    local:                       # winpc 的 Ollama(Anthropic 兼容 API),同一个 harness 只换模型
+      command: [claude, -p, --model, "qwen3.6:35b"]
+      env:
+        ANTHROPIC_BASE_URL: http://100.106.140.35:11434
+        ANTHROPIC_AUTH_TOKEN: ollama
+        ANTHROPIC_API_KEY: ""
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: "qwen3.6:35b"
+        ANTHROPIC_DEFAULT_SONNET_MODEL: "qwen3.6:35b"
+        ANTHROPIC_DEFAULT_OPUS_MODEL: "qwen3.6:35b"
+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+
+  # 角色: 用哪个模型、允许哪些模型、固定参数
+  roles:
+    review:
+      model: claude
+      # 第一波实测: 本地模型审查 10 个 API,挡下的 8 个 blocker 全部是误报(enum 的 DB 值和 proto 编号混淆等)。
+      # 审查没有闸门兜底,误报会让流水线停下 → 只允许强模型
+      allowed: [claude]
+      args: [--tools, "", --max-turns, "2"]
+      timeout_sec: 600
+    implement:
+      model: claude
+      # 实现有路径闸门 + 编译 + 验收兜底,弱模型也可以(实测: 本地模型 compute 8/9 次通过)
+      allowed: [claude, local]
+      args: [--max-turns, "40"]    # 允许的工具来自适配器清单(ai_tools)
+      timeout_sec: 1800

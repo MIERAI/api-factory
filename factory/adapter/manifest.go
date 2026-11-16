@@ -21,6 +21,7 @@ type Manifest struct {
 	Prompts         map[string]string   `yaml:"prompts"`
 	Guard           Guard               `yaml:"guard"`
 	LogicSignature  string              `yaml:"logic_signature"`
+	AITools         string              `yaml:"ai_tools"`
 }
 
 type Guard struct {
@@ -56,7 +57,7 @@ func Load() (*Manifest, error) {
 	if err != nil {
 		return nil, fmt.Errorf("factory.yaml: %w", err)
 	}
-	if err := yaml.Unmarshal(b, &cfg); err != nil {
+	if err := yaml.Unmarshal(b, &cfg); err != nil { // 只取 adapter,其他节由各自的包读取
 		return nil, fmt.Errorf("factory.yaml: %w", err)
 	}
 	path := filepath.Join(cfg.Adapter, "manifest.yaml")

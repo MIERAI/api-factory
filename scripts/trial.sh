@@ -1,14 +1,11 @@
 #!/usr/bin/env bash
 # 对照试验: 同一份式样书 × 同一个 harness(claude -p) × 不同模型,重复 N 次
-#   usage: scripts/trial.sh <claude|local> <spec.yaml> <N>
+#   usage: scripts/trial.sh <model> <spec.yaml> <N>   (model: factory.yaml 的 ai.models)
 # 结果追加到 .factory/trials/results.jsonl,每次的全部输出留在 .factory/trials/<run>/
 set -uo pipefail
-MODEL=${1:?claude|local}; SPEC=${2:?spec.yaml}; N=${3:-3}
+MODEL=${1:?model (factory.yaml ai.models)}; SPEC=${2:?spec.yaml}; N=${3:-3}
 ROOT=$(pwd)
 DB_URL=${DB_URL:-postgres://factory:factory@127.0.0.1:55432/factory?sslmode=disable}
-LOCAL_MODEL=${LOCAL_MODEL:-qwen3.6:35b}
-LOCAL_URL=${LOCAL_URL:-http://100.106.140.35:11434}
-AI_TIMEOUT=${AI_TIMEOUT:-1800}
 mkdir -p .factory/trials .factory/wt
 go build -o .factory/factory ./factory/cmd/factory || exit 1
 F="$ROOT/.factory/factory"
@@ -16,18 +13,8 @@ API_ID=$($F ai-paths "$SPEC" | head -1)
 SPEC_SHA=$(git hash-object "$SPEC" | cut -c1-8)   # 式样书版本: 比较流程改进前后用
 AI_FILES=$($F ai-paths "$SPEC" | tail -n +2)
 
-run_ai() {  # $1 = prompt file, $2 = json out
-  local allowed='Read,Glob,Grep,Write,Edit,Bash(go build:*),Bash(go vet:*),Bash(go test:*)'
-  if [[ $MODEL == local ]]; then
-    env ANTHROPIC_BASE_URL="$LOCAL_URL" ANTHROPIC_AUTH_TOKEN=ollama ANTHROPIC_API_KEY= \
-      ANTHROPIC_DEFAULT_HAIKU_MODEL="$LOCAL_MODEL" ANTHROPIC_DEFAULT_SONNET_MODEL="$LOCAL_MODEL" \
-      ANTHROPIC_DEFAULT_OPUS_MODEL="$LOCAL_MODEL" CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
-      perl -e 'alarm shift; exec @ARGV' "$AI_TIMEOUT" \
-      claude -p --model "$LOCAL_MODEL" --allowedTools "$allowed" --max-turns 40 --output-format json < "$1" > "$2" 2>/dev/null
-  else
-    perl -e 'alarm shift; exec @ARGV' "$AI_TIMEOUT" \
-      claude -p --allowedTools "$allowed" --max-turns 40 --output-format json < "$1" > "$2" 2>/dev/null
-  fi
+run_ai() {  # $1 = prompt file, $2 = json out。模型和调用方式在 factory.yaml(ai.roles.implement)
+  "$F" ai --role implement --model "$MODEL" -- --output-format json < "$1" > "$2" 2>/dev/null
 }
 
 for i in $(seq 1 "$N"); do

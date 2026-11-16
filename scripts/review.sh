@@ -1,25 +1,18 @@
 #!/usr/bin/env bash
 # 式样书审查: AI 只读式样书/proto/schema,输出规格漏洞(JSON)。不给任何工具。
-#   usage: scripts/review.sh <spec.yaml> [claude|local] [label]
+#   usage: scripts/review.sh <spec.yaml> [model] [label]   (model 省略 = factory.yaml 的默认)
 #   退出码: 0 = 无 blocker/major,1 = 有 blocker/major(流水线应在生成前停下)
 set -uo pipefail
-SPEC=${1:?spec.yaml}; MODEL=${2:-claude}; LABEL=${3:-}
-LOCAL_MODEL=${LOCAL_MODEL:-qwen3.6:35b}; LOCAL_URL=${LOCAL_URL:-http://100.106.140.35:11434}
+SPEC=${1:?spec.yaml}; MODEL=${2:-}; LABEL=${3:-}   # MODEL 省略 = factory.yaml 的默认
 mkdir -p .factory/reviews
 API_ID=$(go run ./factory/cmd/factory ai-paths "$SPEC" | head -1)
-OUT=.factory/reviews/$(date +%Y%m%d-%H%M%S)-$MODEL-$API_ID${LABEL:+-$LABEL}
+OUT=.factory/reviews/$(date +%Y%m%d-%H%M%S)-${MODEL:-default}-$API_ID${LABEL:+-$LABEL}
 mkdir -p "$OUT"
 go run ./factory/cmd/factory review-prompt "$SPEC" > "$OUT/prompt.md" || exit 2
 
 t0=$(date +%s)
-if [[ $MODEL == local ]]; then
-  env ANTHROPIC_BASE_URL="$LOCAL_URL" ANTHROPIC_AUTH_TOKEN=ollama ANTHROPIC_API_KEY= \
-    ANTHROPIC_DEFAULT_HAIKU_MODEL="$LOCAL_MODEL" ANTHROPIC_DEFAULT_SONNET_MODEL="$LOCAL_MODEL" \
-    ANTHROPIC_DEFAULT_OPUS_MODEL="$LOCAL_MODEL" CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
-    claude -p --model "$LOCAL_MODEL" --tools "" --max-turns 2 --output-format json < "$OUT/prompt.md" > "$OUT/ai.json" 2>/dev/null
-else
-  claude -p --tools "" --max-turns 2 --output-format json < "$OUT/prompt.md" > "$OUT/ai.json" 2>/dev/null
-fi
+# 模型和调用方式在 factory.yaml(ai.roles.review);审查只允许强模型
+go run ./factory/cmd/factory ai --role review ${MODEL:+--model "$MODEL"} -- --output-format json < "$OUT/prompt.md" > "$OUT/ai.json" 2> "$OUT/ai.err" || { cat "$OUT/ai.err"; exit 2; }
 sec=$(( $(date +%s) - t0 ))
 
 python3 - "$OUT" "$sec" <<'PY'

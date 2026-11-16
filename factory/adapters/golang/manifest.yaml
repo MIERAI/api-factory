@@ -40,3 +40,6 @@ guard:
 
 # 从逻辑函数的桩里提取签名(prompt 里给 AI 看,签名只在桩里定义一次)
 logic_signature: "(?m)^func \\w+Logic\\(.*\\) \\(.*\\)"
+
+# 实现阶段允许 AI 使用的工具(claude -p --allowedTools)
+ai_tools: "Read,Glob,Grep,Write,Edit,Bash(go build:*),Bash(go vet:*),Bash(go test:*)"

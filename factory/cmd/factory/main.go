@@ -21,6 +21,7 @@ import (
 	"apifactory/factory/acceptgen"
 	"apifactory/factory/adapter"
 	"apifactory/factory/adapters/golang"
+	"apifactory/factory/ai"
 	"apifactory/factory/compiler"
 	"apifactory/factory/guard"
 	"apifactory/factory/ir"
@@ -55,6 +56,8 @@ func main() {
 		err = cmdStats(args)
 	case "serve-test":
 		err = cmdServeTest(args)
+	case "ai":
+		err = cmdAI(args)
 	default:
 		usage()
 	}
@@ -444,4 +447,27 @@ func cmdServeTest(args []string) error {
 		return err
 	}
 	return testenv.WithServer(context.Background(), *server, *db, ".factory/server.log", cmd)
+}
+
+// cmdAI: 调用 AI 的唯一入口。
+//
+//	factory ai --role implement [--model local] [-- 追加参数...]  < prompt
+//
+// implement 角色会自动加上适配器清单里的 ai_tools(允许的工具)。
+func cmdAI(args []string) error {
+	fs := flag.NewFlagSet("ai", flag.ExitOnError)
+	role := fs.String("role", "", "review / implement")
+	model := fs.String("model", "", "覆盖角色的默认模型(必须在 allowed 里)")
+	_ = fs.Parse(args)
+	extra := fs.Args()
+	if *role == "implement" {
+		m, err := adapter.Load()
+		if err != nil {
+			return err
+		}
+		if m.AITools != "" {
+			extra = append([]string{"--allowedTools", m.AITools}, extra...)
+		}
+	}
+	return ai.Run(*role, *model, extra, os.Stdin, os.Stdout, os.Stderr)
 }
