@@ -28,6 +28,7 @@ import (
 
 type Result struct {
 	Spec   string
+	Suite  string // 空 = 人写的用例;auto:* = 自动生成
 	Case   string
 	Passed bool
 	Detail string
@@ -85,6 +86,24 @@ func Run(ctx context.Context, serverBin, databaseURL string, specs []*spec.Spec)
 		for _, c := range s.Acceptance.Cases {
 			ok, detail := runCase(url, c, md.Output())
 			results = append(results, Result{Spec: s.ID(), Case: c.Name, Passed: ok, Detail: detail})
+		}
+		// 自动生成的机制测试(gen/acceptance/<id>.yaml)
+		auto, err := spec.LoadAutoAcceptance(s.ID())
+		if err != nil {
+			return nil, err
+		}
+		if auto != nil {
+			for _, suite := range auto.Suites {
+				if suite.Fixtures != nil {
+					if err := loadFixtures(ctx, conn, suite.Fixtures); err != nil {
+						return nil, fmt.Errorf("%s auto %s fixtures: %w", s.ID(), suite.Name, err)
+					}
+				}
+				for _, c := range suite.Cases {
+					ok, detail := runCase(url, c, md.Output())
+					results = append(results, Result{Spec: s.ID(), Suite: "auto:" + suite.Name, Case: c.Name, Passed: ok, Detail: detail})
+				}
+			}
 		}
 	}
 	return results, nil
@@ -174,6 +193,21 @@ func runStep(url string, reqBody map[string]any, expect spec.Expect, out protore
 	raw, _ := io.ReadAll(resp.Body)
 
 	wantCode := strings.ToUpper(expect.Code)
+	// "!CODE": 只要求不是这个 code(用于"合法输入不能被校验拒绝",结果可能是 OK 也可能是 NOT_FOUND)
+	if not, ok := strings.CutPrefix(wantCode, "!"); ok {
+		gotCode := "OK"
+		if resp.StatusCode != http.StatusOK {
+			var e struct {
+				Code string `json:"code"`
+			}
+			_ = json.Unmarshal(raw, &e)
+			gotCode = strings.ToUpper(e.Code)
+		}
+		if gotCode == not {
+			return false, fmt.Sprintf("want not %s, got %s: %s", not, gotCode, truncate(raw, 200)), nil
+		}
+		return true, "not " + not + " (" + gotCode + ")", nil
+	}
 	if resp.StatusCode != http.StatusOK {
 		var e struct {
 			Code    string `json:"code"`

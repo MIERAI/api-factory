@@ -239,19 +239,26 @@ func cmdAccept(args []string) error {
 	if err != nil {
 		return err
 	}
-	failed := 0
+	failed, human, auto := 0, 0, 0
 	for _, r := range results {
 		mark := "✓"
 		if !r.Passed {
 			mark = "✗"
 			failed++
 		}
-		fmt.Printf("  %s [%s] %s — %s\n", mark, r.Spec, r.Case, r.Detail)
+		label := r.Spec
+		if r.Suite != "" {
+			label += " " + r.Suite
+			auto++
+		} else {
+			human++
+		}
+		fmt.Printf("  %s [%s] %s — %s\n", mark, label, r.Case, r.Detail)
 	}
 	if failed > 0 {
-		return fmt.Errorf("acceptance failed: %d/%d case(s)", failed, len(results))
+		return fmt.Errorf("acceptance failed: %d/%d case(s) (人写 %d / 自动 %d)", failed, len(results), human, auto)
 	}
-	fmt.Printf("✓ acceptance passed (%d case(s))\n", len(results))
+	fmt.Printf("✓ acceptance passed (%d case(s): 人写 %d / 自动 %d)\n", len(results), human, auto)
 	return nil
 }
 

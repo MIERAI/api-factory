@@ -103,9 +103,44 @@ func compileSQL(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalog) (s
 		return "", err
 	}
 
+	filters, err := resolveFilters(s, md, cat)
+	if err != nil {
+		return "", err
+	}
+	var conds []string
+	for _, f := range filters {
+		if f.Presence {
+			// optional / Timestamp: 未指定(NULL)时不筛选
+			conds = append(conds, fmt.Sprintf("(sqlc.narg(%s)::%s IS NULL OR %s %s sqlc.narg(%s)::%s)",
+				f.Name, f.Column.Type, f.Column.Name, f.SQLOp, f.Name, f.Column.Type))
+		} else {
+			conds = append(conds, fmt.Sprintf("%s %s sqlc.arg(%s)::%s", f.Column.Name, f.SQLOp, f.Name, f.Column.Type))
+		}
+	}
+
+	sql := fmt.Sprintf("SELECT %s\nFROM %s", strings.Join(cols, ", "), table)
+	if len(conds) > 0 {
+		sql += "\nWHERE " + strings.Join(conds, "\n  AND ")
+	}
+	return sql, nil
+}
+
+// resolvedFilter: 一个请求字段对应的筛选条件(SQL 生成和验收用例生成共用)。
+type resolvedFilter struct {
+	Field    protoreflect.FieldDescriptor
+	Name     string    // 请求字段名 = 查询参数名
+	Column   catColumn // 列
+	Op       string    // eq / gt / gte / lt / lte
+	SQLOp    string    // = / > / >= / < / <=
+	Presence bool      // true: 未指定时不筛选
+}
+
+func resolveFilters(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalog) ([]resolvedFilter, error) {
+	ds := s.Datasource
+	table := ds.Table
 	in := md.Input()
 	used := map[string]bool{}
-	var conds []string
+	var out []resolvedFilter
 	for i := 0; i < in.Fields().Len(); i++ {
 		fd := in.Fields().Get(i)
 		name := string(fd.Name())
@@ -117,33 +152,21 @@ func compileSQL(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalog) (s
 			f, ok = conventionFilter(name, table, cat)
 		}
 		if !ok {
-			return "", fmt.Errorf("request field %q has no matching column in %s (declare datasource.filters.%s)", name, table, name)
+			return nil, fmt.Errorf("request field %q has no matching column in %s (declare datasource.filters.%s)", name, table, name)
 		}
 		used[name] = true
 		col, ok := cat.column(table, f.Column)
 		if !ok {
-			return "", fmt.Errorf("datasource.filters.%s: column %q is not in table %s", name, f.Column, table)
+			return nil, fmt.Errorf("datasource.filters.%s: column %q is not in table %s", name, f.Column, table)
 		}
-		op := spec.FilterOps[f.Op]
-		if fd.HasPresence() {
-			// optional / Timestamp: 未指定(NULL)时不筛选
-			conds = append(conds, fmt.Sprintf("(sqlc.narg(%s)::%s IS NULL OR %s %s sqlc.narg(%s)::%s)",
-				name, col.Type, col.Name, op, name, col.Type))
-		} else {
-			conds = append(conds, fmt.Sprintf("%s %s sqlc.arg(%s)::%s", col.Name, op, name, col.Type))
-		}
+		out = append(out, resolvedFilter{Field: fd, Name: name, Column: col, Op: f.Op, SQLOp: spec.FilterOps[f.Op], Presence: fd.HasPresence()})
 	}
 	for name := range ds.Filters {
 		if !used[name] {
-			return "", fmt.Errorf("datasource.filters.%s: no such request field in %s", name, in.Name())
+			return nil, fmt.Errorf("datasource.filters.%s: no such request field in %s", name, in.Name())
 		}
 	}
-
-	sql := fmt.Sprintf("SELECT %s\nFROM %s", strings.Join(cols, ", "), table)
-	if len(conds) > 0 {
-		sql += "\nWHERE " + strings.Join(conds, "\n  AND ")
-	}
-	return sql, nil
+	return out, nil
 }
 
 // selectColumns: 显式的 datasource.columns,否则从响应字段推导。

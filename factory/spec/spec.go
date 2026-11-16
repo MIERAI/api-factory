@@ -361,3 +361,38 @@ func (s *Spec) Check() []string {
 	}
 	return errs
 }
+
+// ---------------------------------------------------------------------------
+// 自动生成的验收用例(gen/acceptance/<id>.yaml)
+//   人写的用例验证"意图";自动生成的用例验证"机制"(工厂和平台有没有把声明正确地变成代码)
+// ---------------------------------------------------------------------------
+
+type AutoAcceptance struct {
+	Spec     string   `yaml:"spec"`
+	Coverage []string `yaml:"coverage"` // 自动覆盖了哪些方面(给人和审查员看)
+	Suites   []Suite  `yaml:"suites"`
+}
+
+// Suite: Fixtures 为 nil 时沿用当前 DB 内容(不重新灌数据)。
+type Suite struct {
+	Name     string                      `yaml:"name"`
+	Fixtures map[string][]map[string]any `yaml:"fixtures,omitempty"`
+	Cases    []Case                      `yaml:"cases"`
+}
+
+func AutoAcceptancePath(id string) string { return "gen/acceptance/" + id + ".yaml" }
+
+func LoadAutoAcceptance(id string) (*AutoAcceptance, error) {
+	b, err := os.ReadFile(AutoAcceptancePath(id))
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var a AutoAcceptance
+	if err := yaml.Unmarshal(b, &a); err != nil {
+		return nil, fmt.Errorf("%s: %w", AutoAcceptancePath(id), err)
+	}
+	return &a, nil
+}

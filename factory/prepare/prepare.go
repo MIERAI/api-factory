@@ -87,6 +87,12 @@ func Run(specs []*spec.Spec) error {
 	if err := run("buf", "generate"); err != nil {
 		return err
 	}
+	// 自动生成验收用例(机制测试)
+	for _, s := range specs {
+		if err := writeAutoAcceptance(s, methods[s], cat); err != nil {
+			return fmt.Errorf("%s: %w", s.Path, err)
+		}
+	}
 
 	services, err := collectServices(specs)
 	if err != nil {
