@@ -1,7 +1,7 @@
 version: "2"
 sql:
   - engine: postgresql
-    schema: db/schema.sql
+    schema: db/schema        # 每个领域一个文件
     queries: db/queries
     gen:
       # schema 目录(表/列/类型),factory 用它从声明生成 SQL

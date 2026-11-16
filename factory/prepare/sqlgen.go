@@ -12,7 +12,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// schema 目录: 由 sqlc 解析 db/schema.sql 后输出(gen.json),不自己解析 DDL
+// schema 目录: 由 sqlc 解析 db/schema/*.sql 后输出(gen.json),不自己解析 DDL
 // ---------------------------------------------------------------------------
 
 const catalogPath = ".factory/sqlc/codegen.json"
@@ -95,7 +95,7 @@ func compileSQL(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalog) (s
 	}
 	table := ds.Table
 	if _, ok := cat.tables[table]; !ok {
-		return "", fmt.Errorf("datasource.table: %q is not in db/schema.sql", table)
+		return "", fmt.Errorf("datasource.table: %q is not in db/schema/*.sql", table)
 	}
 
 	cols, err := selectColumns(s, md, cat)

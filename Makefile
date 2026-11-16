@@ -17,7 +17,7 @@ db-up:            ## 启动本地 Postgres 并应用 schema
 	@$(MAKE) --no-print-directory db-schema
 
 db-schema:
-	@docker exec -i $(PG_NAME) psql -q -U factory -d factory -v ON_ERROR_STOP=1 < db/schema.sql
+	@cat db/schema/*.sql | docker exec -i $(PG_NAME) psql -q -U factory -d factory -v ON_ERROR_STOP=1
 	@echo "✓ db ready ($(DB_URL))"
 
 db-down:

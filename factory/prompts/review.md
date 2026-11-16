@@ -109,7 +109,7 @@
 {{.Domain}}
 ```
 
-### DB schema(`db/schema.sql`)
+### DB schema(`db/schema/*.sql`)
 
 ```sql
 {{.Schema}}

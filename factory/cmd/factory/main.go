@@ -306,7 +306,7 @@ func cmdReviewPrompt(args []string) error {
 	if err != nil {
 		return err
 	}
-	schema, err := os.ReadFile("db/schema.sql")
+	schema, err := readSchema()
 	if err != nil {
 		return err
 	}
@@ -365,4 +365,22 @@ func cmdStats(args []string) error {
 			escSQL, len(specs), 100*float64(escSQL)/float64(len(specs)))
 	}
 	return nil
+}
+
+// readSchema: db/schema/*.sql 全部拼起来(每个领域一个文件)。
+func readSchema() ([]byte, error) {
+	files, err := filepath.Glob("db/schema/*.sql")
+	if err != nil {
+		return nil, err
+	}
+	var out []byte
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, b...)
+		out = append(out, '\n')
+	}
+	return out, nil
 }
