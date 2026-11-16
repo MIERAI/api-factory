@@ -76,6 +76,8 @@ func Run(ctx context.Context, baseURL, fixturesDB string, plan *ir.Plan, specs [
 				}
 			}
 		}
+		// 差分测试(随机数据 + 参考求值器)
+		results = append(results, runDiff(ctx, conn, url, plan, api)...)
 	}
 	return results, nil
 }

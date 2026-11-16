@@ -293,7 +293,7 @@ func cmdAccept(args []string) error {
 	if err != nil {
 		return err
 	}
-	failed, human, auto := 0, 0, 0
+	failed, human, auto, diff := 0, 0, 0, 0
 	for _, r := range results {
 		mark := "✓"
 		if !r.Passed {
@@ -301,18 +301,22 @@ func cmdAccept(args []string) error {
 			failed++
 		}
 		label := r.Spec
-		if r.Suite != "" {
+		switch {
+		case r.Suite == "diff":
+			label += " 差分"
+			diff++
+		case r.Suite != "":
 			label += " " + r.Suite
 			auto++
-		} else {
+		default:
 			human++
 		}
 		fmt.Printf("  %s [%s] %s — %s\n", mark, label, r.Case, r.Detail)
 	}
 	if failed > 0 {
-		return fmt.Errorf("acceptance failed: %d/%d case(s) (人写 %d / 自动 %d)", failed, len(results), human, auto)
+		return fmt.Errorf("acceptance failed: %d/%d case(s) (人写 %d / 自动 %d / 差分 %d)", failed, len(results), human, auto, diff)
 	}
-	fmt.Printf("✓ acceptance passed (%d case(s): 人写 %d / 自动 %d)\n", len(results), human, auto)
+	fmt.Printf("✓ acceptance passed (%d case(s): 人写 %d / 自动 %d / 差分 %d)\n", len(results), human, auto, diff)
 	return nil
 }
 

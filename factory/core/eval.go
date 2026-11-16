@@ -446,3 +446,28 @@ func RatString(r *big.Rat) string {
 	}
 	return s
 }
+
+// FromPGText: Postgres 的 ::text 输出(会话时区 UTC)→ 核心的值。nil = NULL。
+func FromPGText(s *string, k Kind) (any, error) {
+	if s == nil {
+		return nil, nil
+	}
+	switch k {
+	case Bool:
+		return *s == "true", nil
+	case JSON:
+		dec := json.NewDecoder(strings.NewReader(*s))
+		dec.UseNumber()
+		var v any
+		err := dec.Decode(&v)
+		return v, err
+	case Timestamp:
+		for _, layout := range []string{"2006-01-02 15:04:05.999999Z07", "2006-01-02 15:04:05Z07"} {
+			if t, err := time.Parse(layout, *s); err == nil {
+				return t.UTC(), nil
+			}
+		}
+		return nil, fmt.Errorf("timestamp %q", *s)
+	}
+	return castText(*s, k)
+}

@@ -342,25 +342,7 @@ func sqlArg(v any) any {
 
 // canonicalText: Postgres 的 ::text 输出 → 与 Canonical 相同的写法
 func canonicalText(s *string, k Kind) string {
-	if s == nil {
-		return "∅"
-	}
-	var v any
-	var err error
-	switch k {
-	case Bool:
-		v = *s == "true"
-	case JSON:
-		dec := json.NewDecoder(strings.NewReader(*s))
-		dec.UseNumber()
-		err = dec.Decode(&v)
-	case Timestamp:
-		var t time.Time
-		t, err = time.Parse("2006-01-02 15:04:05Z07", *s)
-		v = t.UTC()
-	default:
-		v, err = castText(*s, k)
-	}
+	v, err := FromPGText(s, k)
 	if err != nil {
 		return "!" + *s
 	}

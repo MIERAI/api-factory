@@ -11,10 +11,13 @@ run() { # $1=名称 $2=文件 $3=perl 替换式
   out=$(.factory/factory serve-test --server bin/server --db "$DB_URL" -- .factory/factory accept --db "$DB_URL" 2>&1)
   unit=$(go test ./internal/... 2>&1 | grep -c '^--- FAIL')
   if ! echo "$out" | grep -q 'case(s)'; then echo "  ? $1: 执行器出错 — $(echo "$out" | tail -1)"; cp /tmp/mut.bak "$2"; return; fi
-  human=$(echo "$out" | grep '✗' | grep -vc ' auto:')
-  auto=$(echo "$out" | grep '✗' | grep -c ' auto:')
-  verdict="✗ 漏掉"; [[ $auto -gt 0 || $unit -gt 0 ]] && verdict="✓ 抓到"
-  printf "  %s %-36s 自动用例失败 %2d / 生成的单元测试失败 %d / 人写用例失败 %2d\n" "$verdict" "$1" "$auto" "$unit" "$human"
+  fails=$(echo "$out" | grep '^  ✗')
+  diff=$(echo "$fails" | grep -c ' 差分\]')
+  auto=$(echo "$fails" | grep -c ' auto:')
+  human=$(echo "$fails" | grep -v ' 差分\]' | grep -vc ' auto:')
+  [[ -z "$fails" ]] && human=0
+  verdict="✗ 漏掉"; [[ $auto -gt 0 || $unit -gt 0 || $diff -gt 0 ]] && verdict="✓ 抓到"
+  printf "  %s %-36s 差分 %2d / 自动用例 %2d / 生成的单元测试 %d / 人写 %2d\n" "$verdict" "$1" "$diff" "$auto" "$unit" "$human"
   cp /tmp/mut.bak "$2"
 }
 Q=gen/db/jobs.list-jobs.sql.go
