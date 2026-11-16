@@ -68,6 +68,21 @@ type Case struct {
 	Name    string         `yaml:"name"`
 	Request map[string]any `yaml:"request"`
 	Expect  Expect         `yaml:"expect"`
+	// Steps 用于多步用例(如翻页)。request 里的 "$prev.<field>" 会被替换成上一步响应的字段
+	Steps []Step `yaml:"steps"`
+}
+
+type Step struct {
+	Request map[string]any `yaml:"request"`
+	Expect  Expect         `yaml:"expect"`
+}
+
+// AllSteps 把单步用例也统一成 steps 形式。
+func (c Case) AllSteps() []Step {
+	if len(c.Steps) > 0 {
+		return c.Steps
+	}
+	return []Step{{Request: c.Request, Expect: c.Expect}}
 }
 
 type Expect struct {
@@ -203,8 +218,16 @@ func (s *Spec) Check() []string {
 		add("acceptance.cases: at least one case is required")
 	}
 	for i, c := range s.Acceptance.Cases {
-		if c.Name == "" || c.Expect.Code == "" {
-			add("acceptance.cases[%d]: name and expect.code are required", i)
+		if c.Name == "" {
+			add("acceptance.cases[%d]: name is required", i)
+		}
+		if len(c.Steps) > 0 && (c.Request != nil || c.Expect.Code != "") {
+			add("acceptance.cases[%d]: use either request/expect or steps, not both", i)
+		}
+		for j, st := range c.AllSteps() {
+			if st.Expect.Code == "" {
+				add("acceptance.cases[%d].steps[%d]: expect.code is required", i, j)
+			}
 		}
 	}
 	for table := range s.Acceptance.Fixtures {

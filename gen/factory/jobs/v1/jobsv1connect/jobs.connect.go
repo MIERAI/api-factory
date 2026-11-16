@@ -35,6 +35,8 @@ const (
 const (
 	// JobServiceGetJobStatusProcedure is the fully-qualified name of the JobService's GetJobStatus RPC.
 	JobServiceGetJobStatusProcedure = "/factory.jobs.v1.JobService/GetJobStatus"
+	// JobServiceListJobsProcedure is the fully-qualified name of the JobService's ListJobs RPC.
+	JobServiceListJobsProcedure = "/factory.jobs.v1.JobService/ListJobs"
 )
 
 // JobServiceClient is a client for the factory.jobs.v1.JobService service.
@@ -44,6 +46,10 @@ type JobServiceClient interface {
 	//   NOT_FOUND        : 不存在
 	//   INVALID_ARGUMENT : job_id <= 0
 	GetJobStatus(context.Context, *connect.Request[v1.GetJobStatusRequest]) (*connect.Response[v1.GetJobStatusResponse], error)
+	// 按条件列出任务,新的在前,游标分页
+	//   OK               : 0 件也是 OK
+	//   INVALID_ARGUMENT : 参数不合法 / page_token 无法解析
+	ListJobs(context.Context, *connect.Request[v1.ListJobsRequest]) (*connect.Response[v1.ListJobsResponse], error)
 }
 
 // NewJobServiceClient constructs a client for the factory.jobs.v1.JobService service. By default,
@@ -63,17 +69,29 @@ func NewJobServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(jobServiceMethods.ByName("GetJobStatus")),
 			connect.WithClientOptions(opts...),
 		),
+		listJobs: connect.NewClient[v1.ListJobsRequest, v1.ListJobsResponse](
+			httpClient,
+			baseURL+JobServiceListJobsProcedure,
+			connect.WithSchema(jobServiceMethods.ByName("ListJobs")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // jobServiceClient implements JobServiceClient.
 type jobServiceClient struct {
 	getJobStatus *connect.Client[v1.GetJobStatusRequest, v1.GetJobStatusResponse]
+	listJobs     *connect.Client[v1.ListJobsRequest, v1.ListJobsResponse]
 }
 
 // GetJobStatus calls factory.jobs.v1.JobService.GetJobStatus.
 func (c *jobServiceClient) GetJobStatus(ctx context.Context, req *connect.Request[v1.GetJobStatusRequest]) (*connect.Response[v1.GetJobStatusResponse], error) {
 	return c.getJobStatus.CallUnary(ctx, req)
+}
+
+// ListJobs calls factory.jobs.v1.JobService.ListJobs.
+func (c *jobServiceClient) ListJobs(ctx context.Context, req *connect.Request[v1.ListJobsRequest]) (*connect.Response[v1.ListJobsResponse], error) {
+	return c.listJobs.CallUnary(ctx, req)
 }
 
 // JobServiceHandler is an implementation of the factory.jobs.v1.JobService service.
@@ -83,6 +101,10 @@ type JobServiceHandler interface {
 	//   NOT_FOUND        : 不存在
 	//   INVALID_ARGUMENT : job_id <= 0
 	GetJobStatus(context.Context, *connect.Request[v1.GetJobStatusRequest]) (*connect.Response[v1.GetJobStatusResponse], error)
+	// 按条件列出任务,新的在前,游标分页
+	//   OK               : 0 件也是 OK
+	//   INVALID_ARGUMENT : 参数不合法 / page_token 无法解析
+	ListJobs(context.Context, *connect.Request[v1.ListJobsRequest]) (*connect.Response[v1.ListJobsResponse], error)
 }
 
 // NewJobServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -98,10 +120,18 @@ func NewJobServiceHandler(svc JobServiceHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(jobServiceMethods.ByName("GetJobStatus")),
 		connect.WithHandlerOptions(opts...),
 	)
+	jobServiceListJobsHandler := connect.NewUnaryHandler(
+		JobServiceListJobsProcedure,
+		svc.ListJobs,
+		connect.WithSchema(jobServiceMethods.ByName("ListJobs")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/factory.jobs.v1.JobService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case JobServiceGetJobStatusProcedure:
 			jobServiceGetJobStatusHandler.ServeHTTP(w, r)
+		case JobServiceListJobsProcedure:
+			jobServiceListJobsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -113,4 +143,8 @@ type UnimplementedJobServiceHandler struct{}
 
 func (UnimplementedJobServiceHandler) GetJobStatus(context.Context, *connect.Request[v1.GetJobStatusRequest]) (*connect.Response[v1.GetJobStatusResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.jobs.v1.JobService.GetJobStatus is not implemented"))
+}
+
+func (UnimplementedJobServiceHandler) ListJobs(context.Context, *connect.Request[v1.ListJobsRequest]) (*connect.Response[v1.ListJobsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.jobs.v1.JobService.ListJobs is not implemented"))
 }

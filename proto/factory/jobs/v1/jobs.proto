@@ -3,6 +3,7 @@ syntax = "proto3";
 package factory.jobs.v1;
 
 import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "apifactory/gen/factory/jobs/v1;jobsv1";
 
@@ -13,6 +14,11 @@ service JobService {
   //   NOT_FOUND        : 不存在
   //   INVALID_ARGUMENT : job_id <= 0
   rpc GetJobStatus(GetJobStatusRequest) returns (GetJobStatusResponse);
+
+  // 按条件列出任务,新的在前,游标分页
+  //   OK               : 0 件也是 OK
+  //   INVALID_ARGUMENT : 参数不合法 / page_token 无法解析
+  rpc ListJobs(ListJobsRequest) returns (ListJobsResponse);
 }
 
 message GetJobStatusRequest {
@@ -23,4 +29,46 @@ message GetJobStatusRequest {
 message GetJobStatusResponse {
   // 0: 未完成 / 1: 成功 / 2: 失败
   int32 status = 1;
+}
+
+message ListJobsRequest {
+  option (buf.validate.message).cel = {
+    id: "created_range"
+    message: "created_after must be earlier than created_before"
+    expression: "!has(this.created_after) || !has(this.created_before) || this.created_after < this.created_before"
+  };
+
+  // 0 = 默认值 20,最大 100
+  int32 page_size = 1 [(buf.validate.field).int32 = {
+    gte: 0
+    lte: 100
+  }];
+  // 上一页返回的 next_page_token。不透明字符串,调用方不应解析
+  string page_token = 2;
+  // 指定时按 status 筛选(0 也是合法的筛选值)
+  optional int32 status = 3 [(buf.validate.field).int32 = {
+    in: [0, 1, 2]
+  }];
+  // 指定时按 job_type 完全一致筛选
+  optional string job_type = 4 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 64
+  }];
+  // created_at >= created_after
+  google.protobuf.Timestamp created_after = 5;
+  // created_at < created_before
+  google.protobuf.Timestamp created_before = 6;
+}
+
+message ListJobsResponse {
+  repeated Job jobs = 1;
+  // 还有下一页时非空,最后一页为空
+  string next_page_token = 2;
+}
+
+message Job {
+  int64 id = 1;
+  string job_type = 2;
+  int32 status = 3;
+  google.protobuf.Timestamp created_at = 4;
 }

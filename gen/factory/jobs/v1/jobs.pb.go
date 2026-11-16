@@ -10,6 +10,7 @@ import (
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -112,18 +113,250 @@ func (x *GetJobStatusResponse) GetStatus() int32 {
 	return 0
 }
 
+type ListJobsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 0 = 默认值 20,最大 100
+	PageSize int32 `protobuf:"varint,1,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	// 上一页返回的 next_page_token。不透明字符串,调用方不应解析
+	PageToken string `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	// 指定时按 status 筛选(0 也是合法的筛选值)
+	Status *int32 `protobuf:"varint,3,opt,name=status,proto3,oneof" json:"status,omitempty"`
+	// 指定时按 job_type 完全一致筛选
+	JobType *string `protobuf:"bytes,4,opt,name=job_type,json=jobType,proto3,oneof" json:"job_type,omitempty"`
+	// created_at >= created_after
+	CreatedAfter *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_after,json=createdAfter,proto3" json:"created_after,omitempty"`
+	// created_at < created_before
+	CreatedBefore *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_before,json=createdBefore,proto3" json:"created_before,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListJobsRequest) Reset() {
+	*x = ListJobsRequest{}
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListJobsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListJobsRequest) ProtoMessage() {}
+
+func (x *ListJobsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListJobsRequest.ProtoReflect.Descriptor instead.
+func (*ListJobsRequest) Descriptor() ([]byte, []int) {
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ListJobsRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListJobsRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+func (x *ListJobsRequest) GetStatus() int32 {
+	if x != nil && x.Status != nil {
+		return *x.Status
+	}
+	return 0
+}
+
+func (x *ListJobsRequest) GetJobType() string {
+	if x != nil && x.JobType != nil {
+		return *x.JobType
+	}
+	return ""
+}
+
+func (x *ListJobsRequest) GetCreatedAfter() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAfter
+	}
+	return nil
+}
+
+func (x *ListJobsRequest) GetCreatedBefore() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedBefore
+	}
+	return nil
+}
+
+type ListJobsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Jobs  []*Job                 `protobuf:"bytes,1,rep,name=jobs,proto3" json:"jobs,omitempty"`
+	// 还有下一页时非空,最后一页为空
+	NextPageToken string `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListJobsResponse) Reset() {
+	*x = ListJobsResponse{}
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListJobsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListJobsResponse) ProtoMessage() {}
+
+func (x *ListJobsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListJobsResponse.ProtoReflect.Descriptor instead.
+func (*ListJobsResponse) Descriptor() ([]byte, []int) {
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ListJobsResponse) GetJobs() []*Job {
+	if x != nil {
+		return x.Jobs
+	}
+	return nil
+}
+
+func (x *ListJobsResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
+type Job struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	JobType       string                 `protobuf:"bytes,2,opt,name=job_type,json=jobType,proto3" json:"job_type,omitempty"`
+	Status        int32                  `protobuf:"varint,3,opt,name=status,proto3" json:"status,omitempty"`
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Job) Reset() {
+	*x = Job{}
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Job) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Job) ProtoMessage() {}
+
+func (x *Job) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Job.ProtoReflect.Descriptor instead.
+func (*Job) Descriptor() ([]byte, []int) {
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *Job) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *Job) GetJobType() string {
+	if x != nil {
+		return x.JobType
+	}
+	return ""
+}
+
+func (x *Job) GetStatus() int32 {
+	if x != nil {
+		return x.Status
+	}
+	return 0
+}
+
+func (x *Job) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
 var File_factory_jobs_v1_jobs_proto protoreflect.FileDescriptor
 
 const file_factory_jobs_v1_jobs_proto_rawDesc = "" +
 	"\n" +
-	"\x1afactory/jobs/v1/jobs.proto\x12\x0ffactory.jobs.v1\x1a\x1bbuf/validate/validate.proto\"5\n" +
+	"\x1afactory/jobs/v1/jobs.proto\x12\x0ffactory.jobs.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"5\n" +
 	"\x13GetJobStatusRequest\x12\x1e\n" +
 	"\x06job_id\x18\x01 \x01(\x03B\a\xbaH\x04\"\x02 \x00R\x05jobId\".\n" +
 	"\x14GetJobStatusResponse\x12\x16\n" +
-	"\x06status\x18\x01 \x01(\x05R\x06status2i\n" +
+	"\x06status\x18\x01 \x01(\x05R\x06status\"\xf8\x03\n" +
+	"\x0fListJobsRequest\x12&\n" +
+	"\tpage_size\x18\x01 \x01(\x05B\t\xbaH\x06\x1a\x04\x18d(\x00R\bpageSize\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x02 \x01(\tR\tpageToken\x12(\n" +
+	"\x06status\x18\x03 \x01(\x05B\v\xbaH\b\x1a\x060\x000\x010\x02H\x00R\x06status\x88\x01\x01\x12)\n" +
+	"\bjob_type\x18\x04 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18@H\x01R\ajobType\x88\x01\x01\x12?\n" +
+	"\rcreated_after\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\fcreatedAfter\x12A\n" +
+	"\x0ecreated_before\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\rcreatedBefore:\xac\x01\xbaH\xa8\x01\x1a\xa5\x01\n" +
+	"\rcreated_range\x121created_after must be earlier than created_before\x1aa!has(this.created_after) || !has(this.created_before) || this.created_after < this.created_beforeB\t\n" +
+	"\a_statusB\v\n" +
+	"\t_job_type\"d\n" +
+	"\x10ListJobsResponse\x12(\n" +
+	"\x04jobs\x18\x01 \x03(\v2\x14.factory.jobs.v1.JobR\x04jobs\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\x83\x01\n" +
+	"\x03Job\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x19\n" +
+	"\bjob_type\x18\x02 \x01(\tR\ajobType\x12\x16\n" +
+	"\x06status\x18\x03 \x01(\x05R\x06status\x129\n" +
+	"\n" +
+	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt2\xba\x01\n" +
 	"\n" +
 	"JobService\x12[\n" +
-	"\fGetJobStatus\x12$.factory.jobs.v1.GetJobStatusRequest\x1a%.factory.jobs.v1.GetJobStatusResponseB'Z%apifactory/gen/factory/jobs/v1;jobsv1b\x06proto3"
+	"\fGetJobStatus\x12$.factory.jobs.v1.GetJobStatusRequest\x1a%.factory.jobs.v1.GetJobStatusResponse\x12O\n" +
+	"\bListJobs\x12 .factory.jobs.v1.ListJobsRequest\x1a!.factory.jobs.v1.ListJobsResponseB'Z%apifactory/gen/factory/jobs/v1;jobsv1b\x06proto3"
 
 var (
 	file_factory_jobs_v1_jobs_proto_rawDescOnce sync.Once
@@ -137,19 +370,29 @@ func file_factory_jobs_v1_jobs_proto_rawDescGZIP() []byte {
 	return file_factory_jobs_v1_jobs_proto_rawDescData
 }
 
-var file_factory_jobs_v1_jobs_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_factory_jobs_v1_jobs_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_factory_jobs_v1_jobs_proto_goTypes = []any{
-	(*GetJobStatusRequest)(nil),  // 0: factory.jobs.v1.GetJobStatusRequest
-	(*GetJobStatusResponse)(nil), // 1: factory.jobs.v1.GetJobStatusResponse
+	(*GetJobStatusRequest)(nil),   // 0: factory.jobs.v1.GetJobStatusRequest
+	(*GetJobStatusResponse)(nil),  // 1: factory.jobs.v1.GetJobStatusResponse
+	(*ListJobsRequest)(nil),       // 2: factory.jobs.v1.ListJobsRequest
+	(*ListJobsResponse)(nil),      // 3: factory.jobs.v1.ListJobsResponse
+	(*Job)(nil),                   // 4: factory.jobs.v1.Job
+	(*timestamppb.Timestamp)(nil), // 5: google.protobuf.Timestamp
 }
 var file_factory_jobs_v1_jobs_proto_depIdxs = []int32{
-	0, // 0: factory.jobs.v1.JobService.GetJobStatus:input_type -> factory.jobs.v1.GetJobStatusRequest
-	1, // 1: factory.jobs.v1.JobService.GetJobStatus:output_type -> factory.jobs.v1.GetJobStatusResponse
-	1, // [1:2] is the sub-list for method output_type
-	0, // [0:1] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	5, // 0: factory.jobs.v1.ListJobsRequest.created_after:type_name -> google.protobuf.Timestamp
+	5, // 1: factory.jobs.v1.ListJobsRequest.created_before:type_name -> google.protobuf.Timestamp
+	4, // 2: factory.jobs.v1.ListJobsResponse.jobs:type_name -> factory.jobs.v1.Job
+	5, // 3: factory.jobs.v1.Job.created_at:type_name -> google.protobuf.Timestamp
+	0, // 4: factory.jobs.v1.JobService.GetJobStatus:input_type -> factory.jobs.v1.GetJobStatusRequest
+	2, // 5: factory.jobs.v1.JobService.ListJobs:input_type -> factory.jobs.v1.ListJobsRequest
+	1, // 6: factory.jobs.v1.JobService.GetJobStatus:output_type -> factory.jobs.v1.GetJobStatusResponse
+	3, // 7: factory.jobs.v1.JobService.ListJobs:output_type -> factory.jobs.v1.ListJobsResponse
+	6, // [6:8] is the sub-list for method output_type
+	4, // [4:6] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_factory_jobs_v1_jobs_proto_init() }
@@ -157,13 +400,14 @@ func file_factory_jobs_v1_jobs_proto_init() {
 	if File_factory_jobs_v1_jobs_proto != nil {
 		return
 	}
+	file_factory_jobs_v1_jobs_proto_msgTypes[2].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_factory_jobs_v1_jobs_proto_rawDesc), len(file_factory_jobs_v1_jobs_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

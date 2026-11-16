@@ -8,3 +8,13 @@ sql:
         package: db
         out: gen/db
         sql_package: pgx/v5
+        # 生成的类型只用 Go 标准类型,handler 就不需要 import pgx(路径闸门禁止)
+        emit_pointers_for_null_types: true
+        overrides:
+          - db_type: pg_catalog.timestamptz
+            go_type: time.Time
+          - db_type: pg_catalog.timestamptz
+            nullable: true
+            go_type:
+              type: time.Time
+              pointer: true

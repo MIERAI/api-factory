@@ -10,6 +10,7 @@ import (
 
 type Job struct {
 	ID        int64
+	JobType   string
 	Status    int32
 	CreatedAt pgtype.Timestamptz
 }

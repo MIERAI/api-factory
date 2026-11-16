@@ -112,22 +112,57 @@ func loadFixtures(ctx context.Context, conn *pgx.Conn, fixtures map[string][]map
 }
 
 func runCase(url string, c spec.Case) (bool, string) {
-	reqBody := c.Request
-	if reqBody == nil {
-		reqBody = map[string]any{}
+	var prev map[string]any
+	steps := c.AllSteps()
+	var details []string
+	for i, st := range steps {
+		req, err := substitute(st.Request, prev)
+		if err != nil {
+			return false, fmt.Sprintf("step %d: %v", i+1, err)
+		}
+		ok, detail, got := runStep(url, req, st.Expect)
+		if len(steps) > 1 {
+			detail = fmt.Sprintf("step %d: %s", i+1, detail)
+		}
+		details = append(details, detail)
+		if !ok {
+			return false, strings.Join(details, " | ")
+		}
+		prev = got
 	}
+	return true, strings.Join(details, " | ")
+}
+
+// substitute 把 "$prev.<field>" 替换成上一步响应里的值。
+func substitute(req map[string]any, prev map[string]any) (map[string]any, error) {
+	out := map[string]any{}
+	for k, v := range req {
+		if s, ok := v.(string); ok && strings.HasPrefix(s, "$prev.") {
+			field := strings.TrimPrefix(s, "$prev.")
+			val, ok := prev[field]
+			if !ok {
+				return nil, fmt.Errorf("%s: previous response has no %q", k, field)
+			}
+			v = val
+		}
+		out[k] = v
+	}
+	return out, nil
+}
+
+func runStep(url string, reqBody map[string]any, expect spec.Expect) (bool, string, map[string]any) {
 	body, _ := json.Marshal(reqBody)
 	req, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Connect-Protocol-Version", "1")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return false, err.Error()
+		return false, err.Error(), nil
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
 
-	wantCode := strings.ToUpper(c.Expect.Code)
+	wantCode := strings.ToUpper(expect.Code)
 	if resp.StatusCode != http.StatusOK {
 		var e struct {
 			Code    string `json:"code"`
@@ -136,23 +171,90 @@ func runCase(url string, c spec.Case) (bool, string) {
 		_ = json.Unmarshal(raw, &e)
 		gotCode := strings.ToUpper(e.Code)
 		if gotCode == wantCode {
-			return true, fmt.Sprintf("%s (%s)", gotCode, e.Message)
+			return true, fmt.Sprintf("%s (%s)", gotCode, e.Message), nil
 		}
-		return false, fmt.Sprintf("want %s, got %s: %s", wantCode, gotCode, e.Message)
+		return false, fmt.Sprintf("want %s, got %s: %s", wantCode, gotCode, e.Message), nil
 	}
 	if wantCode != "OK" {
-		return false, fmt.Sprintf("want %s, got OK: %s", wantCode, raw)
+		return false, fmt.Sprintf("want %s, got OK: %s", wantCode, raw), nil
 	}
 	var got map[string]any
 	if err := json.Unmarshal(raw, &got); err != nil {
-		return false, fmt.Sprintf("bad json: %s", raw)
+		return false, fmt.Sprintf("bad json: %s", raw), nil
 	}
-	for k, want := range c.Expect.Response {
-		if !valueEqual(want, got[k]) {
-			return false, fmt.Sprintf("response.%s: want %v, got %v (body %s)", k, want, got[k], raw)
+	for k, want := range expect.Response {
+		if msg := match("response."+k, want, got[k]); msg != "" {
+			return false, fmt.Sprintf("%s (body %s)", msg, truncate(raw, 300)), got
 		}
 	}
-	return true, fmt.Sprintf("OK %s", raw)
+	return true, "OK " + truncate(raw, 120), got
+}
+
+// match 比对期待值与实际值,不一致时返回说明。
+//
+//   - "$absent"   : 字段不存在或为零值
+//   - "$nonempty" : 字段存在且非零值
+//   - map         : 只比对期待值里写出的键(部分一致)
+//   - 数组        : 长度相同,逐个元素比对
+//   - 标量        : 吸收 protojson 的特性(零值省略、int64 编码为字符串)
+func match(path string, want, got any) string {
+	switch w := want.(type) {
+	case string:
+		switch w {
+		case "$absent":
+			if !isZero(got) {
+				return fmt.Sprintf("%s: want absent, got %v", path, got)
+			}
+			return ""
+		case "$nonempty":
+			if isZero(got) {
+				return fmt.Sprintf("%s: want non-empty, got %v", path, got)
+			}
+			return ""
+		}
+	case map[string]any:
+		g, ok := got.(map[string]any)
+		if !ok {
+			if got == nil && len(w) == 0 {
+				return ""
+			}
+			return fmt.Sprintf("%s: want object, got %v", path, got)
+		}
+		for k, wv := range w {
+			if msg := match(path+"."+k, wv, g[k]); msg != "" {
+				return msg
+			}
+		}
+		return ""
+	case []any:
+		var g []any
+		if got != nil {
+			var ok bool
+			if g, ok = got.([]any); !ok {
+				return fmt.Sprintf("%s: want array, got %v", path, got)
+			}
+		}
+		if len(g) != len(w) {
+			return fmt.Sprintf("%s: want %d item(s), got %d", path, len(w), len(g))
+		}
+		for i := range w {
+			if msg := match(fmt.Sprintf("%s[%d]", path, i), w[i], g[i]); msg != "" {
+				return msg
+			}
+		}
+		return ""
+	}
+	if !valueEqual(want, got) {
+		return fmt.Sprintf("%s: want %v, got %v", path, want, got)
+	}
+	return ""
+}
+
+func truncate(b []byte, n int) string {
+	if len(b) <= n {
+		return string(b)
+	}
+	return string(b[:n]) + "…"
 }
 
 // valueEqual 吸收 protojson 的两个特性:
@@ -181,6 +283,10 @@ func isZero(v any) bool {
 		return x == ""
 	case bool:
 		return !x
+	case []any:
+		return len(x) == 0
+	case map[string]any:
+		return len(x) == 0
 	}
 	return false
 }

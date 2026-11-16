@@ -1,0 +1,159 @@
+# =============================================================================
+# API 式样书: ListJobs
+# =============================================================================
+spec_version: "0.1"
+
+api:
+  id: jobs.list-jobs
+  summary: 按条件列出任务(新的在前,游标分页)
+  description: |
+    管理画面的任务一览。可按 status / job_type / 创建时间范围筛选。
+    数据量大,所以用 keyset 分页,不用 OFFSET。
+  rpc: factory.jobs.v1.JobService/ListJobs
+  proto: proto/factory/jobs/v1/jobs.proto
+  owner: platform-team
+  risk_level: low
+
+datasource:
+  access: read_only
+  tables:
+    - name: jobs
+      columns: [id, job_type, status, created_at]
+  query:
+    name: ListJobs
+    cardinality: many
+    # sqlc.narg = 可空参数(NULL 时不筛选)。生成: Queries.ListJobs(ctx, ListJobsParams) ([]ListJobsRow, error)
+    # 游标 (cursor_created_at, cursor_id) 是上一页最后一行;都为 NULL 时从头开始
+    sql: |
+      SELECT id, job_type, status, created_at
+      FROM jobs
+      WHERE (sqlc.narg(status)::int IS NULL OR status = sqlc.narg(status)::int)
+        AND (sqlc.narg(job_type)::text IS NULL OR job_type = sqlc.narg(job_type)::text)
+        AND (sqlc.narg(created_after)::timestamptz IS NULL OR created_at >= sqlc.narg(created_after)::timestamptz)
+        AND (sqlc.narg(created_before)::timestamptz IS NULL OR created_at < sqlc.narg(created_before)::timestamptz)
+        AND (sqlc.narg(cursor_created_at)::timestamptz IS NULL
+             OR (created_at, id) < (sqlc.narg(cursor_created_at)::timestamptz, sqlc.narg(cursor_id)::bigint))
+      ORDER BY created_at DESC, id DESC
+      LIMIT sqlc.arg(row_limit)::int
+
+behavior:
+  - when: 正常
+    then: OK,按 created_at 降序、同一时间按 id 降序返回。0 件也是 OK(jobs 为空)
+  - when: page_size = 0
+    then: 按 20 件处理
+  - when: 还有下一页
+    then: next_page_token 非空。判断方法:查询 page_size + 1 行,多出来的 1 行只用于判断,不返回
+  - when: 最后一页
+    then: next_page_token 为空字符串
+  - when: page_token 的内容
+    then: 编码本页最后一行的 (created_at, id),格式由实现决定,调用方视为不透明字符串
+  - when: page_token 无法解析
+    then: 'INVALID_ARGUMENT, message="invalid page_token"'
+  - when: status 被指定(包括 0)
+    then: 只返回该 status 的任务。未指定时不筛选
+  - when: page_size / status / job_type 越界,或 created_after >= created_before
+    then: INVALID_ARGUMENT(proto 的 protovalidate 规则自动处理,handler 不用写)
+
+non_functional:
+  latency_p99_ms: 200
+  timeout_ms: 3000
+
+acceptance:
+  fixtures:
+    jobs:
+      - { id: 1, job_type: export, status: 1, created_at: "2026-11-01T00:00:00Z" }
+      - { id: 2, job_type: import, status: 0, created_at: "2026-11-02T00:00:00Z" }
+      - { id: 3, job_type: export, status: 2, created_at: "2026-11-03T00:00:00Z" }
+      - { id: 4, job_type: export, status: 0, created_at: "2026-11-04T00:00:00Z" }
+      - { id: 5, job_type: import, status: 1, created_at: "2026-11-05T00:00:00Z" }
+      - { id: 6, job_type: export, status: 1, created_at: "2026-11-06T00:00:00Z" }
+      - { id: 7, job_type: export, status: 1, created_at: "2026-11-06T00:00:00Z" }  # 与 6 同一时间
+  cases:
+    - name: 无条件 — 全部按新到旧,字段完整
+      request: {}
+      expect:
+        code: OK
+        response:
+          jobs:
+            - { id: 7, job_type: export, status: 1, created_at: "2026-11-06T00:00:00Z" }
+            - { id: 6 }
+            - { id: 5 }
+            - { id: 4, job_type: export, status: 0, created_at: "2026-11-04T00:00:00Z" }
+            - { id: 3 }
+            - { id: 2 }
+            - { id: 1 }
+          next_page_token: $absent
+
+    - name: status=1 筛选
+      request: { status: 1 }
+      expect: { code: OK, response: { jobs: [{ id: 7 }, { id: 6 }, { id: 5 }, { id: 1 }] } }
+
+    - name: status=0 也是有效筛选(不能当作未指定)
+      request: { status: 0 }
+      expect: { code: OK, response: { jobs: [{ id: 4 }, { id: 2 }] } }
+
+    - name: job_type 筛选
+      request: { job_type: import }
+      expect: { code: OK, response: { jobs: [{ id: 5 }, { id: 2 }] } }
+
+    - name: 组合筛选
+      request: { job_type: export, status: 1 }
+      expect: { code: OK, response: { jobs: [{ id: 7 }, { id: 6 }, { id: 1 }] } }
+
+    - name: 时间范围是左闭右开
+      request: { created_after: "2026-11-02T00:00:00Z", created_before: "2026-11-05T00:00:00Z" }
+      expect: { code: OK, response: { jobs: [{ id: 4 }, { id: 3 }, { id: 2 }] } }
+
+    - name: 0 件也是 OK
+      request: { job_type: import, status: 2 }
+      expect: { code: OK, response: { jobs: [], next_page_token: $absent } }
+
+    - name: 翻页走到最后
+      steps:
+        - request: { page_size: 3 }
+          expect: { code: OK, response: { jobs: [{ id: 7 }, { id: 6 }, { id: 5 }], next_page_token: $nonempty } }
+        - request: { page_size: 3, page_token: $prev.next_page_token }
+          expect: { code: OK, response: { jobs: [{ id: 4 }, { id: 3 }, { id: 2 }], next_page_token: $nonempty } }
+        - request: { page_size: 3, page_token: $prev.next_page_token }
+          expect: { code: OK, response: { jobs: [{ id: 1 }], next_page_token: $absent } }
+
+    - name: 同一时间的两行跨页时不重复不遗漏
+      steps:
+        - request: { page_size: 1 }
+          expect: { code: OK, response: { jobs: [{ id: 7 }], next_page_token: $nonempty } }
+        - request: { page_size: 1, page_token: $prev.next_page_token }
+          expect: { code: OK, response: { jobs: [{ id: 6 }], next_page_token: $nonempty } }
+        - request: { page_size: 1, page_token: $prev.next_page_token }
+          expect: { code: OK, response: { jobs: [{ id: 5 }] } }
+
+    - name: 筛选 + 翻页,最后一页刚好装满时没有下一页
+      steps:
+        - request: { status: 1, page_size: 2 }
+          expect: { code: OK, response: { jobs: [{ id: 7 }, { id: 6 }], next_page_token: $nonempty } }
+        - request: { status: 1, page_size: 2, page_token: $prev.next_page_token }
+          expect: { code: OK, response: { jobs: [{ id: 5 }, { id: 1 }], next_page_token: $absent } }
+
+    - name: 非法 page_token
+      request: { page_token: "not-a-valid-token" }
+      expect: { code: INVALID_ARGUMENT }
+
+    - name: page_size 超过上限
+      request: { page_size: 101 }
+      expect: { code: INVALID_ARGUMENT }
+
+    - name: page_size 为负
+      request: { page_size: -1 }
+      expect: { code: INVALID_ARGUMENT }
+
+    - name: status 不在允许值内
+      request: { status: 3 }
+      expect: { code: INVALID_ARGUMENT }
+
+    - name: 时间范围颠倒
+      request: { created_after: "2026-11-05T00:00:00Z", created_before: "2026-11-02T00:00:00Z" }
+      expect: { code: INVALID_ARGUMENT }
+
+generation:
+  ai_may_edit:
+    - internal/handler/jobs/list_jobs.go
+    - internal/handler/jobs/list_jobs_test.go
