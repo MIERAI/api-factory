@@ -1,0 +1,46 @@
+# R8: 订单详情(订单头 + 全部明细)
+# 【缺口】多表: 一个 API 需要 orders 一行 + order_items 多行。没有对应的模式
+#   → compute + datasource.sql(LEFT JOIN 成扁平的行),逻辑函数把行组装成订单头 + 明细
+spec_version: "0.2"
+api:
+  rpc: factory.shop.v1.ShopService/GetOrderWithItems
+  owner: cs-team
+  risk_level: low
+pattern:
+  kind: compute
+datasource:
+  table: orders              # status enum 的映射来自 orders
+  sql: |
+    SELECT o.id, o.customer_id, o.status, o.ordered_at, o.shipped_at, o.total_amount,
+           i.line_no, i.product_id, i.quantity, i.unit_price
+    FROM orders o
+    LEFT JOIN order_items i ON i.order_id = o.id
+    WHERE o.id = sqlc.arg(order_id)::int8
+    ORDER BY i.line_no
+behavior:
+  - when: 查不到行(订单不存在)
+    then: 'NOT_FOUND, message="order not found: {order_id}"'
+  - when: 订单存在
+    then: order = 第一行的订单列;items = 每行的明细列(line_no 为 NULL 的行表示没有明细,不放进 items),按 line_no 升序
+acceptance:
+  fixtures:
+    orders:
+      - { id: 1, customer_id: 7, status: 1, ordered_at: "2026-10-01T00:00:00Z", shipped_at: "2026-10-02T00:00:00Z", total_amount: 3200 }
+      - { id: 2, customer_id: 7, status: 0, ordered_at: "2026-10-05T00:00:00Z", shipped_at: null, total_amount: 0 }
+    order_items:
+      - { order_id: 1, line_no: 2, product_id: 11, quantity: 1, unit_price: 1200 }
+      - { order_id: 1, line_no: 1, product_id: 10, quantity: 2, unit_price: 1000 }
+  cases:
+    - name: 订单头 + 明细(按行号升序)
+      request: { order_id: 1 }
+      expect:
+        code: OK
+        response:
+          order: { id: 1, customer_id: 7, status: ORDER_STATUS_SHIPPED, total_amount: 3200 }
+          items: [{ line_no: 1, quantity: 2 }, { line_no: 2, quantity: 1 }]
+    - name: 没有明细的订单 → items 为空
+      request: { order_id: 2 }
+      expect: { code: OK, response: { order: { id: 2, status: ORDER_STATUS_PLACED, shipped_at: $absent }, items: [] } }
+    - name: 不存在的订单 → NOT_FOUND
+      request: { order_id: 999 }
+      expect: { code: NOT_FOUND }

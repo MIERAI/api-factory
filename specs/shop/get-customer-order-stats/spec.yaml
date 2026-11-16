@@ -1,0 +1,35 @@
+# R7: 某顾客在期间内的订单统计
+spec_version: "0.2"
+api:
+  rpc: factory.shop.v1.ShopService/GetCustomerOrderStats
+  owner: cs-team
+  risk_level: medium
+pattern:
+  kind: compute
+datasource:
+  table: orders
+  columns: [id, status, total_amount]
+  filters:
+    period_start: { column: ordered_at, op: gte }
+    period_end:   { column: ordered_at, op: lt }
+behavior:
+  - when: 计数
+    then: order_count = 行数(含取消);取消件数 = CANCELLED 的行数;未取消 = 其他
+  - when: 金额
+    then: total_amount = 未取消订单的 total_amount 之和;avg_amount = total_amount / 未取消件数,四舍五入到整数(0.5 远离零)。未取消为 0 件时不设置
+  - when: 取消率
+    then: cancel_rate = 取消件数 / order_count,四舍五入到小数 4 位(math.Round(x*1e4)/1e4)。order_count 为 0 时不设置
+acceptance:
+  fixtures:
+    orders:
+      - { id: 1, customer_id: 1, status: 2, ordered_at: "2026-10-01T00:00:00Z", shipped_at: "2026-10-02T00:00:00Z", total_amount: 1000 }
+      - { id: 2, customer_id: 1, status: 3, ordered_at: "2026-10-02T00:00:00Z", shipped_at: null, total_amount: 5000 }
+      - { id: 3, customer_id: 1, status: 0, ordered_at: "2026-10-03T00:00:00Z", shipped_at: null, total_amount: 2001 }
+      - { id: 4, customer_id: 2, status: 2, ordered_at: "2026-10-03T00:00:00Z", shipped_at: "2026-10-04T00:00:00Z", total_amount: 9999 }
+  cases:
+    - name: 取消的订单计入件数和取消率,但不计入金额
+      request: { customer_id: 1, period_start: "2026-10-01T00:00:00Z", period_end: "2026-11-01T00:00:00Z" }
+      expect: { code: OK, response: { order_count: 3, total_amount: 3001, avg_amount: 1501, cancel_rate: 0.3333 } }
+    - name: 期间内没有订单
+      request: { customer_id: 1, period_start: "2026-11-01T00:00:00Z", period_end: "2026-12-01T00:00:00Z" }
+      expect: { code: OK, response: { order_count: 0, total_amount: 0, avg_amount: $absent, cancel_rate: $absent } }

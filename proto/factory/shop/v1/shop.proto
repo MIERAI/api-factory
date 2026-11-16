@@ -43,6 +43,14 @@ service ShopService {
   rpc ListOrderItems(ListOrderItemsRequest) returns (ListOrderItemsResponse);
   // R6: 某商品在某个时点的有效价格
   rpc GetProductPriceAsOf(GetProductPriceAsOfRequest) returns (GetProductPriceAsOfResponse);
+  // R7: 某顾客在期间内的订单统计
+  rpc GetCustomerOrderStats(GetCustomerOrderStatsRequest) returns (GetCustomerOrderStatsResponse);
+  // R8: 订单详情(订单头 + 全部明细)
+  rpc GetOrderWithItems(GetOrderWithItemsRequest) returns (GetOrderWithItemsResponse);
+  // R9: 日别销售额报表
+  rpc GetDailySalesReport(GetDailySalesReportRequest) returns (GetDailySalesReportResponse);
+  // R10: 发货延迟告警(截至 as_of,下单超过 min_days 天仍未发货的订单)
+  rpc ListShippingDelays(ListShippingDelaysRequest) returns (ListShippingDelaysResponse);
 }
 
 message GetCustomerRequest {
@@ -179,4 +187,77 @@ message GetProductPriceAsOfResponse {
   string currency = 2;
   // 这个价格从何时起生效
   google.protobuf.Timestamp valid_from = 3;
+}
+
+message GetCustomerOrderStatsRequest {
+  option (buf.validate.message).cel = {
+    id: "period_range"
+    message: "period_start must be earlier than period_end, and the period must be 366 days or less"
+    expression: "this.period_start < this.period_end && this.period_end - this.period_start <= duration('8784h')"
+  };
+  int64 customer_id = 1 [(buf.validate.field).int64.gt = 0];
+  google.protobuf.Timestamp period_start = 2 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp period_end = 3 [(buf.validate.field).required = true];
+}
+
+message GetCustomerOrderStatsResponse {
+  // 期间内下单的订单数(含取消)
+  int64 order_count = 1;
+  // 未取消订单的金额合计(円)
+  int64 total_amount = 2;
+  // 未取消订单的平均金额(円,四舍五入到整数)。未取消订单为 0 件时不设置
+  optional int64 avg_amount = 3;
+  // 取消率 = 取消件数 / order_count,四舍五入到小数 4 位。order_count 为 0 时不设置
+  optional double cancel_rate = 4;
+}
+
+message GetOrderWithItemsRequest {
+  int64 order_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message GetOrderWithItemsResponse {
+  Order order = 1;
+  // 按行号升序
+  repeated OrderItem items = 2;
+}
+
+message GetDailySalesReportRequest {
+  option (buf.validate.message).cel = {
+    id: "period_range"
+    message: "period_start must be earlier than period_end, and the period must be 31 days or less"
+    expression: "this.period_start < this.period_end && this.period_end - this.period_start <= duration('744h')"
+  };
+  google.protobuf.Timestamp period_start = 1 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp period_end = 2 [(buf.validate.field).required = true];
+}
+
+message GetDailySalesReportResponse {
+  repeated DailySales days = 1;
+}
+
+message DailySales {
+  // 日本时间的日期 YYYY-MM-DD
+  string date = 1;
+  int64 order_count = 2;
+  int64 total_amount = 3;
+}
+
+message ListShippingDelaysRequest {
+  int32 page_size = 1 [(buf.validate.field).int32 = {
+    gte: 0
+    lte: 100
+  }];
+  string page_token = 2;
+  // 判定基准时点
+  google.protobuf.Timestamp as_of = 3 [(buf.validate.field).required = true];
+  // 下单后超过多少天算延迟
+  int32 min_days = 4 [(buf.validate.field).int32 = {
+    gte: 1
+    lte: 90
+  }];
+}
+
+message ListShippingDelaysResponse {
+  repeated Order orders = 1;
+  string next_page_token = 2;
 }

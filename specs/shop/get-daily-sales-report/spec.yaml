@@ -1,0 +1,40 @@
+# R9: 日别销售额报表
+# 聚合在逻辑函数里做(期间最长 31 天,行数可控)。如果数据量大应改成 SQL 的 GROUP BY(逃生口)
+spec_version: "0.2"
+api:
+  rpc: factory.shop.v1.ShopService/GetDailySalesReport
+  owner: finance-team
+  risk_level: medium
+pattern:
+  kind: compute
+datasource:
+  table: orders
+  columns: [id, status, ordered_at, total_amount]
+  filters:
+    period_start: { column: ordered_at, op: gte }
+    period_end:   { column: ordered_at, op: lt }
+behavior:
+  - when: 日期的划分
+    then: 按日本时间(UTC+9,没有夏令时)的日历日;用固定时区 time.FixedZone("JST", 9*3600),不要读系统时区
+  - when: 统计对象
+    then: CANCELLED 的订单不计入;其他状态都计入
+  - when: 每一天
+    then: order_count = 当天的订单数;total_amount = 当天的 total_amount 之和
+  - when: 返回哪些日期
+    then: 期间内(按日本时间)的每一天都返回,没有订单的日子 order_count = 0、total_amount = 0;按日期升序
+acceptance:
+  fixtures:
+    orders:
+      - { id: 1, customer_id: 1, status: 2, ordered_at: "2026-10-01T14:59:59Z", shipped_at: null, total_amount: 1000 }  # JST 10/1 23:59:59
+      - { id: 2, customer_id: 1, status: 2, ordered_at: "2026-10-01T15:00:00Z", shipped_at: null, total_amount: 2000 }  # JST 10/2 00:00
+      - { id: 3, customer_id: 1, status: 3, ordered_at: "2026-10-01T16:00:00Z", shipped_at: null, total_amount: 9000 }  # 取消,不计
+  cases:
+    - name: 按日本时间划分日期;取消不计;没有订单的日子也返回 0
+      request: { period_start: "2026-09-30T15:00:00Z", period_end: "2026-10-03T15:00:00Z" }   # JST 10/1 ~ 10/3
+      expect:
+        code: OK
+        response:
+          days:
+            - { date: "2026-10-01", order_count: 1, total_amount: 1000 }
+            - { date: "2026-10-02", order_count: 1, total_amount: 2000 }
+            - { date: "2026-10-03", order_count: 0, total_amount: 0 }

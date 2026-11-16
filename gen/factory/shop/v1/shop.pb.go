@@ -1161,6 +1161,514 @@ func (x *GetProductPriceAsOfResponse) GetValidFrom() *timestamppb.Timestamp {
 	return nil
 }
 
+type GetCustomerOrderStatsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	CustomerId    int64                  `protobuf:"varint,1,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`
+	PeriodStart   *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=period_start,json=periodStart,proto3" json:"period_start,omitempty"`
+	PeriodEnd     *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=period_end,json=periodEnd,proto3" json:"period_end,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetCustomerOrderStatsRequest) Reset() {
+	*x = GetCustomerOrderStatsRequest{}
+	mi := &file_factory_shop_v1_shop_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetCustomerOrderStatsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetCustomerOrderStatsRequest) ProtoMessage() {}
+
+func (x *GetCustomerOrderStatsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_shop_v1_shop_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetCustomerOrderStatsRequest.ProtoReflect.Descriptor instead.
+func (*GetCustomerOrderStatsRequest) Descriptor() ([]byte, []int) {
+	return file_factory_shop_v1_shop_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *GetCustomerOrderStatsRequest) GetCustomerId() int64 {
+	if x != nil {
+		return x.CustomerId
+	}
+	return 0
+}
+
+func (x *GetCustomerOrderStatsRequest) GetPeriodStart() *timestamppb.Timestamp {
+	if x != nil {
+		return x.PeriodStart
+	}
+	return nil
+}
+
+func (x *GetCustomerOrderStatsRequest) GetPeriodEnd() *timestamppb.Timestamp {
+	if x != nil {
+		return x.PeriodEnd
+	}
+	return nil
+}
+
+type GetCustomerOrderStatsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 期间内下单的订单数(含取消)
+	OrderCount int64 `protobuf:"varint,1,opt,name=order_count,json=orderCount,proto3" json:"order_count,omitempty"`
+	// 未取消订单的金额合计(円)
+	TotalAmount int64 `protobuf:"varint,2,opt,name=total_amount,json=totalAmount,proto3" json:"total_amount,omitempty"`
+	// 未取消订单的平均金额(円,四舍五入到整数)。未取消订单为 0 件时不设置
+	AvgAmount *int64 `protobuf:"varint,3,opt,name=avg_amount,json=avgAmount,proto3,oneof" json:"avg_amount,omitempty"`
+	// 取消率 = 取消件数 / order_count,四舍五入到小数 4 位。order_count 为 0 时不设置
+	CancelRate    *float64 `protobuf:"fixed64,4,opt,name=cancel_rate,json=cancelRate,proto3,oneof" json:"cancel_rate,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetCustomerOrderStatsResponse) Reset() {
+	*x = GetCustomerOrderStatsResponse{}
+	mi := &file_factory_shop_v1_shop_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetCustomerOrderStatsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetCustomerOrderStatsResponse) ProtoMessage() {}
+
+func (x *GetCustomerOrderStatsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_shop_v1_shop_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetCustomerOrderStatsResponse.ProtoReflect.Descriptor instead.
+func (*GetCustomerOrderStatsResponse) Descriptor() ([]byte, []int) {
+	return file_factory_shop_v1_shop_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *GetCustomerOrderStatsResponse) GetOrderCount() int64 {
+	if x != nil {
+		return x.OrderCount
+	}
+	return 0
+}
+
+func (x *GetCustomerOrderStatsResponse) GetTotalAmount() int64 {
+	if x != nil {
+		return x.TotalAmount
+	}
+	return 0
+}
+
+func (x *GetCustomerOrderStatsResponse) GetAvgAmount() int64 {
+	if x != nil && x.AvgAmount != nil {
+		return *x.AvgAmount
+	}
+	return 0
+}
+
+func (x *GetCustomerOrderStatsResponse) GetCancelRate() float64 {
+	if x != nil && x.CancelRate != nil {
+		return *x.CancelRate
+	}
+	return 0
+}
+
+type GetOrderWithItemsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OrderId       int64                  `protobuf:"varint,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetOrderWithItemsRequest) Reset() {
+	*x = GetOrderWithItemsRequest{}
+	mi := &file_factory_shop_v1_shop_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetOrderWithItemsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetOrderWithItemsRequest) ProtoMessage() {}
+
+func (x *GetOrderWithItemsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_shop_v1_shop_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetOrderWithItemsRequest.ProtoReflect.Descriptor instead.
+func (*GetOrderWithItemsRequest) Descriptor() ([]byte, []int) {
+	return file_factory_shop_v1_shop_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *GetOrderWithItemsRequest) GetOrderId() int64 {
+	if x != nil {
+		return x.OrderId
+	}
+	return 0
+}
+
+type GetOrderWithItemsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Order *Order                 `protobuf:"bytes,1,opt,name=order,proto3" json:"order,omitempty"`
+	// 按行号升序
+	Items         []*OrderItem `protobuf:"bytes,2,rep,name=items,proto3" json:"items,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetOrderWithItemsResponse) Reset() {
+	*x = GetOrderWithItemsResponse{}
+	mi := &file_factory_shop_v1_shop_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetOrderWithItemsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetOrderWithItemsResponse) ProtoMessage() {}
+
+func (x *GetOrderWithItemsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_shop_v1_shop_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetOrderWithItemsResponse.ProtoReflect.Descriptor instead.
+func (*GetOrderWithItemsResponse) Descriptor() ([]byte, []int) {
+	return file_factory_shop_v1_shop_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *GetOrderWithItemsResponse) GetOrder() *Order {
+	if x != nil {
+		return x.Order
+	}
+	return nil
+}
+
+func (x *GetOrderWithItemsResponse) GetItems() []*OrderItem {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+type GetDailySalesReportRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PeriodStart   *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=period_start,json=periodStart,proto3" json:"period_start,omitempty"`
+	PeriodEnd     *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=period_end,json=periodEnd,proto3" json:"period_end,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetDailySalesReportRequest) Reset() {
+	*x = GetDailySalesReportRequest{}
+	mi := &file_factory_shop_v1_shop_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetDailySalesReportRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetDailySalesReportRequest) ProtoMessage() {}
+
+func (x *GetDailySalesReportRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_shop_v1_shop_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetDailySalesReportRequest.ProtoReflect.Descriptor instead.
+func (*GetDailySalesReportRequest) Descriptor() ([]byte, []int) {
+	return file_factory_shop_v1_shop_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *GetDailySalesReportRequest) GetPeriodStart() *timestamppb.Timestamp {
+	if x != nil {
+		return x.PeriodStart
+	}
+	return nil
+}
+
+func (x *GetDailySalesReportRequest) GetPeriodEnd() *timestamppb.Timestamp {
+	if x != nil {
+		return x.PeriodEnd
+	}
+	return nil
+}
+
+type GetDailySalesReportResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Days          []*DailySales          `protobuf:"bytes,1,rep,name=days,proto3" json:"days,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetDailySalesReportResponse) Reset() {
+	*x = GetDailySalesReportResponse{}
+	mi := &file_factory_shop_v1_shop_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetDailySalesReportResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetDailySalesReportResponse) ProtoMessage() {}
+
+func (x *GetDailySalesReportResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_shop_v1_shop_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetDailySalesReportResponse.ProtoReflect.Descriptor instead.
+func (*GetDailySalesReportResponse) Descriptor() ([]byte, []int) {
+	return file_factory_shop_v1_shop_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *GetDailySalesReportResponse) GetDays() []*DailySales {
+	if x != nil {
+		return x.Days
+	}
+	return nil
+}
+
+type DailySales struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 日本时间的日期 YYYY-MM-DD
+	Date          string `protobuf:"bytes,1,opt,name=date,proto3" json:"date,omitempty"`
+	OrderCount    int64  `protobuf:"varint,2,opt,name=order_count,json=orderCount,proto3" json:"order_count,omitempty"`
+	TotalAmount   int64  `protobuf:"varint,3,opt,name=total_amount,json=totalAmount,proto3" json:"total_amount,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DailySales) Reset() {
+	*x = DailySales{}
+	mi := &file_factory_shop_v1_shop_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DailySales) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DailySales) ProtoMessage() {}
+
+func (x *DailySales) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_shop_v1_shop_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DailySales.ProtoReflect.Descriptor instead.
+func (*DailySales) Descriptor() ([]byte, []int) {
+	return file_factory_shop_v1_shop_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *DailySales) GetDate() string {
+	if x != nil {
+		return x.Date
+	}
+	return ""
+}
+
+func (x *DailySales) GetOrderCount() int64 {
+	if x != nil {
+		return x.OrderCount
+	}
+	return 0
+}
+
+func (x *DailySales) GetTotalAmount() int64 {
+	if x != nil {
+		return x.TotalAmount
+	}
+	return 0
+}
+
+type ListShippingDelaysRequest struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	PageSize  int32                  `protobuf:"varint,1,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	PageToken string                 `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	// 判定基准时点
+	AsOf *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=as_of,json=asOf,proto3" json:"as_of,omitempty"`
+	// 下单后超过多少天算延迟
+	MinDays       int32 `protobuf:"varint,4,opt,name=min_days,json=minDays,proto3" json:"min_days,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListShippingDelaysRequest) Reset() {
+	*x = ListShippingDelaysRequest{}
+	mi := &file_factory_shop_v1_shop_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListShippingDelaysRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListShippingDelaysRequest) ProtoMessage() {}
+
+func (x *ListShippingDelaysRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_shop_v1_shop_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListShippingDelaysRequest.ProtoReflect.Descriptor instead.
+func (*ListShippingDelaysRequest) Descriptor() ([]byte, []int) {
+	return file_factory_shop_v1_shop_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *ListShippingDelaysRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListShippingDelaysRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+func (x *ListShippingDelaysRequest) GetAsOf() *timestamppb.Timestamp {
+	if x != nil {
+		return x.AsOf
+	}
+	return nil
+}
+
+func (x *ListShippingDelaysRequest) GetMinDays() int32 {
+	if x != nil {
+		return x.MinDays
+	}
+	return 0
+}
+
+type ListShippingDelaysResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Orders        []*Order               `protobuf:"bytes,1,rep,name=orders,proto3" json:"orders,omitempty"`
+	NextPageToken string                 `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListShippingDelaysResponse) Reset() {
+	*x = ListShippingDelaysResponse{}
+	mi := &file_factory_shop_v1_shop_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListShippingDelaysResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListShippingDelaysResponse) ProtoMessage() {}
+
+func (x *ListShippingDelaysResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_shop_v1_shop_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListShippingDelaysResponse.ProtoReflect.Descriptor instead.
+func (*ListShippingDelaysResponse) Descriptor() ([]byte, []int) {
+	return file_factory_shop_v1_shop_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *ListShippingDelaysResponse) GetOrders() []*Order {
+	if x != nil {
+		return x.Orders
+	}
+	return nil
+}
+
+func (x *ListShippingDelaysResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
 var File_factory_shop_v1_shop_proto protoreflect.FileDescriptor
 
 const file_factory_shop_v1_shop_proto_rawDesc = "" +
@@ -1259,7 +1767,51 @@ const file_factory_shop_v1_shop_proto_rawDesc = "" +
 	"\x05price\x18\x01 \x01(\x03R\x05price\x12\x1a\n" +
 	"\bcurrency\x18\x02 \x01(\tR\bcurrency\x129\n" +
 	"\n" +
-	"valid_from\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tvalidFrom*z\n" +
+	"valid_from\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tvalidFrom\"\xa2\x03\n" +
+	"\x1cGetCustomerOrderStatsRequest\x12(\n" +
+	"\vcustomer_id\x18\x01 \x01(\x03B\a\xbaH\x04\"\x02 \x00R\n" +
+	"customerId\x12E\n" +
+	"\fperiod_start\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampB\x06\xbaH\x03\xc8\x01\x01R\vperiodStart\x12A\n" +
+	"\n" +
+	"period_end\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampB\x06\xbaH\x03\xc8\x01\x01R\tperiodEnd:\xcd\x01\xbaH\xc9\x01\x1a\xc6\x01\n" +
+	"\fperiod_range\x12Uperiod_start must be earlier than period_end, and the period must be 366 days or less\x1a_this.period_start < this.period_end && this.period_end - this.period_start <= duration('8784h')\"\xcc\x01\n" +
+	"\x1dGetCustomerOrderStatsResponse\x12\x1f\n" +
+	"\vorder_count\x18\x01 \x01(\x03R\n" +
+	"orderCount\x12!\n" +
+	"\ftotal_amount\x18\x02 \x01(\x03R\vtotalAmount\x12\"\n" +
+	"\n" +
+	"avg_amount\x18\x03 \x01(\x03H\x00R\tavgAmount\x88\x01\x01\x12$\n" +
+	"\vcancel_rate\x18\x04 \x01(\x01H\x01R\n" +
+	"cancelRate\x88\x01\x01B\r\n" +
+	"\v_avg_amountB\x0e\n" +
+	"\f_cancel_rate\">\n" +
+	"\x18GetOrderWithItemsRequest\x12\"\n" +
+	"\border_id\x18\x01 \x01(\x03B\a\xbaH\x04\"\x02 \x00R\aorderId\"{\n" +
+	"\x19GetOrderWithItemsResponse\x12,\n" +
+	"\x05order\x18\x01 \x01(\v2\x16.factory.shop.v1.OrderR\x05order\x120\n" +
+	"\x05items\x18\x02 \x03(\v2\x1a.factory.shop.v1.OrderItemR\x05items\"\xf4\x02\n" +
+	"\x1aGetDailySalesReportRequest\x12E\n" +
+	"\fperiod_start\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampB\x06\xbaH\x03\xc8\x01\x01R\vperiodStart\x12A\n" +
+	"\n" +
+	"period_end\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampB\x06\xbaH\x03\xc8\x01\x01R\tperiodEnd:\xcb\x01\xbaH\xc7\x01\x1a\xc4\x01\n" +
+	"\fperiod_range\x12Tperiod_start must be earlier than period_end, and the period must be 31 days or less\x1a^this.period_start < this.period_end && this.period_end - this.period_start <= duration('744h')\"N\n" +
+	"\x1bGetDailySalesReportResponse\x12/\n" +
+	"\x04days\x18\x01 \x03(\v2\x1b.factory.shop.v1.DailySalesR\x04days\"d\n" +
+	"\n" +
+	"DailySales\x12\x12\n" +
+	"\x04date\x18\x01 \x01(\tR\x04date\x12\x1f\n" +
+	"\vorder_count\x18\x02 \x01(\x03R\n" +
+	"orderCount\x12!\n" +
+	"\ftotal_amount\x18\x03 \x01(\x03R\vtotalAmount\"\xc1\x01\n" +
+	"\x19ListShippingDelaysRequest\x12&\n" +
+	"\tpage_size\x18\x01 \x01(\x05B\t\xbaH\x06\x1a\x04\x18d(\x00R\bpageSize\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x02 \x01(\tR\tpageToken\x127\n" +
+	"\x05as_of\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampB\x06\xbaH\x03\xc8\x01\x01R\x04asOf\x12$\n" +
+	"\bmin_days\x18\x04 \x01(\x05B\t\xbaH\x06\x1a\x04\x18Z(\x01R\aminDays\"t\n" +
+	"\x1aListShippingDelaysResponse\x12.\n" +
+	"\x06orders\x18\x01 \x03(\v2\x16.factory.shop.v1.OrderR\x06orders\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken*z\n" +
 	"\fCustomerTier\x12\x1d\n" +
 	"\x19CUSTOMER_TIER_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15CUSTOMER_TIER_REGULAR\x10\x01\x12\x18\n" +
@@ -1275,7 +1827,7 @@ const file_factory_shop_v1_shop_proto_rawDesc = "" +
 	"\x13ORDER_STATUS_PLACED\x10\x01\x12\x18\n" +
 	"\x14ORDER_STATUS_SHIPPED\x10\x02\x12\x1a\n" +
 	"\x16ORDER_STATUS_DELIVERED\x10\x03\x12\x1a\n" +
-	"\x16ORDER_STATUS_CANCELLED\x10\x042\xd6\x04\n" +
+	"\x16ORDER_STATUS_CANCELLED\x10\x042\x9b\b\n" +
 	"\vShopService\x12X\n" +
 	"\vGetCustomer\x12#.factory.shop.v1.GetCustomerRequest\x1a$.factory.shop.v1.GetCustomerResponse\x12d\n" +
 	"\x0fGetProductBySku\x12'.factory.shop.v1.GetProductBySkuRequest\x1a(.factory.shop.v1.GetProductBySkuResponse\x12U\n" +
@@ -1283,7 +1835,11 @@ const file_factory_shop_v1_shop_proto_rawDesc = "" +
 	"ListOrders\x12\".factory.shop.v1.ListOrdersRequest\x1a#.factory.shop.v1.ListOrdersResponse\x12[\n" +
 	"\fListProducts\x12$.factory.shop.v1.ListProductsRequest\x1a%.factory.shop.v1.ListProductsResponse\x12a\n" +
 	"\x0eListOrderItems\x12&.factory.shop.v1.ListOrderItemsRequest\x1a'.factory.shop.v1.ListOrderItemsResponse\x12p\n" +
-	"\x13GetProductPriceAsOf\x12+.factory.shop.v1.GetProductPriceAsOfRequest\x1a,.factory.shop.v1.GetProductPriceAsOfResponseB'Z%apifactory/gen/factory/shop/v1;shopv1b\x06proto3"
+	"\x13GetProductPriceAsOf\x12+.factory.shop.v1.GetProductPriceAsOfRequest\x1a,.factory.shop.v1.GetProductPriceAsOfResponse\x12v\n" +
+	"\x15GetCustomerOrderStats\x12-.factory.shop.v1.GetCustomerOrderStatsRequest\x1a..factory.shop.v1.GetCustomerOrderStatsResponse\x12j\n" +
+	"\x11GetOrderWithItems\x12).factory.shop.v1.GetOrderWithItemsRequest\x1a*.factory.shop.v1.GetOrderWithItemsResponse\x12p\n" +
+	"\x13GetDailySalesReport\x12+.factory.shop.v1.GetDailySalesReportRequest\x1a,.factory.shop.v1.GetDailySalesReportResponse\x12m\n" +
+	"\x12ListShippingDelays\x12*.factory.shop.v1.ListShippingDelaysRequest\x1a+.factory.shop.v1.ListShippingDelaysResponseB'Z%apifactory/gen/factory/shop/v1;shopv1b\x06proto3"
 
 var (
 	file_factory_shop_v1_shop_proto_rawDescOnce sync.Once
@@ -1298,64 +1854,90 @@ func file_factory_shop_v1_shop_proto_rawDescGZIP() []byte {
 }
 
 var file_factory_shop_v1_shop_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_factory_shop_v1_shop_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_factory_shop_v1_shop_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_factory_shop_v1_shop_proto_goTypes = []any{
-	(CustomerTier)(0),                   // 0: factory.shop.v1.CustomerTier
-	(ProductStatus)(0),                  // 1: factory.shop.v1.ProductStatus
-	(OrderStatus)(0),                    // 2: factory.shop.v1.OrderStatus
-	(*GetCustomerRequest)(nil),          // 3: factory.shop.v1.GetCustomerRequest
-	(*GetCustomerResponse)(nil),         // 4: factory.shop.v1.GetCustomerResponse
-	(*GetProductBySkuRequest)(nil),      // 5: factory.shop.v1.GetProductBySkuRequest
-	(*GetProductBySkuResponse)(nil),     // 6: factory.shop.v1.GetProductBySkuResponse
-	(*ListOrdersRequest)(nil),           // 7: factory.shop.v1.ListOrdersRequest
-	(*ListOrdersResponse)(nil),          // 8: factory.shop.v1.ListOrdersResponse
-	(*Order)(nil),                       // 9: factory.shop.v1.Order
-	(*ListProductsRequest)(nil),         // 10: factory.shop.v1.ListProductsRequest
-	(*ListProductsResponse)(nil),        // 11: factory.shop.v1.ListProductsResponse
-	(*Product)(nil),                     // 12: factory.shop.v1.Product
-	(*ListOrderItemsRequest)(nil),       // 13: factory.shop.v1.ListOrderItemsRequest
-	(*ListOrderItemsResponse)(nil),      // 14: factory.shop.v1.ListOrderItemsResponse
-	(*OrderItem)(nil),                   // 15: factory.shop.v1.OrderItem
-	(*GetProductPriceAsOfRequest)(nil),  // 16: factory.shop.v1.GetProductPriceAsOfRequest
-	(*GetProductPriceAsOfResponse)(nil), // 17: factory.shop.v1.GetProductPriceAsOfResponse
-	(*timestamppb.Timestamp)(nil),       // 18: google.protobuf.Timestamp
+	(CustomerTier)(0),                     // 0: factory.shop.v1.CustomerTier
+	(ProductStatus)(0),                    // 1: factory.shop.v1.ProductStatus
+	(OrderStatus)(0),                      // 2: factory.shop.v1.OrderStatus
+	(*GetCustomerRequest)(nil),            // 3: factory.shop.v1.GetCustomerRequest
+	(*GetCustomerResponse)(nil),           // 4: factory.shop.v1.GetCustomerResponse
+	(*GetProductBySkuRequest)(nil),        // 5: factory.shop.v1.GetProductBySkuRequest
+	(*GetProductBySkuResponse)(nil),       // 6: factory.shop.v1.GetProductBySkuResponse
+	(*ListOrdersRequest)(nil),             // 7: factory.shop.v1.ListOrdersRequest
+	(*ListOrdersResponse)(nil),            // 8: factory.shop.v1.ListOrdersResponse
+	(*Order)(nil),                         // 9: factory.shop.v1.Order
+	(*ListProductsRequest)(nil),           // 10: factory.shop.v1.ListProductsRequest
+	(*ListProductsResponse)(nil),          // 11: factory.shop.v1.ListProductsResponse
+	(*Product)(nil),                       // 12: factory.shop.v1.Product
+	(*ListOrderItemsRequest)(nil),         // 13: factory.shop.v1.ListOrderItemsRequest
+	(*ListOrderItemsResponse)(nil),        // 14: factory.shop.v1.ListOrderItemsResponse
+	(*OrderItem)(nil),                     // 15: factory.shop.v1.OrderItem
+	(*GetProductPriceAsOfRequest)(nil),    // 16: factory.shop.v1.GetProductPriceAsOfRequest
+	(*GetProductPriceAsOfResponse)(nil),   // 17: factory.shop.v1.GetProductPriceAsOfResponse
+	(*GetCustomerOrderStatsRequest)(nil),  // 18: factory.shop.v1.GetCustomerOrderStatsRequest
+	(*GetCustomerOrderStatsResponse)(nil), // 19: factory.shop.v1.GetCustomerOrderStatsResponse
+	(*GetOrderWithItemsRequest)(nil),      // 20: factory.shop.v1.GetOrderWithItemsRequest
+	(*GetOrderWithItemsResponse)(nil),     // 21: factory.shop.v1.GetOrderWithItemsResponse
+	(*GetDailySalesReportRequest)(nil),    // 22: factory.shop.v1.GetDailySalesReportRequest
+	(*GetDailySalesReportResponse)(nil),   // 23: factory.shop.v1.GetDailySalesReportResponse
+	(*DailySales)(nil),                    // 24: factory.shop.v1.DailySales
+	(*ListShippingDelaysRequest)(nil),     // 25: factory.shop.v1.ListShippingDelaysRequest
+	(*ListShippingDelaysResponse)(nil),    // 26: factory.shop.v1.ListShippingDelaysResponse
+	(*timestamppb.Timestamp)(nil),         // 27: google.protobuf.Timestamp
 }
 var file_factory_shop_v1_shop_proto_depIdxs = []int32{
 	0,  // 0: factory.shop.v1.GetCustomerResponse.tier:type_name -> factory.shop.v1.CustomerTier
-	18, // 1: factory.shop.v1.GetCustomerResponse.created_at:type_name -> google.protobuf.Timestamp
+	27, // 1: factory.shop.v1.GetCustomerResponse.created_at:type_name -> google.protobuf.Timestamp
 	1,  // 2: factory.shop.v1.GetProductBySkuResponse.status:type_name -> factory.shop.v1.ProductStatus
-	18, // 3: factory.shop.v1.GetProductBySkuResponse.created_at:type_name -> google.protobuf.Timestamp
+	27, // 3: factory.shop.v1.GetProductBySkuResponse.created_at:type_name -> google.protobuf.Timestamp
 	2,  // 4: factory.shop.v1.ListOrdersRequest.status:type_name -> factory.shop.v1.OrderStatus
-	18, // 5: factory.shop.v1.ListOrdersRequest.ordered_after:type_name -> google.protobuf.Timestamp
-	18, // 6: factory.shop.v1.ListOrdersRequest.ordered_before:type_name -> google.protobuf.Timestamp
+	27, // 5: factory.shop.v1.ListOrdersRequest.ordered_after:type_name -> google.protobuf.Timestamp
+	27, // 6: factory.shop.v1.ListOrdersRequest.ordered_before:type_name -> google.protobuf.Timestamp
 	9,  // 7: factory.shop.v1.ListOrdersResponse.orders:type_name -> factory.shop.v1.Order
 	2,  // 8: factory.shop.v1.Order.status:type_name -> factory.shop.v1.OrderStatus
-	18, // 9: factory.shop.v1.Order.ordered_at:type_name -> google.protobuf.Timestamp
-	18, // 10: factory.shop.v1.Order.shipped_at:type_name -> google.protobuf.Timestamp
+	27, // 9: factory.shop.v1.Order.ordered_at:type_name -> google.protobuf.Timestamp
+	27, // 10: factory.shop.v1.Order.shipped_at:type_name -> google.protobuf.Timestamp
 	1,  // 11: factory.shop.v1.ListProductsRequest.status:type_name -> factory.shop.v1.ProductStatus
 	12, // 12: factory.shop.v1.ListProductsResponse.products:type_name -> factory.shop.v1.Product
 	1,  // 13: factory.shop.v1.Product.status:type_name -> factory.shop.v1.ProductStatus
-	18, // 14: factory.shop.v1.Product.created_at:type_name -> google.protobuf.Timestamp
+	27, // 14: factory.shop.v1.Product.created_at:type_name -> google.protobuf.Timestamp
 	15, // 15: factory.shop.v1.ListOrderItemsResponse.items:type_name -> factory.shop.v1.OrderItem
-	18, // 16: factory.shop.v1.GetProductPriceAsOfRequest.as_of:type_name -> google.protobuf.Timestamp
-	18, // 17: factory.shop.v1.GetProductPriceAsOfResponse.valid_from:type_name -> google.protobuf.Timestamp
-	3,  // 18: factory.shop.v1.ShopService.GetCustomer:input_type -> factory.shop.v1.GetCustomerRequest
-	5,  // 19: factory.shop.v1.ShopService.GetProductBySku:input_type -> factory.shop.v1.GetProductBySkuRequest
-	7,  // 20: factory.shop.v1.ShopService.ListOrders:input_type -> factory.shop.v1.ListOrdersRequest
-	10, // 21: factory.shop.v1.ShopService.ListProducts:input_type -> factory.shop.v1.ListProductsRequest
-	13, // 22: factory.shop.v1.ShopService.ListOrderItems:input_type -> factory.shop.v1.ListOrderItemsRequest
-	16, // 23: factory.shop.v1.ShopService.GetProductPriceAsOf:input_type -> factory.shop.v1.GetProductPriceAsOfRequest
-	4,  // 24: factory.shop.v1.ShopService.GetCustomer:output_type -> factory.shop.v1.GetCustomerResponse
-	6,  // 25: factory.shop.v1.ShopService.GetProductBySku:output_type -> factory.shop.v1.GetProductBySkuResponse
-	8,  // 26: factory.shop.v1.ShopService.ListOrders:output_type -> factory.shop.v1.ListOrdersResponse
-	11, // 27: factory.shop.v1.ShopService.ListProducts:output_type -> factory.shop.v1.ListProductsResponse
-	14, // 28: factory.shop.v1.ShopService.ListOrderItems:output_type -> factory.shop.v1.ListOrderItemsResponse
-	17, // 29: factory.shop.v1.ShopService.GetProductPriceAsOf:output_type -> factory.shop.v1.GetProductPriceAsOfResponse
-	24, // [24:30] is the sub-list for method output_type
-	18, // [18:24] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	27, // 16: factory.shop.v1.GetProductPriceAsOfRequest.as_of:type_name -> google.protobuf.Timestamp
+	27, // 17: factory.shop.v1.GetProductPriceAsOfResponse.valid_from:type_name -> google.protobuf.Timestamp
+	27, // 18: factory.shop.v1.GetCustomerOrderStatsRequest.period_start:type_name -> google.protobuf.Timestamp
+	27, // 19: factory.shop.v1.GetCustomerOrderStatsRequest.period_end:type_name -> google.protobuf.Timestamp
+	9,  // 20: factory.shop.v1.GetOrderWithItemsResponse.order:type_name -> factory.shop.v1.Order
+	15, // 21: factory.shop.v1.GetOrderWithItemsResponse.items:type_name -> factory.shop.v1.OrderItem
+	27, // 22: factory.shop.v1.GetDailySalesReportRequest.period_start:type_name -> google.protobuf.Timestamp
+	27, // 23: factory.shop.v1.GetDailySalesReportRequest.period_end:type_name -> google.protobuf.Timestamp
+	24, // 24: factory.shop.v1.GetDailySalesReportResponse.days:type_name -> factory.shop.v1.DailySales
+	27, // 25: factory.shop.v1.ListShippingDelaysRequest.as_of:type_name -> google.protobuf.Timestamp
+	9,  // 26: factory.shop.v1.ListShippingDelaysResponse.orders:type_name -> factory.shop.v1.Order
+	3,  // 27: factory.shop.v1.ShopService.GetCustomer:input_type -> factory.shop.v1.GetCustomerRequest
+	5,  // 28: factory.shop.v1.ShopService.GetProductBySku:input_type -> factory.shop.v1.GetProductBySkuRequest
+	7,  // 29: factory.shop.v1.ShopService.ListOrders:input_type -> factory.shop.v1.ListOrdersRequest
+	10, // 30: factory.shop.v1.ShopService.ListProducts:input_type -> factory.shop.v1.ListProductsRequest
+	13, // 31: factory.shop.v1.ShopService.ListOrderItems:input_type -> factory.shop.v1.ListOrderItemsRequest
+	16, // 32: factory.shop.v1.ShopService.GetProductPriceAsOf:input_type -> factory.shop.v1.GetProductPriceAsOfRequest
+	18, // 33: factory.shop.v1.ShopService.GetCustomerOrderStats:input_type -> factory.shop.v1.GetCustomerOrderStatsRequest
+	20, // 34: factory.shop.v1.ShopService.GetOrderWithItems:input_type -> factory.shop.v1.GetOrderWithItemsRequest
+	22, // 35: factory.shop.v1.ShopService.GetDailySalesReport:input_type -> factory.shop.v1.GetDailySalesReportRequest
+	25, // 36: factory.shop.v1.ShopService.ListShippingDelays:input_type -> factory.shop.v1.ListShippingDelaysRequest
+	4,  // 37: factory.shop.v1.ShopService.GetCustomer:output_type -> factory.shop.v1.GetCustomerResponse
+	6,  // 38: factory.shop.v1.ShopService.GetProductBySku:output_type -> factory.shop.v1.GetProductBySkuResponse
+	8,  // 39: factory.shop.v1.ShopService.ListOrders:output_type -> factory.shop.v1.ListOrdersResponse
+	11, // 40: factory.shop.v1.ShopService.ListProducts:output_type -> factory.shop.v1.ListProductsResponse
+	14, // 41: factory.shop.v1.ShopService.ListOrderItems:output_type -> factory.shop.v1.ListOrderItemsResponse
+	17, // 42: factory.shop.v1.ShopService.GetProductPriceAsOf:output_type -> factory.shop.v1.GetProductPriceAsOfResponse
+	19, // 43: factory.shop.v1.ShopService.GetCustomerOrderStats:output_type -> factory.shop.v1.GetCustomerOrderStatsResponse
+	21, // 44: factory.shop.v1.ShopService.GetOrderWithItems:output_type -> factory.shop.v1.GetOrderWithItemsResponse
+	23, // 45: factory.shop.v1.ShopService.GetDailySalesReport:output_type -> factory.shop.v1.GetDailySalesReportResponse
+	26, // 46: factory.shop.v1.ShopService.ListShippingDelays:output_type -> factory.shop.v1.ListShippingDelaysResponse
+	37, // [37:47] is the sub-list for method output_type
+	27, // [27:37] is the sub-list for method input_type
+	27, // [27:27] is the sub-list for extension type_name
+	27, // [27:27] is the sub-list for extension extendee
+	0,  // [0:27] is the sub-list for field type_name
 }
 
 func init() { file_factory_shop_v1_shop_proto_init() }
@@ -1365,13 +1947,14 @@ func file_factory_shop_v1_shop_proto_init() {
 	}
 	file_factory_shop_v1_shop_proto_msgTypes[4].OneofWrappers = []any{}
 	file_factory_shop_v1_shop_proto_msgTypes[7].OneofWrappers = []any{}
+	file_factory_shop_v1_shop_proto_msgTypes[16].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_factory_shop_v1_shop_proto_rawDesc), len(file_factory_shop_v1_shop_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   15,
+			NumMessages:   24,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

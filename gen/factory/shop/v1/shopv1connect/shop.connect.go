@@ -49,6 +49,18 @@ const (
 	// ShopServiceGetProductPriceAsOfProcedure is the fully-qualified name of the ShopService's
 	// GetProductPriceAsOf RPC.
 	ShopServiceGetProductPriceAsOfProcedure = "/factory.shop.v1.ShopService/GetProductPriceAsOf"
+	// ShopServiceGetCustomerOrderStatsProcedure is the fully-qualified name of the ShopService's
+	// GetCustomerOrderStats RPC.
+	ShopServiceGetCustomerOrderStatsProcedure = "/factory.shop.v1.ShopService/GetCustomerOrderStats"
+	// ShopServiceGetOrderWithItemsProcedure is the fully-qualified name of the ShopService's
+	// GetOrderWithItems RPC.
+	ShopServiceGetOrderWithItemsProcedure = "/factory.shop.v1.ShopService/GetOrderWithItems"
+	// ShopServiceGetDailySalesReportProcedure is the fully-qualified name of the ShopService's
+	// GetDailySalesReport RPC.
+	ShopServiceGetDailySalesReportProcedure = "/factory.shop.v1.ShopService/GetDailySalesReport"
+	// ShopServiceListShippingDelaysProcedure is the fully-qualified name of the ShopService's
+	// ListShippingDelays RPC.
+	ShopServiceListShippingDelaysProcedure = "/factory.shop.v1.ShopService/ListShippingDelays"
 )
 
 // ShopServiceClient is a client for the factory.shop.v1.ShopService service.
@@ -65,6 +77,14 @@ type ShopServiceClient interface {
 	ListOrderItems(context.Context, *connect.Request[v1.ListOrderItemsRequest]) (*connect.Response[v1.ListOrderItemsResponse], error)
 	// R6: 某商品在某个时点的有效价格
 	GetProductPriceAsOf(context.Context, *connect.Request[v1.GetProductPriceAsOfRequest]) (*connect.Response[v1.GetProductPriceAsOfResponse], error)
+	// R7: 某顾客在期间内的订单统计
+	GetCustomerOrderStats(context.Context, *connect.Request[v1.GetCustomerOrderStatsRequest]) (*connect.Response[v1.GetCustomerOrderStatsResponse], error)
+	// R8: 订单详情(订单头 + 全部明细)
+	GetOrderWithItems(context.Context, *connect.Request[v1.GetOrderWithItemsRequest]) (*connect.Response[v1.GetOrderWithItemsResponse], error)
+	// R9: 日别销售额报表
+	GetDailySalesReport(context.Context, *connect.Request[v1.GetDailySalesReportRequest]) (*connect.Response[v1.GetDailySalesReportResponse], error)
+	// R10: 发货延迟告警(截至 as_of,下单超过 min_days 天仍未发货的订单)
+	ListShippingDelays(context.Context, *connect.Request[v1.ListShippingDelaysRequest]) (*connect.Response[v1.ListShippingDelaysResponse], error)
 }
 
 // NewShopServiceClient constructs a client for the factory.shop.v1.ShopService service. By default,
@@ -114,17 +134,45 @@ func NewShopServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(shopServiceMethods.ByName("GetProductPriceAsOf")),
 			connect.WithClientOptions(opts...),
 		),
+		getCustomerOrderStats: connect.NewClient[v1.GetCustomerOrderStatsRequest, v1.GetCustomerOrderStatsResponse](
+			httpClient,
+			baseURL+ShopServiceGetCustomerOrderStatsProcedure,
+			connect.WithSchema(shopServiceMethods.ByName("GetCustomerOrderStats")),
+			connect.WithClientOptions(opts...),
+		),
+		getOrderWithItems: connect.NewClient[v1.GetOrderWithItemsRequest, v1.GetOrderWithItemsResponse](
+			httpClient,
+			baseURL+ShopServiceGetOrderWithItemsProcedure,
+			connect.WithSchema(shopServiceMethods.ByName("GetOrderWithItems")),
+			connect.WithClientOptions(opts...),
+		),
+		getDailySalesReport: connect.NewClient[v1.GetDailySalesReportRequest, v1.GetDailySalesReportResponse](
+			httpClient,
+			baseURL+ShopServiceGetDailySalesReportProcedure,
+			connect.WithSchema(shopServiceMethods.ByName("GetDailySalesReport")),
+			connect.WithClientOptions(opts...),
+		),
+		listShippingDelays: connect.NewClient[v1.ListShippingDelaysRequest, v1.ListShippingDelaysResponse](
+			httpClient,
+			baseURL+ShopServiceListShippingDelaysProcedure,
+			connect.WithSchema(shopServiceMethods.ByName("ListShippingDelays")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // shopServiceClient implements ShopServiceClient.
 type shopServiceClient struct {
-	getCustomer         *connect.Client[v1.GetCustomerRequest, v1.GetCustomerResponse]
-	getProductBySku     *connect.Client[v1.GetProductBySkuRequest, v1.GetProductBySkuResponse]
-	listOrders          *connect.Client[v1.ListOrdersRequest, v1.ListOrdersResponse]
-	listProducts        *connect.Client[v1.ListProductsRequest, v1.ListProductsResponse]
-	listOrderItems      *connect.Client[v1.ListOrderItemsRequest, v1.ListOrderItemsResponse]
-	getProductPriceAsOf *connect.Client[v1.GetProductPriceAsOfRequest, v1.GetProductPriceAsOfResponse]
+	getCustomer           *connect.Client[v1.GetCustomerRequest, v1.GetCustomerResponse]
+	getProductBySku       *connect.Client[v1.GetProductBySkuRequest, v1.GetProductBySkuResponse]
+	listOrders            *connect.Client[v1.ListOrdersRequest, v1.ListOrdersResponse]
+	listProducts          *connect.Client[v1.ListProductsRequest, v1.ListProductsResponse]
+	listOrderItems        *connect.Client[v1.ListOrderItemsRequest, v1.ListOrderItemsResponse]
+	getProductPriceAsOf   *connect.Client[v1.GetProductPriceAsOfRequest, v1.GetProductPriceAsOfResponse]
+	getCustomerOrderStats *connect.Client[v1.GetCustomerOrderStatsRequest, v1.GetCustomerOrderStatsResponse]
+	getOrderWithItems     *connect.Client[v1.GetOrderWithItemsRequest, v1.GetOrderWithItemsResponse]
+	getDailySalesReport   *connect.Client[v1.GetDailySalesReportRequest, v1.GetDailySalesReportResponse]
+	listShippingDelays    *connect.Client[v1.ListShippingDelaysRequest, v1.ListShippingDelaysResponse]
 }
 
 // GetCustomer calls factory.shop.v1.ShopService.GetCustomer.
@@ -157,6 +205,26 @@ func (c *shopServiceClient) GetProductPriceAsOf(ctx context.Context, req *connec
 	return c.getProductPriceAsOf.CallUnary(ctx, req)
 }
 
+// GetCustomerOrderStats calls factory.shop.v1.ShopService.GetCustomerOrderStats.
+func (c *shopServiceClient) GetCustomerOrderStats(ctx context.Context, req *connect.Request[v1.GetCustomerOrderStatsRequest]) (*connect.Response[v1.GetCustomerOrderStatsResponse], error) {
+	return c.getCustomerOrderStats.CallUnary(ctx, req)
+}
+
+// GetOrderWithItems calls factory.shop.v1.ShopService.GetOrderWithItems.
+func (c *shopServiceClient) GetOrderWithItems(ctx context.Context, req *connect.Request[v1.GetOrderWithItemsRequest]) (*connect.Response[v1.GetOrderWithItemsResponse], error) {
+	return c.getOrderWithItems.CallUnary(ctx, req)
+}
+
+// GetDailySalesReport calls factory.shop.v1.ShopService.GetDailySalesReport.
+func (c *shopServiceClient) GetDailySalesReport(ctx context.Context, req *connect.Request[v1.GetDailySalesReportRequest]) (*connect.Response[v1.GetDailySalesReportResponse], error) {
+	return c.getDailySalesReport.CallUnary(ctx, req)
+}
+
+// ListShippingDelays calls factory.shop.v1.ShopService.ListShippingDelays.
+func (c *shopServiceClient) ListShippingDelays(ctx context.Context, req *connect.Request[v1.ListShippingDelaysRequest]) (*connect.Response[v1.ListShippingDelaysResponse], error) {
+	return c.listShippingDelays.CallUnary(ctx, req)
+}
+
 // ShopServiceHandler is an implementation of the factory.shop.v1.ShopService service.
 type ShopServiceHandler interface {
 	// R1: 按顾客 id 返回顾客信息
@@ -171,6 +239,14 @@ type ShopServiceHandler interface {
 	ListOrderItems(context.Context, *connect.Request[v1.ListOrderItemsRequest]) (*connect.Response[v1.ListOrderItemsResponse], error)
 	// R6: 某商品在某个时点的有效价格
 	GetProductPriceAsOf(context.Context, *connect.Request[v1.GetProductPriceAsOfRequest]) (*connect.Response[v1.GetProductPriceAsOfResponse], error)
+	// R7: 某顾客在期间内的订单统计
+	GetCustomerOrderStats(context.Context, *connect.Request[v1.GetCustomerOrderStatsRequest]) (*connect.Response[v1.GetCustomerOrderStatsResponse], error)
+	// R8: 订单详情(订单头 + 全部明细)
+	GetOrderWithItems(context.Context, *connect.Request[v1.GetOrderWithItemsRequest]) (*connect.Response[v1.GetOrderWithItemsResponse], error)
+	// R9: 日别销售额报表
+	GetDailySalesReport(context.Context, *connect.Request[v1.GetDailySalesReportRequest]) (*connect.Response[v1.GetDailySalesReportResponse], error)
+	// R10: 发货延迟告警(截至 as_of,下单超过 min_days 天仍未发货的订单)
+	ListShippingDelays(context.Context, *connect.Request[v1.ListShippingDelaysRequest]) (*connect.Response[v1.ListShippingDelaysResponse], error)
 }
 
 // NewShopServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -216,6 +292,30 @@ func NewShopServiceHandler(svc ShopServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(shopServiceMethods.ByName("GetProductPriceAsOf")),
 		connect.WithHandlerOptions(opts...),
 	)
+	shopServiceGetCustomerOrderStatsHandler := connect.NewUnaryHandler(
+		ShopServiceGetCustomerOrderStatsProcedure,
+		svc.GetCustomerOrderStats,
+		connect.WithSchema(shopServiceMethods.ByName("GetCustomerOrderStats")),
+		connect.WithHandlerOptions(opts...),
+	)
+	shopServiceGetOrderWithItemsHandler := connect.NewUnaryHandler(
+		ShopServiceGetOrderWithItemsProcedure,
+		svc.GetOrderWithItems,
+		connect.WithSchema(shopServiceMethods.ByName("GetOrderWithItems")),
+		connect.WithHandlerOptions(opts...),
+	)
+	shopServiceGetDailySalesReportHandler := connect.NewUnaryHandler(
+		ShopServiceGetDailySalesReportProcedure,
+		svc.GetDailySalesReport,
+		connect.WithSchema(shopServiceMethods.ByName("GetDailySalesReport")),
+		connect.WithHandlerOptions(opts...),
+	)
+	shopServiceListShippingDelaysHandler := connect.NewUnaryHandler(
+		ShopServiceListShippingDelaysProcedure,
+		svc.ListShippingDelays,
+		connect.WithSchema(shopServiceMethods.ByName("ListShippingDelays")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/factory.shop.v1.ShopService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ShopServiceGetCustomerProcedure:
@@ -230,6 +330,14 @@ func NewShopServiceHandler(svc ShopServiceHandler, opts ...connect.HandlerOption
 			shopServiceListOrderItemsHandler.ServeHTTP(w, r)
 		case ShopServiceGetProductPriceAsOfProcedure:
 			shopServiceGetProductPriceAsOfHandler.ServeHTTP(w, r)
+		case ShopServiceGetCustomerOrderStatsProcedure:
+			shopServiceGetCustomerOrderStatsHandler.ServeHTTP(w, r)
+		case ShopServiceGetOrderWithItemsProcedure:
+			shopServiceGetOrderWithItemsHandler.ServeHTTP(w, r)
+		case ShopServiceGetDailySalesReportProcedure:
+			shopServiceGetDailySalesReportHandler.ServeHTTP(w, r)
+		case ShopServiceListShippingDelaysProcedure:
+			shopServiceListShippingDelaysHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -261,4 +369,20 @@ func (UnimplementedShopServiceHandler) ListOrderItems(context.Context, *connect.
 
 func (UnimplementedShopServiceHandler) GetProductPriceAsOf(context.Context, *connect.Request[v1.GetProductPriceAsOfRequest]) (*connect.Response[v1.GetProductPriceAsOfResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.shop.v1.ShopService.GetProductPriceAsOf is not implemented"))
+}
+
+func (UnimplementedShopServiceHandler) GetCustomerOrderStats(context.Context, *connect.Request[v1.GetCustomerOrderStatsRequest]) (*connect.Response[v1.GetCustomerOrderStatsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.shop.v1.ShopService.GetCustomerOrderStats is not implemented"))
+}
+
+func (UnimplementedShopServiceHandler) GetOrderWithItems(context.Context, *connect.Request[v1.GetOrderWithItemsRequest]) (*connect.Response[v1.GetOrderWithItemsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.shop.v1.ShopService.GetOrderWithItems is not implemented"))
+}
+
+func (UnimplementedShopServiceHandler) GetDailySalesReport(context.Context, *connect.Request[v1.GetDailySalesReportRequest]) (*connect.Response[v1.GetDailySalesReportResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.shop.v1.ShopService.GetDailySalesReport is not implemented"))
+}
+
+func (UnimplementedShopServiceHandler) ListShippingDelays(context.Context, *connect.Request[v1.ListShippingDelaysRequest]) (*connect.Response[v1.ListShippingDelaysResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.shop.v1.ShopService.ListShippingDelays is not implemented"))
 }
