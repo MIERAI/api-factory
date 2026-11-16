@@ -272,3 +272,5 @@ review_decisions:
     decision: schema 的 CHECK (isfinite) 约束排除,不会出现
   - question: health 用四舍五入前的值判定,能否用验收用例区分?
     decision: 需要约 2 万行 fixture,DB 级验收不现实。由逻辑函数的单元测试保证(工厂改进候选:式样书里的纯函数级"逻辑样例")
+  - question: 处理时间极长(超过 time.Duration 上限约 292 年)时怎么处理?
+    decision: 不处理。现实中不会发生(审查的现实性规则)

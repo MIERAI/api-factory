@@ -13,6 +13,7 @@ mkdir -p .factory/trials .factory/wt
 go build -o .factory/factory ./factory/cmd/factory || exit 1
 F="$ROOT/.factory/factory"
 API_ID=$($F ai-paths "$SPEC" | head -1)
+SPEC_SHA=$(git hash-object "$SPEC" | cut -c1-8)   # 式样书版本: 比较流程改进前后用
 AI_FILES=$($F ai-paths "$SPEC" | tail -n +2)
 
 run_ai() {  # $1 = prompt file, $2 = json out
@@ -55,14 +56,14 @@ for i in $(seq 1 "$N"); do
   git status --porcelain --untracked-files=all > "$OUT/changed.txt"
   git diff HEAD > "$OUT/diff.patch"; for f in $(git ls-files --others --exclude-standard); do echo "=== $f"; cat "$f"; done >> "$OUT/diff.patch"
 
-  python3 - "$OUT" "$MODEL" "$API_ID" "$i" "$ai_rc" "$ai_sec" "$guard_rc" "$build_rc" "$accept_pass" "$accept_total" >> "$ROOT/.factory/trials/results.jsonl" <<'PY'
+  python3 - "$OUT" "$MODEL" "$API_ID" "$i" "$ai_rc" "$ai_sec" "$guard_rc" "$build_rc" "$accept_pass" "$accept_total" "$SPEC_SHA" >> "$ROOT/.factory/trials/results.jsonl" <<'PY'
 import json, sys
-out, model, api, i, ai_rc, ai_sec, guard_rc, build_rc, ap, at = sys.argv[1:]
+out, model, api, i, ai_rc, ai_sec, guard_rc, build_rc, ap, at, spec_sha = sys.argv[1:]
 try:
     r = json.load(open(f"{out}/ai.result.json"))
 except Exception:
     r = {}
-rec = dict(run=out.rsplit("/", 1)[-1], model=model, api=api, trial=int(i),
+rec = dict(run=out.rsplit("/", 1)[-1], model=model, api=api, spec=spec_sha, trial=int(i),
            ai_rc=int(ai_rc), ai_sec=int(ai_sec), turns=r.get("num_turns"),
            ai_status=r.get("subtype"), guard_ok=guard_rc == "0", build_ok=build_rc == "0",
            accept=f"{ap}/{at}", passed=build_rc == "0" and guard_rc == "0" and ap == at and at != "0")
