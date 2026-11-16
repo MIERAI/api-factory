@@ -8,7 +8,7 @@ run() { # $1=名称 $2=文件 $3=perl 替换式
   perl -0pi -e "$3" "$2"
   if cmp -s "$2" /tmp/mut.bak; then echo "  ? $1: 替换式没有命中"; return; fi
   if ! go build -o bin/server ./cmd/server 2>/dev/null; then echo "  ? $1: 编译失败"; cp /tmp/mut.bak "$2"; return; fi
-  out=$(.factory/factory accept --server bin/server --db "$DB_URL" 2>&1)
+  out=$(.factory/factory serve-test --server bin/server --db "$DB_URL" -- .factory/factory accept --db "$DB_URL" 2>&1)
   unit=$(go test ./internal/... 2>&1 | grep -c '^--- FAIL')
   if ! echo "$out" | grep -q 'case(s)'; then echo "  ? $1: 执行器出错 — $(echo "$out" | tail -1)"; cp /tmp/mut.bak "$2"; return; fi
   human=$(echo "$out" | grep '✗' | grep -vc ' auto:')

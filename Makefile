@@ -41,7 +41,8 @@ test:             ## 单元测试(含工厂生成的 enum / 逻辑样例测试)
 	@go test ./internal/... ./platform/...
 
 accept: build test  ## 验收(ACCEPT_SPECS 可限定为某个式样书目录)
-	@$(FACTORY) accept --server bin/server --db '$(DB_URL)' $(ACCEPT_SPECS)
+	@go build -o .factory/factory ./factory/cmd/factory
+	@.factory/factory serve-test --server bin/server --db '$(DB_URL)' -- .factory/factory accept --db '$(DB_URL)' $(ACCEPT_SPECS)
 
 loop:             ## 整条流水线: 闸门 → 审查 → 生成 → AI → 闸门 → 验收 (MODEL=claude|local)
 	@./scripts/loop.sh $(SPEC) $(MODEL)

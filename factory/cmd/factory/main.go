@@ -27,6 +27,7 @@ import (
 	"apifactory/factory/prompts"
 	"apifactory/factory/protoload"
 	"apifactory/factory/spec"
+	"apifactory/factory/testenv"
 )
 
 func main() {
@@ -52,6 +53,8 @@ func main() {
 		err = cmdReviewPrompt(args)
 	case "stats":
 		err = cmdStats(args)
+	case "serve-test":
+		err = cmdServeTest(args)
 	default:
 		usage()
 	}
@@ -262,17 +265,21 @@ func cmdGuard(args []string) error {
 
 func cmdAccept(args []string) error {
 	fs := flag.NewFlagSet("accept", flag.ExitOnError)
-	server := fs.String("server", "bin/server", "server binary")
-	db := fs.String("db", os.Getenv("DATABASE_URL"), "database url")
+	baseURL := fs.String("url", os.Getenv("BASE_URL"), "被测 API 的 URL(factory serve-test 会设置 BASE_URL)")
+	db := fs.String("db", os.Getenv("DATABASE_URL"), "灌 fixture 用的 DB")
 	_ = fs.Parse(args)
+	if *baseURL == "" {
+		return fmt.Errorf("accept: --url (or BASE_URL) is required; start the server with factory serve-test")
+	}
 	specs, err := loadChecked(specsDir(fs.Args()))
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(".factory", 0o755); err != nil {
-		return err
+	plan, err := ir.Load(ir.DefaultPath)
+	if err != nil {
+		return fmt.Errorf("IR not found (run factory prepare first): %w", err)
 	}
-	results, err := accept.Run(context.Background(), *server, *db, specs)
+	results, err := accept.Run(context.Background(), *baseURL, *db, plan, specs)
 	if err != nil {
 		return err
 	}
@@ -419,4 +426,22 @@ func readSchema() ([]byte, error) {
 		out = append(out, '\n')
 	}
 	return out, nil
+}
+
+// cmdServeTest: 启动被测服务器(测试 DB 会话关掉索引扫描)→ 设置 BASE_URL → 执行 -- 后面的命令 → 停止。
+//
+//	factory serve-test --server bin/server --db URL -- factory accept --db URL
+func cmdServeTest(args []string) error {
+	fs := flag.NewFlagSet("serve-test", flag.ExitOnError)
+	server := fs.String("server", "bin/server", "server binary")
+	db := fs.String("db", os.Getenv("DATABASE_URL"), "database url")
+	_ = fs.Parse(args)
+	cmd := fs.Args()
+	if len(cmd) == 0 {
+		return fmt.Errorf("usage: factory serve-test --server bin/server --db URL -- <command...>")
+	}
+	if err := os.MkdirAll(".factory", 0o755); err != nil {
+		return err
+	}
+	return testenv.WithServer(context.Background(), *server, *db, ".factory/server.log", cmd)
 }

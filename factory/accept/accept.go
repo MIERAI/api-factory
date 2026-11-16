@@ -1,7 +1,8 @@
-// Package accept 是验收执行器: 照着式样书的 acceptance 节执行,与 AI 无关。
+// Package accept 是验收执行器(黑盒): 照着式样书的 acceptance 节和自动生成的用例执行,与 AI 无关。
 //
-// 通过 Connect 协议的 HTTP/JSON 调用 API,所以和运行时用什么语言无关:
-// 只要服务说 Connect(或经过网关转换),同一个执行器就能验收。
+// 输入只有: 被测 API 的 URL、灌 fixture 用的 DB、IR(字段的 presence 等)。
+// 不启动服务器、不调用任何语言的工具链 —— 只要服务说 Connect 协议(HTTP/JSON),谁做的都能验收。
+// 服务器的启动(以及"关掉索引扫描"这种测试环境设置)由编排层负责(factory serve-test)。
 package accept
 
 import (
@@ -10,20 +11,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"net/url"
-	"os"
-	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
-	"google.golang.org/protobuf/reflect/protoreflect"
 
-	"apifactory/factory/protoload"
+	"apifactory/factory/ir"
 	"apifactory/factory/spec"
 )
 
@@ -35,57 +30,32 @@ type Result struct {
 	Detail string
 }
 
-// Run 启动服务器二进制,对每份式样书灌入 fixture 并执行用例。
-func Run(ctx context.Context, serverBin, databaseURL string, specs []*spec.Spec) ([]Result, error) {
-	port, err := freePort()
-	if err != nil {
-		return nil, err
-	}
-	base := "http://127.0.0.1:" + strconv.Itoa(port)
-
-	srv := exec.CommandContext(ctx, serverBin)
-	srv.Env = append(os.Environ(), "PORT="+strconv.Itoa(port), "DATABASE_URL="+planAgnostic(databaseURL))
-	logFile, err := os.Create(".factory/server.log")
-	if err != nil {
-		return nil, err
-	}
-	defer logFile.Close()
-	srv.Stdout, srv.Stderr = logFile, logFile
-	if err := srv.Start(); err != nil {
-		return nil, fmt.Errorf("start server: %w", err)
-	}
-	defer func() { _ = srv.Process.Kill(); _ = srv.Wait() }()
-	if err := waitHealthy(base, 15*time.Second); err != nil {
-		return nil, fmt.Errorf("%w (see .factory/server.log)", err)
-	}
-
-	conn, err := pgx.Connect(ctx, databaseURL)
+// Run 对每份式样书灌入 fixture 并执行用例。baseURL 是被测服务器,fixturesDB 只用来灌数据。
+func Run(ctx context.Context, baseURL, fixturesDB string, plan *ir.Plan, specs []*spec.Spec) ([]Result, error) {
+	conn, err := pgx.Connect(ctx, fixturesDB)
 	if err != nil {
 		return nil, fmt.Errorf("connect db: %w", err)
 	}
 	defer conn.Close(ctx)
 
-	files, err := protoload.Load()
-	if err != nil {
-		return nil, err
+	apis := map[string]*ir.API{}
+	for i := range plan.APIs {
+		apis[plan.APIs[i].ID] = &plan.APIs[i]
 	}
 
 	var results []Result
 	for _, s := range specs {
+		api, ok := apis[s.ID()]
+		if !ok {
+			return nil, fmt.Errorf("%s: not in the IR (run factory prepare first)", s.ID())
+		}
 		if err := loadFixtures(ctx, conn, s.Acceptance.Fixtures); err != nil {
 			return nil, fmt.Errorf("%s fixtures: %w", s.ID(), err)
 		}
-		parts, err := s.RPCParts()
-		if err != nil {
-			return nil, err
-		}
-		md, err := protoload.FindMethod(files, parts.ProtoPackage, parts.Service, parts.Method)
-		if err != nil {
-			return nil, err
-		}
-		url := fmt.Sprintf("%s/%s.%s/%s", base, parts.ProtoPackage, parts.Service, parts.Method)
+		url := fmt.Sprintf("%s/%s.%s/%s", strings.TrimRight(baseURL, "/"), api.ProtoPackage, api.Service, api.Method)
+		out := &api.Response
 		for _, c := range s.Acceptance.Cases {
-			ok, detail := runCase(url, c, md.Output())
+			ok, detail := runCase(url, c, out)
 			results = append(results, Result{Spec: s.ID(), Case: c.Name, Passed: ok, Detail: detail})
 		}
 		// 自动生成的机制测试(gen/acceptance/<id>.yaml)
@@ -101,29 +71,13 @@ func Run(ctx context.Context, serverBin, databaseURL string, specs []*spec.Spec)
 					}
 				}
 				for _, c := range suite.Cases {
-					ok, detail := runCase(url, c, md.Output())
+					ok, detail := runCase(url, c, out)
 					results = append(results, Result{Spec: s.ID(), Suite: "auto:" + suite.Name, Case: c.Name, Passed: ok, Detail: detail})
 				}
 			}
 		}
 	}
 	return results, nil
-}
-
-// planAgnostic 让被测服务器的 DB 会话不使用索引扫描。
-// 验收结果不能依赖执行计划: 正确的顺序必须由 SQL 本身保证,而不是碰巧由某个索引保证。
-// (实测: 去掉 keyset 的次级排序这种 bug,在用到索引时会被索引顺序掩盖,验收全绿)
-func planAgnostic(databaseURL string) string {
-	u, err := url.Parse(databaseURL)
-	if err != nil {
-		return databaseURL
-	}
-	q := u.Query()
-	opts := strings.TrimSpace(q.Get("options") + " -c enable_indexscan=off -c enable_indexonlyscan=off -c enable_bitmapscan=off")
-	q.Set("options", opts)
-	// url.Values.Encode 把空格编码成 "+",pgx 不会还原,必须用 %20
-	u.RawQuery = strings.ReplaceAll(q.Encode(), "+", "%20")
-	return u.String()
 }
 
 func loadFixtures(ctx context.Context, conn *pgx.Conn, fixtures map[string][]map[string]any) error {
@@ -158,7 +112,7 @@ func loadFixtures(ctx context.Context, conn *pgx.Conn, fixtures map[string][]map
 	return nil
 }
 
-func runCase(url string, c spec.Case, out protoreflect.MessageDescriptor) (bool, string) {
+func runCase(url string, c spec.Case, out *ir.Message) (bool, string) {
 	var prev map[string]any
 	steps := c.AllSteps()
 	var details []string
@@ -197,7 +151,7 @@ func substitute(req map[string]any, prev map[string]any) (map[string]any, error)
 	return out, nil
 }
 
-func runStep(url string, reqBody map[string]any, expect spec.Expect, out protoreflect.MessageDescriptor) (bool, string, map[string]any) {
+func runStep(url string, reqBody map[string]any, expect spec.Expect, out *ir.Message) (bool, string, map[string]any) {
 	body, _ := json.Marshal(reqBody)
 	req, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -249,7 +203,7 @@ func runStep(url string, reqBody map[string]any, expect spec.Expect, out protore
 	}
 	got, _ := snakeKeys(decoded).(map[string]any)
 	for k, want := range expect.Response {
-		if msg := match("response."+k, want, got[k], out.Fields().ByName(protoreflect.Name(k))); msg != "" {
+		if msg := match("response."+k, want, got[k], out.Field(k)); msg != "" {
 			return false, fmt.Sprintf("%s (body %s)", msg, truncate(raw, 300)), got
 		}
 	}
@@ -265,8 +219,8 @@ func runStep(url string, reqBody map[string]any, expect spec.Expect, out protore
 //   - 标量        : 吸收 protojson 的特性(非 optional 字段的零值省略、int64 编码为字符串)
 //
 // 有 presence 的字段(proto3 optional / message): 期待具体值时,"未设置"不算等于零值。
-func match(path string, want, got any, fd protoreflect.FieldDescriptor) string {
-	presence := fd != nil && !fd.IsList() && fd.HasPresence()
+func match(path string, want, got any, fd *ir.Field) string {
+	presence := fd != nil && !fd.List && fd.Presence
 	switch w := want.(type) {
 	case string:
 		switch w {
@@ -289,14 +243,14 @@ func match(path string, want, got any, fd protoreflect.FieldDescriptor) string {
 			}
 			return fmt.Sprintf("%s: want object, got %v", path, got)
 		}
-		var md protoreflect.MessageDescriptor
+		var md *ir.Message
 		if fd != nil {
-			md = fd.Message()
+			md = fd.Message
 		}
 		for k, wv := range w {
-			var sub protoreflect.FieldDescriptor
+			var sub *ir.Field
 			if md != nil {
-				sub = md.Fields().ByName(protoreflect.Name(k))
+				sub = md.Field(k)
 			}
 			if msg := match(path+"."+k, wv, g[k], sub); msg != "" {
 				return msg
@@ -418,28 +372,4 @@ func toFloat(v any) (float64, bool) {
 		return f, err == nil
 	}
 	return 0, false
-}
-
-func freePort() (int, error) {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, err
-	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port, nil
-}
-
-func waitHealthy(base string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		resp, err := http.Get(base + "/healthz")
-		if err == nil {
-			resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
-				return nil
-			}
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	return fmt.Errorf("server not healthy within %s", timeout)
 }
