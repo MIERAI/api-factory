@@ -40,7 +40,7 @@ make loop SPEC=specs/jobs/get-job-status/spec.yaml          # MODEL=local 可让
         │      + db/queries/*.sql
    ┌────┼──────────────┬───────────────────┐
 [验收生成]          [审查]           [语言适配器] factory/adapters/golang
-factory/acceptgen   factory/prompts   IR → Go 代码(sqlc-go / buf / handler / enum / wiring)
+factory/acceptgen   factory/prompts   IR → Go 代码(gen/db 查询函数 / buf / handler / enum / wiring)
 语言无关             review.md         清单 manifest.yaml: AI 改哪些文件 / 闸门规则 / prompt / 工具
    │                                          │
 gen/acceptance/*.yaml                 [AI 实现] factory ai(模型和角色在 factory.yaml)
@@ -96,11 +96,11 @@ gen/acceptance/*.yaml                 [AI 实现] factory ai(模型和角色在 
 | 内容 | 由谁处理 |
 |---|---|
 | 类型、路由、序列化 | buf + protoc-gen-go / connect-go |
-| SQL → 查询函数 | sqlc(SQL 来自式样书) |
+| SQL → 查询函数 | 工厂(核心代数的 SQL 后端;逃生口 SQL 用 sqlc 的分析取类型) |
 | 参数校验 | protovalidate(规则写在 proto 里) |
 | 错误转换、超时、日志 | `platform/` 拦截器 |
 | handler 骨架、wiring | `factory prepare` |
-| 请求↔查询↔响应的映射 | `factory prepare`(proto 描述符 + sqlc 生成代码的 AST) |
+| 请求↔查询↔响应的映射 | `factory prepare`(proto 描述符 + gen/db 的 AST) |
 | 分页(游标、多取一行、token 签名/绑定) | `list_keyset` 插件 + `platform/paging` |
 
 ## 模型对照试验
