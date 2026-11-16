@@ -9,8 +9,9 @@ import (
 )
 
 type Job struct {
-	ID        int64
-	JobType   string
-	Status    int32
-	CreatedAt time.Time
+	ID         int64
+	JobType    string
+	Status     int32
+	CreatedAt  time.Time
+	FinishedAt *time.Time
 }

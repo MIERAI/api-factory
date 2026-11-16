@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"text/template"
 
@@ -120,6 +121,9 @@ func cmdPrompt(args []string) error {
 	if errs := s.Check(); len(errs) > 0 {
 		return fmt.Errorf("spec check failed: %s", strings.Join(errs, "; "))
 	}
+	if !s.AIWrites() {
+		return fmt.Errorf("pattern %s is fully generated; nothing for AI to do", s.PatternKind())
+	}
 	parts, _ := s.RPCParts()
 	raw, err := os.ReadFile(args[0])
 	if err != nil {
@@ -127,17 +131,49 @@ func cmdPrompt(args []string) error {
 	}
 	segs := strings.Split(parts.ProtoPackage, ".")
 	handlerDir := filepath.Join("internal/handler", parts.Domain())
+	protoBase := strings.TrimSuffix(filepath.Base(s.API.Proto), ".proto")
 	data := map[string]any{
-		"RPC":         s.API.RPC,
-		"AIMayEdit":   s.Generation.AIMayEdit,
-		"HandlerDir":  handlerDir,
-		"HandlerFile": s.Generation.AIMayEdit[0],
-		"QueryFile":   filepath.Join("gen/db", s.API.ID+".sql.go"),
-		"ConnectFile": filepath.Join("gen", filepath.Join(segs...), parts.Domain()+segs[len(segs)-1]+"connect", parts.Domain()+".connect.go"),
-		"SpecPath":    args[0],
-		"SpecYAML":    strings.TrimSpace(string(raw)),
+		"RPC":            s.API.RPC,
+		"AIMayEdit":      s.Generation.AIMayEdit,
+		"HandlerDir":     handlerDir,
+		"HandlerFile":    s.Generation.AIMayEdit[0],
+		"LogicFile":      s.Generation.AIMayEdit[0],
+		"HandlerGenFile": filepath.Join(handlerDir, snake(parts.Method)+"_gen.go"),
+		"QueryFile":      filepath.Join("gen/db", s.API.ID+".sql.go"),
+		"PBFile":         filepath.Join("gen", filepath.Join(segs...), protoBase+".pb.go"),
+		"ConnectFile":    filepath.Join("gen", filepath.Join(segs...), parts.Domain()+segs[len(segs)-1]+"connect", protoBase+".connect.go"),
+		"SpecPath":       args[0],
+		"SpecYAML":       strings.TrimSpace(string(raw)),
 	}
-	return template.Must(template.New("").Parse(prompts.Implement)).Execute(os.Stdout, data)
+	tmpl := prompts.Implement
+	if s.PatternKind() == "compute" {
+		// 签名以 prepare 生成的桩为准,不在两处各写一份
+		stub, err := os.ReadFile(s.Generation.AIMayEdit[0])
+		if err != nil {
+			return fmt.Errorf("logic stub not found (run factory prepare first): %w", err)
+		}
+		sig := regexp.MustCompile(`(?m)^func \w+Logic\(.*\) \(.*\)`).Find(stub)
+		if sig == nil {
+			return fmt.Errorf("cannot find the logic function signature in %s", s.Generation.AIMayEdit[0])
+		}
+		data["Signature"] = string(sig)
+		tmpl = prompts.Compute
+	}
+	return template.Must(template.New("").Parse(tmpl)).Execute(os.Stdout, data)
+}
+
+func snake(s string) string {
+	var b strings.Builder
+	for i, r := range s {
+		if r >= 'A' && r <= 'Z' {
+			if i > 0 {
+				b.WriteByte('_')
+			}
+			r += 'a' - 'A'
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 func cmdGuard(args []string) error {

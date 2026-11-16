@@ -3,7 +3,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     id         BIGINT      PRIMARY KEY,
     job_type   TEXT        NOT NULL DEFAULT 'default',
     status     INTEGER     NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    finished_at TIMESTAMPTZ          -- 成功/失败时写入;未完成为 NULL
 );
 
 -- ListJobs 的 keyset 分页用

@@ -37,6 +37,7 @@ type API struct {
 //   - custom      : AI 写(generation.ai_may_edit 必填)
 //   - get_by_id   : 工厂生成。按参数查 1 行,查不到 → NOT_FOUND
 //   - list_keyset : 工厂生成。筛选 + keyset 分页(游标/ORDER BY/LIMIT 由工厂追加到查询)
+//   - compute     : 工厂生成 handler(映射 + 查询),AI 只写纯函数 <method>Logic(req, rows)
 type Pattern struct {
 	Kind            string   `yaml:"kind"`
 	NotFoundMessage string   `yaml:"not_found_message"` // get_by_id: "job not found: {job_id}"
@@ -50,6 +51,12 @@ type Pattern struct {
 type PageSize struct {
 	Default int32 `yaml:"default"`
 	Max     int32 `yaml:"max"`
+}
+
+// AIWrites: 这个 API 是否有 AI 负责的部分。
+func (s *Spec) AIWrites() bool {
+	k := s.PatternKind()
+	return k == "custom" || k == "compute"
 }
 
 func (s *Spec) PatternKind() string {
@@ -264,9 +271,9 @@ func (s *Spec) Check() []string {
 	}
 
 	switch s.PatternKind() {
-	case "custom":
+	case "custom", "compute":
 		if len(s.Generation.AIMayEdit) == 0 {
-			add("generation.ai_may_edit: required for pattern custom")
+			add("generation.ai_may_edit: required for pattern %s", s.PatternKind())
 		}
 	case "get_by_id":
 		if q.Cardinality != "one" {
@@ -292,9 +299,15 @@ func (s *Spec) Check() []string {
 			add("pattern list_keyset: sql must not contain ORDER BY / LIMIT / OFFSET (the factory adds them)")
 		}
 	default:
-		add("pattern.kind must be custom / get_by_id / list_keyset")
+		add("pattern.kind must be custom / compute / get_by_id / list_keyset")
 	}
-	if s.PatternKind() != "custom" && len(s.Generation.AIMayEdit) > 0 {
+	if s.AIWrites() && len(s.Generation.AIMayEdit) > 0 && s.PatternKind() == "compute" {
+		want := "_logic.go"
+		if !strings.HasSuffix(s.Generation.AIMayEdit[0], want) {
+			add("generation.ai_may_edit[0]: pattern compute expects the logic file (*%s) first", want)
+		}
+	}
+	if !s.AIWrites() && len(s.Generation.AIMayEdit) > 0 {
 		add("generation.ai_may_edit: must be empty when the factory generates the handler (pattern %s)", s.PatternKind())
 	}
 	for _, p := range s.Generation.AIMayEdit {

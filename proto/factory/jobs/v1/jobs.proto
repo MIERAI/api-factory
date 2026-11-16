@@ -19,6 +19,11 @@ service JobService {
   //   OK               : 0 件也是 OK
   //   INVALID_ARGUMENT : 参数不合法 / page_token 无法解析
   rpc ListJobs(ListJobsRequest) returns (ListJobsResponse);
+
+  // 按 job_type 和期间汇总任务的处理情况(成功率 / 平均处理时间 / SLA 违约 / 健康度)
+  //   OK               : 0 件也是 OK(health = NO_DATA)
+  //   INVALID_ARGUMENT : 参数不合法
+  rpc GetJobSummary(GetJobSummaryRequest) returns (GetJobSummaryResponse);
 }
 
 message GetJobStatusRequest {
@@ -71,4 +76,36 @@ message Job {
   string job_type = 2;
   int32 status = 3;
   google.protobuf.Timestamp created_at = 4;
+}
+
+message GetJobSummaryRequest {
+  option (buf.validate.message).cel = {
+    id: "period_range"
+    message: "period_start must be earlier than period_end, and the period must be 31 days or less"
+    expression: "this.period_start < this.period_end && this.period_end - this.period_start <= duration('744h')"
+  };
+
+  string job_type = 1 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 64
+  }];
+  // created_at >= period_start
+  google.protobuf.Timestamp period_start = 2 [(buf.validate.field).required = true];
+  // created_at < period_end
+  google.protobuf.Timestamp period_end = 3 [(buf.validate.field).required = true];
+}
+
+message GetJobSummaryResponse {
+  int64 total = 1;
+  int64 succeeded = 2;
+  int64 failed = 3;
+  int64 pending = 4;
+  // succeeded / (succeeded + failed),四舍五入到小数 4 位。已结束的任务为 0 件时不设置
+  optional double success_rate = 5;
+  // 已结束任务的平均处理时间(秒),四舍五入到小数 1 位。无可计算的任务时不设置
+  optional double avg_duration_seconds = 6;
+  // 处理时间超过 SLA(300 秒)的已结束任务数
+  int64 sla_breaches = 7;
+  // OK / DEGRADED / CRITICAL / NO_DATA
+  string health = 8;
 }

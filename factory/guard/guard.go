@@ -22,6 +22,10 @@ var forbiddenImports = []string{
 	`"unsafe"`,
 }
 
+// compute 模式的逻辑文件必须是纯函数: 追加禁止项。
+var impureImports = []string{`"context"`, `"os"`, `"net"`, `"math/rand"`, `"sync"`, `"apifactory/platform`}
+var impureCalls = regexp.MustCompile(`\btime\.(Now|Since|Until|Sleep|After|Tick)\(|\bgo\s+func\b`)
+
 var sqlLiteral = regexp.MustCompile("(?i)[\"`]\\s*(select|insert|update|delete)\\s")
 
 // Check 对比 git 工作区相对于最近一次提交的改动。
@@ -31,8 +35,12 @@ func Check(specs []*spec.Spec) ([]string, []string, error) {
 		return nil, nil, err
 	}
 	var allowed []string
+	logicFiles := map[string]bool{}
 	for _, s := range specs {
 		allowed = append(allowed, s.Generation.AIMayEdit...)
+		if s.PatternKind() == "compute" && len(s.Generation.AIMayEdit) > 0 {
+			logicFiles[s.Generation.AIMayEdit[0]] = true
+		}
 	}
 
 	var violations []string
@@ -55,6 +63,16 @@ func Check(specs []*spec.Spec) ([]string, []string, error) {
 		for _, imp := range forbiddenImports {
 			if strings.Contains(src, imp) {
 				violations = append(violations, fmt.Sprintf("%s: forbidden import %s", f, imp))
+			}
+		}
+		if logicFiles[f] {
+			for _, imp := range impureImports {
+				if strings.Contains(src, imp) {
+					violations = append(violations, fmt.Sprintf("%s: logic must be pure, forbidden import %s", f, imp))
+				}
+			}
+			if m := impureCalls.FindString(src); m != "" {
+				violations = append(violations, fmt.Sprintf("%s: logic must be pure, forbidden call %q", f, m))
 			}
 		}
 		if !strings.HasSuffix(f, "_test.go") && sqlLiteral.MatchString(src) {

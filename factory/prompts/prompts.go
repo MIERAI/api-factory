@@ -5,3 +5,6 @@ import _ "embed"
 
 //go:embed implement.md
 var Implement string
+
+//go:embed compute.md
+var Compute string

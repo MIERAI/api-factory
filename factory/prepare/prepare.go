@@ -21,6 +21,8 @@ import (
 	"strings"
 	"text/template"
 
+	"google.golang.org/protobuf/reflect/protoregistry"
+
 	"apifactory/factory/spec"
 )
 
@@ -74,32 +76,27 @@ func Run(specs []*spec.Spec) error {
 		if s.PatternKind() == "custom" {
 			continue
 		}
-		parts, _ := s.RPCParts()
-		svc := serviceFor(services, parts)
-		md, err := findMethod(files, parts.ProtoPackage, parts.Service, parts.Method)
+		g, svc, err := newGenCtx(s, services, files, dbp)
 		if err != nil {
-			return fmt.Errorf("%s: %w", s.Path, err)
+			return err
 		}
-		q, ok := dbp.funcs[s.Datasource.Query.Name]
-		if !ok {
-			return fmt.Errorf("%s: sqlc did not generate %s", s.Path, s.Datasource.Query.Name)
-		}
-		segs := strings.Split(parts.ProtoPackage, ".")
-		g := &genCtx{
-			spec: s, parts: parts, svc: svc, method: md, query: q, db: dbp,
-			pbAlias: parts.Domain() + segs[len(segs)-1],
-			imports: map[string]string{},
-		}
-		g.use("context", "")
-		g.use("connectrpc.com/connect", "")
-		g.use(modulePath+"/gen/"+strings.Join(segs, "/"), g.pbAlias)
-
+		parts := g.parts
 		var src string
 		switch s.PatternKind() {
 		case "get_by_id":
 			src, err = genGetByID(g)
 		case "list_keyset":
 			src, err = genListKeyset(g)
+		case "compute":
+			src, err = genCompute(g)
+			if err == nil {
+				stub := s.Generation.AIMayEdit[0]
+				if _, statErr := os.Stat(stub); os.IsNotExist(statErr) {
+					if err := writeGo(stub, []byte(genLogicStub(g))); err != nil {
+						return err
+					}
+				}
+			}
 		}
 		if err != nil {
 			return fmt.Errorf("%s: %w", s.Path, err)
@@ -109,6 +106,30 @@ func Run(specs []*spec.Spec) error {
 		}
 	}
 	return writeWiring(services)
+}
+
+// newGenCtx 准备一个 API 的代码生成上下文(proto 描述符 + sqlc 函数签名)。
+func newGenCtx(s *spec.Spec, services []service, files *protoregistry.Files, dbp *dbPackage) (*genCtx, service, error) {
+	parts, _ := s.RPCParts()
+	svc := serviceFor(services, parts)
+	md, err := findMethod(files, parts.ProtoPackage, parts.Service, parts.Method)
+	if err != nil {
+		return nil, svc, fmt.Errorf("%s: %w", s.Path, err)
+	}
+	q, ok := dbp.funcs[s.Datasource.Query.Name]
+	if !ok {
+		return nil, svc, fmt.Errorf("%s: sqlc did not generate %s", s.Path, s.Datasource.Query.Name)
+	}
+	segs := strings.Split(parts.ProtoPackage, ".")
+	g := &genCtx{
+		spec: s, parts: parts, svc: svc, method: md, query: q, db: dbp,
+		pbAlias: parts.Domain() + segs[len(segs)-1],
+		imports: map[string]string{},
+	}
+	g.use("context", "")
+	g.use("connectrpc.com/connect", "")
+	g.use(modulePath+"/gen/"+strings.Join(segs, "/"), g.pbAlias)
+	return g, svc, nil
 }
 
 func writeQueries(specs []*spec.Spec, dbp *dbPackage) error {

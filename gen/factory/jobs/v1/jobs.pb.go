@@ -324,6 +324,172 @@ func (x *Job) GetCreatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+type GetJobSummaryRequest struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	JobType string                 `protobuf:"bytes,1,opt,name=job_type,json=jobType,proto3" json:"job_type,omitempty"`
+	// created_at >= period_start
+	PeriodStart *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=period_start,json=periodStart,proto3" json:"period_start,omitempty"`
+	// created_at < period_end
+	PeriodEnd     *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=period_end,json=periodEnd,proto3" json:"period_end,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetJobSummaryRequest) Reset() {
+	*x = GetJobSummaryRequest{}
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetJobSummaryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetJobSummaryRequest) ProtoMessage() {}
+
+func (x *GetJobSummaryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetJobSummaryRequest.ProtoReflect.Descriptor instead.
+func (*GetJobSummaryRequest) Descriptor() ([]byte, []int) {
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *GetJobSummaryRequest) GetJobType() string {
+	if x != nil {
+		return x.JobType
+	}
+	return ""
+}
+
+func (x *GetJobSummaryRequest) GetPeriodStart() *timestamppb.Timestamp {
+	if x != nil {
+		return x.PeriodStart
+	}
+	return nil
+}
+
+func (x *GetJobSummaryRequest) GetPeriodEnd() *timestamppb.Timestamp {
+	if x != nil {
+		return x.PeriodEnd
+	}
+	return nil
+}
+
+type GetJobSummaryResponse struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Total     int64                  `protobuf:"varint,1,opt,name=total,proto3" json:"total,omitempty"`
+	Succeeded int64                  `protobuf:"varint,2,opt,name=succeeded,proto3" json:"succeeded,omitempty"`
+	Failed    int64                  `protobuf:"varint,3,opt,name=failed,proto3" json:"failed,omitempty"`
+	Pending   int64                  `protobuf:"varint,4,opt,name=pending,proto3" json:"pending,omitempty"`
+	// succeeded / (succeeded + failed),四舍五入到小数 4 位。已结束的任务为 0 件时不设置
+	SuccessRate *float64 `protobuf:"fixed64,5,opt,name=success_rate,json=successRate,proto3,oneof" json:"success_rate,omitempty"`
+	// 已结束任务的平均处理时间(秒),四舍五入到小数 1 位。无可计算的任务时不设置
+	AvgDurationSeconds *float64 `protobuf:"fixed64,6,opt,name=avg_duration_seconds,json=avgDurationSeconds,proto3,oneof" json:"avg_duration_seconds,omitempty"`
+	// 处理时间超过 SLA(300 秒)的已结束任务数
+	SlaBreaches int64 `protobuf:"varint,7,opt,name=sla_breaches,json=slaBreaches,proto3" json:"sla_breaches,omitempty"`
+	// OK / DEGRADED / CRITICAL / NO_DATA
+	Health        string `protobuf:"bytes,8,opt,name=health,proto3" json:"health,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetJobSummaryResponse) Reset() {
+	*x = GetJobSummaryResponse{}
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetJobSummaryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetJobSummaryResponse) ProtoMessage() {}
+
+func (x *GetJobSummaryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetJobSummaryResponse.ProtoReflect.Descriptor instead.
+func (*GetJobSummaryResponse) Descriptor() ([]byte, []int) {
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *GetJobSummaryResponse) GetTotal() int64 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
+func (x *GetJobSummaryResponse) GetSucceeded() int64 {
+	if x != nil {
+		return x.Succeeded
+	}
+	return 0
+}
+
+func (x *GetJobSummaryResponse) GetFailed() int64 {
+	if x != nil {
+		return x.Failed
+	}
+	return 0
+}
+
+func (x *GetJobSummaryResponse) GetPending() int64 {
+	if x != nil {
+		return x.Pending
+	}
+	return 0
+}
+
+func (x *GetJobSummaryResponse) GetSuccessRate() float64 {
+	if x != nil && x.SuccessRate != nil {
+		return *x.SuccessRate
+	}
+	return 0
+}
+
+func (x *GetJobSummaryResponse) GetAvgDurationSeconds() float64 {
+	if x != nil && x.AvgDurationSeconds != nil {
+		return *x.AvgDurationSeconds
+	}
+	return 0
+}
+
+func (x *GetJobSummaryResponse) GetSlaBreaches() int64 {
+	if x != nil {
+		return x.SlaBreaches
+	}
+	return 0
+}
+
+func (x *GetJobSummaryResponse) GetHealth() string {
+	if x != nil {
+		return x.Health
+	}
+	return ""
+}
+
 var File_factory_jobs_v1_jobs_proto protoreflect.FileDescriptor
 
 const file_factory_jobs_v1_jobs_proto_rawDesc = "" +
@@ -352,11 +518,29 @@ const file_factory_jobs_v1_jobs_proto_rawDesc = "" +
 	"\bjob_type\x18\x02 \x01(\tR\ajobType\x12\x16\n" +
 	"\x06status\x18\x03 \x01(\x05R\x06status\x129\n" +
 	"\n" +
-	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt2\xba\x01\n" +
+	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\x94\x03\n" +
+	"\x14GetJobSummaryRequest\x12$\n" +
+	"\bjob_type\x18\x01 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18@R\ajobType\x12E\n" +
+	"\fperiod_start\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampB\x06\xbaH\x03\xc8\x01\x01R\vperiodStart\x12A\n" +
+	"\n" +
+	"period_end\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampB\x06\xbaH\x03\xc8\x01\x01R\tperiodEnd:\xcb\x01\xbaH\xc7\x01\x1a\xc4\x01\n" +
+	"\fperiod_range\x12Tperiod_start must be earlier than period_end, and the period must be 31 days or less\x1a^this.period_start < this.period_end && this.period_end - this.period_start <= duration('744h')\"\xc1\x02\n" +
+	"\x15GetJobSummaryResponse\x12\x14\n" +
+	"\x05total\x18\x01 \x01(\x03R\x05total\x12\x1c\n" +
+	"\tsucceeded\x18\x02 \x01(\x03R\tsucceeded\x12\x16\n" +
+	"\x06failed\x18\x03 \x01(\x03R\x06failed\x12\x18\n" +
+	"\apending\x18\x04 \x01(\x03R\apending\x12&\n" +
+	"\fsuccess_rate\x18\x05 \x01(\x01H\x00R\vsuccessRate\x88\x01\x01\x125\n" +
+	"\x14avg_duration_seconds\x18\x06 \x01(\x01H\x01R\x12avgDurationSeconds\x88\x01\x01\x12!\n" +
+	"\fsla_breaches\x18\a \x01(\x03R\vslaBreaches\x12\x16\n" +
+	"\x06health\x18\b \x01(\tR\x06healthB\x0f\n" +
+	"\r_success_rateB\x17\n" +
+	"\x15_avg_duration_seconds2\x9a\x02\n" +
 	"\n" +
 	"JobService\x12[\n" +
 	"\fGetJobStatus\x12$.factory.jobs.v1.GetJobStatusRequest\x1a%.factory.jobs.v1.GetJobStatusResponse\x12O\n" +
-	"\bListJobs\x12 .factory.jobs.v1.ListJobsRequest\x1a!.factory.jobs.v1.ListJobsResponseB'Z%apifactory/gen/factory/jobs/v1;jobsv1b\x06proto3"
+	"\bListJobs\x12 .factory.jobs.v1.ListJobsRequest\x1a!.factory.jobs.v1.ListJobsResponse\x12^\n" +
+	"\rGetJobSummary\x12%.factory.jobs.v1.GetJobSummaryRequest\x1a&.factory.jobs.v1.GetJobSummaryResponseB'Z%apifactory/gen/factory/jobs/v1;jobsv1b\x06proto3"
 
 var (
 	file_factory_jobs_v1_jobs_proto_rawDescOnce sync.Once
@@ -370,29 +554,35 @@ func file_factory_jobs_v1_jobs_proto_rawDescGZIP() []byte {
 	return file_factory_jobs_v1_jobs_proto_rawDescData
 }
 
-var file_factory_jobs_v1_jobs_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_factory_jobs_v1_jobs_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_factory_jobs_v1_jobs_proto_goTypes = []any{
 	(*GetJobStatusRequest)(nil),   // 0: factory.jobs.v1.GetJobStatusRequest
 	(*GetJobStatusResponse)(nil),  // 1: factory.jobs.v1.GetJobStatusResponse
 	(*ListJobsRequest)(nil),       // 2: factory.jobs.v1.ListJobsRequest
 	(*ListJobsResponse)(nil),      // 3: factory.jobs.v1.ListJobsResponse
 	(*Job)(nil),                   // 4: factory.jobs.v1.Job
-	(*timestamppb.Timestamp)(nil), // 5: google.protobuf.Timestamp
+	(*GetJobSummaryRequest)(nil),  // 5: factory.jobs.v1.GetJobSummaryRequest
+	(*GetJobSummaryResponse)(nil), // 6: factory.jobs.v1.GetJobSummaryResponse
+	(*timestamppb.Timestamp)(nil), // 7: google.protobuf.Timestamp
 }
 var file_factory_jobs_v1_jobs_proto_depIdxs = []int32{
-	5, // 0: factory.jobs.v1.ListJobsRequest.created_after:type_name -> google.protobuf.Timestamp
-	5, // 1: factory.jobs.v1.ListJobsRequest.created_before:type_name -> google.protobuf.Timestamp
+	7, // 0: factory.jobs.v1.ListJobsRequest.created_after:type_name -> google.protobuf.Timestamp
+	7, // 1: factory.jobs.v1.ListJobsRequest.created_before:type_name -> google.protobuf.Timestamp
 	4, // 2: factory.jobs.v1.ListJobsResponse.jobs:type_name -> factory.jobs.v1.Job
-	5, // 3: factory.jobs.v1.Job.created_at:type_name -> google.protobuf.Timestamp
-	0, // 4: factory.jobs.v1.JobService.GetJobStatus:input_type -> factory.jobs.v1.GetJobStatusRequest
-	2, // 5: factory.jobs.v1.JobService.ListJobs:input_type -> factory.jobs.v1.ListJobsRequest
-	1, // 6: factory.jobs.v1.JobService.GetJobStatus:output_type -> factory.jobs.v1.GetJobStatusResponse
-	3, // 7: factory.jobs.v1.JobService.ListJobs:output_type -> factory.jobs.v1.ListJobsResponse
-	6, // [6:8] is the sub-list for method output_type
-	4, // [4:6] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	7, // 3: factory.jobs.v1.Job.created_at:type_name -> google.protobuf.Timestamp
+	7, // 4: factory.jobs.v1.GetJobSummaryRequest.period_start:type_name -> google.protobuf.Timestamp
+	7, // 5: factory.jobs.v1.GetJobSummaryRequest.period_end:type_name -> google.protobuf.Timestamp
+	0, // 6: factory.jobs.v1.JobService.GetJobStatus:input_type -> factory.jobs.v1.GetJobStatusRequest
+	2, // 7: factory.jobs.v1.JobService.ListJobs:input_type -> factory.jobs.v1.ListJobsRequest
+	5, // 8: factory.jobs.v1.JobService.GetJobSummary:input_type -> factory.jobs.v1.GetJobSummaryRequest
+	1, // 9: factory.jobs.v1.JobService.GetJobStatus:output_type -> factory.jobs.v1.GetJobStatusResponse
+	3, // 10: factory.jobs.v1.JobService.ListJobs:output_type -> factory.jobs.v1.ListJobsResponse
+	6, // 11: factory.jobs.v1.JobService.GetJobSummary:output_type -> factory.jobs.v1.GetJobSummaryResponse
+	9, // [9:12] is the sub-list for method output_type
+	6, // [6:9] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_factory_jobs_v1_jobs_proto_init() }
@@ -401,13 +591,14 @@ func file_factory_jobs_v1_jobs_proto_init() {
 		return
 	}
 	file_factory_jobs_v1_jobs_proto_msgTypes[2].OneofWrappers = []any{}
+	file_factory_jobs_v1_jobs_proto_msgTypes[6].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_factory_jobs_v1_jobs_proto_rawDesc), len(file_factory_jobs_v1_jobs_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   5,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

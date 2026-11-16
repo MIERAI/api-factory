@@ -37,6 +37,9 @@ const (
 	JobServiceGetJobStatusProcedure = "/factory.jobs.v1.JobService/GetJobStatus"
 	// JobServiceListJobsProcedure is the fully-qualified name of the JobService's ListJobs RPC.
 	JobServiceListJobsProcedure = "/factory.jobs.v1.JobService/ListJobs"
+	// JobServiceGetJobSummaryProcedure is the fully-qualified name of the JobService's GetJobSummary
+	// RPC.
+	JobServiceGetJobSummaryProcedure = "/factory.jobs.v1.JobService/GetJobSummary"
 )
 
 // JobServiceClient is a client for the factory.jobs.v1.JobService service.
@@ -50,6 +53,10 @@ type JobServiceClient interface {
 	//   OK               : 0 件也是 OK
 	//   INVALID_ARGUMENT : 参数不合法 / page_token 无法解析
 	ListJobs(context.Context, *connect.Request[v1.ListJobsRequest]) (*connect.Response[v1.ListJobsResponse], error)
+	// 按 job_type 和期间汇总任务的处理情况(成功率 / 平均处理时间 / SLA 违约 / 健康度)
+	//   OK               : 0 件也是 OK(health = NO_DATA)
+	//   INVALID_ARGUMENT : 参数不合法
+	GetJobSummary(context.Context, *connect.Request[v1.GetJobSummaryRequest]) (*connect.Response[v1.GetJobSummaryResponse], error)
 }
 
 // NewJobServiceClient constructs a client for the factory.jobs.v1.JobService service. By default,
@@ -75,13 +82,20 @@ func NewJobServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(jobServiceMethods.ByName("ListJobs")),
 			connect.WithClientOptions(opts...),
 		),
+		getJobSummary: connect.NewClient[v1.GetJobSummaryRequest, v1.GetJobSummaryResponse](
+			httpClient,
+			baseURL+JobServiceGetJobSummaryProcedure,
+			connect.WithSchema(jobServiceMethods.ByName("GetJobSummary")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // jobServiceClient implements JobServiceClient.
 type jobServiceClient struct {
-	getJobStatus *connect.Client[v1.GetJobStatusRequest, v1.GetJobStatusResponse]
-	listJobs     *connect.Client[v1.ListJobsRequest, v1.ListJobsResponse]
+	getJobStatus  *connect.Client[v1.GetJobStatusRequest, v1.GetJobStatusResponse]
+	listJobs      *connect.Client[v1.ListJobsRequest, v1.ListJobsResponse]
+	getJobSummary *connect.Client[v1.GetJobSummaryRequest, v1.GetJobSummaryResponse]
 }
 
 // GetJobStatus calls factory.jobs.v1.JobService.GetJobStatus.
@@ -92,6 +106,11 @@ func (c *jobServiceClient) GetJobStatus(ctx context.Context, req *connect.Reques
 // ListJobs calls factory.jobs.v1.JobService.ListJobs.
 func (c *jobServiceClient) ListJobs(ctx context.Context, req *connect.Request[v1.ListJobsRequest]) (*connect.Response[v1.ListJobsResponse], error) {
 	return c.listJobs.CallUnary(ctx, req)
+}
+
+// GetJobSummary calls factory.jobs.v1.JobService.GetJobSummary.
+func (c *jobServiceClient) GetJobSummary(ctx context.Context, req *connect.Request[v1.GetJobSummaryRequest]) (*connect.Response[v1.GetJobSummaryResponse], error) {
+	return c.getJobSummary.CallUnary(ctx, req)
 }
 
 // JobServiceHandler is an implementation of the factory.jobs.v1.JobService service.
@@ -105,6 +124,10 @@ type JobServiceHandler interface {
 	//   OK               : 0 件也是 OK
 	//   INVALID_ARGUMENT : 参数不合法 / page_token 无法解析
 	ListJobs(context.Context, *connect.Request[v1.ListJobsRequest]) (*connect.Response[v1.ListJobsResponse], error)
+	// 按 job_type 和期间汇总任务的处理情况(成功率 / 平均处理时间 / SLA 违约 / 健康度)
+	//   OK               : 0 件也是 OK(health = NO_DATA)
+	//   INVALID_ARGUMENT : 参数不合法
+	GetJobSummary(context.Context, *connect.Request[v1.GetJobSummaryRequest]) (*connect.Response[v1.GetJobSummaryResponse], error)
 }
 
 // NewJobServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -126,12 +149,20 @@ func NewJobServiceHandler(svc JobServiceHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(jobServiceMethods.ByName("ListJobs")),
 		connect.WithHandlerOptions(opts...),
 	)
+	jobServiceGetJobSummaryHandler := connect.NewUnaryHandler(
+		JobServiceGetJobSummaryProcedure,
+		svc.GetJobSummary,
+		connect.WithSchema(jobServiceMethods.ByName("GetJobSummary")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/factory.jobs.v1.JobService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case JobServiceGetJobStatusProcedure:
 			jobServiceGetJobStatusHandler.ServeHTTP(w, r)
 		case JobServiceListJobsProcedure:
 			jobServiceListJobsHandler.ServeHTTP(w, r)
+		case JobServiceGetJobSummaryProcedure:
+			jobServiceGetJobSummaryHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -147,4 +178,8 @@ func (UnimplementedJobServiceHandler) GetJobStatus(context.Context, *connect.Req
 
 func (UnimplementedJobServiceHandler) ListJobs(context.Context, *connect.Request[v1.ListJobsRequest]) (*connect.Response[v1.ListJobsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.jobs.v1.JobService.ListJobs is not implemented"))
+}
+
+func (UnimplementedJobServiceHandler) GetJobSummary(context.Context, *connect.Request[v1.GetJobSummaryRequest]) (*connect.Response[v1.GetJobSummaryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.jobs.v1.JobService.GetJobSummary is not implemented"))
 }
