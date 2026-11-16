@@ -47,6 +47,7 @@ func Check(p *Pipeline) (Schema, error) {
 			} else if t.Kind != Bool {
 				add("%s: 条件必须是 bool,实际是 %s", at, t.Kind)
 			}
+			cur = narrow(cur, st.Pred)
 		case "project":
 			var next Schema
 			seen := map[string]bool{}
@@ -118,6 +119,29 @@ func Check(p *Pipeline) (Schema, error) {
 		return nil, fmt.Errorf("%s", strings.Join(errs, "\n"))
 	}
 	return cur, nil
+}
+
+// narrow: 类型收窄。条件(的 and 的每一项)是 not(is_null(col)) → 之后这一列 NOT NULL。
+// 只影响类型(输出的可空性、pick_per_key 的键),不影响语义。
+func narrow(cur Schema, pred *Expr) Schema {
+	var conj []*Expr
+	if pred.Op == "and" {
+		conj = pred.Args
+	} else {
+		conj = []*Expr{pred}
+	}
+	out := append(Schema(nil), cur...)
+	for _, c := range conj {
+		if c.Op == "not" && c.Args[0].Op == "is_null" && c.Args[0].Args[0].Op == "col" {
+			name := c.Args[0].Args[0].Name
+			for i := range out {
+				if out[i].Name == name {
+					out[i].Type.Nullable = false
+				}
+			}
+		}
+	}
+	return out
 }
 
 func checkOrder(cur Schema, order []SortKey, at string, add func(string, ...any)) {

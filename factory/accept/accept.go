@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -91,6 +92,12 @@ func loadFixtures(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, fixtures m
 	}
 	sort.Strings(tables)
 	for _, table := range tables {
+		if st := plan.Storage(table); st != nil {
+			if err := loadStorageRows(ctx, conn, plan, st, fixtures[table]); err != nil {
+				return fmt.Errorf("fixture %s: %w", table, err)
+			}
+			continue
+		}
 		ident := pgx.Identifier{table}.Sanitize()
 		if _, err := conn.Exec(ctx, "TRUNCATE "+ident+" CASCADE"); err != nil {
 			return err
@@ -406,4 +413,82 @@ func enumNames(e *ir.Enum) []string {
 		out = append(out, v.Name)
 	}
 	return out
+}
+
+// loadStorageRows: 逻辑表(存储: JSON版本)的数据行 → 物理表的行。
+// 行的顺序 = 登记的顺序: 登记顺序列按类型合成单调递增的值(时间 +1 秒 / 整数 +1)。
+// "$action": "delete" → 操作列 = 删除值;"logical_delete" → JSON 里加上逻辑删除的键。
+func loadStorageRows(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, st *ir.Storage, rows []map[string]any) error {
+	ident := pgx.Identifier{st.Table}.Sanitize()
+	if _, err := conn.Exec(ctx, "TRUNCATE "+ident); err != nil {
+		return err
+	}
+	orderTypes := map[string]string{}
+	for _, c := range st.OrderBy {
+		var t string
+		err := conn.QueryRow(ctx, `SELECT data_type FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1 AND column_name = $2`, st.Table, c).Scan(&t)
+		if err != nil {
+			return fmt.Errorf("登记顺序列 %s.%s: %w", st.Table, c, err)
+		}
+		orderTypes[c] = t
+	}
+	keyOf := map[string]string{}
+	for _, f := range st.Fields {
+		keyOf[f.Name] = f.Key
+	}
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i, row := range rows {
+		data := map[string]any{}
+		action := int64(0)
+		for col, v := range row {
+			if col == spec.FixtureAction {
+				switch v {
+				case spec.ActionDelete:
+					action = st.DeleteValue
+				case spec.ActionLogicalDelete:
+					data[st.LogicalDeleteKey] = st.LogicalDeleteValue
+				default:
+					return fmt.Errorf("%s: unknown action %v", spec.FixtureAction, v)
+				}
+				continue
+			}
+			key, ok := keyOf[col]
+			if !ok {
+				return fmt.Errorf("%s has no field %s", st.View, col)
+			}
+			x, err := fixtureValue(plan, st.View, col, v)
+			if err != nil {
+				return err
+			}
+			data[key] = x
+		}
+		b, err := json.Marshal(data)
+		if err != nil {
+			return err
+		}
+		cols := []string{pgx.Identifier{st.DataColumn}.Sanitize(), pgx.Identifier{st.ActionColumn}.Sanitize()}
+		args := []any{string(b), action}
+		for _, c := range st.OrderBy {
+			var v any
+			switch orderTypes[c] {
+			case "timestamp with time zone", "timestamp without time zone":
+				v = base.Add(time.Duration(i) * time.Second)
+			case "bigint", "integer", "smallint":
+				v = int64(i + 1)
+			default:
+				return fmt.Errorf("登记顺序列 %s.%s 的类型 %s 不支持合成", st.Table, c, orderTypes[c])
+			}
+			cols = append(cols, pgx.Identifier{c}.Sanitize())
+			args = append(args, v)
+		}
+		holders := make([]string, len(cols))
+		for j := range cols {
+			holders[j] = "$" + strconv.Itoa(j+1)
+		}
+		sql := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", ident, strings.Join(cols, ","), strings.Join(holders, ","))
+		if _, err := conn.Exec(ctx, sql, args...); err != nil {
+			return fmt.Errorf("insert %v: %w", row, err)
+		}
+	}
+	return nil
 }

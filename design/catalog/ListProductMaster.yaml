@@ -1,0 +1,44 @@
+# ============================================================================
+# ListProductMaster: 商品マスタ(JSON版本 = 来源单元の例)
+# ============================================================================
+API: ListProductMaster
+说明: カテゴリと商品コードを条件に、商品マスタの現在の値を返す
+背景: 商品マスタは変更のたびに行が追加される。現在の値(最新の版)だけを返す
+负责人: catalog-team
+风险: 中
+
+种类: 多条
+数据来源: product_master
+
+输入:
+  category:      { 类型: 文本,     必填: 否, 说明: カテゴリ, 筛选: category 等于 }
+  product_codes: { 类型: 文本列表, 必填: 否, 说明: 商品コード, 筛选: product_code 属于 }
+
+输出:
+  product_code: 商品コード
+  name:         商品名
+  category:     カテゴリ
+  price:        標準売価
+  launched_on:  発売日
+
+排序: [product_code 小到大]
+上限: 200
+
+例子:
+  准备数据:
+    product_master:   # 上から順に登録された(後の行が新しい)
+      - { product_code: A, name: りんご,   category: fruit, price: 100, launched_on: 2026-01-01 }
+      - { product_code: A, name: りんご2,  category: fruit, price: 120, launched_on: 2026-01-01 }   # A の新しい版
+      - { product_code: B, name: バナナ,   category: fruit, price: 50,  launched_on: null }
+      - { product_code: B, 操作: 删除 }                                                          # B を削除(行はキーだけ)
+      - { product_code: C, name: にんじん, category: veg,   price: 80,  launched_on: null }
+      - { product_code: C, name: にんじん, category: veg,   price: 80,  launched_on: null, 操作: 逻辑删除 }  # C は論理削除
+      - { product_code: D, name: ぶどう,   category: veg,   price: 300, launched_on: null }   # D は最初 veg
+      - { product_code: D, name: ぶどう,   category: fruit, price: 300, launched_on: null }   # → fruit に変更
+  用例:
+    - 说明: 現在の値だけ。削除された B と論理削除された C は返さない(古い版に戻らない)
+      输入: {}
+      结果: { product_master: [{ product_code: A, name: りんご2, price: "120", launched_on: "2026-01-01" }, { product_code: D, category: fruit }] }
+    - 说明: 筛选は現在の値に対して行う。D の古い版は veg だが、今は fruit なので veg では返さない
+      输入: { category: veg }
+      结果: { product_master: [] }

@@ -24,16 +24,23 @@ const ProjectDir = "cells"
 type Library struct {
 	Filters  map[string]string              // 筛选单元: 名字 → 定义
 	Patterns map[string][]map[string]string // 模式: 名字 → [{元件: 部件}]
+	Sources  map[string]SourceCell          // 来源单元
+}
+
+type SourceCell struct {
+	Steps []map[string]string `yaml:"步骤"`
+	Valid string              `yaml:"有效"`
 }
 
 type file struct {
 	Filters  map[string]string              `yaml:"筛选"`
 	Patterns map[string][]map[string]string `yaml:"模式"`
+	Sources  map[string]SourceCell          `yaml:"来源"`
 }
 
 // Load: 标准单元 + 项目单元。同名 → 报错(不允许悄悄覆盖)。
 func Load() (*Library, error) {
-	lib := &Library{Filters: map[string]string{}, Patterns: map[string][]map[string]string{}}
+	lib := &Library{Filters: map[string]string{}, Patterns: map[string][]map[string]string{}, Sources: map[string]SourceCell{}}
 	if err := lib.add("standard.yaml", standard); err != nil {
 		return nil, err
 	}
@@ -63,6 +70,12 @@ func (l *Library) add(name string, b []byte) error {
 			return fmt.Errorf("%s: 筛选单元 %s 重复定义", name, k)
 		}
 		l.Filters[k] = v
+	}
+	for k, v := range f.Sources {
+		if _, dup := l.Sources[k]; dup {
+			return fmt.Errorf("%s: 来源单元 %s 重复定义", name, k)
+		}
+		l.Sources[k] = v
 	}
 	for k, v := range f.Patterns {
 		if _, dup := l.Patterns[k]; dup {
@@ -158,6 +171,61 @@ func (l *Library) Pattern(name string, parts Parts) ([]core.Step, error) {
 				steps = append(steps, core.Step{Kind: "limit", N: parts.Limit, From: from})
 			default:
 				return nil, fmt.Errorf("模式 %s: 不认识的部件 %s: %s", name, kind, part)
+			}
+		}
+	}
+	return steps, nil
+}
+
+// SourceParts: 来源单元的部件(编译器按领域的 存储 声明提供)。
+type SourceParts struct {
+	Scan    core.Step             // $原始表
+	Expand  []core.NamedExpr      // $展开
+	Keys    []string              // $键非空 / $每键最新 的键
+	Order   []core.SortKey        // $每键最新 的顺序
+	Logical []core.NamedExpr      // $逻辑列
+	Names   map[string]*core.Expr // 有效 里可用的名字
+}
+
+// Source: 来源单元 → 流水线的开头。
+func (l *Library) Source(name string, parts SourceParts) ([]core.Step, error) {
+	def, ok := l.Sources[name]
+	if !ok {
+		return nil, fmt.Errorf("来源单元 %q 不存在", name)
+	}
+	var steps []core.Step
+	for _, item := range def.Steps {
+		for kind, part := range item {
+			from := "来源 " + name + " " + part
+			switch kind + " " + part {
+			case "scan $原始表":
+				st := parts.Scan
+				st.From = from
+				steps = append(steps, st)
+			case "project $展开":
+				steps = append(steps, core.Step{Kind: "project", Project: parts.Expand, From: from})
+			case "filter $键非空":
+				var conj []*core.Expr
+				for _, k := range parts.Keys {
+					conj = append(conj, core.Not(core.IsNull(core.Col(k))))
+				}
+				pred := conj[0]
+				if len(conj) > 1 {
+					pred = core.And(conj...)
+				}
+				steps = append(steps, core.Step{Kind: "filter", Pred: pred, From: from})
+			case "pick_per_key $每键最新":
+				steps = append(steps, core.Step{Kind: "pick_per_key", Keys: parts.Keys, Order: parts.Order, From: from})
+			case "filter $有效":
+				e, err := core.ParseExpr(def.Valid, func(id string) (*core.Expr, bool) { x, ok := parts.Names[id]; return x, ok })
+				if err != nil {
+					return nil, fmt.Errorf("来源单元 %s 的 有效: %w", name, err)
+				}
+				steps = append(steps, core.Step{Kind: "filter", Pred: e, From: from})
+			case "project $逻辑列":
+				steps = append(steps, core.Step{Kind: "project", Project: parts.Logical, From: from})
+			default:
+				return nil, fmt.Errorf("来源单元 %s: 不认识的部件 %s: %s", name, kind, part)
 			}
 		}
 	}

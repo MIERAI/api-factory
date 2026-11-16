@@ -93,6 +93,17 @@ func CompileDir(dir string, m *adapter.Manifest) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	// 存储: JSON版本 的逻辑表: 列来自领域声明(之后当普通的表用)
+	for name, t := range d.Tables {
+		if t.Storage == nil {
+			continue
+		}
+		var cols []compiler.Column
+		for _, f := range t.Storage.Fields {
+			cols = append(cols, compiler.Column{Name: f.Name, Type: f.Type, NotNull: contains(t.PrimaryKey, f.Name)})
+		}
+		cat[name] = cols
+	}
 	tz, err := time.LoadLocation(d.TZ)
 	if err != nil {
 		return nil, fmt.Errorf("%s/领域.yaml: 时区 %q 无法识别: %w", dir, d.TZ, err)
@@ -551,7 +562,7 @@ func (c *ctx) enumValueName(en, v string) string { return upperSnake(en) + "_" +
 func (c *ctx) machineDomain() *spec.Domain {
 	md := &spec.Domain{DomainVersion: spec.DomainVersion, Entities: map[string]spec.Entity{}}
 	for name, t := range c.d.Tables {
-		ent := spec.Entity{NaturalKey: t.PrimaryKey, Policy: t.Policy}
+		ent := spec.Entity{NaturalKey: t.PrimaryKey, Policy: t.Policy, Storage: t.Storage}
 		for col, en := range t.ColEnum {
 			e := c.d.Enum(en)
 			vals := map[int64]string{}
@@ -759,3 +770,12 @@ func (l *Lock) save() error {
 
 // Kebab: GetJobSummary → get-job-summary(design 的文件名 → API 的 id)
 func Kebab(api string) string { return kebab(api) }
+
+func contains(xs []string, x string) bool {
+	for _, v := range xs {
+		if v == x {
+			return true
+		}
+	}
+	return false
+}

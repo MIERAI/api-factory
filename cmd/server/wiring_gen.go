@@ -6,9 +6,11 @@ import (
 	"connectrpc.com/connect"
 
 	"apifactory/gen/db"
+	"apifactory/gen/factory/catalog/v1/catalogv1connect"
 	"apifactory/gen/factory/jobs/v1/jobsv1connect"
 	"apifactory/gen/factory/sales/v1/salesv1connect"
 	"apifactory/gen/factory/shop/v1/shopv1connect"
+	cataloghandler "apifactory/internal/handler/catalog"
 	jobshandler "apifactory/internal/handler/jobs"
 	saleshandler "apifactory/internal/handler/sales"
 	shophandler "apifactory/internal/handler/shop"
@@ -18,6 +20,10 @@ import (
 func services(deps server.Deps, opts ...connect.HandlerOption) []server.Service {
 	q := db.New(deps.Pool)
 	var out []server.Service
+	{
+		path, h := catalogv1connect.NewCatalogServiceHandler(cataloghandler.New(q, deps.Pager), opts...)
+		out = append(out, server.Service{Path: path, Handler: h})
+	}
 	{
 		path, h := jobsv1connect.NewJobServiceHandler(jobshandler.New(q, deps.Pager), opts...)
 		out = append(out, server.Service{Path: path, Handler: h})

@@ -10,7 +10,11 @@
 // 新增元件要单独评审,并且必须通过元件认证(cert_test.go)。
 package core
 
-import "fmt"
+import (
+	"fmt"
+	"math/big"
+	"time"
+)
 
 // ---------------------------------------------------------------------------
 // 类型
@@ -190,4 +194,68 @@ func (p *Pipeline) Param(name string) *ParamDecl {
 		}
 	}
 	return nil
+}
+
+// Normalize: 流水线从 JSON(IR 文件)读回来后,按声明的类型还原常量的值
+// (JSON 里整数会变成 float64,decimal / 时间会变成字符串)。
+func (p *Pipeline) Normalize() error {
+	var walk func(e *Expr) error
+	walk = func(e *Expr) error {
+		if e == nil {
+			return nil
+		}
+		if e.Op == "const" && e.Value != nil && e.Type != nil {
+			v, err := normalizeConst(e.Value, e.Type.Kind)
+			if err != nil {
+				return err
+			}
+			e.Value = v
+		}
+		for _, a := range e.Args {
+			if err := walk(a); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	for i := range p.Steps {
+		if err := walk(p.Steps[i].Pred); err != nil {
+			return err
+		}
+		for _, x := range p.Steps[i].Project {
+			if err := walk(x.Expr); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func normalizeConst(v any, k Kind) (any, error) {
+	switch x := v.(type) {
+	case float64:
+		if k == Int32 || k == Int64 {
+			return int64(x), nil
+		}
+		return castText(fmt.Sprint(x), k)
+	case string:
+		if k == Text {
+			return x, nil
+		}
+		if k == Decimal {
+			if r, ok := new(big.Rat).SetString(x); ok { // big.Rat 的 JSON 是 "3/2"
+				return r, nil
+			}
+		}
+		if k == Timestamp {
+			return castText(x, k)
+		}
+		if k == Date {
+			if t, err := time.Parse(time.RFC3339, x); err == nil {
+				return t, nil
+			}
+		}
+		return castText(x, k)
+	}
+	return v, nil
 }

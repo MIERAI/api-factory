@@ -51,6 +51,49 @@ type diffEnv struct {
 	rows   []core.Row
 	filter map[string]ir.Filter // 参数名 → 筛选
 	input  protoreflect.MessageDescriptor
+	json   map[string][]jsonKey // JSON 列 → 流水线里读到的键(json_field)
+	out    core.Schema          // 流水线最后的列(响应的值按这里的类型表示)
+	// anchors: 请求参数取值的来源 = 来源部分(scan / 来源单元)的输出。
+	// 普通的表 = 物理行;JSON版本 = 展开后的逻辑行(筛选的列在物理表里不存在)
+	anchors []core.Row
+	consts map[core.Kind][]any  // 流水线里出现的常量(加进值域: 删除值、逻辑删除值等要能被随机数据碰到)
+}
+
+type jsonKey struct {
+	key  string
+	kind core.Kind
+}
+
+// collect: 遍历流水线的表达式,收集 json_field 的键和常量。
+func (e *diffEnv) collect() {
+	e.json, e.consts = map[string][]jsonKey{}, map[core.Kind][]any{}
+	seen := map[string]bool{}
+	var walk func(x *core.Expr)
+	walk = func(x *core.Expr) {
+		if x == nil {
+			return
+		}
+		switch x.Op {
+		case "json_field":
+			if c := x.Args[0]; c.Op == "col" && !seen[c.Name+"."+x.Name+string(x.Type.Kind)] {
+				seen[c.Name+"."+x.Name+string(x.Type.Kind)] = true
+				e.json[c.Name] = append(e.json[c.Name], jsonKey{x.Name, x.Type.Kind})
+			}
+		case "const":
+			if x.Value != nil && x.Type != nil {
+				e.consts[x.Type.Kind] = append(e.consts[x.Type.Kind], x.Value)
+			}
+		}
+		for _, a := range x.Args {
+			walk(a)
+		}
+	}
+	for _, st := range e.api.Pipeline.Steps {
+		walk(st.Pred)
+		for _, x := range st.Project {
+			walk(x.Expr)
+		}
+	}
 }
 
 // invalid: 请求按 proto 的校验规则(protovalidate,和服务器同一套规则)是否不合法。
@@ -96,6 +139,10 @@ func runDiff(ctx context.Context, conn *pgx.Conn, url string, plan *ir.Plan, api
 		return fail("proto: %v", err)
 	}
 	env.input = md.Input()
+	env.collect()
+	if env.out, err = core.Check(p); err != nil {
+		return fail("流水线: %v", err)
+	}
 	if _, err := conn.Exec(ctx, "SET TimeZone = 'UTC'"); err != nil {
 		return fail("%v", err)
 	}
@@ -105,6 +152,9 @@ func runDiff(ctx context.Context, conn *pgx.Conn, url string, plan *ir.Plan, api
 	}
 	if inserted < 2 {
 		return fail("数据: 只插入了 %d 行(拒绝 %d 行)", inserted, rejected)
+	}
+	if err := env.loadAnchors(); err != nil {
+		return fail("来源: %v", err)
 	}
 
 	var results []Result
@@ -151,7 +201,7 @@ func runDiff(ctx context.Context, conn *pgx.Conn, url string, plan *ir.Plan, api
 // ---------------------------------------------------------------------------
 
 var textDomain = []string{"a", "b", "B", "a%", "a_", "ab", "abc", "é"}
-var intDomain = []int64{1, 2, 3, 10}
+var intDomain = []int64{0, 1, 2, 3, 10}
 
 // uniqueColumns: 需要唯一序号的列。单列的主键 / 唯一约束 → 这一列;
 // 复合的 → 最后一列(前面的列保持小值域,形成分组: 例如 (order_id, line_no) 每个订单有多行)。
@@ -189,7 +239,36 @@ func (e *diffEnv) value(c core.NamedType, i int, unique bool) any {
 		v := en.Values[e.rnd.Intn(len(en.Values))]
 		return v.DB
 	}
-	switch c.Type.Kind {
+	if c.Type.Kind == core.JSON { // 按流水线读到的键生成对象;有时缺少某个键
+		obj := map[string]any{}
+		for _, k := range e.json[c.Name] {
+			if e.rnd.Intn(6) == 0 {
+				continue
+			}
+			v := e.scalar(k.kind, false, i)
+			switch x := v.(type) {
+			case *big.Rat:
+				v = core.RatString(x)
+			case time.Time:
+				if k.kind == core.Date {
+					v = x.Format("2006-01-02")
+				} else {
+					v = x.Format(time.RFC3339)
+				}
+			}
+			obj[k.key] = v
+		}
+		b, _ := json.Marshal(obj)
+		return string(b)
+	}
+	return e.scalar(c.Type.Kind, unique, i)
+}
+
+func (e *diffEnv) scalar(kind core.Kind, unique bool, i int) any {
+	if cs := e.consts[kind]; len(cs) > 0 && !unique && e.rnd.Intn(4) == 0 {
+		return cs[e.rnd.Intn(len(cs))] // 流水线里的常量
+	}
+	switch kind {
 	case core.Int32, core.Int64:
 		if unique {
 			return int64(i + 1)
@@ -317,8 +396,8 @@ func (e *diffEnv) requests() []core.Params {
 	var out []core.Params
 	seen := map[string]bool{}
 	for i := 0; len(out) < diffRequests && i < diffRequests*4; i++ {
-		anchor := e.rows[e.rnd.Intn(len(e.rows))]
-		other := e.rows[e.rnd.Intn(len(e.rows))]
+		anchor := e.anchors[e.rnd.Intn(len(e.anchors))]
+		other := e.anchors[e.rnd.Intn(len(e.anchors))]
 		ps := core.Params{}
 		for _, d := range e.userParams() {
 			f := e.filter[d.Name]
@@ -341,7 +420,7 @@ func (e *diffEnv) requests() []core.Params {
 					case e.rnd.Intn(3) == 0:
 						v = missing(d.Type.Kind)
 					default:
-						v = e.rows[e.rnd.Intn(len(e.rows))][f.Column]
+						v = e.anchors[e.rnd.Intn(len(e.anchors))][f.Column]
 					}
 					if v != nil {
 						l = append(l, v)
@@ -367,7 +446,7 @@ func (e *diffEnv) requests() []core.Params {
 			case 1:
 				v = other[f.Column]
 			case 2:
-				if e.plan.Enum(e.table, f.Column) != nil {
+				if e.plan.Enum(e.api.Table, f.Column) != nil {
 					v = other[f.Column] // 枚举: 只用定义过的值(未定义的值被请求校验拒绝)
 				} else {
 					v = missing(d.Type.Kind)
@@ -444,7 +523,7 @@ func (e *diffEnv) present(column string, v any) any {
 	case *big.Rat:
 		return core.RatString(x)
 	case int64:
-		if en := e.plan.Enum(e.table, column); en != nil {
+		if en := e.plan.Enum(e.api.Table, column); en != nil {
 			for _, ev := range en.Values {
 				if ev.DB == x {
 					return ev.Name
@@ -456,7 +535,11 @@ func (e *diffEnv) present(column string, v any) any {
 	return v
 }
 
+// colType: 输出 / 筛选的列的类型(先看流水线的输出,再看扫描的表)
 func (e *diffEnv) colType(name string) (core.Type, bool) {
+	if t, ok := e.out.Col(name); ok {
+		return t, true
+	}
 	return core.Schema(e.cols).Col(name)
 }
 
@@ -658,4 +741,28 @@ func (e *diffEnv) pageExitCases(url string) []Result {
 	}
 	return append(out, Result{Spec: e.api.ID, Suite: "diff", Case: "分页出口: 途中改筛选条件", Passed: len(e.userParams()) == 0,
 		Detail: "没有可以改的筛选参数"})
+}
+
+// loadAnchors: 只跑流水线的来源部分(编译器标记为 datasource.table / 来源 … 的步骤)。
+func (e *diffEnv) loadAnchors() error {
+	src := &core.Pipeline{Params: e.api.Pipeline.Params}
+	for _, st := range e.api.Pipeline.Steps {
+		if st.From != "datasource.table" && !strings.HasPrefix(st.From, "来源 ") {
+			break
+		}
+		src.Steps = append(src.Steps, st)
+	}
+	if len(src.Steps) <= 1 {
+		e.anchors = e.rows
+		return nil
+	}
+	res, err := core.Eval(src, map[string][]core.Row{e.table: e.rows}, core.Params{})
+	if err != nil {
+		return err
+	}
+	e.anchors = res.Rows
+	if len(e.anchors) == 0 {
+		return fmt.Errorf("来源部分没有行(数据都被删除了?)")
+	}
+	return nil
 }

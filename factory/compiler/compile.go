@@ -46,6 +46,25 @@ func Compile(specs []*spec.Spec) (*ir.Plan, error) {
 		return nil, err
 	}
 	cat := a0.catalog
+	// 存储: JSON版本 的逻辑表: 列来自领域声明(自然键 NOT NULL),之后当普通的表用
+	for _, s := range specs {
+		if s.Domain == nil {
+			continue
+		}
+		for name, e := range s.Domain.Entities {
+			if e.Storage == nil {
+				continue
+			}
+			if _, raw := cat.tables[e.Storage.Table]; !raw {
+				return nil, fmt.Errorf("%s: 存储的原始表 %s 不在 db/schema 里", s.Domain.Path, e.Storage.Table)
+			}
+			var cols []catColumn
+			for _, f := range e.Storage.Fields {
+				cols = append(cols, catColumn{Name: f.Name, Type: f.Type, NotNull: contains(e.NaturalKey, f.Name)})
+			}
+			cat.tables[name] = cols
+		}
+	}
 
 	lib, err := cells.Load()
 	if err != nil {
@@ -141,6 +160,10 @@ func Compile(specs []*spec.Spec) (*ir.Plan, error) {
 		e, ok := s.Domain.Entities[table]
 		if !ok {
 			continue
+		}
+		if st := e.Storage; st != nil && !seen["storage:"+table] {
+			seen["storage:"+table] = true
+			plan.Storages = append(plan.Storages, storageIR(table, e.NaturalKey, st))
 		}
 		cols := make([]string, 0, len(e.Columns))
 		for c := range e.Columns {
@@ -347,4 +370,16 @@ func lowerFirst(s string) string {
 		return s
 	}
 	return strings.ToLower(s[:1]) + s[1:]
+}
+
+func storageIR(view string, nk []string, st *spec.Storage) ir.Storage {
+	out := ir.Storage{View: view, Table: st.Table, NaturalKey: nk, DataColumn: st.DataColumn, ActionColumn: st.ActionColumn,
+		DeleteValue: st.DeleteValue, OrderBy: st.OrderBy}
+	if ld := st.LogicalDelete; ld != nil {
+		out.LogicalDeleteKey, out.LogicalDeleteValue = ld.Key, ld.Value
+	}
+	for _, f := range st.Fields {
+		out.Fields = append(out.Fields, ir.StorageField{Name: f.Name, Key: f.JSONKey(), Type: f.Type})
+	}
+	return out
 }

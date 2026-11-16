@@ -35,13 +35,9 @@ var filterCells = map[string]string{"eq": "等于", "gt": "大于", "gte": "大�
 func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []resolvedFilter, cat *catalog) (*core.Pipeline, error) {
 	table := s.Datasource.Table
 	p := &core.Pipeline{}
-	scan := core.Step{Kind: "scan", Table: table, From: "datasource.table"}
-	for _, c := range cat.tables[table] {
-		t, err := coreType(table, c)
-		if err != nil {
-			return nil, err
-		}
-		scan.Columns = append(scan.Columns, core.NamedType{Name: c.Name, Type: t})
+	source, err := sourceSteps(s, lib, cat)
+	if err != nil {
+		return nil, err
 	}
 	var parts cells.Parts
 	for _, f := range filters {
@@ -100,9 +96,67 @@ func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []re
 	if err != nil {
 		return nil, err
 	}
-	p.Steps = append([]core.Step{scan}, steps...)
+	p.Steps = append(source, steps...)
 	if _, err := core.Check(p); err != nil {
 		return nil, fmt.Errorf("设计规则检查:\n%w", err)
 	}
 	return p, nil
+}
+
+func scanStep(table string, cat *catalog) (core.Step, error) {
+	scan := core.Step{Kind: "scan", Table: table, From: "datasource.table"}
+	for _, c := range cat.tables[table] {
+		t, err := coreType(table, c)
+		if err != nil {
+			return scan, err
+		}
+		scan.Columns = append(scan.Columns, core.NamedType{Name: c.Name, Type: t})
+	}
+	return scan, nil
+}
+
+// sourceSteps: 流水线的开头。普通的表 = scan;存储: JSON版本 的逻辑表 = 来源单元 JSON版本 展开。
+func sourceSteps(s *spec.Spec, lib *cells.Library, cat *catalog) ([]core.Step, error) {
+	table := s.Datasource.Table
+	var e spec.Entity
+	if s.Domain != nil {
+		e = s.Domain.Entities[table]
+	}
+	st := e.Storage
+	if st == nil {
+		scan, err := scanStep(table, cat)
+		return []core.Step{scan}, err
+	}
+	scan, err := scanStep(st.Table, cat)
+	if err != nil {
+		return nil, err
+	}
+	data := core.Col(st.DataColumn)
+	var parts cells.SourceParts
+	parts.Scan, parts.Keys = scan, e.NaturalKey
+	for _, f := range st.Fields {
+		k, ok := sqlKinds[f.Type]
+		if !ok {
+			return nil, fmt.Errorf("存储字段 %s: 类型 %s 核心代数还不支持", f.Name, f.Type)
+		}
+		parts.Expand = append(parts.Expand, core.NamedExpr{Name: f.Name, Expr: core.JSONField(data, f.JSONKey(), core.Type{Kind: k})})
+		parts.Logical = append(parts.Logical, core.NamedExpr{Name: f.Name, Expr: core.Col(f.Name)})
+	}
+	parts.Expand = append(parts.Expand, core.NamedExpr{Name: "_action", Expr: core.Col(st.ActionColumn)})
+	for _, c := range st.OrderBy {
+		parts.Expand = append(parts.Expand, core.NamedExpr{Name: "_o_" + c, Expr: core.Col(c)})
+		parts.Order = append(parts.Order, core.SortKey{Col: "_o_" + c, Desc: true})
+	}
+	parts.Names = map[string]*core.Expr{
+		"操作":    core.Col("_action"),
+		"删除值":   core.Const(st.DeleteValue, core.Type{Kind: core.Int32}),
+		"逻辑删除":  core.Const(nil, core.Type{Kind: core.Text}),
+		"逻辑删除值": core.Const("", core.Type{Kind: core.Text}),
+	}
+	if ld := st.LogicalDelete; ld != nil {
+		parts.Expand = append(parts.Expand, core.NamedExpr{Name: "_logical_delete", Expr: core.JSONField(data, ld.Key, core.Type{Kind: core.Text})})
+		parts.Names["逻辑删除"] = core.Col("_logical_delete")
+		parts.Names["逻辑删除值"] = core.Const(ld.Value, core.Type{Kind: core.Text})
+	}
+	return lib.Source("JSON版本", parts)
 }

@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"apifactory/factory/spec"
 )
 
 // ---------------------------------------------------------------------------
@@ -145,7 +147,11 @@ type Table struct {
 	ColDesc    map[string]string // 列 → 说明
 	ColEnum    map[string]string // 列 → 枚举名
 	Rules      []Rule
+	Storage    *spec.Storage // 存储: JSON版本(逻辑表 → 物理表的映射)
 }
+
+// storageTypes: 存储字段的中文类型 → SQL 类型
+var storageTypes = map[string]string{"整数32": "int4", "整数64": "int8", "文本": "text", "小数": "numeric", "十进制": "numeric", "日期": "date", "时间": "timestamptz", "布尔": "bool"}
 
 type Rule struct {
 	Text     string
@@ -203,7 +209,7 @@ func loadDomain(dir string) (*Domain, error) {
 		d.Enums = append(d.Enums, en)
 	}
 	for _, p := range pairs(get(root, "表")) {
-		checkKeys(e, p.Val, "表 "+p.Key, "说明", "主键", "更新方式", "列", "规则")
+		checkKeys(e, p.Val, "表 "+p.Key, "说明", "主键", "更新方式", "列", "规则", "存储", "原始表", "存储列", "逻辑删除", "字段")
 		t := &Table{Name: p.Key, Desc: str(p.Val, "说明"), PrimaryKey: strList(get(p.Val, "主键")), ColDesc: map[string]string{}, ColEnum: map[string]string{}}
 		switch str(p.Val, "更新方式") {
 		case "", "可以更新":
@@ -212,6 +218,19 @@ func loadDomain(dir string) (*Domain, error) {
 			t.Policy = "versioned"
 		default:
 			e.add(p.Line, "表 %s: 更新方式 只能是 可以更新 / 只追加", p.Key)
+		}
+		switch str(p.Val, "存储") {
+		case "":
+			for _, k := range []string{"原始表", "存储列", "逻辑删除", "字段"} {
+				if get(p.Val, k) != nil {
+					e.add(p.Line, "表 %s: %s 只有 存储: JSON版本 时才能写", p.Key, k)
+				}
+			}
+		case "JSON版本":
+			t.Policy = "versioned"
+			t.Storage = parseStorage(e, p.Key, p.Val, t)
+		default:
+			e.add(p.Line, "表 %s: 存储 只能是 JSON版本(不写 = 普通的表)", p.Key)
 		}
 		if len(t.PrimaryKey) == 0 {
 			e.add(p.Line, "表 %s: 缺少 主键", p.Key)
@@ -251,6 +270,78 @@ func loadDomain(dir string) (*Domain, error) {
 		return nil, err
 	}
 	return d, nil
+}
+
+// parseStorage: 存储: JSON版本 的表。
+//
+//	原始表: product_events            # 物理表(每次变更追加一行)
+//	存储列: { 数据: data, 操作: action_type, 删除值: 1, 登记顺序: [registered_at, id] }   # 可省略,这是默认值
+//	逻辑删除: deleted = 1              # 可省略
+//	字段:                              # 逻辑表的列(顺序 = 视图的列顺序)
+//	  product_id: { 类型: 整数32, 说明: 商品ID }
+//	  valid_from: { 类型: 整数32, 键: from, 说明: 生效开始日 }   # 键 = JSON 里的名字(默认 = 列名)
+func parseStorage(e *errs, name string, n *yaml.Node, t *Table) *spec.Storage {
+	st := &spec.Storage{Kind: "json_versions", Table: str(n, "原始表"), DataColumn: "data", ActionColumn: "action_type", DeleteValue: 1, OrderBy: []string{"registered_at", "id"}}
+	if st.Table == "" {
+		e.add(n.Line, "表 %s: 存储: JSON版本 需要 原始表(物理表名)", name)
+	}
+	if st.Table == name {
+		e.add(n.Line, "表 %s: 原始表 不能和逻辑表同名(逻辑表会生成为 VIEW)", name)
+	}
+	if sc := get(n, "存储列"); sc != nil {
+		checkKeys(e, sc, "表 "+name+" 的存储列", "数据", "操作", "删除值", "登记顺序")
+		if v := str(sc, "数据"); v != "" {
+			st.DataColumn = v
+		}
+		if v := str(sc, "操作"); v != "" {
+			st.ActionColumn = v
+		}
+		if v := str(sc, "删除值"); v != "" {
+			if _, err := fmt.Sscan(v, &st.DeleteValue); err != nil {
+				e.add(sc.Line, "表 %s: 删除值 必须是整数", name)
+			}
+		}
+		if v := strList(get(sc, "登记顺序")); len(v) > 0 {
+			st.OrderBy = v
+		}
+	}
+	if ld := str(n, "逻辑删除"); ld != "" {
+		k, v, ok := strings.Cut(ld, "=")
+		if !ok {
+			e.add(n.Line, "表 %s: 逻辑删除 写成「键 = 值」(例如 deleted = 1)", name)
+		} else {
+			st.LogicalDelete = &spec.LogicalDelete{Key: strings.TrimSpace(k), Value: strings.TrimSpace(v)}
+		}
+	}
+	for _, c := range pairs(get(n, "字段")) {
+		checkKeys(e, c.Val, "表 "+name+" 的字段 "+c.Key, "类型", "键", "说明", "枚举")
+		typ := str(c.Val, "类型")
+		sqlType, ok := storageTypes[typ]
+		if en := str(c.Val, "枚举"); en != "" {
+			t.ColEnum[c.Key] = en
+			if typ == "" {
+				sqlType, ok = "int4", true
+			}
+		}
+		if !ok {
+			e.add(c.Line, "表 %s 的字段 %s: 类型 %q 无法识别(整数32 / 整数64 / 文本 / 小数 / 日期 / 时间 / 布尔)", name, c.Key, typ)
+		}
+		st.Fields = append(st.Fields, spec.StorageField{Name: c.Key, Key: str(c.Val, "键"), Type: sqlType})
+		t.ColDesc[c.Key] = str(c.Val, "说明")
+	}
+	if len(st.Fields) == 0 {
+		e.add(n.Line, "表 %s: 存储: JSON版本 需要 字段", name)
+	}
+	for _, k := range t.PrimaryKey {
+		found := false
+		for _, f := range st.Fields {
+			found = found || f.Name == k
+		}
+		if !found {
+			e.add(n.Line, "表 %s: 主键 %s 不在 字段 里", name, k)
+		}
+	}
+	return st
 }
 
 func loadQA(path string) ([]QA, error) {

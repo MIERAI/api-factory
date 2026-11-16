@@ -24,6 +24,7 @@ type Plan struct {
 	Services []Service `json:"services"`
 	APIs     []API     `json:"apis"`
 	Enums    []Enum    `json:"enums"` // 领域层的 enum 映射(DB 值 ↔ proto enum)
+	Storages []Storage `json:"storages,omitempty"`
 }
 
 type Service struct {
@@ -186,6 +187,35 @@ type EnumValue struct {
 	Number int32  `json:"number"`
 }
 
+// Storage: 逻辑表 → 物理表(存储: JSON版本)。验收把逻辑表的数据行写成物理表的行(JSON + 操作列 + 登记顺序)。
+type Storage struct {
+	View               string         `json:"view"`
+	Table              string         `json:"table"`
+	NaturalKey         []string       `json:"natural_key"`
+	DataColumn         string         `json:"data_column"`
+	ActionColumn       string         `json:"action_column"`
+	DeleteValue        int64          `json:"delete_value"`
+	OrderBy            []string       `json:"order_by"`
+	LogicalDeleteKey   string         `json:"logical_delete_key,omitempty"`
+	LogicalDeleteValue string         `json:"logical_delete_value,omitempty"`
+	Fields             []StorageField `json:"fields"`
+}
+
+type StorageField struct {
+	Name string `json:"name"`
+	Key  string `json:"key"`
+	Type string `json:"type"`
+}
+
+func (p *Plan) Storage(view string) *Storage {
+	for i := range p.Storages {
+		if p.Storages[i].View == view {
+			return &p.Storages[i]
+		}
+	}
+	return nil
+}
+
 func (p *Plan) Enum(table, column string) *Enum {
 	for i := range p.Enums {
 		if p.Enums[i].Table == table && p.Enums[i].Column == column {
@@ -214,6 +244,13 @@ func Load(path string) (*Plan, error) {
 	}
 	if p.Version != Version {
 		return nil, fmt.Errorf("%s: plan version %q, this tool expects %q", path, p.Version, Version)
+	}
+	for i := range p.APIs {
+		if pl := p.APIs[i].Pipeline; pl != nil {
+			if err := pl.Normalize(); err != nil {
+				return nil, fmt.Errorf("%s: %s: %w", path, p.APIs[i].ID, err)
+			}
+		}
 	}
 	return &p, nil
 }

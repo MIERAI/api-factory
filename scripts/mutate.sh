@@ -55,4 +55,9 @@ run "多条: 没有多取一行(LIMIT 10)"     $M 's/LIMIT 11/LIMIT 10/'
 V=gen/db/sales.list-prices-as-of.sql.go
 run "有效期: 结束日不含当天(<= → <)"     $V 's/\(\$2::date <= t1\.valid_to\)/(\$2::date < t1.valid_to)/'
 run "有效期: 结束日为空没处理"          $V 's/\(t1\.valid_to IS NULL\) OR //'
+J=gen/db/catalog.list-product-master.sql.go
+run "JSON版本: 取最旧的版本"            $J 's/t2\._o_registered_at DESC, t2\._o_id DESC/t2._o_registered_at ASC, t2._o_id ASC/'
+run "JSON版本: 不处理删除"              $J 's/\(t3\._action <> 1::int4\) AND //'
+run "JSON版本: 不处理逻辑删除"          $J "s/ AND \(\(t3\._logical_delete IS NULL\) OR \(t3\._logical_delete <> '1'::text\)\)//"
+run "JSON版本: 先筛选再取最新(公司引擎的问题)" $J 's/WHERE \(NOT \(t2\.product_code IS NULL\)\)/WHERE (NOT (t2.product_code IS NULL)) AND ((\$1::text IS NULL) OR (t2.category = \$1::text))/'
 go build -o bin/server ./cmd/server; git status --short

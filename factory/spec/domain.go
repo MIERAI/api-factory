@@ -26,8 +26,43 @@ type Domain struct {
 type Entity struct {
 	NaturalKey []string              `yaml:"natural_key"`
 	Policy     string                `yaml:"policy"` // mutable / versioned
+	Storage    *Storage              `yaml:"storage,omitempty"`
 	Columns    map[string]ColumnMeta `yaml:"columns"`
 	Invariants []Invariant           `yaml:"invariants"`
+}
+
+// Storage: 逻辑表(实体名)和物理存储不一致时的映射。现在只有 json_versions:
+//
+//	物理表每次变更追加一行: 字段在 JSON 列里,操作列区分 登记/删除,按 order_by 决定先后。
+//	逻辑表 = 每个自然键最新登记的那一行;最新的是删除 → 不存在;逻辑删除标记为真 → 不存在(不回退到旧版本)。
+//	编译器把它展开成单元库的来源单元(JSON版本),之后的环节把它当普通的表。
+type Storage struct {
+	Kind          string         `yaml:"kind"`          // json_versions
+	Table         string         `yaml:"table"`         // 物理表
+	DataColumn    string         `yaml:"data_column"`   // data
+	ActionColumn  string         `yaml:"action_column"` // action_type
+	DeleteValue   int64          `yaml:"delete_value"`  // 1
+	OrderBy       []string       `yaml:"order_by"`      // [registered_at, id](登记的先后,后面的赢)
+	LogicalDelete *LogicalDelete `yaml:"logical_delete,omitempty"`
+	Fields        []StorageField `yaml:"fields"` // 逻辑列(顺序 = 视图的列顺序)
+}
+
+type LogicalDelete struct {
+	Key   string `yaml:"key"`   // JSON 里的键: deleted
+	Value string `yaml:"value"` // 文本比较: "1"
+}
+
+type StorageField struct {
+	Name string `yaml:"name"`          // 逻辑列名
+	Key  string `yaml:"key,omitempty"` // JSON 里的键(默认 = name)
+	Type string `yaml:"type"`          // SQL 类型: int4 / int8 / text / numeric / date / timestamptz / bool
+}
+
+func (f StorageField) JSONKey() string {
+	if f.Key != "" {
+		return f.Key
+	}
+	return f.Name
 }
 
 type ColumnMeta struct {
@@ -111,6 +146,23 @@ func (d *Domain) Check() []string {
 		if len(e.NaturalKey) == 0 {
 			add("entities.%s.natural_key is required", name)
 		}
+		if st := e.Storage; st != nil {
+			if st.Kind != "json_versions" {
+				add("entities.%s.storage.kind must be json_versions", name)
+			}
+			if st.Table == "" || st.DataColumn == "" || st.ActionColumn == "" || len(st.OrderBy) == 0 || len(st.Fields) == 0 {
+				add("entities.%s.storage: table, data_column, action_column, order_by and fields are required", name)
+			}
+			for _, k := range e.NaturalKey {
+				found := false
+				for _, f := range st.Fields {
+					found = found || f.Name == k
+				}
+				if !found {
+					add("entities.%s.storage: natural key %s is not in fields", name, k)
+				}
+			}
+		}
 		for col, c := range e.Columns {
 			if c.Enum != nil {
 				if c.Enum.Proto == "" || len(c.Enum.Values) == 0 {
@@ -134,3 +186,11 @@ func (d *Domain) Check() []string {
 	}
 	return errs
 }
+
+// 验收数据(fixtures)里 存储: JSON版本 的逻辑表的一行可以带这个键: 这一行是删除 / 逻辑删除。
+// 行的顺序 = 登记的顺序(后面的行是后登记的)。
+const (
+	FixtureAction       = "$action"
+	ActionDelete        = "delete"
+	ActionLogicalDelete = "logical_delete"
+)

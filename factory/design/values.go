@@ -136,6 +136,25 @@ func (c *ctx) fixtureRows(table string, rows []*yaml.Node) ([]map[string]any, er
 				if p.Key == "重复" {
 					continue
 				}
+				if p.Key == "操作" { // 存储: JSON版本 的表: 这一行是删除 / 逻辑删除(不写 = 登记)
+					t := c.d.Tables[table]
+					if t == nil || t.Storage == nil {
+						return nil, fmt.Errorf("第 %d 行: 操作 只能用于 存储: JSON版本 的表", p.Line)
+					}
+					switch strings.TrimSpace(p.Val.Value) {
+					case "删除":
+						row[spec.FixtureAction] = spec.ActionDelete
+					case "逻辑删除":
+						if t.Storage.LogicalDelete == nil {
+							return nil, fmt.Errorf("第 %d 行: 表 %s 没有定义 逻辑删除", p.Line, table)
+						}
+						row[spec.FixtureAction] = spec.ActionLogicalDelete
+					case "登记":
+					default:
+						return nil, fmt.Errorf("第 %d 行: 操作 只能是 登记 / 删除 / 逻辑删除", p.Line)
+					}
+					continue
+				}
 				kind, err := c.columnKind(table, p.Key)
 				if err != nil {
 					return nil, fmt.Errorf("第 %d 行: %v", p.Line, err)
