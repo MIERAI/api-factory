@@ -43,6 +43,8 @@ func main() {
 		err = cmdAccept(args)
 	case "ai-paths":
 		err = cmdAIPaths(args)
+	case "review-prompt":
+		err = cmdReviewPrompt(args)
 	default:
 		usage()
 	}
@@ -244,4 +246,35 @@ func cmdAIPaths(args []string) error {
 		fmt.Println(p)
 	}
 	return nil
+}
+
+// cmdReviewPrompt 生成式样书审查用的 prompt(式样书 + proto + schema 全部内嵌,审查员不需要工具)。
+func cmdReviewPrompt(args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("usage: factory review-prompt <spec.yaml>")
+	}
+	s, err := spec.Load(args[0])
+	if err != nil {
+		return err
+	}
+	raw, err := os.ReadFile(args[0])
+	if err != nil {
+		return err
+	}
+	protoSrc, err := os.ReadFile(s.API.Proto)
+	if err != nil {
+		return err
+	}
+	schema, err := os.ReadFile("db/schema.sql")
+	if err != nil {
+		return err
+	}
+	data := map[string]any{
+		"SpecPath":  args[0],
+		"SpecYAML":  strings.TrimSpace(string(raw)),
+		"ProtoPath": s.API.Proto,
+		"Proto":     strings.TrimSpace(string(protoSrc)),
+		"Schema":    strings.TrimSpace(string(schema)),
+	}
+	return template.Must(template.New("").Parse(prompts.Review)).Execute(os.Stdout, data)
 }

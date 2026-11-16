@@ -21,6 +21,13 @@ type Spec struct {
 	NonFunctional NonFunctional `yaml:"non_functional"`
 	Acceptance    Acceptance    `yaml:"acceptance"`
 	Generation    Generation    `yaml:"generation"`
+	// ReviewDecisions: 式样书审查提出的问题和人的决定(包括"不处理")。以后的审查不再提出
+	ReviewDecisions []ReviewDecision `yaml:"review_decisions"`
+}
+
+type ReviewDecision struct {
+	Question string `yaml:"question"`
+	Decision string `yaml:"decision"`
 }
 
 type API struct {
@@ -245,6 +252,11 @@ func (s *Spec) Check() []string {
 		}
 	}
 
+	for i, d := range s.ReviewDecisions {
+		if d.Question == "" || d.Decision == "" {
+			add("review_decisions[%d]: question and decision are required", i)
+		}
+	}
 	if len(s.Behavior) == 0 {
 		add("behavior: at least one entry is required")
 	}

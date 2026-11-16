@@ -5,16 +5,13 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
-	"google.golang.org/protobuf/types/descriptorpb"
+
+	"apifactory/factory/protoload"
 )
 
 // ---------------------------------------------------------------------------
@@ -117,41 +114,10 @@ func (p *dbPackage) rowFields(q queryFunc) ([]goField, string) {
 // proto 描述符: 用 buf build 产出的 image 读取,拿到字段类型和 presence
 // ---------------------------------------------------------------------------
 
-func loadProto() (*protoregistry.Files, error) {
-	out := ".factory/image.binpb"
-	if err := os.MkdirAll(".factory", 0o755); err != nil {
-		return nil, err
-	}
-	cmd := exec.Command("buf", "build", "-o", out)
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("buf build: %w", err)
-	}
-	b, err := os.ReadFile(out)
-	if err != nil {
-		return nil, err
-	}
-	var set descriptorpb.FileDescriptorSet
-	if err := proto.Unmarshal(b, &set); err != nil {
-		return nil, err
-	}
-	return protodesc.NewFiles(&set)
-}
+func loadProto() (*protoregistry.Files, error) { return protoload.Load() }
 
 func findMethod(files *protoregistry.Files, pkg, service, method string) (protoreflect.MethodDescriptor, error) {
-	d, err := files.FindDescriptorByName(protoreflect.FullName(pkg + "." + service))
-	if err != nil {
-		return nil, fmt.Errorf("service %s.%s: %w", pkg, service, err)
-	}
-	sd, ok := d.(protoreflect.ServiceDescriptor)
-	if !ok {
-		return nil, fmt.Errorf("%s.%s is not a service", pkg, service)
-	}
-	md := sd.Methods().ByName(protoreflect.Name(method))
-	if md == nil {
-		return nil, fmt.Errorf("method %s not found in %s", method, service)
-	}
-	return md, nil
+	return protoload.FindMethod(files, pkg, service, method)
 }
 
 // goCamelCase 与 protoc-gen-go 的字段命名规则一致(job_type → JobType)。

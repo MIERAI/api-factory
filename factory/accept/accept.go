@@ -20,7 +20,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"google.golang.org/protobuf/reflect/protoreflect"
 
+	"apifactory/factory/protoload"
 	"apifactory/factory/spec"
 )
 
@@ -61,6 +63,11 @@ func Run(ctx context.Context, serverBin, databaseURL string, specs []*spec.Spec)
 	}
 	defer conn.Close(ctx)
 
+	files, err := protoload.Load()
+	if err != nil {
+		return nil, err
+	}
+
 	var results []Result
 	for _, s := range specs {
 		if err := loadFixtures(ctx, conn, s.Acceptance.Fixtures); err != nil {
@@ -70,9 +77,13 @@ func Run(ctx context.Context, serverBin, databaseURL string, specs []*spec.Spec)
 		if err != nil {
 			return nil, err
 		}
+		md, err := protoload.FindMethod(files, parts.ProtoPackage, parts.Service, parts.Method)
+		if err != nil {
+			return nil, err
+		}
 		url := fmt.Sprintf("%s/%s.%s/%s", base, parts.ProtoPackage, parts.Service, parts.Method)
 		for _, c := range s.Acceptance.Cases {
-			ok, detail := runCase(url, c)
+			ok, detail := runCase(url, c, md.Output())
 			results = append(results, Result{Spec: s.API.ID, Case: c.Name, Passed: ok, Detail: detail})
 		}
 	}
@@ -111,7 +122,7 @@ func loadFixtures(ctx context.Context, conn *pgx.Conn, fixtures map[string][]map
 	return nil
 }
 
-func runCase(url string, c spec.Case) (bool, string) {
+func runCase(url string, c spec.Case, out protoreflect.MessageDescriptor) (bool, string) {
 	var prev map[string]any
 	steps := c.AllSteps()
 	var details []string
@@ -120,7 +131,7 @@ func runCase(url string, c spec.Case) (bool, string) {
 		if err != nil {
 			return false, fmt.Sprintf("step %d: %v", i+1, err)
 		}
-		ok, detail, got := runStep(url, req, st.Expect)
+		ok, detail, got := runStep(url, req, st.Expect, out)
 		if len(steps) > 1 {
 			detail = fmt.Sprintf("step %d: %s", i+1, detail)
 		}
@@ -150,7 +161,7 @@ func substitute(req map[string]any, prev map[string]any) (map[string]any, error)
 	return out, nil
 }
 
-func runStep(url string, reqBody map[string]any, expect spec.Expect) (bool, string, map[string]any) {
+func runStep(url string, reqBody map[string]any, expect spec.Expect, out protoreflect.MessageDescriptor) (bool, string, map[string]any) {
 	body, _ := json.Marshal(reqBody)
 	req, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -184,27 +195,30 @@ func runStep(url string, reqBody map[string]any, expect spec.Expect) (bool, stri
 	}
 	got, _ := snakeKeys(decoded).(map[string]any)
 	for k, want := range expect.Response {
-		if msg := match("response."+k, want, got[k]); msg != "" {
+		if msg := match("response."+k, want, got[k], out.Fields().ByName(protoreflect.Name(k))); msg != "" {
 			return false, fmt.Sprintf("%s (body %s)", msg, truncate(raw, 300)), got
 		}
 	}
 	return true, "OK " + truncate(raw, 120), got
 }
 
-// match 比对期待值与实际值,不一致时返回说明。
+// match 比对期待值与实际值,不一致时返回说明。fd 是该字段的 proto 描述符(未知时为 nil)。
 //
-//   - "$absent"   : 字段不存在或为零值
+//   - "$absent"   : 字段不在响应 JSON 里(未设置;非 optional 字段的零值也会被 protojson 省略)
 //   - "$nonempty" : 字段存在且非零值
 //   - map         : 只比对期待值里写出的键(部分一致)
 //   - 数组        : 长度相同,逐个元素比对
-//   - 标量        : 吸收 protojson 的特性(零值省略、int64 编码为字符串)
-func match(path string, want, got any) string {
+//   - 标量        : 吸收 protojson 的特性(非 optional 字段的零值省略、int64 编码为字符串)
+//
+// 有 presence 的字段(proto3 optional / message): 期待具体值时,"未设置"不算等于零值。
+func match(path string, want, got any, fd protoreflect.FieldDescriptor) string {
+	presence := fd != nil && !fd.IsList() && fd.HasPresence()
 	switch w := want.(type) {
 	case string:
 		switch w {
 		case "$absent":
-			if !isZero(got) {
-				return fmt.Sprintf("%s: want absent, got %v", path, got)
+			if got != nil {
+				return fmt.Sprintf("%s: want absent (unset), got %v", path, got)
 			}
 			return ""
 		case "$nonempty":
@@ -221,8 +235,16 @@ func match(path string, want, got any) string {
 			}
 			return fmt.Sprintf("%s: want object, got %v", path, got)
 		}
+		var md protoreflect.MessageDescriptor
+		if fd != nil {
+			md = fd.Message()
+		}
 		for k, wv := range w {
-			if msg := match(path+"."+k, wv, g[k]); msg != "" {
+			var sub protoreflect.FieldDescriptor
+			if md != nil {
+				sub = md.Fields().ByName(protoreflect.Name(k))
+			}
+			if msg := match(path+"."+k, wv, g[k], sub); msg != "" {
 				return msg
 			}
 		}
@@ -239,11 +261,14 @@ func match(path string, want, got any) string {
 			return fmt.Sprintf("%s: want %d item(s), got %d", path, len(w), len(g))
 		}
 		for i := range w {
-			if msg := match(fmt.Sprintf("%s[%d]", path, i), w[i], g[i]); msg != "" {
+			if msg := match(fmt.Sprintf("%s[%d]", path, i), w[i], g[i], fd); msg != "" {
 				return msg
 			}
 		}
 		return ""
+	}
+	if presence && got == nil {
+		return fmt.Sprintf("%s: want %v, got unset (field has presence: unset != zero)", path, want)
 	}
 	if !valueEqual(want, got) {
 		return fmt.Sprintf("%s: want %v, got %v", path, want, got)
