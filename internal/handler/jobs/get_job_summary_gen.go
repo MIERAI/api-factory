@@ -5,6 +5,7 @@ package jobs
 
 import (
 	"context"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -12,6 +13,14 @@ import (
 	jobsv1 "apifactory/gen/factory/jobs/v1"
 	"apifactory/platform/conv"
 )
+
+// getJobSummaryRow: getJobSummaryLogic 的输入行(enum 列已按领域层转换成 proto enum)。
+type getJobSummaryRow struct {
+	ID         int64
+	Status     jobsv1.JobStatus
+	CreatedAt  time.Time
+	FinishedAt *time.Time
+}
 
 // GetJobSummary 按 job_type 和期间汇总任务的处理情况(成功率 / 平均处理时间 / SLA 违约 / 健康度)
 // 业务逻辑在 getJobSummaryLogic(纯函数,由 AI 实现)。
@@ -25,7 +34,16 @@ func (h *Handler) GetJobSummary(ctx context.Context, req *connect.Request[jobsv1
 	if err != nil {
 		return nil, err
 	}
-	res, err := getJobSummaryLogic(m, rows)
+	in := make([]getJobSummaryRow, 0, len(rows))
+	for _, r := range rows {
+		in = append(in, getJobSummaryRow{
+			ID:         r.ID,
+			Status:     jobsStatusToProto(r.Status),
+			CreatedAt:  r.CreatedAt,
+			FinishedAt: r.FinishedAt,
+		})
+	}
+	res, err := getJobSummaryLogic(m, in)
 	if err != nil {
 		return nil, err
 	}

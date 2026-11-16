@@ -13,12 +13,14 @@
 {{- range .AIMayEdit}}
   - `{{.}}`
 {{- end}}
-- 完成后运行 `go build ./...` 和 `go vet ./...`,确认都通过。如果写了测试,也运行 `go test ./internal/...`。
+- 完成后运行 `go build ./...`、`go vet ./...` 和 `go test ./internal/...`,确认都通过。
+  `*_logic_examples_gen_test.go` 是工厂根据式样书 logic_examples 生成的测试(不要修改),**必须通过**。
 
 ## 输入和输出的类型(只读,不要修改)
 
 - `req`:请求,类型定义在 `{{.PBFile}}`
-- `rows`:查询结果,类型定义在 `{{.QueryFile}}`。可空列是指针(`*time.Time` 等),nil 表示 NULL
+- `rows`:逻辑输入行,类型定义在 `{{.HandlerGenFile}}`(`...Row` 结构体)。可空列是指针(`*time.Time` 等),nil 表示 NULL。
+  enum 列已经由平台按领域层转换成 proto enum(读到不认识的 DB 值时是 `..._UNSPECIFIED`),不要再用 DB 的数字编码
 - 返回值:响应,类型定义在 `{{.PBFile}}`。`optional` 字段是指针,"不设置"就保持 nil
 - 时间转换:`*timestamppb.Timestamp` 用 `.AsTime()` 转成 `time.Time`
 
@@ -33,6 +35,12 @@
 
 - 只报告现实运行中可能发生的情况(数据 bug、未知枚举值、时钟偏差等);几百年的时长、int64 溢出这类不现实的情况不要报告
 - 式样书 `review_decisions` 里已经有决定的问题不要再报告
+
+## 领域层(`{{.DomainPath}}`,所有 API 共用的决定;enum 转换由生成的代码负责,不要自己写)
+
+```yaml
+{{.Domain}}
+```
 
 ## 式样书(`{{.SpecPath}}`)
 

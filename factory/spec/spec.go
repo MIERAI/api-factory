@@ -34,6 +34,9 @@ type Spec struct {
 	// Behavior: 只写业务规则。compute / custom 必填,模式 API 一般不需要
 	Behavior   []Behavior `yaml:"behavior"`
 	Acceptance Acceptance `yaml:"acceptance"`
+	// LogicExamples: compute 模式专用。直接调用逻辑函数(不经过 DB),用于 DB 里造不出来的输入
+	// (约束不允许的值、需要上万行才能出现的边界)。工厂生成单元测试。
+	LogicExamples []LogicExample `yaml:"logic_examples"`
 	// ReviewDecisions: 式样书审查提出的问题和人的决定(包括"不处理")。以后的审查不再提出
 	ReviewDecisions []ReviewDecision `yaml:"review_decisions"`
 }
@@ -87,6 +90,14 @@ type Filter struct {
 }
 
 var FilterOps = map[string]string{"eq": "=", "gt": ">", "gte": ">=", "lt": "<", "lte": "<="}
+
+type LogicExample struct {
+	Name    string         `yaml:"name"`
+	Request map[string]any `yaml:"request"`
+	// Rows: 逻辑函数的输入行。enum 列写 proto 值名;count: N 表示把这一行重复 N 次
+	Rows   []map[string]any `yaml:"rows"`
+	Expect map[string]any   `yaml:"expect"` // 响应字段的期待值;$absent = 未设置
+}
 
 type Behavior struct {
 	When string `yaml:"when"`
@@ -314,6 +325,14 @@ func (s *Spec) Check() []string {
 		add("datasource.columns: required for pattern compute (the logic function's input cannot be derived from the response)")
 	}
 
+	if len(s.LogicExamples) > 0 && s.PatternKind() != "compute" {
+		add("logic_examples: only for pattern compute")
+	}
+	for i, e := range s.LogicExamples {
+		if e.Name == "" || len(e.Expect) == 0 {
+			add("logic_examples[%d]: name and expect are required", i)
+		}
+	}
 	for i, d := range s.ReviewDecisions {
 		if d.Question == "" || d.Decision == "" {
 			add("review_decisions[%d]: question and decision are required", i)

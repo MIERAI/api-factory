@@ -23,7 +23,7 @@ var forbiddenImports = []string{
 }
 
 // compute 模式的逻辑文件必须是纯函数: 追加禁止项。
-var impureImports = []string{`"context"`, `"os"`, `"net"`, `"math/rand"`, `"sync"`, `"apifactory/platform`}
+var impureImports = []string{`"context"`, `"os"`, `"net"`, `"math/rand"`, `"sync"`, `"apifactory/platform`, `"apifactory/gen/db"`}
 var impureCalls = regexp.MustCompile(`\btime\.(Now|Since|Until|Sleep|After|Tick)\(|\bgo\s+func\b`)
 
 var sqlLiteral = regexp.MustCompile("(?i)[\"`]\\s*(select|insert|update|delete)\\s")

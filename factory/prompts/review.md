@@ -17,6 +17,10 @@
   `$absent` = 字段必须未设置(响应里不存在);`$nonempty` = 必须有值。数组要求长度一致,并逐个元素部分一致。
   有 presence 的字段(proto3 `optional`、message 类型)写具体值(包括 0.0)时,"未设置"判为不一致——即验收能区分"未设置"和"设置为 0"
 - **DB 约束**:schema 的 CHECK / NOT NULL 约束排除的值不会出现在查询结果里,不需要为它们定义行为
+- **领域层**(下面附有原文):这个领域所有 API 共用的决定。
+  - `invariants` 里 `enforced: true` 的规则由 DB 约束保证,不会被违反;`enforced: false` 的规则**可能被违反**,如果这个 API 会受影响,式样书必须定义违反时怎么处理
+  - enum 列的映射和 `on_unknown` 策略由平台生成的代码执行(读到不认识的值 → UNSPECIFIED + 指标)
+  - 领域层 `review_decisions` 里已经决定的问题,和式样书里的一样,不要再报告
 
 ## 已经自动覆盖的机制测试(不要为这些提出"验收覆盖"建议)
 
@@ -93,6 +97,12 @@
 
 ```sql
 {{.Query}}
+```
+
+### 领域层(`{{.DomainPath}}`)
+
+```yaml
+{{.Domain}}
 ```
 
 ### DB schema(`db/schema.sql`)

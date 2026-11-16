@@ -21,8 +21,10 @@ datasource:
     period_end:   { column: created_at, op: lt }
 
 behavior:
-  - when: '计数(status 的 DB 值: 0 未完成 / 1 成功 / 2 失败,见领域层;DB 约束保证不会有其他值)'
-    then: total = 行数; succeeded = status 1; failed = status 2; pending = status 0; 已结束 = succeeded + failed
+  - when: 计数(逻辑函数收到的 status 是 proto enum,DB 值的转换由平台按领域层完成)
+    then: total = 对象行数; succeeded = SUCCEEDED; failed = FAILED; pending = PENDING; 已结束 = succeeded + failed
+  - when: status 为 JOB_STATUS_UNSPECIFIED(平台读到领域层不认识的 DB 值,例如写入方先上线了新状态)
+    then: 该行从所有统计中排除(total 也不计)。平台已记录 data_anomaly_total 指标
   - when: success_rate
     then: 已结束 > 0 时 = succeeded / 已结束,四舍五入到小数 4 位。已结束 = 0 时不设置
   - when: 处理时间
@@ -35,9 +37,9 @@ behavior:
     then: float64 计算后 math.Round(x * 10^n) / 10^n(0.5 远离零)
   - when: sla_breaches
     then: 有效处理时间 > 300 秒的已结束任务数,成功和失败都算(恰好 300 秒不算违约)
-  - when: 数据不一致 — status 1/2 但 finished_at 为 NULL
+  - when: 数据不一致 — SUCCEEDED/FAILED 但 finished_at 为 NULL
     then: 计入 succeeded/failed,但不参与 avg_duration_seconds 和 sla_breaches
-  - when: 数据不一致 — status 0 但 finished_at 非 NULL
+  - when: 数据不一致 — PENDING 但 finished_at 非 NULL
     then: 按 pending 计,忽略 finished_at
   - when: health(按顺序判定,先满足的优先)
     then: |
@@ -213,10 +215,36 @@ acceptance:
 
 
 # -----------------------------------------------------------------------------
+# 逻辑样例: 直接调用逻辑函数(不经过 DB)。用于 DB 里造不出来的输入
+# -----------------------------------------------------------------------------
+logic_examples:
+  - name: UNSPECIFIED(读到不认识的 DB 值)的行从所有统计中排除
+    rows:
+      - { count: 2, status: JOB_STATUS_SUCCEEDED, created_at: "2026-11-01T00:00:00Z", finished_at: "2026-11-01T00:00:10Z" }
+      - { status: JOB_STATUS_UNSPECIFIED, created_at: "2026-11-01T01:00:00Z", finished_at: "2026-11-01T02:00:00Z" }
+    expect: { total: 2, succeeded: 2, failed: 0, pending: 0, success_rate: 1.0, avg_duration_seconds: 10.0, sla_breaches: 0, health: OK }
+  - name: 全部是 UNSPECIFIED → 0 件 NO_DATA
+    rows:
+      - { status: JOB_STATUS_UNSPECIFIED, created_at: "2026-11-01T00:00:00Z", finished_at: null }
+    expect: { total: 0, success_rate: $absent, avg_duration_seconds: $absent, health: NO_DATA }
+  - name: health 用四舍五入前的值 — 23749/25000 = 0.94996 显示为 0.95,但判定为 DEGRADED
+    rows:
+      - { count: 23749, status: JOB_STATUS_SUCCEEDED, created_at: "2026-11-01T00:00:00Z", finished_at: "2026-11-01T00:00:10Z" }
+      - { count: 1251, status: JOB_STATUS_FAILED, created_at: "2026-11-01T00:00:00Z", finished_at: "2026-11-01T00:00:10Z" }
+    expect: { total: 25000, success_rate: 0.95, sla_breaches: 0, health: DEGRADED }
+  - name: health 用四舍五入前的值 — 19999/25000 = 0.79996 显示为 0.8,但判定为 CRITICAL
+    rows:
+      - { count: 19999, status: JOB_STATUS_SUCCEEDED, created_at: "2026-11-01T00:00:00Z", finished_at: "2026-11-01T00:00:10Z" }
+      - { count: 5001, status: JOB_STATUS_FAILED, created_at: "2026-11-01T00:00:00Z", finished_at: "2026-11-01T00:00:10Z" }
+    expect: { total: 25000, success_rate: 0.8, health: CRITICAL }
+
+# -----------------------------------------------------------------------------
 # 审查记录: 这个 API 特有的决定(领域级的决定在 specs/jobs/_domain.yaml)
 # -----------------------------------------------------------------------------
 review_decisions:
   - question: finished_at < created_at(处理时间为负)的行是否参与平均和 SLA?
     decision: 不参与;照常计入 succeeded/failed。已写入 behavior,验收 eta 覆盖
   - question: health 用四舍五入前的值判定,能否用验收用例区分?
-    decision: 需要约 2 万行 fixture,DB 级验收不现实。由逻辑函数的单元测试保证(工厂改进候选:式样书里的纯函数级"逻辑样例")
+    decision: DB 级验收需要上万行 fixture,不现实。由 logic_examples 覆盖(0.94996 / 0.79996;避开 .xxxx5 这种在 float64 里不精确的值)
+  - question: 部署顺序导致读到映射表以外的 status(UNSPECIFIED)时,是否计入 total?
+    decision: 从所有统计中排除(沿用之前对未知 status 的决定)。平台已记录 data_anomaly_total。logic_examples 覆盖

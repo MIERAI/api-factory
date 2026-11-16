@@ -46,7 +46,7 @@ for i in $(seq 1 "$N"); do
   grep '^{' "$OUT/ai.json" | tail -1 > "$OUT/ai.result.json" 2>/dev/null
 
   $F guard > "$OUT/guard.txt" 2>&1; guard_rc=$?
-  { go build -o bin/server ./cmd/server && go vet ./...; } > "$OUT/build.txt" 2>&1; build_rc=$?
+  { go build -o bin/server ./cmd/server && go vet ./... && go test ./internal/...; } > "$OUT/build.txt" 2>&1; build_rc=$?
   accept_pass=0; accept_total=0
   if [[ $build_rc -eq 0 ]]; then
     $F accept --server bin/server --db "$DB_URL" > "$OUT/accept.txt" 2>&1

@@ -133,6 +133,9 @@ func Run(specs []*spec.Spec) error {
 		case "compute":
 			src, err = genCompute(g)
 			if err == nil {
+				err = writeLogicExamples(g)
+			}
+			if err == nil {
 				stub := s.AIMayEdit()[0]
 				if _, statErr := os.Stat(stub); os.IsNotExist(statErr) {
 					if err := writeGo(stub, []byte(genLogicStub(g))); err != nil {

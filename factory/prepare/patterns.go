@@ -490,7 +490,14 @@ func genCompute(g *genCtx) (string, error) {
 		}
 		call = fmt.Sprintf("h.q.%s(ctx, %s)", g.spec.QueryName(), e)
 	}
-	body := fmt.Sprintf(`// %s %s
+	// 逻辑函数的输入行: enum 列按领域层转换成 proto enum(未知值 → UNSPECIFIED + 指标),
+	// 逻辑代码不依赖 DB 的编码,也不 import gen/db。
+	rowDecl, convert, err := g.logicRows()
+	if err != nil {
+		return "", err
+	}
+	body := fmt.Sprintf(`%s
+// %s %s
 // 业务逻辑在 %s(纯函数,由 AI 实现)。
 func (h *Handler) %s(ctx context.Context, req *connect.Request[%s]) (*connect.Response[%s], error) {
 	m := req.Msg
@@ -498,14 +505,50 @@ func (h *Handler) %s(ctx context.Context, req *connect.Request[%s]) (*connect.Re
 	if err != nil {
 		return nil, err
 	}
-	res, err := %s(m, rows)
+	%s
+	res, err := %s(m, in)
 	if err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(res), nil
 }
-`, g.parts.Method, g.summary(), logicFuncName(g.parts.Method), g.parts.Method, g.pbType(in), g.pbType(out), call, logicFuncName(g.parts.Method))
+`, rowDecl, g.parts.Method, g.summary(), logicFuncName(g.parts.Method), g.parts.Method, g.pbType(in), g.pbType(out), call, convert, logicFuncName(g.parts.Method))
 	return g.header(body), nil
+}
+
+func (g *genCtx) logicRowType() string { return lowerFirst(g.parts.Method) + "Row" }
+
+// logicRows: 逻辑输入行的类型声明 + 从 sqlc 行转换的代码。
+func (g *genCtx) logicRows() (decl, convert string, err error) {
+	row, _ := g.db.rowFields(g.query)
+	if row == nil || !strings.HasPrefix(g.query.ReturnType, "[]") {
+		return "", "", fmt.Errorf("pattern compute: query must return rows (got %s)", g.query.ReturnType)
+	}
+	var fields, assigns []string
+	for _, f := range row {
+		typ, expr := f.Type, "r."+f.Name
+		col := snake(f.Name)
+		for c := range g.enums {
+			if norm(c) == norm(f.Name) {
+				col = c
+			}
+		}
+		if m, ok := g.enums[col]; ok {
+			if f.Type != m.DBGoType {
+				return "", "", fmt.Errorf("enum column %s: nullable enum columns are not supported yet (type %s)", col, f.Type)
+			}
+			typ, expr = m.GoType, fmt.Sprintf("%sToProto(r.%s)", m.Helper, f.Name)
+		}
+		if strings.Contains(typ, "time.") {
+			g.use("time", "")
+		}
+		fields = append(fields, fmt.Sprintf("%s %s", f.Name, typ))
+		assigns = append(assigns, fmt.Sprintf("%s: %s,", f.Name, expr))
+	}
+	t := g.logicRowType()
+	decl = fmt.Sprintf("// %s: %s 的输入行(enum 列已按领域层转换成 proto enum)。\ntype %s struct {\n%s\n}\n", t, logicFuncName(g.parts.Method), t, strings.Join(fields, "\n"))
+	convert = fmt.Sprintf("in := make([]%s, 0, len(rows))\n\tfor _, r := range rows {\n\t\tin = append(in, %s{\n%s\n})\n\t}", t, t, strings.Join(assigns, "\n"))
+	return decl, convert, nil
 }
 
 // LogicSignature 返回 compute 模式里 AI 要实现的函数签名(prompt 和桩共用)。
@@ -514,18 +557,7 @@ func LogicSignature(g *genCtx) string {
 		logicFuncName(g.parts.Method), g.pbType(g.method.Input()), g.rowsType(), g.pbType(g.method.Output()))
 }
 
-func (g *genCtx) rowsType() string {
-	t := g.query.ReturnType
-	elem := strings.TrimPrefix(t, "[]")
-	prefix := ""
-	if strings.HasPrefix(t, "[]") {
-		prefix = "[]"
-	}
-	if _, ok := g.db.structs[elem]; ok {
-		return prefix + "db." + elem
-	}
-	return t
-}
+func (g *genCtx) rowsType() string { return "[]" + g.logicRowType() }
 
 func logicFuncName(method string) string { return lowerFirst(method) + "Logic" }
 
@@ -536,9 +568,6 @@ func genLogicStub(g *genCtx) string {
 	g2.use("connectrpc.com/connect", "")
 	segs := strings.Split(g.parts.ProtoPackage, ".")
 	g2.use(modulePath+"/gen/"+strings.Join(segs, "/"), g.pbAlias)
-	if strings.Contains(g.rowsType(), "db.") {
-		g2.use(modulePath+"/gen/db", "")
-	}
 	body := fmt.Sprintf(`// %s 实现 %s 的业务逻辑(式样书 behavior 节)。
 // 纯函数: 不访问 DB/网络/文件,不用 context,不调用 time.Now,不用全局可变状态。
 %s {

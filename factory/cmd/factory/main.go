@@ -185,6 +185,11 @@ func cmdPrompt(args []string) error {
 		"SpecPath":       args[0],
 		"SpecYAML":       strings.TrimSpace(string(raw)),
 	}
+	domainPath, domainRaw := "(无)", "# 这个领域没有领域层"
+	if s.Domain != nil {
+		domainPath, domainRaw = s.Domain.Path, strings.TrimSpace(s.Domain.Raw)
+	}
+	data["DomainPath"], data["Domain"] = domainPath, domainRaw
 	tmpl := prompts.Implement
 	if s.PatternKind() == "compute" {
 		// 签名以 prepare 生成的桩为准,不在两处各写一份
@@ -310,12 +315,18 @@ func cmdReviewPrompt(args []string) error {
 	if err != nil {
 		return fmt.Errorf("generated query not found (run factory prepare first): %w", err)
 	}
+	domainPath, domainRaw := "(无)", "# 这个领域没有领域层"
+	if s.Domain != nil {
+		domainPath, domainRaw = s.Domain.Path, strings.TrimSpace(s.Domain.Raw)
+	}
 	var coverage []string
 	if auto, err := spec.LoadAutoAcceptance(s.ID()); err == nil && auto != nil {
 		coverage = auto.Coverage
 	}
 	data := map[string]any{
 		"AutoCoverage": coverage,
+		"DomainPath":   domainPath,
+		"Domain":       domainRaw,
 		"SpecPath":     args[0],
 		"SpecYAML":     strings.TrimSpace(string(raw)),
 		"ProtoPath":    protoPath,
