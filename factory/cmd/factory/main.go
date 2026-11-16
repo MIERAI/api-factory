@@ -46,6 +46,8 @@ func main() {
 		err = cmdAIPaths(args)
 	case "review-prompt":
 		err = cmdReviewPrompt(args)
+	case "stats":
+		err = cmdStats(args)
 	default:
 		usage()
 	}
@@ -323,4 +325,33 @@ func cmdReviewPrompt(args []string) error {
 		"Query":        strings.TrimSpace(string(query)),
 	}
 	return template.Must(template.New("").Parse(prompts.Review)).Execute(os.Stdout, data)
+}
+
+// cmdStats: 各模式的 API 数和逃生率(用 custom 或 datasource.sql 的比例)。
+func cmdStats(args []string) error {
+	specs, err := spec.LoadAll(specsDir(args))
+	if err != nil {
+		return err
+	}
+	byPattern := map[string]int{}
+	escHandler, escSQL := 0, 0
+	for _, s := range specs {
+		byPattern[s.PatternKind()]++
+		if s.PatternKind() == "custom" {
+			escHandler++
+		}
+		if s.Datasource.SQL != "" {
+			escSQL++
+		}
+	}
+	fmt.Printf("APIs: %d\n", len(specs))
+	for _, k := range []string{"get_by_id", "list_keyset", "compute", "custom"} {
+		fmt.Printf("  %-12s %d\n", k, byPattern[k])
+	}
+	if len(specs) > 0 {
+		fmt.Printf("逃生率: handler(custom) %d/%d = %.0f%%  查询(datasource.sql) %d/%d = %.0f%%\n",
+			escHandler, len(specs), 100*float64(escHandler)/float64(len(specs)),
+			escSQL, len(specs), 100*float64(escSQL)/float64(len(specs)))
+	}
+	return nil
 }
