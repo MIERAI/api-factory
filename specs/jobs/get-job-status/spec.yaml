@@ -24,8 +24,8 @@ datasource:
 acceptance:
   fixtures:
     jobs:
-      - { id: 102, status: 1 }
-      - { id: 3000000000, status: 2 }   # 实际的 id 已经超过 int32 范围
+      - { id: 102, status: JOB_STATUS_SUCCEEDED }
+      - { id: 3000000000, status: JOB_STATUS_FAILED }   # 实际的 id 已经超过 int32 范围
   cases:
     - name: 普通的 id
       request: { job_id: 102 }
