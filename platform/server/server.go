@@ -17,9 +17,11 @@ import (
 
 	"connectrpc.com/connect"
 	"connectrpc.com/validate"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"apifactory/platform/apierr"
+	"apifactory/platform/paging"
 )
 
 // Service 是一个已挂载的 Connect 服务。
@@ -28,8 +30,14 @@ type Service struct {
 	Handler http.Handler
 }
 
+// Deps 是平台提供给 handler 的依赖。
+type Deps struct {
+	Pool  *pgxpool.Pool
+	Pager *paging.Pager
+}
+
 // Builder 由生成的 wiring 代码实现,负责把 handler 挂到服务上。
-type Builder func(pool *pgxpool.Pool, opts ...connect.HandlerOption) []Service
+type Builder func(deps Deps, opts ...connect.HandlerOption) []Service
 
 type config struct {
 	port           string
@@ -73,7 +81,16 @@ func run(log *slog.Logger, build Builder) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	pool, err := pgxpool.New(ctx, cfg.databaseURL)
+	poolCfg, err := pgxpool.ParseConfig(cfg.databaseURL)
+	if err != nil {
+		return fmt.Errorf("db config: %w", err)
+	}
+	// 匿名预编译语句: Postgres 每次都用实际参数值做执行计划。
+	// 生成的查询大量使用 "(@x IS NULL OR col = @x)" 形式的可选条件和 keyset 游标,
+	// 命名预编译语句在执行若干次后可能切换成通用计划,游标就不再是索引条件(深页退化成 OFFSET)。
+	// 一次往返,PgBouncer 事务模式下也可用。
+	poolCfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		return fmt.Errorf("db pool: %w", err)
 	}
@@ -87,7 +104,11 @@ func run(log *slog.Logger, build Builder) error {
 	)
 
 	mux := http.NewServeMux()
-	for _, s := range build(pool, opts) {
+	if os.Getenv("PAGE_TOKEN_KEY") == "" {
+		log.Warn("PAGE_TOKEN_KEY not set: using a random key (page tokens break across restarts/instances)")
+	}
+	deps := Deps{Pool: pool, Pager: paging.New([]byte(os.Getenv("PAGE_TOKEN_KEY")))}
+	for _, s := range build(deps, opts) {
 		mux.Handle(s.Path, s.Handler)
 		log.Info("service mounted", "path", s.Path)
 	}

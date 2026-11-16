@@ -12,15 +12,17 @@ import (
 
 const listJobs = `-- name: ListJobs :many
 
-SELECT id, job_type, status, created_at
-FROM jobs
-WHERE ($1::int IS NULL OR status = $1::int)
-  AND ($2::text IS NULL OR job_type = $2::text)
-  AND ($3::timestamptz IS NULL OR created_at >= $3::timestamptz)
-  AND ($4::timestamptz IS NULL OR created_at < $4::timestamptz)
-  AND ($5::timestamptz IS NULL
-       OR (created_at, id) < ($5::timestamptz, $6::bigint))
-ORDER BY created_at DESC, id DESC
+SELECT id, job_type, status, created_at FROM (
+  SELECT id, job_type, status, created_at
+  FROM jobs
+  WHERE ($1::int IS NULL OR status = $1::int)
+    AND ($2::text IS NULL OR job_type = $2::text)
+    AND ($3::timestamptz IS NULL OR created_at >= $3::timestamptz)
+    AND ($4::timestamptz IS NULL OR created_at < $4::timestamptz)
+) AS base
+WHERE ($5::timestamptz IS NULL
+       OR (base.created_at, base.id) < ($5::timestamptz, $6::bigint))
+ORDER BY base.created_at DESC, base.id DESC
 LIMIT $7::int
 `
 

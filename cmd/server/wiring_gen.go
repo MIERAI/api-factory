@@ -4,7 +4,6 @@ package main
 
 import (
 	"connectrpc.com/connect"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"apifactory/gen/db"
 	"apifactory/gen/factory/jobs/v1/jobsv1connect"
@@ -12,11 +11,11 @@ import (
 	"apifactory/platform/server"
 )
 
-func services(pool *pgxpool.Pool, opts ...connect.HandlerOption) []server.Service {
-	q := db.New(pool)
+func services(deps server.Deps, opts ...connect.HandlerOption) []server.Service {
+	q := db.New(deps.Pool)
 	var out []server.Service
 	{
-		path, h := jobsv1connect.NewJobServiceHandler(jobshandler.New(q), opts...)
+		path, h := jobsv1connect.NewJobServiceHandler(jobshandler.New(q, deps.Pager), opts...)
 		out = append(out, server.Service{Path: path, Handler: h})
 	}
 	return out

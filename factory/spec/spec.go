@@ -15,6 +15,7 @@ type Spec struct {
 	Path          string        `yaml:"-"`
 	SpecVersion   string        `yaml:"spec_version"`
 	API           API           `yaml:"api"`
+	Pattern       Pattern       `yaml:"pattern"`
 	Datasource    Datasource    `yaml:"datasource"`
 	Behavior      []Behavior    `yaml:"behavior"`
 	NonFunctional NonFunctional `yaml:"non_functional"`
@@ -30,6 +31,32 @@ type API struct {
 	Proto       string `yaml:"proto"`
 	Owner       string `yaml:"owner"`
 	RiskLevel   string `yaml:"risk_level"`
+}
+
+// Pattern 决定 handler 由谁写:
+//   - custom      : AI 写(generation.ai_may_edit 必填)
+//   - get_by_id   : 工厂生成。按参数查 1 行,查不到 → NOT_FOUND
+//   - list_keyset : 工厂生成。筛选 + keyset 分页(游标/ORDER BY/LIMIT 由工厂追加到查询)
+type Pattern struct {
+	Kind            string   `yaml:"kind"`
+	NotFoundMessage string   `yaml:"not_found_message"` // get_by_id: "job not found: {job_id}"
+	OrderBy         []string `yaml:"order_by"`          // list_keyset: 游标列,必须能唯一确定顺序
+	Direction       string   `yaml:"direction"`         // list_keyset: desc / asc
+	PageSize        PageSize `yaml:"page_size"`
+	// Mapping: 查询参数名 → 请求字段名。只在名字对不上时写(默认按名字自动对应)
+	Mapping map[string]string `yaml:"mapping"`
+}
+
+type PageSize struct {
+	Default int32 `yaml:"default"`
+	Max     int32 `yaml:"max"`
+}
+
+func (s *Spec) PatternKind() string {
+	if s.Pattern.Kind == "" {
+		return "custom"
+	}
+	return s.Pattern.Kind
 }
 
 type Datasource struct {
@@ -236,8 +263,39 @@ func (s *Spec) Check() []string {
 		}
 	}
 
-	if len(s.Generation.AIMayEdit) == 0 {
-		add("generation.ai_may_edit: at least one path is required")
+	switch s.PatternKind() {
+	case "custom":
+		if len(s.Generation.AIMayEdit) == 0 {
+			add("generation.ai_may_edit: required for pattern custom")
+		}
+	case "get_by_id":
+		if q.Cardinality != "one" {
+			add("pattern get_by_id: datasource.query.cardinality must be one")
+		}
+		if s.Pattern.NotFoundMessage == "" {
+			add("pattern get_by_id: not_found_message is required")
+		}
+	case "list_keyset":
+		if q.Cardinality != "many" {
+			add("pattern list_keyset: datasource.query.cardinality must be many")
+		}
+		if len(s.Pattern.OrderBy) == 0 {
+			add("pattern list_keyset: order_by is required (last column must be unique, e.g. id)")
+		}
+		if s.Pattern.Direction != "asc" && s.Pattern.Direction != "desc" {
+			add("pattern list_keyset: direction must be asc or desc")
+		}
+		if ps := s.Pattern.PageSize; ps.Default <= 0 || ps.Max < ps.Default {
+			add("pattern list_keyset: page_size.default > 0 and max >= default are required")
+		}
+		if regexp.MustCompile(`(?i)\b(order\s+by|limit|offset)\b`).MatchString(q.SQL) {
+			add("pattern list_keyset: sql must not contain ORDER BY / LIMIT / OFFSET (the factory adds them)")
+		}
+	default:
+		add("pattern.kind must be custom / get_by_id / list_keyset")
+	}
+	if s.PatternKind() != "custom" && len(s.Generation.AIMayEdit) > 0 {
+		add("generation.ai_may_edit: must be empty when the factory generates the handler (pattern %s)", s.PatternKind())
 	}
 	for _, p := range s.Generation.AIMayEdit {
 		if !strings.HasPrefix(p, "internal/handler/") {

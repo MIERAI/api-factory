@@ -14,6 +14,16 @@ api:
   owner: platform-team
   risk_level: low
 
+# 模式: 筛选 + keyset 分页。handler 由工厂生成,不需要 AI
+#   - 游标条件 / ORDER BY / LIMIT 由工厂追加到下面的基础查询(sql 里不要写)
+#   - page_token: 平台签名(防伪造)+ 绑定筛选条件(翻页途中改条件 → INVALID_ARGUMENT)
+#   - 请求字段 ↔ 查询参数、查询列 ↔ 响应字段 都按名字自动对应
+pattern:
+  kind: list_keyset
+  order_by: [created_at, id]     # 最后一列必须唯一
+  direction: desc
+  page_size: { default: 20, max: 100 }
+
 datasource:
   access: read_only
   tables:
@@ -22,8 +32,7 @@ datasource:
   query:
     name: ListJobs
     cardinality: many
-    # sqlc.narg = 可空参数(NULL 时不筛选)。生成: Queries.ListJobs(ctx, ListJobsParams) ([]Job, error)
-    # 游标 (cursor_created_at, cursor_id) 是上一页最后一行;都为 NULL 时从头开始
+    # sqlc.narg = 可空参数(NULL 时不筛选)
     sql: |
       SELECT id, job_type, status, created_at
       FROM jobs
@@ -31,10 +40,6 @@ datasource:
         AND (sqlc.narg(job_type)::text IS NULL OR job_type = sqlc.narg(job_type)::text)
         AND (sqlc.narg(created_after)::timestamptz IS NULL OR created_at >= sqlc.narg(created_after)::timestamptz)
         AND (sqlc.narg(created_before)::timestamptz IS NULL OR created_at < sqlc.narg(created_before)::timestamptz)
-        AND (sqlc.narg(cursor_created_at)::timestamptz IS NULL
-             OR (created_at, id) < (sqlc.narg(cursor_created_at)::timestamptz, sqlc.narg(cursor_id)::bigint))
-      ORDER BY created_at DESC, id DESC
-      LIMIT sqlc.arg(row_limit)::int
 
 behavior:
   - when: 正常
@@ -46,7 +51,9 @@ behavior:
   - when: 最后一页
     then: next_page_token 为空字符串
   - when: page_token 的内容
-    then: 编码本页最后一行的 (created_at, id),格式由实现决定,调用方视为不透明字符串
+    then: 平台生成(签名 + 筛选条件指纹),调用方视为不透明字符串
+  - when: 翻页途中改变了筛选条件(page_size 除外)
+    then: 'INVALID_ARGUMENT, message="invalid page_token"' 
   - when: page_token 无法解析
     then: 'INVALID_ARGUMENT, message="invalid page_token"'
   - when: status 被指定(包括 0)
@@ -133,6 +140,20 @@ acceptance:
         - request: { status: 1, page_size: 2, page_token: $prev.next_page_token }
           expect: { code: OK, response: { jobs: [{ id: 5 }, { id: 1 }], next_page_token: $absent } }
 
+    - name: 翻页途中改变筛选条件 → 旧 token 失效
+      steps:
+        - request: { status: 1, page_size: 2 }
+          expect: { code: OK, response: { next_page_token: $nonempty } }
+        - request: { status: 0, page_size: 2, page_token: $prev.next_page_token }
+          expect: { code: INVALID_ARGUMENT }
+
+    - name: 翻页途中只改 page_size 是允许的
+      steps:
+        - request: { page_size: 2 }
+          expect: { code: OK, response: { jobs: [{ id: 7 }, { id: 6 }], next_page_token: $nonempty } }
+        - request: { page_size: 3, page_token: $prev.next_page_token }
+          expect: { code: OK, response: { jobs: [{ id: 5 }, { id: 4 }, { id: 3 }], next_page_token: $nonempty } }
+
     - name: 非法 page_token
       request: { page_token: "not-a-valid-token" }
       expect: { code: INVALID_ARGUMENT }
@@ -154,6 +175,4 @@ acceptance:
       expect: { code: INVALID_ARGUMENT }
 
 generation:
-  ai_may_edit:
-    - internal/handler/jobs/list_jobs.go
-    - internal/handler/jobs/list_jobs_test.go
+  ai_may_edit: []

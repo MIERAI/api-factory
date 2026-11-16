@@ -10,7 +10,7 @@ db-up:            ## 启动本地 Postgres 并应用 schema
 	@docker start api-factory-pg >/dev/null 2>&1 || docker run -d --name api-factory-pg \
 		-e POSTGRES_USER=factory -e POSTGRES_PASSWORD=factory -e POSTGRES_DB=factory \
 		-p $(FACTORY_DB_PORT):5432 postgres:16-alpine >/dev/null
-	@until docker exec api-factory-pg pg_isready -U factory >/dev/null 2>&1; do sleep 0.5; done
+	@until docker exec api-factory-pg psql -U factory -d factory -c "select 1" >/dev/null 2>&1; do sleep 0.5; done
 	@$(MAKE) --no-print-directory db-schema
 
 db-schema:
