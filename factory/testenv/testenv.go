@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"apifactory/platform/shard"
 )
 
 // PlanAgnostic 让被测服务器的 DB 会话不使用索引扫描。
@@ -39,6 +41,21 @@ func WithServer(ctx context.Context, serverBin, databaseURL, logPath string, cmd
 	base := "http://127.0.0.1:" + strconv.Itoa(port)
 	srv := exec.CommandContext(ctx, serverBin)
 	srv.Env = append(os.Environ(), "PORT="+strconv.Itoa(port), "DATABASE_URL="+PlanAgnostic(databaseURL))
+	if spec := os.Getenv("FACTORY_SHARDS"); spec != "" { // 分库也一样不用索引扫描
+		rules, err := shard.Parse(spec)
+		if err != nil {
+			return err
+		}
+		var parts []string
+		for _, r := range rules {
+			key := fmt.Sprintf("%d-%d", r.Lo, r.Hi)
+			if r.Any {
+				key = "*"
+			}
+			parts = append(parts, key+"="+PlanAgnostic(r.URL))
+		}
+		srv.Env = append(srv.Env, "FACTORY_SHARDS="+strings.Join(parts, ";"))
+	}
 	logFile, err := os.Create(logPath)
 	if err != nil {
 		return err

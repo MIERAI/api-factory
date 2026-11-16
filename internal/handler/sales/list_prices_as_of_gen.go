@@ -17,7 +17,7 @@ import (
 // ListPricesAsOf 店舗の、基準日に有効な売価を返す
 func (h *Handler) ListPricesAsOf(ctx context.Context, req *connect.Request[salesv1.ListPricesAsOfRequest]) (*connect.Response[salesv1.ListPricesAsOfResponse], error) {
 	m := req.Msg
-	rows, err := h.q.ListPricesAsOf(ctx, db.ListPricesAsOfParams{
+	rows, err := h.at(int64(m.GetStoreCode())).ListPricesAsOf(ctx, db.ListPricesAsOfParams{
 		StoreCode: m.GetStoreCode(),
 		AsOf:      conv.Date(m.GetAsOf()),
 	})

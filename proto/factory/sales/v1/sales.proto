@@ -21,7 +21,7 @@ service SaleService {
   rpc ListTopSales(ListTopSalesRequest) returns (ListTopSalesResponse);
 }
 
-// 店別の売価(有効期間つき)
+// 店別の売価(有効期間つき)。店舗ごとの DB に分かれている
 message StorePrice {
   // 商品コード
   string product_code = 1;

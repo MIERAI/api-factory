@@ -15,6 +15,7 @@ entities:
             - product_code
             - valid_from
         policy: mutable
+        shard_by: store_code
         columns: {}
         invariants: []
 review_decisions: []

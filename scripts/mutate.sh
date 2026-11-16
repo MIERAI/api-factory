@@ -2,6 +2,8 @@
 # 变异测试: 往生成的代码里植入 bug,确认自动生成的验收用例能抓到。每个变异之后用 git 还原。
 set -uo pipefail
 DB_URL=${DB_URL:-postgres://factory:factory@127.0.0.1:55432/factory?sslmode=disable}
+SHARD_BASE=${DB_URL%%/factory?*}
+export FACTORY_SHARDS=${FACTORY_SHARDS:-"1-2=$SHARD_BASE/shard_a?sslmode=disable;*=$SHARD_BASE/shard_b?sslmode=disable"}
 go build -o .factory/factory ./factory/cmd/factory
 run() { # $1=名称 $2=文件 $3=perl 替换式
   cp "$2" /tmp/mut.bak
@@ -60,4 +62,7 @@ run "JSON版本: 取最旧的版本"            $J 's/t2\._o_registered_at DESC,
 run "JSON版本: 不处理删除"              $J 's/\(t3\._action <> 1::int4\) AND //'
 run "JSON版本: 不处理逻辑删除"          $J "s/ AND \(\(t3\._logical_delete IS NULL\) OR \(t3\._logical_delete <> '1'::text\)\)//"
 run "JSON版本: 先筛选再取最新(公司引擎的问题)" $J 's/WHERE \(NOT \(t2\.product_code IS NULL\)\)/WHERE (NOT (t2.product_code IS NULL)) AND ((\$1::text IS NULL) OR (t2.category = \$1::text))/'
+SH=internal/handler/sales/list_prices_as_of_gen.go
+run "分库: 不选库(一直用主库)"           $SH 's/h\.at\(int64\(m\.GetStoreCode\(\)\)\)\./h.q./'
+run "分库: 选错库(店铺代码 +1)"          $SH 's/h\.at\(int64\(m\.GetStoreCode\(\)\)\)/h.at(int64(m.GetStoreCode())+1)/'
 go build -o bin/server ./cmd/server; git status --short

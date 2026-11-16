@@ -197,19 +197,24 @@ import (
 	"{{.ConnectPath}}"
 	"apifactory/gen/db"
 	"apifactory/platform/paging"
+	"apifactory/platform/shard"
 )
 
 // Handler 实现 {{.ConnectPkg}}.{{.Service}}Handler。
 // 尚未实现的 RPC 由内嵌的 Unimplemented 返回 UNIMPLEMENTED。
 type Handler struct {
 	{{.ConnectPkg}}.Unimplemented{{.Service}}Handler
-	q     *db.Queries
-	pager *paging.Pager
+	q      *db.Queries
+	pager  *paging.Pager
+	shards *shard.Router
 }
 
-func New(q *db.Queries, pager *paging.Pager) *Handler {
-	return &Handler{q: q, pager: pager}
+func New(q *db.Queries, pager *paging.Pager, shards *shard.Router) *Handler {
+	return &Handler{q: q, pager: pager, shards: shards}
 }
+
+// at: 分库的表 —— 按分库键(店铺代码等)选连接。没有配置分库时就是主库
+func (h *Handler) at(key int64) *db.Queries { return db.New(h.shards.For(key)) }
 `))
 
 func writeHandlerScaffold(svc service) error {
@@ -240,7 +245,7 @@ func services(deps server.Deps, opts ...connect.HandlerOption) []server.Service 
 	var out []server.Service
 {{- range .}}
 	{
-		path, h := {{.ConnectPkg}}.New{{.Service}}Handler({{.Domain}}handler.New(q, deps.Pager), opts...)
+		path, h := {{.ConnectPkg}}.New{{.Service}}Handler({{.Domain}}handler.New(q, deps.Pager, deps.Shards), opts...)
 		out = append(out, server.Service{Path: path, Handler: h})
 	}
 {{- end}}

@@ -38,6 +38,11 @@ func Run(ctx context.Context, baseURL, fixturesDB string, plan *ir.Plan, specs [
 		return nil, fmt.Errorf("connect db: %w", err)
 	}
 	defer conn.Close(ctx)
+	d, err := openDBs(ctx, conn)
+	if err != nil {
+		return nil, err
+	}
+	defer d.close()
 
 	apis := map[string]*ir.API{}
 	for i := range plan.APIs {
@@ -50,7 +55,7 @@ func Run(ctx context.Context, baseURL, fixturesDB string, plan *ir.Plan, specs [
 		if !ok {
 			return nil, fmt.Errorf("%s: not in the IR (run factory prepare first)", s.ID())
 		}
-		if err := loadFixtures(ctx, conn, plan, s.Acceptance.Fixtures); err != nil {
+		if err := loadFixtures(ctx, d, plan, s.Acceptance.Fixtures); err != nil {
 			return nil, fmt.Errorf("%s fixtures: %w", s.ID(), err)
 		}
 		url := fmt.Sprintf("%s/%s.%s/%s", strings.TrimRight(baseURL, "/"), api.ProtoPackage, api.Service, api.Method)
@@ -67,7 +72,7 @@ func Run(ctx context.Context, baseURL, fixturesDB string, plan *ir.Plan, specs [
 		if auto != nil {
 			for _, suite := range auto.Suites {
 				if suite.Fixtures != nil {
-					if err := loadFixtures(ctx, conn, plan, suite.Fixtures); err != nil {
+					if err := loadFixtures(ctx, d, plan, suite.Fixtures); err != nil {
 						return nil, fmt.Errorf("%s auto %s fixtures: %w", s.ID(), suite.Name, err)
 					}
 				}
@@ -78,14 +83,14 @@ func Run(ctx context.Context, baseURL, fixturesDB string, plan *ir.Plan, specs [
 			}
 		}
 		// 差分测试(随机数据 + 参考求值器)
-		results = append(results, runDiff(ctx, conn, url, plan, api)...)
+		results = append(results, runDiff(ctx, d, url, plan, api)...)
 	}
 	return results, nil
 }
 
 // loadFixtures: enum 列可以写 proto 的值名(JOB_STATUS_SUCCEEDED),按领域层的映射转换成 DB 值。
 // fixture 和期待值用同一种表示,避免"DB 值和 proto 编号"混淆(第一波实测: 本地模型审查的误报大多来自这里)。
-func loadFixtures(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, fixtures map[string][]map[string]any) error {
+func loadFixtures(ctx context.Context, d *dbs, plan *ir.Plan, fixtures map[string][]map[string]any) error {
 	tables := make([]string, 0, len(fixtures))
 	for t := range fixtures {
 		tables = append(tables, t)
@@ -93,16 +98,29 @@ func loadFixtures(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, fixtures m
 	sort.Strings(tables)
 	for _, table := range tables {
 		if st := plan.Storage(table); st != nil {
-			if err := loadStorageRows(ctx, conn, plan, st, fixtures[table]); err != nil {
+			if err := loadStorageRows(ctx, d, plan, st, fixtures[table]); err != nil {
 				return fmt.Errorf("fixture %s: %w", table, err)
 			}
 			continue
 		}
 		ident := pgx.Identifier{table}.Sanitize()
-		if _, err := conn.Exec(ctx, "TRUNCATE "+ident+" CASCADE"); err != nil {
+		sh := plan.Shard(table)
+		targets, err := d.targets(sh)
+		if err != nil {
 			return err
 		}
+		for _, c := range targets {
+			if _, err := c.Exec(ctx, "TRUNCATE "+ident+" CASCADE"); err != nil {
+				return err
+			}
+		}
 		for _, row := range fixtures[table] {
+			conn := d.main
+			if sh != nil { // 分库: 写进分库键对应的库
+				if conn, err = d.forKey(row[sh.Column]); err != nil {
+					return fmt.Errorf("fixture %s: %w", table, err)
+				}
+			}
 			cols := make([]string, 0, len(row))
 			for c := range row {
 				cols = append(cols, c)
@@ -418,11 +436,19 @@ func enumNames(e *ir.Enum) []string {
 // loadStorageRows: 逻辑表(存储: JSON版本)的数据行 → 物理表的行。
 // 行的顺序 = 登记的顺序: 登记顺序列按类型合成单调递增的值(时间 +1 秒 / 整数 +1)。
 // "$action": "delete" → 操作列 = 删除值;"logical_delete" → JSON 里加上逻辑删除的键。
-func loadStorageRows(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, st *ir.Storage, rows []map[string]any) error {
+func loadStorageRows(ctx context.Context, d *dbs, plan *ir.Plan, st *ir.Storage, rows []map[string]any) error {
 	ident := pgx.Identifier{st.Table}.Sanitize()
-	if _, err := conn.Exec(ctx, "TRUNCATE "+ident); err != nil {
+	sh := plan.Shard(st.View)
+	targets, err := d.targets(sh)
+	if err != nil {
 		return err
 	}
+	for _, c := range targets {
+		if _, err := c.Exec(ctx, "TRUNCATE "+ident); err != nil {
+			return err
+		}
+	}
+	conn := d.main
 	orderTypes := map[string]string{}
 	for _, c := range st.OrderBy {
 		var t string
@@ -486,7 +512,13 @@ func loadStorageRows(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, st *ir.
 			holders[j] = "$" + strconv.Itoa(j+1)
 		}
 		sql := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", ident, strings.Join(cols, ","), strings.Join(holders, ","))
-		if _, err := conn.Exec(ctx, sql, args...); err != nil {
+		target := conn
+		if sh != nil { // 分库: 按逻辑行的分库键
+			if target, err = d.forKey(row[sh.Column]); err != nil {
+				return err
+			}
+		}
+		if _, err := target.Exec(ctx, sql, args...); err != nil {
 			return fmt.Errorf("insert %v: %w", row, err)
 		}
 	}

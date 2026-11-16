@@ -97,6 +97,11 @@ func Compile(specs []*spec.Spec) (*ir.Plan, error) {
 			for _, f := range filters {
 				api.Filters = append(api.Filters, ir.Filter{Field: f.Name, Column: f.Column.Name, ColumnType: f.Column.Type, Op: f.Op, SQLOp: f.SQLOp, Presence: f.Presence, Columns: f.Columns})
 			}
+			if sh, err := shardOf(s, filters); err != nil {
+				return nil, fmt.Errorf("%s: %w", s.Path, err)
+			} else {
+				api.Shard = sh
+			}
 			pl, err := buildPipeline(s, lib, cols, filters, cat)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", s.Path, err)
@@ -160,6 +165,10 @@ func Compile(specs []*spec.Spec) (*ir.Plan, error) {
 		e, ok := s.Domain.Entities[table]
 		if !ok {
 			continue
+		}
+		if e.ShardBy != "" && !seen["shard:"+table] {
+			seen["shard:"+table] = true
+			plan.Shards = append(plan.Shards, ir.Shard{Table: table, Column: e.ShardBy})
 		}
 		if st := e.Storage; st != nil && !seen["storage:"+table] {
 			seen["storage:"+table] = true
@@ -382,4 +391,21 @@ func storageIR(view string, nk []string, st *spec.Storage) ir.Storage {
 		out.Fields = append(out.Fields, ir.StorageField{Name: f.Name, Key: f.JSONKey(), Type: f.Type})
 	}
 	return out
+}
+
+// shardOf: 分库的表的 API 必须用必填的「等于」固定分库键(一个请求只访问一个库)。
+func shardOf(s *spec.Spec, filters []resolvedFilter) (*ir.Shard, error) {
+	if s.Domain == nil {
+		return nil, nil
+	}
+	e, ok := s.Domain.Entities[s.Datasource.Table]
+	if !ok || e.ShardBy == "" {
+		return nil, nil
+	}
+	for _, f := range filters {
+		if f.Column.Name == e.ShardBy && (f.Op == "eq" || f.Op == "等于") && !f.Presence && !f.List {
+			return &ir.Shard{Table: s.Datasource.Table, Column: e.ShardBy, Field: f.Name}, nil
+		}
+	}
+	return nil, fmt.Errorf("表 %s 按 %s 分库: API 必须有一个必填的输入以「%s 等于」筛选(一个请求只访问一个库;跨库合并在工厂的边界外)", s.Datasource.Table, e.ShardBy, e.ShardBy)
 }

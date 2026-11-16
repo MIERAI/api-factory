@@ -2,6 +2,9 @@
 FACTORY_DB_PORT ?= 55432
 PG_NAME ?= api-factory-pg
 DB_URL  ?= postgres://factory:factory@127.0.0.1:$(FACTORY_DB_PORT)/factory?sslmode=disable
+# 分库(按店铺分库的表): 测试用两个库,店铺 1~2 → shard_a,其他 → shard_b
+SHARD_URL = postgres://factory:factory@127.0.0.1:$(FACTORY_DB_PORT)
+export FACTORY_SHARDS ?= 1-2=$(SHARD_URL)/shard_a?sslmode=disable;*=$(SHARD_URL)/shard_b?sslmode=disable
 FACTORY := go run ./factory/cmd/factory
 SPEC    ?= specs/jobs/get-job-status/spec.yaml
 MODEL   ?= claude
@@ -20,6 +23,11 @@ db-up:            ## 启动本地 Postgres 并应用 schema
 
 db-schema:
 	@cat db/schema/*.sql $(wildcard db/views/*.sql) | docker exec -i $(PG_NAME) psql -q -U factory -d factory -v ON_ERROR_STOP=1
+	@for s in shard_a shard_b; do \
+		docker exec $(PG_NAME) psql -q -U factory -d factory -tAc "SELECT 1 FROM pg_database WHERE datname='$$s'" | grep -q 1 || \
+			docker exec $(PG_NAME) psql -q -U factory -d factory -c "CREATE DATABASE $$s" >/dev/null; \
+		cat db/schema/*.sql | docker exec -i $(PG_NAME) psql -q -U factory -d $$s -v ON_ERROR_STOP=1; \
+	done
 	@echo "✓ db ready ($(DB_URL))"
 
 db-down:

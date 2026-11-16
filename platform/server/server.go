@@ -23,6 +23,7 @@ import (
 	"apifactory/platform/anomaly"
 	"apifactory/platform/apierr"
 	"apifactory/platform/paging"
+	"apifactory/platform/shard"
 )
 
 // Service 是一个已挂载的 Connect 服务。
@@ -33,8 +34,9 @@ type Service struct {
 
 // Deps 是平台提供给 handler 的依赖。
 type Deps struct {
-	Pool  *pgxpool.Pool
-	Pager *paging.Pager
+	Shards *shard.Router // 分库的连接路由(没有配置时 = 主库)
+	Pool   *pgxpool.Pool
+	Pager  *paging.Pager
 }
 
 // Builder 由生成的 wiring 代码实现,负责把 handler 挂到服务上。
@@ -96,6 +98,20 @@ func run(log *slog.Logger, build Builder) error {
 		return fmt.Errorf("db pool: %w", err)
 	}
 	defer pool.Close()
+	// 分库: 和主库同样的连接设置
+	rules, err := shard.Parse(os.Getenv("FACTORY_SHARDS"))
+	if err != nil {
+		return err
+	}
+	shards := shard.New(rules, pool, func(ctx context.Context, url string) (*pgxpool.Pool, error) {
+		c, err := pgxpool.ParseConfig(url)
+		if err != nil {
+			return nil, err
+		}
+		c.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
+		return pgxpool.NewWithConfig(ctx, c)
+	})
+	defer shards.Close()
 
 	opts := connect.WithInterceptors(
 		newLoggingInterceptor(log),
@@ -108,7 +124,7 @@ func run(log *slog.Logger, build Builder) error {
 	if os.Getenv("PAGE_TOKEN_KEY") == "" {
 		log.Warn("PAGE_TOKEN_KEY not set: using a random key (page tokens break across restarts/instances)")
 	}
-	deps := Deps{Pool: pool, Pager: paging.New([]byte(os.Getenv("PAGE_TOKEN_KEY")))}
+	deps := Deps{Pool: pool, Pager: paging.New([]byte(os.Getenv("PAGE_TOKEN_KEY"))), Shards: shards}
 	for _, s := range build(deps, opts) {
 		mux.Handle(s.Path, s.Handler)
 		log.Info("service mounted", "path", s.Path)

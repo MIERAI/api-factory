@@ -21,19 +21,19 @@ func services(deps server.Deps, opts ...connect.HandlerOption) []server.Service 
 	q := db.New(deps.Pool)
 	var out []server.Service
 	{
-		path, h := catalogv1connect.NewCatalogServiceHandler(cataloghandler.New(q, deps.Pager), opts...)
+		path, h := catalogv1connect.NewCatalogServiceHandler(cataloghandler.New(q, deps.Pager, deps.Shards), opts...)
 		out = append(out, server.Service{Path: path, Handler: h})
 	}
 	{
-		path, h := jobsv1connect.NewJobServiceHandler(jobshandler.New(q, deps.Pager), opts...)
+		path, h := jobsv1connect.NewJobServiceHandler(jobshandler.New(q, deps.Pager, deps.Shards), opts...)
 		out = append(out, server.Service{Path: path, Handler: h})
 	}
 	{
-		path, h := salesv1connect.NewSaleServiceHandler(saleshandler.New(q, deps.Pager), opts...)
+		path, h := salesv1connect.NewSaleServiceHandler(saleshandler.New(q, deps.Pager, deps.Shards), opts...)
 		out = append(out, server.Service{Path: path, Handler: h})
 	}
 	{
-		path, h := shopv1connect.NewShopServiceHandler(shophandler.New(q, deps.Pager), opts...)
+		path, h := shopv1connect.NewShopServiceHandler(shophandler.New(q, deps.Pager, deps.Shards), opts...)
 		out = append(out, server.Service{Path: path, Handler: h})
 	}
 	return out

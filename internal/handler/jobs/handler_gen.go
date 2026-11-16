@@ -8,16 +8,21 @@ import (
 	"apifactory/gen/db"
 	"apifactory/gen/factory/jobs/v1/jobsv1connect"
 	"apifactory/platform/paging"
+	"apifactory/platform/shard"
 )
 
 // Handler 实现 jobsv1connect.JobServiceHandler。
 // 尚未实现的 RPC 由内嵌的 Unimplemented 返回 UNIMPLEMENTED。
 type Handler struct {
 	jobsv1connect.UnimplementedJobServiceHandler
-	q     *db.Queries
-	pager *paging.Pager
+	q      *db.Queries
+	pager  *paging.Pager
+	shards *shard.Router
 }
 
-func New(q *db.Queries, pager *paging.Pager) *Handler {
-	return &Handler{q: q, pager: pager}
+func New(q *db.Queries, pager *paging.Pager, shards *shard.Router) *Handler {
+	return &Handler{q: q, pager: pager, shards: shards}
 }
+
+// at: 分库的表 —— 按分库键(店铺代码等)选连接。没有配置分库时就是主库
+func (h *Handler) at(key int64) *db.Queries { return db.New(h.shards.For(key)) }

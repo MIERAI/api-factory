@@ -42,7 +42,8 @@ var diffBase = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
 type diffEnv struct {
 	ctx    context.Context
-	conn   *pgx.Conn
+	conn   *pgx.Conn // 主库
+	db     *dbs      // 主库 + 分库
 	plan   *ir.Plan
 	api    *ir.API
 	table  string
@@ -153,7 +154,8 @@ func (e *diffEnv) invalid(req map[string]any) (bool, error) {
 	return false, err
 }
 
-func runDiff(ctx context.Context, conn *pgx.Conn, url string, plan *ir.Plan, api *ir.API) []Result {
+func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API) []Result {
+	conn := d.main
 	p := api.Pipeline
 	if p == nil || (api.Pattern != "get_by_id" && api.Pattern != "list_keyset" && api.Pattern != "list_all") {
 		return nil
@@ -163,7 +165,7 @@ func runDiff(ctx context.Context, conn *pgx.Conn, url string, plan *ir.Plan, api
 	}
 	h := fnv.New64a()
 	h.Write([]byte(api.ID))
-	env := &diffEnv{ctx: ctx, conn: conn, plan: plan, api: api, table: p.Steps[0].Table, cols: p.Steps[0].Columns,
+	env := &diffEnv{ctx: ctx, conn: conn, db: d, plan: plan, api: api, table: p.Steps[0].Table, cols: p.Steps[0].Columns,
 		rnd: rand.New(rand.NewSource(int64(h.Sum64()))), filter: map[string]ir.Filter{}}
 	for _, f := range api.Filters {
 		env.filter[f.Field] = f
@@ -358,8 +360,28 @@ func (e *diffEnv) load() (int, int, error) {
 		return 0, 0, err
 	}
 	ident := pgx.Identifier{e.table}.Sanitize()
-	if _, err := e.conn.Exec(e.ctx, "TRUNCATE "+ident+" CASCADE"); err != nil {
+	sh := e.plan.Shard(e.api.Table)
+	targets, err := e.db.targets(sh)
+	if err != nil {
 		return 0, 0, err
+	}
+	for _, c := range targets {
+		if _, err := c.Exec(e.ctx, "TRUNCATE "+ident+" CASCADE"); err != nil {
+			return 0, 0, err
+		}
+	}
+	// 分库键在物理行里的位置: 普通的表 = 列;JSON版本 = JSON 里的键
+	shardCol, shardKey := "", ""
+	if sh != nil {
+		shardCol = sh.Column
+		if st := e.plan.Storage(e.api.Table); st != nil {
+			shardCol = st.DataColumn
+			for _, f := range st.Fields {
+				if f.Name == sh.Column {
+					shardKey = f.Key
+				}
+			}
+		}
 	}
 	var names, holders []string
 	for i, c := range e.cols {
@@ -374,10 +396,24 @@ func (e *diffEnv) load() (int, int, error) {
 	}
 	for i := 0; i < n; i++ {
 		var args []any
+		conn := e.conn
 		for _, c := range e.cols {
-			args = append(args, sqlValue(e.value(c, i, unique[c.Name])))
+			v := e.value(c, i, unique[c.Name])
+			if sh != nil && c.Name == shardCol { // 分库: 写进分库键对应的库
+				key := v
+				if shardKey != "" {
+					var obj map[string]any
+					if s, ok := v.(string); ok && json.Unmarshal([]byte(s), &obj) == nil {
+						key = obj[shardKey]
+					}
+				}
+				if conn, err = e.db.forKey(key); err != nil {
+					return 0, 0, err
+				}
+			}
+			args = append(args, sqlValue(v))
 		}
-		if _, err := e.conn.Exec(e.ctx, insert, args...); err != nil {
+		if _, err := conn.Exec(e.ctx, insert, args...); err != nil {
 			rejected++
 		}
 	}
@@ -385,31 +421,38 @@ func (e *diffEnv) load() (int, int, error) {
 	for _, c := range e.cols {
 		sel = append(sel, pgx.Identifier{c.Name}.Sanitize()+"::text")
 	}
-	rows, err := e.conn.Query(e.ctx, fmt.Sprintf("SELECT %s FROM %s", strings.Join(sel, ", "), ident))
-	if err != nil {
-		return 0, 0, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		vals := make([]*string, len(e.cols))
-		ptrs := make([]any, len(vals))
-		for i := range vals {
-			ptrs[i] = &vals[i]
-		}
-		if err := rows.Scan(ptrs...); err != nil {
+	for _, conn := range targets { // 读回: 所有的库合在一起
+		rows, err := conn.Query(e.ctx, fmt.Sprintf("SELECT %s FROM %s", strings.Join(sel, ", "), ident))
+		if err != nil {
 			return 0, 0, err
 		}
-		r := core.Row{}
-		for i, c := range e.cols {
-			v, err := core.FromPGText(vals[i], c.Type.Kind)
-			if err != nil {
+		for rows.Next() {
+			vals := make([]*string, len(e.cols))
+			ptrs := make([]any, len(vals))
+			for i := range vals {
+				ptrs[i] = &vals[i]
+			}
+			if err := rows.Scan(ptrs...); err != nil {
+				rows.Close()
 				return 0, 0, err
 			}
-			r[c.Name] = v
+			r := core.Row{}
+			for i, c := range e.cols {
+				v, err := core.FromPGText(vals[i], c.Type.Kind)
+				if err != nil {
+					rows.Close()
+					return 0, 0, err
+				}
+				r[c.Name] = v
+			}
+			e.rows = append(e.rows, r)
 		}
-		e.rows = append(e.rows, r)
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return 0, 0, err
+		}
 	}
-	return len(e.rows), rejected, rows.Err()
+	return len(e.rows), rejected, nil
 }
 
 // ---------------------------------------------------------------------------

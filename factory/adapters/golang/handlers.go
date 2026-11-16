@@ -177,6 +177,19 @@ func (g *genCtx) paramAssignments(skip func(string) bool) ([]string, error) {
 
 // queryCall: 调用 sqlc 生成的查询函数(无参数 / 参数结构体 / 单个参数)。
 func (g *genCtx) queryCall() (string, error) {
+	call, err := g.queryCall0()
+	if err != nil || g.api.Shard == nil {
+		return call, err
+	}
+	// 分库: 按分库键选连接(分库键由必填的「等于」固定,编译时检查过)
+	rf, err := g.requestField(g.api.Shard.Field)
+	if err != nil {
+		return "", err
+	}
+	return strings.Replace(call, "h.q.", fmt.Sprintf("h.at(int64(m.Get%s())).", goCamelCase(rf.Name)), 1), nil
+}
+
+func (g *genCtx) queryCall0() (string, error) {
 	name := g.api.Query.Name
 	switch {
 	case g.query.ParamType == "":

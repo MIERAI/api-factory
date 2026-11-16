@@ -148,6 +148,7 @@ type Table struct {
 	ColEnum    map[string]string // 列 → 枚举名
 	Rules      []Rule
 	Storage    *spec.Storage // 存储: JSON版本(逻辑表 → 物理表的映射)
+	ShardBy    string        // 分库: 分库键的列(按店铺分库等)
 }
 
 // storageTypes: 存储字段的中文类型 → SQL 类型
@@ -209,7 +210,7 @@ func loadDomain(dir string) (*Domain, error) {
 		d.Enums = append(d.Enums, en)
 	}
 	for _, p := range pairs(get(root, "表")) {
-		checkKeys(e, p.Val, "表 "+p.Key, "说明", "主键", "更新方式", "列", "规则", "存储", "原始表", "存储列", "逻辑删除", "字段")
+		checkKeys(e, p.Val, "表 "+p.Key, "说明", "主键", "更新方式", "列", "规则", "存储", "原始表", "存储列", "逻辑删除", "字段", "分库")
 		t := &Table{Name: p.Key, Desc: str(p.Val, "说明"), PrimaryKey: strList(get(p.Val, "主键")), ColDesc: map[string]string{}, ColEnum: map[string]string{}}
 		switch str(p.Val, "更新方式") {
 		case "", "可以更新":
@@ -252,6 +253,7 @@ func loadDomain(dir string) (*Domain, error) {
 				t.Rules = append(t.Rules, Rule{Text: str(r, "规则"), Enforced: str(r, "数据库保证") == "是"})
 			}
 		}
+		t.ShardBy = str(p.Val, "分库")
 		d.Tables[p.Key] = t
 	}
 	for _, t := range d.Tables {

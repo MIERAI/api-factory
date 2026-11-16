@@ -25,7 +25,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// 店別の売価(有効期間つき)
+// 店別の売価(有効期間つき)。店舗ごとの DB に分かれている
 type StorePrice struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 商品コード

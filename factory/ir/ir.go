@@ -25,6 +25,7 @@ type Plan struct {
 	APIs     []API     `json:"apis"`
 	Enums    []Enum    `json:"enums"` // 领域层的 enum 映射(DB 值 ↔ proto enum)
 	Storages []Storage `json:"storages,omitempty"`
+	Shards   []Shard   `json:"shards,omitempty"` // 分库的表(验收把数据写进分库键对应的库)
 }
 
 type Service struct {
@@ -55,6 +56,7 @@ type API struct {
 	GetByID *GetByID `json:"get_by_id,omitempty"`
 	Keyset  *Keyset  `json:"keyset,omitempty"`
 	ListAll *ListAll `json:"list_all,omitempty"`
+	Shard   *Shard   `json:"shard,omitempty"` // 分库的表: 按请求字段 Field(= 列 Column 的等于条件)选库
 	Compute *Compute `json:"compute,omitempty"`
 
 	// BaseRequest: 第一个 code: OK 的人写用例的请求(自动生成校验边界用例时作为"其他字段都合法"的基础)
@@ -212,6 +214,22 @@ func (p *Plan) Storage(view string) *Storage {
 	for i := range p.Storages {
 		if p.Storages[i].View == view {
 			return &p.Storages[i]
+		}
+	}
+	return nil
+}
+
+// Shard: 分库的表。Table = 式样书 / 验收数据里的表名(逻辑表),Column = 分库键的列。
+type Shard struct {
+	Table  string `json:"table"`
+	Column string `json:"column"`
+	Field  string `json:"field,omitempty"` // API 里: 固定分库键的请求字段
+}
+
+func (p *Plan) Shard(table string) *Shard {
+	for i := range p.Shards {
+		if p.Shards[i].Table == table {
+			return &p.Shards[i]
 		}
 	}
 	return nil

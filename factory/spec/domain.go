@@ -27,6 +27,7 @@ type Entity struct {
 	NaturalKey []string              `yaml:"natural_key"`
 	Policy     string                `yaml:"policy"` // mutable / versioned
 	Storage    *Storage              `yaml:"storage,omitempty"`
+	ShardBy    string                `yaml:"shard_by,omitempty"` // 分库键的列(按店铺分库等)
 	Columns    map[string]ColumnMeta `yaml:"columns"`
 	Invariants []Invariant           `yaml:"invariants"`
 }

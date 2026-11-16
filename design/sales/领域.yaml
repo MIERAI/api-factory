@@ -18,8 +18,9 @@
       discount:   値引き額(没有值引时为空)
       closed_on:  締め日(未締めは空)
   store_prices:
-    说明: 店別の売価(有効期間つき)
+    说明: 店別の売価(有効期間つき)。店舗ごとの DB に分かれている
     主键: [store_code, product_code, valid_from]
+    分库: store_code
     更新方式: 可以更新
     列:
       store_code:   店舗コード
