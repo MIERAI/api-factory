@@ -1,69 +1,27 @@
 # =============================================================================
 # API 式样书: ListJobs
 # =============================================================================
-spec_version: "0.1"
+spec_version: "0.2"
 
 api:
-  id: jobs.list-jobs
-  summary: 按条件列出任务(新的在前,游标分页)
-  description: |
-    管理画面的任务一览。可按 status / job_type / 创建时间范围筛选。
-    数据量大,所以用 keyset 分页,不用 OFFSET。
   rpc: factory.jobs.v1.JobService/ListJobs
-  proto: proto/factory/jobs/v1/jobs.proto
   owner: platform-team
   risk_level: low
+  description: 管理画面的任务一览。数据量大,所以用 keyset 分页,不用 OFFSET。
 
-# 模式: 筛选 + keyset 分页。handler 由工厂生成,不需要 AI
-#   - 游标条件 / ORDER BY / LIMIT 由工厂追加到下面的基础查询(sql 里不要写)
-#   - page_token: 平台签名(防伪造)+ 绑定筛选条件(翻页途中改条件 → INVALID_ARGUMENT)
-#   - 请求字段 ↔ 查询参数、查询列 ↔ 响应字段 都按名字自动对应
+# 筛选 + keyset 分页。游标 / ORDER BY / LIMIT / page_token(签名 + 绑定筛选条件)由工厂和平台处理
 pattern:
   kind: list_keyset
   order_by: [created_at, id]     # 最后一列必须唯一
   direction: desc
   page_size: { default: 20, max: 100 }
 
+# 筛选条件全部符合命名约定,不需要写 filters:
+#   status / job_type → 同名列 eq(optional: 未指定时不筛选)
+#   created_after → created_at >= ;created_before → created_at <
+# SELECT 的列 = 响应元素 Job 的字段
 datasource:
-  access: read_only
-  tables:
-    - name: jobs
-      columns: [id, job_type, status, created_at]
-  query:
-    name: ListJobs
-    cardinality: many
-    # sqlc.narg = 可空参数(NULL 时不筛选)
-    sql: |
-      SELECT id, job_type, status, created_at
-      FROM jobs
-      WHERE (sqlc.narg(status)::int IS NULL OR status = sqlc.narg(status)::int)
-        AND (sqlc.narg(job_type)::text IS NULL OR job_type = sqlc.narg(job_type)::text)
-        AND (sqlc.narg(created_after)::timestamptz IS NULL OR created_at >= sqlc.narg(created_after)::timestamptz)
-        AND (sqlc.narg(created_before)::timestamptz IS NULL OR created_at < sqlc.narg(created_before)::timestamptz)
-
-behavior:
-  - when: 正常
-    then: OK,按 created_at 降序、同一时间按 id 降序返回。0 件也是 OK(jobs 为空)
-  - when: page_size = 0
-    then: 按 20 件处理
-  - when: 还有下一页
-    then: next_page_token 非空。判断方法:查询 page_size + 1 行,多出来的 1 行只用于判断,不返回
-  - when: 最后一页
-    then: next_page_token 为空字符串
-  - when: page_token 的内容
-    then: 平台生成(签名 + 筛选条件指纹),调用方视为不透明字符串
-  - when: 翻页途中改变了筛选条件(page_size 除外)
-    then: 'INVALID_ARGUMENT, message="invalid page_token"' 
-  - when: page_token 无法解析
-    then: 'INVALID_ARGUMENT, message="invalid page_token"'
-  - when: status 被指定(包括 0)
-    then: 只返回该 status 的任务。未指定时不筛选
-  - when: page_size / status / job_type 越界,或 created_after >= created_before
-    then: INVALID_ARGUMENT(proto 的 protovalidate 规则自动处理,handler 不用写)
-
-non_functional:
-  latency_p99_ms: 200
-  timeout_ms: 3000
+  table: jobs
 
 acceptance:
   fixtures:
@@ -173,6 +131,3 @@ acceptance:
     - name: 时间范围颠倒
       request: { created_after: "2026-11-05T00:00:00Z", created_before: "2026-11-02T00:00:00Z" }
       expect: { code: INVALID_ARGUMENT }
-
-generation:
-  ai_may_edit: []

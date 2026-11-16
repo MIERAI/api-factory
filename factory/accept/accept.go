@@ -71,7 +71,7 @@ func Run(ctx context.Context, serverBin, databaseURL string, specs []*spec.Spec)
 	var results []Result
 	for _, s := range specs {
 		if err := loadFixtures(ctx, conn, s.Acceptance.Fixtures); err != nil {
-			return nil, fmt.Errorf("%s fixtures: %w", s.API.ID, err)
+			return nil, fmt.Errorf("%s fixtures: %w", s.ID(), err)
 		}
 		parts, err := s.RPCParts()
 		if err != nil {
@@ -84,7 +84,7 @@ func Run(ctx context.Context, serverBin, databaseURL string, specs []*spec.Spec)
 		url := fmt.Sprintf("%s/%s.%s/%s", base, parts.ProtoPackage, parts.Service, parts.Method)
 		for _, c := range s.Acceptance.Cases {
 			ok, detail := runCase(url, c, md.Output())
-			results = append(results, Result{Spec: s.API.ID, Case: c.Name, Passed: ok, Detail: detail})
+			results = append(results, Result{Spec: s.ID(), Case: c.Name, Passed: ok, Detail: detail})
 		}
 	}
 	return results, nil

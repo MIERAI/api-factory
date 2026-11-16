@@ -22,7 +22,7 @@ type listJobsCursor struct {
 	ID        int64     `json:"id"`
 }
 
-// ListJobs 按条件列出任务(新的在前,游标分页)
+// ListJobs 按条件列出任务,新的在前,游标分页
 func (h *Handler) ListJobs(ctx context.Context, req *connect.Request[jobsv1.ListJobsRequest]) (*connect.Response[jobsv1.ListJobsResponse], error) {
 	m := req.Msg
 	size := paging.Size(m.GetPageSize(), 20, 100)

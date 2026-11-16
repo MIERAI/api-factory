@@ -1,64 +1,24 @@
 # =============================================================================
 # API 式样书: GetJobStatus
-#   人 review 的唯一真相。代码、查询、测试全部从这里和 proto 推导出来。
+#   summary / 类型 → proto 的 rpc 注释;id → 目录;SQL → 由下面的声明生成
 # =============================================================================
-spec_version: "0.1"
+spec_version: "0.2"
 
 api:
-  id: jobs.get-job-status
-  summary: 按 id 返回一个异步任务的处理状态
-  description: |
-    调用方在提交异步任务后,轮询这个 API 等待任务结束。
-  rpc: factory.jobs.v1.JobService/GetJobStatus     # 类型的唯一真相在 proto
-  proto: proto/factory/jobs/v1/jobs.proto
+  rpc: factory.jobs.v1.JobService/GetJobStatus
   owner: platform-team
-  risk_level: low          # low = 单表只读 / 无写入 / 不涉及金额和权限
+  risk_level: low
+  description: 调用方在提交异步任务后,轮询这个 API 等待任务结束。
 
-# -----------------------------------------------------------------------------
-# 模式: 按参数查 1 行,查不到 → NOT_FOUND。handler 由工厂生成,不需要 AI
-#   请求字段 job_id → 查询参数 @job_id、查询结果 status → 响应字段 status 都按名字自动对应
-# -----------------------------------------------------------------------------
+# 按请求字段查 1 行,查不到 → NOT_FOUND。参数校验(protovalidate)、错误转换由平台保证
 pattern:
   kind: get_by_id
   not_found_message: "job not found: {job_id}"
 
-# -----------------------------------------------------------------------------
-# 数据源: AI 只能通过这里声明的查询访问数据
-#   工厂会把 query 确定性地转成 sqlc 查询,生成类型安全的函数
-# -----------------------------------------------------------------------------
+# job_id → id(命名约定 <单数表名>_id);SELECT 的列 = 响应字段(status)
 datasource:
-  access: read_only
-  tables:
-    - name: jobs
-      columns: [id, status]
-  query:
-    name: GetJobStatus     # 生成的函数名: Queries.GetJobStatus(ctx, jobID int64) (int32, error)
-    cardinality: one       # one = 0..1 行(查不到返回 no rows)
-    sql: |
-      SELECT status
-      FROM jobs
-      WHERE id = @job_id
+  table: jobs
 
-# -----------------------------------------------------------------------------
-# 行为(pattern get_by_id 已经覆盖下面全部)
-# -----------------------------------------------------------------------------
-behavior:
-  - when: 记录存在
-    then: OK, 返回 status
-  - when: 记录不存在
-    then: 'NOT_FOUND, message="job not found: {job_id}"'
-  - when: job_id <= 0 或未指定
-    then: INVALID_ARGUMENT(proto 的 protovalidate 规则自动处理,handler 不用写)
-  - when: DB 连接失败或超时
-    then: UNAVAILABLE(平台拦截器自动转换,handler 只需原样返回 error)
-
-non_functional:
-  latency_p99_ms: 100
-  timeout_ms: 3000
-
-# -----------------------------------------------------------------------------
-# 验收条件: 人定的判定标准,验收执行器原样执行(与 AI 无关)
-# -----------------------------------------------------------------------------
 acceptance:
   fixtures:
     jobs:
@@ -91,7 +51,3 @@ acceptance:
     - name: 未指定
       request: {}
       expect: { code: INVALID_ARGUMENT }
-
-# 生成范围: 模式 API 由工厂生成,AI 不参与
-generation:
-  ai_may_edit: []

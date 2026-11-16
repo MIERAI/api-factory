@@ -14,15 +14,15 @@ const getJobSummary = `-- name: GetJobSummary :many
 
 SELECT id, status, created_at, finished_at
 FROM jobs
-WHERE job_type = $1
-  AND created_at >= $2
-  AND created_at < $3
+WHERE job_type = $1::text
+  AND ($2::timestamptz IS NULL OR created_at >= $2::timestamptz)
+  AND ($3::timestamptz IS NULL OR created_at < $3::timestamptz)
 `
 
 type GetJobSummaryParams struct {
 	JobType     string
-	PeriodStart time.Time
-	PeriodEnd   time.Time
+	PeriodStart *time.Time
+	PeriodEnd   *time.Time
 }
 
 type GetJobSummaryRow struct {

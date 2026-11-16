@@ -11,6 +11,8 @@
   - `compute`:handler 由工厂生成;AI 只写纯函数 `<method>Logic(req, rows)`,输入是请求和查询结果
   - `custom`:AI 写整个 handler
 - **映射**:请求字段 ↔ 查询参数、查询列 ↔ 响应字段按名字自动对应
+- **查询**:由 datasource 的声明生成(下面附有生成结果)。命名约定:字段名 = 列名 → `=`;`<x>_after` → `<x>_at >=`;
+  `<x>_before` → `<x>_at <`;`<单数表名>_id` → `id =`。有 presence 的请求字段(optional / Timestamp)未指定时不筛选
 - **验收用例的语义**(式样书格式的规定):`expect.response` 是**部分一致**,只检查写出来的字段,没写出来的字段不检查。
   `$absent` = 字段必须未设置(响应里不存在);`$nonempty` = 必须有值。数组要求长度一致,并逐个元素部分一致。
   有 presence 的字段(proto3 `optional`、message 类型)写具体值(包括 0.0)时,"未设置"判为不一致——即验收能区分"未设置"和"设置为 0"
@@ -73,6 +75,12 @@
 
 ```proto
 {{.Proto}}
+```
+
+### 工厂从 datasource 声明生成的查询(`{{.QueryPath}}`)
+
+```sql
+{{.Query}}
 ```
 
 ### DB schema(`db/schema.sql`)

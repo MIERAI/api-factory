@@ -4,7 +4,7 @@
 SELECT * FROM (
   SELECT id, job_type, status, created_at
   FROM jobs
-  WHERE (sqlc.narg(status)::int IS NULL OR status = sqlc.narg(status)::int)
+  WHERE (sqlc.narg(status)::int4 IS NULL OR status = sqlc.narg(status)::int4)
     AND (sqlc.narg(job_type)::text IS NULL OR job_type = sqlc.narg(job_type)::text)
     AND (sqlc.narg(created_after)::timestamptz IS NULL OR created_at >= sqlc.narg(created_after)::timestamptz)
     AND (sqlc.narg(created_before)::timestamptz IS NULL OR created_at < sqlc.narg(created_before)::timestamptz)

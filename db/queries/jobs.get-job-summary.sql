@@ -3,6 +3,6 @@
 -- name: GetJobSummary :many
 SELECT id, status, created_at, finished_at
 FROM jobs
-WHERE job_type = @job_type
-  AND created_at >= @period_start
-  AND created_at < @period_end;
+WHERE job_type = sqlc.arg(job_type)::text
+  AND (sqlc.narg(period_start)::timestamptz IS NULL OR created_at >= sqlc.narg(period_start)::timestamptz)
+  AND (sqlc.narg(period_end)::timestamptz IS NULL OR created_at < sqlc.narg(period_end)::timestamptz);

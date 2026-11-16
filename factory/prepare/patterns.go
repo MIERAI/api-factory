@@ -16,7 +16,7 @@ import (
 // list_keyset: 把式样书的基础查询包一层,追加游标条件 / ORDER BY / LIMIT
 // ---------------------------------------------------------------------------
 
-func keysetSQL(s *spec.Spec, row []goField) (string, error) {
+func keysetSQL(s *spec.Spec, base string, row []goField) (string, error) {
 	p := s.Pattern
 	op := "<"
 	if p.Direction == "asc" {
@@ -36,7 +36,6 @@ func keysetSQL(s *spec.Spec, row []goField) (string, error) {
 		args = append(args, fmt.Sprintf("sqlc.narg(cursor_%s)::%s", c, cast))
 		order = append(order, "base."+c+" "+strings.ToUpper(p.Direction))
 	}
-	base := strings.TrimRight(strings.TrimSpace(s.Datasource.Query.SQL), ";")
 	first := args[0]
 	return fmt.Sprintf("SELECT * FROM (\n%s\n) AS base\nWHERE (%s IS NULL\n       OR (%s) %s (%s))\nORDER BY %s\nLIMIT sqlc.arg(row_limit)::int",
 		indent(base), first, strings.Join(cols, ", "), op, strings.Join(args, ", "), strings.Join(order, ", ")), nil
@@ -126,19 +125,13 @@ func (g *genCtx) resExpr(src, srcType string, fd protoreflect.FieldDescriptor) (
 // requestField 按名字(或 pattern.mapping)找到查询参数对应的请求字段。
 func (g *genCtx) requestField(param string) (protoreflect.FieldDescriptor, error) {
 	in := g.method.Input()
-	if name, ok := g.spec.Pattern.Mapping[param]; ok {
-		if fd := in.Fields().ByName(protoreflect.Name(name)); fd != nil {
-			return fd, nil
-		}
-		return nil, fmt.Errorf("pattern.mapping: request field %q not found", name)
-	}
 	for i := 0; i < in.Fields().Len(); i++ {
 		fd := in.Fields().Get(i)
 		if norm(string(fd.Name())) == norm(param) {
 			return fd, nil
 		}
 	}
-	return nil, fmt.Errorf("query param %q has no matching field in %s (add pattern.mapping)", param, in.Name())
+	return nil, fmt.Errorf("query param %q has no matching field in %s (with datasource.sql, name params after request fields)", param, in.Name())
 }
 
 // paramAssignments 生成查询参数结构体的各字段赋值。skip 里的参数由模式本身处理。
@@ -213,14 +206,14 @@ func genGetByID(g *genCtx) (string, error) {
 	var call string
 	switch {
 	case g.query.ParamType == "":
-		call = fmt.Sprintf("h.q.%s(ctx)", g.spec.Datasource.Query.Name)
+		call = fmt.Sprintf("h.q.%s(ctx)", g.spec.QueryName())
 	case g.db.structs[g.query.ParamType] != nil:
 		g.use("apifactory/gen/db", "")
 		lines, err := g.paramAssignments(func(string) bool { return false })
 		if err != nil {
 			return "", err
 		}
-		call = fmt.Sprintf("h.q.%s(ctx, db.%s{\n%s\n})", g.spec.Datasource.Query.Name, g.query.ParamType, strings.Join(lines, "\n"))
+		call = fmt.Sprintf("h.q.%s(ctx, db.%s{\n%s\n})", g.spec.QueryName(), g.query.ParamType, strings.Join(lines, "\n"))
 	default:
 		fd, err := g.requestField(g.query.ParamName)
 		if err != nil {
@@ -230,7 +223,7 @@ func genGetByID(g *genCtx) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		call = fmt.Sprintf("h.q.%s(ctx, %s)", g.spec.Datasource.Query.Name, e)
+		call = fmt.Sprintf("h.q.%s(ctx, %s)", g.spec.QueryName(), e)
 	}
 
 	// NOT_FOUND 消息: {field} → %v
@@ -294,7 +287,7 @@ func (h *Handler) %s(ctx context.Context, req *connect.Request[%s]) (*connect.Re
 		%s
 	}), nil
 }
-`, g.parts.Method, oneLine(g.spec.API.Summary), g.parts.Method, g.pbType(in), g.pbType(out), call, nf, g.pbType(out), strings.Join(resLines, "\n"))
+`, g.parts.Method, g.summary(), g.parts.Method, g.pbType(in), g.pbType(out), call, nf, g.pbType(out), strings.Join(resLines, "\n"))
 	return g.header(body), nil
 }
 
@@ -328,7 +321,7 @@ func genListKeyset(g *genCtx) (string, error) {
 		return "", fmt.Errorf("pattern list_keyset: %s has no repeated message field", out.Name())
 	}
 	if g.db.structs[g.query.ParamType] == nil {
-		return "", fmt.Errorf("pattern list_keyset: query %s must take a params struct", g.spec.Datasource.Query.Name)
+		return "", fmt.Errorf("pattern list_keyset: query %s must take a params struct", g.spec.QueryName())
 	}
 	row, rowType := g.db.rowFields(g.query)
 	if row == nil {
@@ -421,11 +414,11 @@ func (h *Handler) %s(ctx context.Context, req *connect.Request[%s]) (*connect.Re
 	return connect.NewResponse(res), nil
 }
 `, cursorType, cursorType, strings.Join(cursorFields, "\n"),
-		g.parts.Method, oneLine(g.spec.API.Summary), g.parts.Method, g.pbType(in), g.pbType(out),
+		g.parts.Method, g.summary(), g.parts.Method, g.pbType(in), g.pbType(out),
 		p.PageSize.Default, p.PageSize.Max,
 		g.query.ParamType, strings.Join(assigns, "\n"),
 		cursorType, strings.Join(cursorSet, "\n"),
-		g.spec.Datasource.Query.Name,
+		g.spec.QueryName(),
 		g.pbType(out), itemsGo, g.pbType(elem),
 		itemsGo, itemsGo, g.pbType(elem), strings.Join(elemLines, "\n"),
 		cursorType, strings.Join(cursorBuild, "\n"))
@@ -438,14 +431,14 @@ func genCompute(g *genCtx) (string, error) {
 	var call string
 	switch {
 	case g.query.ParamType == "":
-		call = fmt.Sprintf("h.q.%s(ctx)", g.spec.Datasource.Query.Name)
+		call = fmt.Sprintf("h.q.%s(ctx)", g.spec.QueryName())
 	case g.db.structs[g.query.ParamType] != nil:
 		g.use("apifactory/gen/db", "")
 		lines, err := g.paramAssignments(func(string) bool { return false })
 		if err != nil {
 			return "", err
 		}
-		call = fmt.Sprintf("h.q.%s(ctx, db.%s{\n%s\n})", g.spec.Datasource.Query.Name, g.query.ParamType, strings.Join(lines, "\n"))
+		call = fmt.Sprintf("h.q.%s(ctx, db.%s{\n%s\n})", g.spec.QueryName(), g.query.ParamType, strings.Join(lines, "\n"))
 	default:
 		fd, err := g.requestField(g.query.ParamName)
 		if err != nil {
@@ -455,7 +448,7 @@ func genCompute(g *genCtx) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		call = fmt.Sprintf("h.q.%s(ctx, %s)", g.spec.Datasource.Query.Name, e)
+		call = fmt.Sprintf("h.q.%s(ctx, %s)", g.spec.QueryName(), e)
 	}
 	body := fmt.Sprintf(`// %s %s
 // 业务逻辑在 %s(纯函数,由 AI 实现)。
@@ -471,7 +464,7 @@ func (h *Handler) %s(ctx context.Context, req *connect.Request[%s]) (*connect.Re
 	}
 	return connect.NewResponse(res), nil
 }
-`, g.parts.Method, oneLine(g.spec.API.Summary), logicFuncName(g.parts.Method), g.parts.Method, g.pbType(in), g.pbType(out), call, logicFuncName(g.parts.Method))
+`, g.parts.Method, g.summary(), logicFuncName(g.parts.Method), g.parts.Method, g.pbType(in), g.pbType(out), call, logicFuncName(g.parts.Method))
 	return g.header(body), nil
 }
 
@@ -516,6 +509,17 @@ func genLogicStub(g *genCtx) string {
 	// 桩不是生成物(AI 会改写),去掉 DO NOT EDIT 标记
 	src = strings.Replace(src, "// Code generated by factory from "+g.spec.Path+". DO NOT EDIT.\n// pattern: compute\n", "// Logic for "+g.spec.Path+" — implemented by AI.\n", 1)
 	return src
+}
+
+// summary: proto 里 rpc 的注释第一行(式样书不再重复写 summary)。
+func (g *genCtx) summary() string {
+	loc := g.method.ParentFile().SourceLocations().ByDescriptor(g.method)
+	for _, line := range strings.Split(loc.LeadingComments, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			return line
+		}
+	}
+	return ""
 }
 
 func lowerFirst(s string) string {

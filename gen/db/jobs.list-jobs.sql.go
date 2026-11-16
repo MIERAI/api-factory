@@ -15,7 +15,7 @@ const listJobs = `-- name: ListJobs :many
 SELECT id, job_type, status, created_at FROM (
   SELECT id, job_type, status, created_at
   FROM jobs
-  WHERE ($1::int IS NULL OR status = $1::int)
+  WHERE ($1::int4 IS NULL OR status = $1::int4)
     AND ($2::text IS NULL OR job_type = $2::text)
     AND ($3::timestamptz IS NULL OR created_at >= $3::timestamptz)
     AND ($4::timestamptz IS NULL OR created_at < $4::timestamptz)

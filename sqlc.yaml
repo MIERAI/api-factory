@@ -4,6 +4,10 @@ sql:
     schema: db/schema.sql
     queries: db/queries
     gen:
+      # schema 目录(表/列/类型),factory 用它从声明生成 SQL
+      json:
+        out: .factory/sqlc
+        filename: codegen.json
       go:
         package: db
         out: gen/db

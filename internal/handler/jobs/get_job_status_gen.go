@@ -12,7 +12,7 @@ import (
 	"apifactory/platform/apierr"
 )
 
-// GetJobStatus 按 id 返回一个异步任务的处理状态
+// GetJobStatus 按 id 返回一个任务的 status
 func (h *Handler) GetJobStatus(ctx context.Context, req *connect.Request[jobsv1.GetJobStatusRequest]) (*connect.Response[jobsv1.GetJobStatusResponse], error) {
 	m := req.Msg
 	row, err := h.q.GetJobStatus(ctx, m.GetJobId())

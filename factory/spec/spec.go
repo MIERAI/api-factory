@@ -1,4 +1,15 @@
 // Package spec 定义式样书格式并做机械校验(式样书闸门)。
+//
+// v0.2 的原则: 式样书里的每一行都应该是"只有人才能做的决定"。
+// 能从 proto / schema / 模式 / 目录结构推导出来的东西不写:
+//   - API id        ← 目录(specs/<domain>/<name>/spec.yaml → <domain>.<name>)
+//   - proto 文件    ← rpc 名(buf 描述符)
+//   - summary       ← proto 里 rpc 的注释
+//   - 查询名        ← rpc 的方法名
+//   - cardinality   ← pattern(get_by_id → one,其他 → many)
+//   - SQL           ← datasource.table + filters + 响应字段(声明不了时才用 datasource.sql)
+//   - AI 可编辑文件 ← pattern + 方法名
+//   - 平台/模式已经保证的行为(NOT_FOUND / INVALID_ARGUMENT / UNAVAILABLE) ← 不写进 behavior
 package spec
 
 import (
@@ -11,18 +22,26 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const Version = "0.2"
+
 type Spec struct {
-	Path          string        `yaml:"-"`
-	SpecVersion   string        `yaml:"spec_version"`
-	API           API           `yaml:"api"`
-	Pattern       Pattern       `yaml:"pattern"`
-	Datasource    Datasource    `yaml:"datasource"`
-	Behavior      []Behavior    `yaml:"behavior"`
-	NonFunctional NonFunctional `yaml:"non_functional"`
-	Acceptance    Acceptance    `yaml:"acceptance"`
-	Generation    Generation    `yaml:"generation"`
+	Path        string     `yaml:"-"`
+	SpecVersion string     `yaml:"spec_version"`
+	API         API        `yaml:"api"`
+	Pattern     Pattern    `yaml:"pattern"`
+	Datasource  Datasource `yaml:"datasource"`
+	// Behavior: 只写业务规则。compute / custom 必填,模式 API 一般不需要
+	Behavior   []Behavior `yaml:"behavior"`
+	Acceptance Acceptance `yaml:"acceptance"`
 	// ReviewDecisions: 式样书审查提出的问题和人的决定(包括"不处理")。以后的审查不再提出
 	ReviewDecisions []ReviewDecision `yaml:"review_decisions"`
+}
+
+type API struct {
+	RPC         string `yaml:"rpc"`
+	Owner       string `yaml:"owner"`
+	RiskLevel   string `yaml:"risk_level"`
+	Description string `yaml:"description"` // 可选: proto 注释之外的背景说明
 }
 
 type ReviewDecision struct {
@@ -30,29 +49,17 @@ type ReviewDecision struct {
 	Decision string `yaml:"decision"`
 }
 
-type API struct {
-	ID          string `yaml:"id"`
-	Summary     string `yaml:"summary"`
-	Description string `yaml:"description"`
-	RPC         string `yaml:"rpc"`
-	Proto       string `yaml:"proto"`
-	Owner       string `yaml:"owner"`
-	RiskLevel   string `yaml:"risk_level"`
-}
-
 // Pattern 决定 handler 由谁写:
-//   - custom      : AI 写(generation.ai_may_edit 必填)
-//   - get_by_id   : 工厂生成。按参数查 1 行,查不到 → NOT_FOUND
-//   - list_keyset : 工厂生成。筛选 + keyset 分页(游标/ORDER BY/LIMIT 由工厂追加到查询)
+//   - get_by_id   : 工厂生成。按请求字段查 1 行,查不到 → NOT_FOUND
+//   - list_keyset : 工厂生成。筛选 + keyset 分页
 //   - compute     : 工厂生成 handler(映射 + 查询),AI 只写纯函数 <method>Logic(req, rows)
+//   - custom      : AI 写整个 handler(逃生口)
 type Pattern struct {
 	Kind            string   `yaml:"kind"`
 	NotFoundMessage string   `yaml:"not_found_message"` // get_by_id: "job not found: {job_id}"
-	OrderBy         []string `yaml:"order_by"`          // list_keyset: 游标列,必须能唯一确定顺序
+	OrderBy         []string `yaml:"order_by"`          // list_keyset: 游标列,最后一列必须唯一
 	Direction       string   `yaml:"direction"`         // list_keyset: desc / asc
 	PageSize        PageSize `yaml:"page_size"`
-	// Mapping: 查询参数名 → 请求字段名。只在名字对不上时写(默认按名字自动对应)
-	Mapping map[string]string `yaml:"mapping"`
 }
 
 type PageSize struct {
@@ -60,44 +67,29 @@ type PageSize struct {
 	Max     int32 `yaml:"max"`
 }
 
-// AIWrites: 这个 API 是否有 AI 负责的部分。
-func (s *Spec) AIWrites() bool {
-	k := s.PatternKind()
-	return k == "custom" || k == "compute"
-}
-
-func (s *Spec) PatternKind() string {
-	if s.Pattern.Kind == "" {
-		return "custom"
-	}
-	return s.Pattern.Kind
-}
-
+// Datasource: 声明式(table + filters)或逃生口(sql),二选一。只支持读取。
 type Datasource struct {
-	Access string  `yaml:"access"`
-	Tables []Table `yaml:"tables"`
-	Query  Query   `yaml:"query"`
-}
-
-type Table struct {
-	Name    string   `yaml:"name"`
+	Table string `yaml:"table"`
+	// Filters: 请求字段 → 列 + 运算符。符合命名约定的可以省略:
+	//   字段名 = 列名 → eq;  <x>_after → <x>_at gte;  <x>_before → <x>_at lt;  <单数表名>_id → id eq
+	// 有 presence 的字段(optional / Timestamp)未指定时不筛选;其他字段总是参与筛选
+	Filters map[string]Filter `yaml:"filters"`
+	// Columns: SELECT 的列。默认从响应字段推导;compute 的输入是逻辑函数用的列,需要显式写
 	Columns []string `yaml:"columns"`
+	// SQL: 逃生口(JOIN / 聚合 / 复杂条件)。写了 sql 就不写 table/filters/columns
+	SQL string `yaml:"sql"`
 }
 
-type Query struct {
-	Name        string `yaml:"name"`
-	Cardinality string `yaml:"cardinality"`
-	SQL         string `yaml:"sql"`
+type Filter struct {
+	Column string `yaml:"column"`
+	Op     string `yaml:"op"` // eq / gt / gte / lt / lte
 }
+
+var FilterOps = map[string]string{"eq": "=", "gt": ">", "gte": ">=", "lt": "<", "lte": "<="}
 
 type Behavior struct {
 	When string `yaml:"when"`
 	Then string `yaml:"then"`
-}
-
-type NonFunctional struct {
-	LatencyP99Ms int `yaml:"latency_p99_ms"`
-	TimeoutMs    int `yaml:"timeout_ms"`
 }
 
 type Acceptance struct {
@@ -131,8 +123,58 @@ type Expect struct {
 	Response map[string]any `yaml:"response"`
 }
 
-type Generation struct {
-	AIMayEdit []string `yaml:"ai_may_edit"`
+// ---------------------------------------------------------------------------
+// 推导出来的属性
+// ---------------------------------------------------------------------------
+
+// ID: specs/<domain>/<name>/spec.yaml → <domain>.<name>
+func (s *Spec) ID() string {
+	dir := filepath.Dir(s.Path)
+	return filepath.Base(filepath.Dir(dir)) + "." + filepath.Base(dir)
+}
+
+func (s *Spec) PatternKind() string {
+	if s.Pattern.Kind == "" {
+		return "custom"
+	}
+	return s.Pattern.Kind
+}
+
+// AIWrites: 这个 API 是否有 AI 负责的部分。
+func (s *Spec) AIWrites() bool {
+	k := s.PatternKind()
+	return k == "custom" || k == "compute"
+}
+
+// QueryName: 查询函数名 = rpc 方法名。
+func (s *Spec) QueryName() string {
+	p, _ := s.RPCParts()
+	return p.Method
+}
+
+// Cardinality: 由模式决定。
+func (s *Spec) Cardinality() string {
+	if s.PatternKind() == "get_by_id" {
+		return "one"
+	}
+	return "many"
+}
+
+// AIMayEdit: AI 可以创建/修改的文件。compute 的第一个是逻辑文件。
+func (s *Spec) AIMayEdit() []string {
+	p, err := s.RPCParts()
+	if err != nil {
+		return nil
+	}
+	dir := "internal/handler/" + p.Domain() + "/"
+	base := Snake(p.Method)
+	switch s.PatternKind() {
+	case "compute":
+		return []string{dir + base + "_logic.go", dir + base + "_logic_test.go"}
+	case "custom":
+		return []string{dir + base + ".go", dir + base + "_test.go"}
+	}
+	return nil
 }
 
 // RPCParts 是 rpc 字段拆解后的结果。
@@ -161,6 +203,25 @@ func (p RPCParts) Domain() string {
 	return segs[len(segs)-1]
 }
 
+// Snake: GetJobStatus → get_job_status
+func Snake(s string) string {
+	var b strings.Builder
+	for i, r := range s {
+		if r >= 'A' && r <= 'Z' {
+			if i > 0 {
+				b.WriteByte('_')
+			}
+			r += 'a' - 'A'
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// ---------------------------------------------------------------------------
+// 读取
+// ---------------------------------------------------------------------------
+
 func Load(path string) (*Spec, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -168,7 +229,7 @@ func Load(path string) (*Spec, error) {
 	}
 	var s Spec
 	dec := yaml.NewDecoder(strings.NewReader(string(b)))
-	dec.KnownFields(true) // 拼错的字段直接报错
+	dec.KnownFields(true) // 拼错或已废弃的字段直接报错
 	if err := dec.Decode(&s); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
@@ -195,30 +256,24 @@ func LoadAll(dir string) ([]*Spec, error) {
 	return specs, err
 }
 
+// ---------------------------------------------------------------------------
+// 式样书闸门(只做不需要 proto / schema 的机械检查;那部分在 prepare 里检查)
+// ---------------------------------------------------------------------------
+
 var writeSQL = regexp.MustCompile(`(?i)\b(insert|update|delete|merge|truncate|drop|alter|create|grant|revoke)\b`)
 
-// Check 是式样书闸门: 只做机械可判定的检查。
 func (s *Spec) Check() []string {
 	var errs []string
 	add := func(format string, args ...any) { errs = append(errs, fmt.Sprintf(format, args...)) }
 
-	if s.SpecVersion != "0.1" {
-		add("spec_version: unsupported %q (want \"0.1\")", s.SpecVersion)
+	if s.SpecVersion != Version {
+		add("spec_version: unsupported %q (want %q)", s.SpecVersion, Version)
 	}
-	if s.API.ID == "" || s.API.Summary == "" || s.API.Owner == "" {
-		add("api.id / api.summary / api.owner are required")
+	if s.API.Owner == "" {
+		add("api.owner is required")
 	}
-	parts, err := s.RPCParts()
-	if err != nil {
+	if _, err := s.RPCParts(); err != nil {
 		add("%v", err)
-	}
-	if _, err := os.Stat(s.API.Proto); err != nil {
-		add("api.proto: %v", err)
-	} else if err == nil && parts.Method != "" {
-		b, _ := os.ReadFile(s.API.Proto)
-		if !regexp.MustCompile(`rpc\s+` + parts.Method + `\s*\(`).Match(b) {
-			add("api.proto: rpc %s not found in %s", parts.Method, s.API.Proto)
-		}
 	}
 	switch s.API.RiskLevel {
 	case "low", "medium", "high":
@@ -226,30 +281,28 @@ func (s *Spec) Check() []string {
 		add("api.risk_level must be low/medium/high")
 	}
 
-	q := s.Datasource.Query
-	if q.Name == "" || q.SQL == "" {
-		add("datasource.query.name / sql are required")
+	// datasource: 声明式 / 逃生口 二选一
+	ds := s.Datasource
+	declarative := ds.Table != "" || len(ds.Filters) > 0 || len(ds.Columns) > 0
+	switch {
+	case ds.SQL != "" && declarative:
+		add("datasource: use either table/filters/columns or sql, not both")
+	case ds.SQL == "" && ds.Table == "":
+		add("datasource: table (declarative) or sql (escape hatch) is required")
 	}
-	switch q.Cardinality {
-	case "one", "many", "exec":
-	default:
-		add("datasource.query.cardinality must be one/many/exec")
+	if ds.SQL != "" && writeSQL.MatchString(ds.SQL) {
+		add("datasource.sql: only read queries are supported")
 	}
-	if s.Datasource.Access == "read_only" {
-		if writeSQL.MatchString(q.SQL) {
-			add("datasource.query.sql: write statement in a read_only datasource")
+	for field, f := range ds.Filters {
+		if f.Column == "" {
+			add("datasource.filters.%s: column is required", field)
 		}
-		if q.Cardinality == "exec" {
-			add("datasource.query.cardinality: exec is not allowed for read_only")
+		if _, ok := FilterOps[f.Op]; !ok {
+			add("datasource.filters.%s: op must be eq/gt/gte/lt/lte (got %q)", field, f.Op)
 		}
 	}
-	if len(s.Datasource.Tables) == 0 {
-		add("datasource.tables: at least one table must be declared")
-	}
-	for _, t := range s.Datasource.Tables {
-		if !regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(t.Name) + `\b`).MatchString(q.SQL) {
-			add("datasource.tables: %s is declared but not used in sql", t.Name)
-		}
+	if s.PatternKind() == "compute" && ds.SQL == "" && len(ds.Columns) == 0 {
+		add("datasource.columns: required for pattern compute (the logic function's input cannot be derived from the response)")
 	}
 
 	for i, d := range s.ReviewDecisions {
@@ -257,8 +310,8 @@ func (s *Spec) Check() []string {
 			add("review_decisions[%d]: question and decision are required", i)
 		}
 	}
-	if len(s.Behavior) == 0 {
-		add("behavior: at least one entry is required")
+	if s.AIWrites() && len(s.Behavior) == 0 {
+		add("behavior: required for pattern %s (it is the spec of what AI implements)", s.PatternKind())
 	}
 	if len(s.Acceptance.Cases) == 0 {
 		add("acceptance.cases: at least one case is required")
@@ -276,28 +329,21 @@ func (s *Spec) Check() []string {
 			}
 		}
 	}
-	for table := range s.Acceptance.Fixtures {
-		if !s.declares(table) {
-			add("acceptance.fixtures: table %s is not declared in datasource.tables", table)
+	if ds.Table != "" {
+		for table := range s.Acceptance.Fixtures {
+			if table != ds.Table {
+				add("acceptance.fixtures: table %s is not datasource.table (%s)", table, ds.Table)
+			}
 		}
 	}
 
 	switch s.PatternKind() {
 	case "custom", "compute":
-		if len(s.Generation.AIMayEdit) == 0 {
-			add("generation.ai_may_edit: required for pattern %s", s.PatternKind())
-		}
 	case "get_by_id":
-		if q.Cardinality != "one" {
-			add("pattern get_by_id: datasource.query.cardinality must be one")
-		}
 		if s.Pattern.NotFoundMessage == "" {
 			add("pattern get_by_id: not_found_message is required")
 		}
 	case "list_keyset":
-		if q.Cardinality != "many" {
-			add("pattern list_keyset: datasource.query.cardinality must be many")
-		}
 		if len(s.Pattern.OrderBy) == 0 {
 			add("pattern list_keyset: order_by is required (last column must be unique, e.g. id)")
 		}
@@ -307,34 +353,11 @@ func (s *Spec) Check() []string {
 		if ps := s.Pattern.PageSize; ps.Default <= 0 || ps.Max < ps.Default {
 			add("pattern list_keyset: page_size.default > 0 and max >= default are required")
 		}
-		if regexp.MustCompile(`(?i)\b(order\s+by|limit|offset)\b`).MatchString(q.SQL) {
+		if regexp.MustCompile(`(?i)\b(order\s+by|limit|offset)\b`).MatchString(ds.SQL) {
 			add("pattern list_keyset: sql must not contain ORDER BY / LIMIT / OFFSET (the factory adds them)")
 		}
 	default:
 		add("pattern.kind must be custom / compute / get_by_id / list_keyset")
 	}
-	if s.AIWrites() && len(s.Generation.AIMayEdit) > 0 && s.PatternKind() == "compute" {
-		want := "_logic.go"
-		if !strings.HasSuffix(s.Generation.AIMayEdit[0], want) {
-			add("generation.ai_may_edit[0]: pattern compute expects the logic file (*%s) first", want)
-		}
-	}
-	if !s.AIWrites() && len(s.Generation.AIMayEdit) > 0 {
-		add("generation.ai_may_edit: must be empty when the factory generates the handler (pattern %s)", s.PatternKind())
-	}
-	for _, p := range s.Generation.AIMayEdit {
-		if !strings.HasPrefix(p, "internal/handler/") {
-			add("generation.ai_may_edit: %s is outside internal/handler/", p)
-		}
-	}
 	return errs
-}
-
-func (s *Spec) declares(table string) bool {
-	for _, t := range s.Datasource.Tables {
-		if t.Name == table {
-			return true
-		}
-	}
-	return false
 }

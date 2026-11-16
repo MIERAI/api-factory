@@ -37,9 +37,9 @@ func Check(specs []*spec.Spec) ([]string, []string, error) {
 	var allowed []string
 	logicFiles := map[string]bool{}
 	for _, s := range specs {
-		allowed = append(allowed, s.Generation.AIMayEdit...)
-		if s.PatternKind() == "compute" && len(s.Generation.AIMayEdit) > 0 {
-			logicFiles[s.Generation.AIMayEdit[0]] = true
+		allowed = append(allowed, s.AIMayEdit()...)
+		if s.PatternKind() == "compute" {
+			logicFiles[s.AIMayEdit()[0]] = true
 		}
 	}
 

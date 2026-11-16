@@ -1,46 +1,25 @@
 # =============================================================================
 # API 式样书: GetJobSummary
 # =============================================================================
-spec_version: "0.1"
+spec_version: "0.2"
 
 api:
-  id: jobs.get-job-summary
-  summary: 按 job_type 和期间汇总任务的处理情况
-  description: |
-    运维看板用。返回件数、成功率、平均处理时间、SLA 违约件数和健康度。
   rpc: factory.jobs.v1.JobService/GetJobSummary
-  proto: proto/factory/jobs/v1/jobs.proto
   owner: platform-team
   risk_level: low
+  description: 运维看板用。返回件数、成功率、平均处理时间、SLA 违约件数和健康度。
 
-# -----------------------------------------------------------------------------
-# 模式: compute
-#   工厂生成 handler(请求映射 → 查询 → 调用逻辑函数 → 返回)
-#   AI 只写一个纯函数:
-#     func getJobSummaryLogic(req *jobsv1.GetJobSummaryRequest, rows []db.GetJobSummaryRow) (*jobsv1.GetJobSummaryResponse, error)
-#   纯函数 = 不访问 DB/网络/文件,不用 context,不调用 time.Now,不用全局变量
-# -----------------------------------------------------------------------------
+# 工厂生成 handler(请求映射 → 查询 → 调用逻辑函数);AI 只写纯函数 getJobSummaryLogic(req, rows)
 pattern:
   kind: compute
 
 datasource:
-  access: read_only
-  tables:
-    - name: jobs
-      columns: [id, job_type, status, created_at, finished_at]
-  query:
-    name: GetJobSummary
-    cardinality: many
-    sql: |
-      SELECT id, status, created_at, finished_at
-      FROM jobs
-      WHERE job_type = @job_type
-        AND created_at >= @period_start
-        AND created_at < @period_end
+  table: jobs
+  columns: [id, status, created_at, finished_at]   # 逻辑函数的输入
+  filters:                                          # job_type 符合命名约定(同名列 eq),期间需要显式写
+    period_start: { column: created_at, op: gte }
+    period_end:   { column: created_at, op: lt }
 
-# -----------------------------------------------------------------------------
-# 行为: 这一节就是逻辑函数的规格
-# -----------------------------------------------------------------------------
 behavior:
   - when: 对象行
     then: 只统计 status 为 0/1/2 的行。status 为其他值的行从所有统计中排除(total 也不计)
@@ -72,10 +51,6 @@ behavior:
       没有有效处理时间(avg 不设置)本身不影响 health
   - when: 参数不合法(job_type 为空、期间颠倒、超过 31 天、未指定期间)
     then: INVALID_ARGUMENT(protovalidate 自动处理,逻辑函数不用写)
-
-non_functional:
-  latency_p99_ms: 300
-  timeout_ms: 3000
 
 # -----------------------------------------------------------------------------
 # 验收条件
@@ -254,11 +229,6 @@ acceptance:
     - name: job_type 为空
       request: { job_type: "", period_start: "2026-11-01T00:00:00Z", period_end: "2026-11-08T00:00:00Z" }
       expect: { code: INVALID_ARGUMENT }
-
-generation:
-  ai_may_edit:
-    - internal/handler/jobs/get_job_summary_logic.go
-    - internal/handler/jobs/get_job_summary_logic_test.go
 
 # -----------------------------------------------------------------------------
 # 审查记录: 式样书审查提出的问题和人的决定。以后的审查不再提出这些问题

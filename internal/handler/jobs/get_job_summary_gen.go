@@ -10,16 +10,17 @@ import (
 
 	"apifactory/gen/db"
 	jobsv1 "apifactory/gen/factory/jobs/v1"
+	"apifactory/platform/conv"
 )
 
-// GetJobSummary 按 job_type 和期间汇总任务的处理情况
+// GetJobSummary 按 job_type 和期间汇总任务的处理情况(成功率 / 平均处理时间 / SLA 违约 / 健康度)
 // 业务逻辑在 getJobSummaryLogic(纯函数,由 AI 实现)。
 func (h *Handler) GetJobSummary(ctx context.Context, req *connect.Request[jobsv1.GetJobSummaryRequest]) (*connect.Response[jobsv1.GetJobSummaryResponse], error) {
 	m := req.Msg
 	rows, err := h.q.GetJobSummary(ctx, db.GetJobSummaryParams{
 		JobType:     m.GetJobType(),
-		PeriodStart: m.GetPeriodStart().AsTime(),
-		PeriodEnd:   m.GetPeriodEnd().AsTime(),
+		PeriodStart: conv.TimePtr(m.PeriodStart),
+		PeriodEnd:   conv.TimePtr(m.PeriodEnd),
 	})
 	if err != nil {
 		return nil, err

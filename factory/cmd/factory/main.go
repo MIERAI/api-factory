@@ -21,6 +21,7 @@ import (
 	"apifactory/factory/guard"
 	"apifactory/factory/prepare"
 	"apifactory/factory/prompts"
+	"apifactory/factory/protoload"
 	"apifactory/factory/spec"
 )
 
@@ -83,11 +84,41 @@ func loadChecked(dir string) ([]*spec.Spec, error) {
 			}
 		}
 	}
+	if !failed {
+		files, err := protoload.Load()
+		if err != nil {
+			return nil, err
+		}
+		for _, s := range specs {
+			p, _ := s.RPCParts()
+			if _, err := protoload.FindMethod(files, p.ProtoPackage, p.Service, p.Method); err != nil {
+				failed = true
+				fmt.Fprintf(os.Stderr, "  %s: api.rpc: %v\n", s.Path, err)
+			}
+		}
+	}
 	if failed {
 		return nil, fmt.Errorf("spec check failed")
 	}
 	return specs, nil
 }
+
+// protoFileOf 返回 rpc 所在的 proto 文件(相对 buf 模块根,如 factory/jobs/v1/jobs.proto)。
+func protoFileOf(s *spec.Spec) (string, error) {
+	files, err := protoload.Load()
+	if err != nil {
+		return "", err
+	}
+	p, _ := s.RPCParts()
+	md, err := protoload.FindMethod(files, p.ProtoPackage, p.Service, p.Method)
+	if err != nil {
+		return "", err
+	}
+	return md.ParentFile().Path(), nil
+}
+
+// protoModuleRoot: buf.yaml 的 modules[0].path(本仓库是 proto)。
+const protoModuleRoot = "proto"
 
 func cmdCheck(args []string) error {
 	specs, err := loadChecked(specsDir(args))
@@ -95,7 +126,7 @@ func cmdCheck(args []string) error {
 		return err
 	}
 	for _, s := range specs {
-		fmt.Printf("✓ %s (%s)\n", s.API.ID, s.Path)
+		fmt.Printf("✓ %s (%s)\n", s.ID(), s.Path)
 	}
 	return nil
 }
@@ -133,15 +164,20 @@ func cmdPrompt(args []string) error {
 	}
 	segs := strings.Split(parts.ProtoPackage, ".")
 	handlerDir := filepath.Join("internal/handler", parts.Domain())
-	protoBase := strings.TrimSuffix(filepath.Base(s.API.Proto), ".proto")
+	protoFile, err := protoFileOf(s)
+	if err != nil {
+		return err
+	}
+	protoBase := strings.TrimSuffix(filepath.Base(protoFile), ".proto")
+	aiFiles := s.AIMayEdit()
 	data := map[string]any{
 		"RPC":            s.API.RPC,
-		"AIMayEdit":      s.Generation.AIMayEdit,
+		"AIMayEdit":      aiFiles,
 		"HandlerDir":     handlerDir,
-		"HandlerFile":    s.Generation.AIMayEdit[0],
-		"LogicFile":      s.Generation.AIMayEdit[0],
-		"HandlerGenFile": filepath.Join(handlerDir, snake(parts.Method)+"_gen.go"),
-		"QueryFile":      filepath.Join("gen/db", s.API.ID+".sql.go"),
+		"HandlerFile":    aiFiles[0],
+		"LogicFile":      aiFiles[0],
+		"HandlerGenFile": filepath.Join(handlerDir, spec.Snake(parts.Method)+"_gen.go"),
+		"QueryFile":      filepath.Join("gen/db", s.ID()+".sql.go"),
 		"PBFile":         filepath.Join("gen", filepath.Join(segs...), protoBase+".pb.go"),
 		"ConnectFile":    filepath.Join("gen", filepath.Join(segs...), parts.Domain()+segs[len(segs)-1]+"connect", protoBase+".connect.go"),
 		"SpecPath":       args[0],
@@ -150,13 +186,13 @@ func cmdPrompt(args []string) error {
 	tmpl := prompts.Implement
 	if s.PatternKind() == "compute" {
 		// 签名以 prepare 生成的桩为准,不在两处各写一份
-		stub, err := os.ReadFile(s.Generation.AIMayEdit[0])
+		stub, err := os.ReadFile(aiFiles[0])
 		if err != nil {
 			return fmt.Errorf("logic stub not found (run factory prepare first): %w", err)
 		}
 		sig := regexp.MustCompile(`(?m)^func \w+Logic\(.*\) \(.*\)`).Find(stub)
 		if sig == nil {
-			return fmt.Errorf("cannot find the logic function signature in %s", s.Generation.AIMayEdit[0])
+			return fmt.Errorf("cannot find the logic function signature in %s", aiFiles[0])
 		}
 		data["Signature"] = string(sig)
 		tmpl = prompts.Compute
@@ -164,19 +200,6 @@ func cmdPrompt(args []string) error {
 	return template.Must(template.New("").Parse(tmpl)).Execute(os.Stdout, data)
 }
 
-func snake(s string) string {
-	var b strings.Builder
-	for i, r := range s {
-		if r >= 'A' && r <= 'Z' {
-			if i > 0 {
-				b.WriteByte('_')
-			}
-			r += 'a' - 'A'
-		}
-		b.WriteRune(r)
-	}
-	return b.String()
-}
 
 func cmdGuard(args []string) error {
 	specs, err := loadChecked(specsDir(args))
@@ -241,8 +264,8 @@ func cmdAIPaths(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println(s.API.ID)
-	for _, p := range s.Generation.AIMayEdit {
+	fmt.Println(s.ID())
+	for _, p := range s.AIMayEdit() {
 		fmt.Println(p)
 	}
 	return nil
@@ -261,7 +284,12 @@ func cmdReviewPrompt(args []string) error {
 	if err != nil {
 		return err
 	}
-	protoSrc, err := os.ReadFile(s.API.Proto)
+	protoFile, err := protoFileOf(s)
+	if err != nil {
+		return err
+	}
+	protoPath := filepath.Join(protoModuleRoot, protoFile)
+	protoSrc, err := os.ReadFile(protoPath)
 	if err != nil {
 		return err
 	}
@@ -269,12 +297,19 @@ func cmdReviewPrompt(args []string) error {
 	if err != nil {
 		return err
 	}
+	queryPath := filepath.Join("db/queries", s.ID()+".sql")
+	query, err := os.ReadFile(queryPath)
+	if err != nil {
+		return fmt.Errorf("generated query not found (run factory prepare first): %w", err)
+	}
 	data := map[string]any{
 		"SpecPath":  args[0],
 		"SpecYAML":  strings.TrimSpace(string(raw)),
-		"ProtoPath": s.API.Proto,
+		"ProtoPath": protoPath,
 		"Proto":     strings.TrimSpace(string(protoSrc)),
 		"Schema":    strings.TrimSpace(string(schema)),
+		"QueryPath": queryPath,
+		"Query":     strings.TrimSpace(string(query)),
 	}
 	return template.Must(template.New("").Parse(prompts.Review)).Execute(os.Stdout, data)
 }

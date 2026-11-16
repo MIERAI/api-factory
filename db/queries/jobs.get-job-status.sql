@@ -3,4 +3,4 @@
 -- name: GetJobStatus :one
 SELECT status
 FROM jobs
-WHERE id = @job_id;
+WHERE id = sqlc.arg(job_id)::int8;
