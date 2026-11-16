@@ -109,6 +109,10 @@ func compileSQL(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalog) (s
 	}
 	var conds []string
 	for _, f := range filters {
+		if f.Op == "prefix" {
+			conds = append(conds, prefixCond(f))
+			continue
+		}
 		if f.Presence {
 			// optional / Timestamp: 未指定(NULL)时不筛选
 			conds = append(conds, fmt.Sprintf("(sqlc.narg(%s)::%s IS NULL OR %s %s sqlc.narg(%s)::%s)",
@@ -123,6 +127,20 @@ func compileSQL(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalog) (s
 		sql += "\nWHERE " + strings.Join(conds, "\n  AND ")
 	}
 	return sql, nil
+}
+
+// prefixCond: 前缀匹配。参数里的 \ % _ 先转义,按字面匹配(手写 LIKE x || '%' 会把用户输入当通配符: 第一波 R4)。
+// 平台每次用实际参数做执行计划,所以有 text_pattern_ops 索引时可以用上索引(starts_with 用不上)。
+func prefixCond(f resolvedFilter) string {
+	arg := fmt.Sprintf("sqlc.arg(%s)::text", f.Name)
+	if f.Presence {
+		arg = fmt.Sprintf("sqlc.narg(%s)::text", f.Name)
+	}
+	like := fmt.Sprintf(`%s LIKE replace(replace(replace(%s, '\', '\\'), '%%', '\%%'), '_', '\_') || '%%'`, f.Column.Name, arg)
+	if f.Presence {
+		return fmt.Sprintf("(%s IS NULL OR %s)", arg, like)
+	}
+	return like
 }
 
 // resolvedFilter: 一个请求字段对应的筛选条件(SQL 生成和验收用例生成共用)。
@@ -231,6 +249,11 @@ func conventionFilter(field, table string, cat *catalog) (spec.Filter, bool) {
 			if _, ok := cat.column(table, base+"_at"); ok {
 				return spec.Filter{Column: base + "_at", Op: op}, true
 			}
+		}
+	}
+	if base, ok := strings.CutSuffix(field, "_prefix"); ok {
+		if c, ok := cat.column(table, base); ok && kindOf(c.Type) == "text" {
+			return spec.Filter{Column: base, Op: "prefix"}, true
 		}
 	}
 	if field == singular(table)+"_id" {

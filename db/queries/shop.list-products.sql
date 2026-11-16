@@ -6,7 +6,7 @@ SELECT * FROM (
   FROM products
   WHERE (sqlc.narg(category)::text IS NULL OR category = sqlc.narg(category)::text)
     AND (sqlc.narg(status)::int4 IS NULL OR status = sqlc.narg(status)::int4)
-    AND (sqlc.narg(name_prefix)::text IS NULL OR starts_with(name, sqlc.narg(name_prefix)::text))
+    AND (sqlc.narg(name_prefix)::text IS NULL OR name LIKE replace(replace(replace(sqlc.narg(name_prefix)::text, '\', '\\'), '%', '\%'), '_', '\_') || '%')
 ) AS base
 WHERE (sqlc.narg(cursor_created_at)::timestamptz IS NULL
        OR (base.created_at, base.id) < (sqlc.narg(cursor_created_at)::timestamptz, sqlc.narg(cursor_id)::bigint))

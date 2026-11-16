@@ -75,7 +75,8 @@ type PageSize struct {
 type Datasource struct {
 	Table string `yaml:"table"`
 	// Filters: 请求字段 → 列 + 运算符。符合命名约定的可以省略:
-	//   字段名 = 列名 → eq;  <x>_after → <x>_at gte;  <x>_before → <x>_at lt;  <单数表名>_id → id eq
+	//   字段名 = 列名 → eq;  <x>_after → <x>_at gte;  <x>_before → <x>_at lt;  <单数表名>_id → id eq;
+	//   <x>_prefix → x prefix(前缀匹配,% _ 按字面)
 	// 有 presence 的字段(optional / Timestamp)未指定时不筛选;其他字段总是参与筛选
 	Filters map[string]Filter `yaml:"filters"`
 	// Columns: SELECT 的列。默认从响应字段推导;compute 的输入是逻辑函数用的列,需要显式写
@@ -87,10 +88,11 @@ type Datasource struct {
 
 type Filter struct {
 	Column string `yaml:"column"`
-	Op     string `yaml:"op"` // eq / gt / gte / lt / lte
+	Op     string `yaml:"op"` // eq / gt / gte / lt / lte / prefix
 }
 
-var FilterOps = map[string]string{"eq": "=", "gt": ">", "gte": ">=", "lt": "<", "lte": "<="}
+// FilterOps: 运算符 → SQL。prefix 由 SQL 生成器特别处理(转义 % _ \,按字面匹配)。
+var FilterOps = map[string]string{"eq": "=", "gt": ">", "gte": ">=", "lt": "<", "lte": "<=", "prefix": "LIKE"}
 
 type LogicExample struct {
 	Name    string         `yaml:"name"`
@@ -323,7 +325,7 @@ func (s *Spec) Check() []string {
 			add("datasource.filters.%s: column is required", field)
 		}
 		if _, ok := FilterOps[f.Op]; !ok {
-			add("datasource.filters.%s: op must be eq/gt/gte/lt/lte (got %q)", field, f.Op)
+			add("datasource.filters.%s: op must be eq/gt/gte/lt/lte/prefix (got %q)", field, f.Op)
 		}
 	}
 	if s.PatternKind() == "compute" && ds.SQL == "" && len(ds.Columns) == 0 {

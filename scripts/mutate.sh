@@ -36,4 +36,7 @@ E=internal/handler/jobs/enums_gen.go
 run "enum 映射: DB 1/2 对调"            $E 's/case 1:\n(\s+)return jobsv1\.JobStatus_JOB_STATUS_SUCCEEDED\n(\s+)case 2:\n(\s+)return jobsv1\.JobStatus_JOB_STATUS_FAILED/case 1:\n${1}return jobsv1.JobStatus_JOB_STATUS_FAILED\n${2}case 2:\n${3}return jobsv1.JobStatus_JOB_STATUS_SUCCEEDED/'
 run "enum 未知值不记录指标"              $E 's/\tanomaly\.Report\("jobs", "status", v\)\n/\t_ = anomaly.Report\n/'
 run "enum 筛选: proto→DB 映射错"         $E 's/case jobsv1\.JobStatus_JOB_STATUS_PENDING:\n(\s+)return 0/case jobsv1.JobStatus_JOB_STATUS_PENDING:\n${1}return 2/'
+P=gen/db/shop.list-products.sql.go
+run "前缀: 去掉 % 的转义"               $P "s/, '%', '\\\\%'\\)/, '%', '%')/"
+run "前缀: 去掉 _ 的转义"               $P "s/, '_', '\\\\_'\\)/, '_', '_')/"
 go build -o bin/server ./cmd/server; git status --short

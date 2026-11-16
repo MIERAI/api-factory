@@ -17,7 +17,7 @@ SELECT id, sku, name, category, status, created_at FROM (
   FROM products
   WHERE ($1::text IS NULL OR category = $1::text)
     AND ($2::int4 IS NULL OR status = $2::int4)
-    AND ($3::text IS NULL OR starts_with(name, $3::text))
+    AND ($3::text IS NULL OR name LIKE replace(replace(replace($3::text, '\', '\\'), '%', '\%'), '_', '\_') || '%')
 ) AS base
 WHERE ($4::timestamptz IS NULL
        OR (base.created_at, base.id) < ($4::timestamptz, $5::bigint))

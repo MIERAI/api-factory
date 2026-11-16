@@ -1,6 +1,6 @@
 # R4: 商品一览(分类/状态筛选 + 商品名前缀搜索)
-# 【缺口】声明式 datasource 没有 prefix 运算符 → 用 datasource.sql 逃生口
-#   第 1 版用了 LIKE x || '%',审查发现 % 和 _ 会被当成通配符 → 改成 starts_with(按字面匹配)
+# 第一波: prefix 运算符缺失 → 逃生口,第 1 版 LIKE x || '%' 有通配符 bug(审查发现)。
+# 工厂加了 prefix 运算符后改回声明式: name_prefix → name 的前缀匹配(命名约定,% _ 按字面)
 spec_version: "0.2"
 api:
   rpc: factory.shop.v1.ShopService/ListProducts
@@ -11,14 +11,9 @@ pattern:
   order_by: [created_at, id]
   direction: desc
   page_size: { default: 20, max: 100 }
+# category / status → 同名列 eq;name_prefix → name 前缀匹配(命名约定)
 datasource:
-  table: products               # 结果列来自 products(领域层的 status enum 映射)
-  sql: |
-    SELECT id, sku, name, category, status, created_at
-    FROM products
-    WHERE (sqlc.narg(category)::text IS NULL OR category = sqlc.narg(category)::text)
-      AND (sqlc.narg(status)::int4 IS NULL OR status = sqlc.narg(status)::int4)
-      AND (sqlc.narg(name_prefix)::text IS NULL OR starts_with(name, sqlc.narg(name_prefix)::text))
+  table: products
 acceptance:
   fixtures:
     products:

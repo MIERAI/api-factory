@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS products (
     created_at TIMESTAMPTZ NOT NULL CHECK (isfinite(created_at))
 );
 CREATE INDEX IF NOT EXISTS products_created_at_id_idx ON products (created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS products_name_prefix_idx ON products (name text_pattern_ops);  -- 前缀匹配用
 
 -- 价格历史: 只追加。某时点的价格 = valid_from <= 该时点 的最新一行
 CREATE TABLE IF NOT EXISTS product_prices (

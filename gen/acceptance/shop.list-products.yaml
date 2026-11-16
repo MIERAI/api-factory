@@ -6,6 +6,13 @@ coverage:
     - 'validation: category(string 长度)'
     - 'validation: status(enum defined_only/not_in)'
     - 'validation: name_prefix(string 长度)'
+    - 'list_keyset: 排序 [created_at id] desc(合成数据含并列值)与字段映射'
+    - 'list_keyset: 筛选 category → category =(presence=true)'
+    - 'list_keyset: 筛选 status → status =(presence=true)'
+    - 'list_keyset: 前缀 name_prefix → name(% 和 _ 按字面匹配)'
+    - 'list_keyset: eq 条件组合(不依赖索引顺序的排序)'
+    - 'list_keyset: 翻页(并列行跨页 / 最后一页不满 / 最后一页刚好满)'
+    - 'list_keyset: page_token(改 page_size 允许 / 改筛选条件失效 / 非法 token)'
 suites:
     - name: validation
       cases:
@@ -140,4 +147,406 @@ suites:
           expect:
             code: '!INVALID_ARGUMENT'
             response: {}
+          steps: []
+    - name: pattern:list_keyset
+      fixtures:
+        products:
+            - category: alpha
+              created_at: "2026-01-01T00:00:00Z"
+              id: 1
+              name: apple
+              sku: v01
+              status: 0
+            - category: alpha
+              created_at: "2026-01-01T00:00:00Z"
+              id: 2
+              name: apricot
+              sku: v02
+              status: 0
+            - category: beta
+              created_at: "2026-01-01T01:00:00Z"
+              id: 3
+              name: banana
+              sku: v03
+              status: 1
+            - category: beta
+              created_at: "2026-01-01T01:00:00Z"
+              id: 4
+              name: a%c
+              sku: v04
+              status: 1
+            - category: alpha
+              created_at: "2026-01-01T02:00:00Z"
+              id: 5
+              name: a_c
+              sku: v05
+              status: 2
+            - category: alpha
+              created_at: "2026-01-01T02:00:00Z"
+              id: 6
+              name: abc
+              sku: v06
+              status: 2
+            - category: beta
+              created_at: "2026-01-01T03:00:00Z"
+              id: 7
+              name: apple
+              sku: v07
+              status: 0
+            - category: beta
+              created_at: "2026-01-01T03:00:00Z"
+              id: 8
+              name: apricot
+              sku: v08
+              status: 0
+      cases:
+        - name: 可选筛选全部不指定 — 排序与字段映射(含并列行)
+          request: {}
+          expect:
+            code: OK
+            response:
+                next_page_token: $absent
+                products:
+                    - category: beta
+                      created_at: "2026-01-01T03:00:00Z"
+                      id: 8
+                      name: apricot
+                      sku: v08
+                      status: PRODUCT_STATUS_ACTIVE
+                    - category: beta
+                      created_at: "2026-01-01T03:00:00Z"
+                      id: 7
+                      name: apple
+                      sku: v07
+                      status: PRODUCT_STATUS_ACTIVE
+                    - category: alpha
+                      created_at: "2026-01-01T02:00:00Z"
+                      id: 6
+                      name: abc
+                      sku: v06
+                      status: PRODUCT_STATUS_DRAFT
+                    - category: alpha
+                      created_at: "2026-01-01T02:00:00Z"
+                      id: 5
+                      name: a_c
+                      sku: v05
+                      status: PRODUCT_STATUS_DRAFT
+                    - category: beta
+                      created_at: "2026-01-01T01:00:00Z"
+                      id: 4
+                      name: a%c
+                      sku: v04
+                      status: PRODUCT_STATUS_DISCONTINUED
+                    - category: beta
+                      created_at: "2026-01-01T01:00:00Z"
+                      id: 3
+                      name: banana
+                      sku: v03
+                      status: PRODUCT_STATUS_DISCONTINUED
+                    - category: alpha
+                      created_at: "2026-01-01T00:00:00Z"
+                      id: 2
+                      name: apricot
+                      sku: v02
+                      status: PRODUCT_STATUS_ACTIVE
+                    - category: alpha
+                      created_at: "2026-01-01T00:00:00Z"
+                      id: 1
+                      name: apple
+                      sku: v01
+                      status: PRODUCT_STATUS_ACTIVE
+          steps: []
+        - name: 筛选 category = alpha
+          request:
+            category: alpha
+          expect:
+            code: OK
+            response:
+                products:
+                    - id: 6
+                    - id: 5
+                    - id: 2
+                    - id: 1
+          steps: []
+        - name: 筛选 category = beta
+          request:
+            category: beta
+          expect:
+            code: OK
+            response:
+                products:
+                    - id: 8
+                    - id: 7
+                    - id: 4
+                    - id: 3
+          steps: []
+        - name: 筛选 status = PRODUCT_STATUS_ACTIVE
+          request:
+            status: PRODUCT_STATUS_ACTIVE
+          expect:
+            code: OK
+            response:
+                products:
+                    - id: 8
+                    - id: 7
+                    - id: 2
+                    - id: 1
+          steps: []
+        - name: 筛选 status = PRODUCT_STATUS_DISCONTINUED
+          request:
+            status: PRODUCT_STATUS_DISCONTINUED
+          expect:
+            code: OK
+            response:
+                products:
+                    - id: 4
+                    - id: 3
+          steps: []
+        - name: 筛选 status = PRODUCT_STATUS_DRAFT
+          request:
+            status: PRODUCT_STATUS_DRAFT
+          expect:
+            code: OK
+            response:
+                products:
+                    - id: 6
+                    - id: 5
+          steps: []
+        - name: 前缀 name_prefix = "ap"(普通前缀)
+          request:
+            name_prefix: ap
+          expect:
+            code: OK
+            response:
+                products:
+                    - id: 8
+                    - id: 7
+                    - id: 2
+                    - id: 1
+          steps: []
+        - name: 前缀 name_prefix = "a%"(% 按字面匹配(不是通配符))
+          request:
+            name_prefix: a%
+          expect:
+            code: OK
+            response:
+                products:
+                    - id: 4
+          steps: []
+        - name: 前缀 name_prefix = "a_"(_ 按字面匹配(不是通配符))
+          request:
+            name_prefix: a_
+          expect:
+            code: OK
+            response:
+                products:
+                    - id: 5
+          steps: []
+        - name: 所有 eq 条件组合(筛选后排序,并列行次序)
+          request:
+            category: alpha
+            status: PRODUCT_STATUS_ACTIVE
+          expect:
+            code: OK
+            response:
+                products:
+                    - id: 2
+                    - id: 1
+          steps: []
+        - name: 翻页走到底 page_size=1
+          request: {}
+          expect:
+            code: ""
+            response: {}
+          steps:
+            - request:
+                page_size: 1
+              expect:
+                code: OK
+                response:
+                    next_page_token: $nonempty
+                    products:
+                        - id: 8
+            - request:
+                page_size: 1
+                page_token: $prev.next_page_token
+              expect:
+                code: OK
+                response:
+                    next_page_token: $nonempty
+                    products:
+                        - id: 7
+            - request:
+                page_size: 1
+                page_token: $prev.next_page_token
+              expect:
+                code: OK
+                response:
+                    next_page_token: $nonempty
+                    products:
+                        - id: 6
+            - request:
+                page_size: 1
+                page_token: $prev.next_page_token
+              expect:
+                code: OK
+                response:
+                    next_page_token: $nonempty
+                    products:
+                        - id: 5
+            - request:
+                page_size: 1
+                page_token: $prev.next_page_token
+              expect:
+                code: OK
+                response:
+                    next_page_token: $nonempty
+                    products:
+                        - id: 4
+            - request:
+                page_size: 1
+                page_token: $prev.next_page_token
+              expect:
+                code: OK
+                response:
+                    next_page_token: $nonempty
+                    products:
+                        - id: 3
+            - request:
+                page_size: 1
+                page_token: $prev.next_page_token
+              expect:
+                code: OK
+                response:
+                    next_page_token: $nonempty
+                    products:
+                        - id: 2
+            - request:
+                page_size: 1
+                page_token: $prev.next_page_token
+              expect:
+                code: OK
+                response:
+                    next_page_token: $absent
+                    products:
+                        - id: 1
+        - name: 翻页走到底 page_size=3
+          request: {}
+          expect:
+            code: ""
+            response: {}
+          steps:
+            - request:
+                page_size: 3
+              expect:
+                code: OK
+                response:
+                    next_page_token: $nonempty
+                    products:
+                        - id: 8
+                        - id: 7
+                        - id: 6
+            - request:
+                page_size: 3
+                page_token: $prev.next_page_token
+              expect:
+                code: OK
+                response:
+                    next_page_token: $nonempty
+                    products:
+                        - id: 5
+                        - id: 4
+                        - id: 3
+            - request:
+                page_size: 3
+                page_token: $prev.next_page_token
+              expect:
+                code: OK
+                response:
+                    next_page_token: $absent
+                    products:
+                        - id: 2
+                        - id: 1
+        - name: 翻页走到底 page_size=4
+          request: {}
+          expect:
+            code: ""
+            response: {}
+          steps:
+            - request:
+                page_size: 4
+              expect:
+                code: OK
+                response:
+                    next_page_token: $nonempty
+                    products:
+                        - id: 8
+                        - id: 7
+                        - id: 6
+                        - id: 5
+            - request:
+                page_size: 4
+                page_token: $prev.next_page_token
+              expect:
+                code: OK
+                response:
+                    next_page_token: $absent
+                    products:
+                        - id: 4
+                        - id: 3
+                        - id: 2
+                        - id: 1
+        - name: 翻页途中改 page_size 是允许的
+          request: {}
+          expect:
+            code: ""
+            response: {}
+          steps:
+            - request:
+                page_size: 2
+              expect:
+                code: OK
+                response:
+                    next_page_token: $nonempty
+                    products:
+                        - id: 8
+                        - id: 7
+            - request:
+                page_size: 3
+                page_token: $prev.next_page_token
+              expect:
+                code: OK
+                response:
+                    products:
+                        - id: 6
+                        - id: 5
+                        - id: 4
+        - name: 翻页途中改筛选条件(category) → INVALID_ARGUMENT
+          request: {}
+          expect:
+            code: ""
+            response: {}
+          steps:
+            - request:
+                category: alpha
+                page_size: 1
+              expect:
+                code: OK
+                response:
+                    next_page_token: $nonempty
+            - request:
+                category: beta
+                page_size: 1
+                page_token: $prev.next_page_token
+              expect:
+                code: INVALID_ARGUMENT
+                response: {}
+                message_contains: page_token
+        - name: 非法 page_token → INVALID_ARGUMENT
+          request:
+            page_token: not-a-valid-token
+          expect:
+            code: INVALID_ARGUMENT
+            response: {}
+            message_contains: page_token
           steps: []

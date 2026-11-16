@@ -280,7 +280,8 @@ func validationSuite(s *spec.Spec, md protoreflect.MethodDescriptor) (spec.Suite
 // ---------------------------------------------------------------------------
 
 type synthPlan struct {
-	eqValues   map[string][]any // 列 → 轮流取的值(eq 筛选列)
+	eqValues     map[string][]any // 列 → 轮流取的值(eq 筛选列,同一并列组共享)
+	prefixValues map[string][]any // 列 → 逐行轮流取的值(前缀匹配列: 每个样本都要出现)
 	enumValues map[string][]any // 列 → 领域层定义的 DB 值(enum 列)
 	tieCol     string           // 制造并列值的列(keyset 的第一排序列)
 }
@@ -363,6 +364,10 @@ func synthesize(cat *catalog, table string, n int, plan synthPlan, needed map[st
 			group = i / 2
 		}
 		for _, c := range cat.tables[table] {
+			if vals, ok := plan.prefixValues[c.Name]; ok {
+				row[c.Name] = vals[i%len(vals)]
+				continue
+			}
 			if vals, ok := plan.eqValues[c.Name]; ok {
 				// 同一并列组共享筛选值: 筛选后的结果里也必须有并列行,否则"并列时的次级排序"测不到
 				row[c.Name] = vals[group%len(vals)]
@@ -473,6 +478,16 @@ func opHolds(op string, c int) bool {
 	return false
 }
 
+// prefixSamples: 前缀匹配列的合成值。故意包含 % 和 _,验证它们按字面匹配而不是通配符。
+var prefixSamples = []any{"apple", "apricot", "banana", "a%c", "a_c", "abc"}
+
+// prefixProbes: 前缀 → 说明。期待值由参考实现(strings.HasPrefix)计算
+var prefixProbes = []struct{ prefix, label string }{
+	{"ap", "普通前缀"},
+	{"a%", "% 按字面匹配(不是通配符)"},
+	{"a_", "_ 按字面匹配(不是通配符)"},
+}
+
 // oracleFilter: 参考实现。values 里没有的筛选条件视为未指定。
 func oracleFilter(rows []map[string]any, filters []resolvedFilter, values map[string]any) []map[string]any {
 	var out []map[string]any
@@ -481,6 +496,13 @@ func oracleFilter(rows []map[string]any, filters []resolvedFilter, values map[st
 		for _, f := range filters {
 			v, given := values[f.Name]
 			if !given {
+				continue
+			}
+			if f.Op == "prefix" {
+				if !strings.HasPrefix(r[f.Column.Name].(string), v.(string)) {
+					ok = false
+					break
+				}
 				continue
 			}
 			if !opHolds(f.Op, compare(r[f.Column.Name], v)) {
@@ -616,6 +638,12 @@ func listKeysetSuite(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalo
 		plan.tieCol = p.OrderBy[0]
 	}
 	for _, f := range filters {
+		if f.Op == "prefix" && f.Column.Name != plan.tieCol {
+			if plan.prefixValues == nil {
+				plan.prefixValues = map[string][]any{}
+			}
+			plan.prefixValues[f.Column.Name] = prefixSamples
+		}
 		if f.Op == "eq" {
 			if c := eqCandidates(s.Domain, table, f); len(c) > 0 && f.Column.Name != plan.tieCol {
 				plan.eqValues[f.Column.Name] = c
@@ -695,6 +723,19 @@ func listKeysetSuite(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalo
 
 	// 每个筛选条件单独
 	for _, f := range filters {
+		if f.Op == "prefix" {
+			if !f.Presence {
+				continue // 必填的前缀条件已在基础请求里
+			}
+			for _, pr := range prefixProbes {
+				got := list(map[string]any{f.Name: pr.prefix})
+				add(fmt.Sprintf("前缀 %s = %q(%s)", f.Name, pr.prefix, pr.label),
+					map[string]any{f.Name: pr.prefix},
+					map[string]any{itemName: items(s.Domain, table, got, []string{key})})
+			}
+			cov = append(cov, fmt.Sprintf("list_keyset: 前缀 %s → %s(%% 和 _ 按字面匹配)", f.Name, f.Column.Name))
+			continue
+		}
 		var vals []any
 		switch {
 		case plan.eqValues[f.Column.Name] != nil:
@@ -715,7 +756,7 @@ func listKeysetSuite(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalo
 	// 所有 eq 条件组合: 让执行计划从"按索引顺序扫描"变成"筛选后排序",暴露依赖物理顺序的排序 bug
 	combo := map[string]any{}
 	for _, f := range filters {
-		if vals := plan.eqValues[f.Column.Name]; vals != nil {
+		if vals := plan.eqValues[f.Column.Name]; vals != nil && f.Op == "eq" {
 			combo[f.Name] = vals[0]
 		}
 	}
@@ -756,7 +797,7 @@ func listKeysetSuite(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalo
 	}
 	// 翻页途中改筛选条件 → 旧 token 失效
 	for _, f := range filters {
-		if vals := plan.eqValues[f.Column.Name]; len(vals) >= 2 {
+		if vals := plan.eqValues[f.Column.Name]; len(vals) >= 2 && f.Op == "eq" {
 			suite.Cases = append(suite.Cases, spec.Case{Name: fmt.Sprintf("翻页途中改筛选条件(%s) → INVALID_ARGUMENT", f.Name), Steps: []spec.Step{
 				{Request: withBase(map[string]any{f.Name: present(s.Domain, table, f.Column.Name, vals[0]), "page_size": 1}), Expect: spec.Expect{Code: "OK", Response: map[string]any{"next_page_token": "$nonempty"}}},
 				{Request: withBase(map[string]any{f.Name: present(s.Domain, table, f.Column.Name, vals[1]), "page_size": 1, "page_token": "$prev.next_page_token"}), Expect: spec.Expect{Code: "INVALID_ARGUMENT", MessageContains: "page_token"}},
