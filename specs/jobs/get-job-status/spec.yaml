@@ -19,35 +19,17 @@ pattern:
 datasource:
   table: jobs
 
+# 机制(按键取得、不存在 → NOT_FOUND、job_id 的边界)由工厂自动生成: gen/acceptance/jobs.get-job-status.yaml
+# 这里只写业务意图
 acceptance:
   fixtures:
     jobs:
-      - { id: 101, status: 0 }
       - { id: 102, status: 1 }
-      - { id: 103, status: 2 }
-      - { id: 3000000000, status: 1 }   # 超过 int32 范围
+      - { id: 3000000000, status: 2 }   # 实际的 id 已经超过 int32 范围
   cases:
-    - name: 未完成
-      request: { job_id: 101 }
-      expect: { code: OK, response: { status: 0 } }
-    - name: 成功
+    - name: 普通的 id
       request: { job_id: 102 }
       expect: { code: OK, response: { status: 1 } }
-    - name: 失败
-      request: { job_id: 103 }
-      expect: { code: OK, response: { status: 2 } }
-    - name: 超过 int32 的 id
+    - name: 超过 int32 范围的 id 也能查到(业务上 id 是 bigint)
       request: { job_id: 3000000000 }
-      expect: { code: OK, response: { status: 1 } }
-    - name: 不存在的 id
-      request: { job_id: 999 }
-      expect: { code: NOT_FOUND }
-    - name: 0 是非法值
-      request: { job_id: 0 }
-      expect: { code: INVALID_ARGUMENT }
-    - name: 负数是非法值
-      request: { job_id: -1 }
-      expect: { code: INVALID_ARGUMENT }
-    - name: 未指定
-      request: {}
-      expect: { code: INVALID_ARGUMENT }
+      expect: { code: OK, response: { status: 2 } }

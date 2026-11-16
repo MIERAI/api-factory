@@ -222,13 +222,6 @@ acceptance:
       request: { job_type: alpha, period_start: "2026-10-01T00:00:00Z", period_end: "2026-11-08T00:00:00Z" }
       expect: { code: INVALID_ARGUMENT }
 
-    - name: 未指定期间
-      request: { job_type: alpha }
-      expect: { code: INVALID_ARGUMENT }
-
-    - name: job_type 为空
-      request: { job_type: "", period_start: "2026-11-01T00:00:00Z", period_end: "2026-11-08T00:00:00Z" }
-      expect: { code: INVALID_ARGUMENT }
 
 # -----------------------------------------------------------------------------
 # 审查记录: 式样书审查提出的问题和人的决定。以后的审查不再提出这些问题

@@ -33,101 +33,18 @@ acceptance:
       - { id: 5, job_type: import, status: 1, created_at: "2026-11-05T00:00:00Z" }
       - { id: 6, job_type: export, status: 1, created_at: "2026-11-06T00:00:00Z" }
       - { id: 7, job_type: export, status: 1, created_at: "2026-11-06T00:00:00Z" }  # 与 6 同一时间
+  # 机制(每个筛选条件、排序与并列、翻页、page_token、page_size/status/job_type 的边界)由工厂自动生成:
+  #   gen/acceptance/jobs.list-jobs.yaml
+  # 这里只写业务意图
   cases:
-    - name: 无条件 — 全部按新到旧,字段完整
-      request: {}
-      expect:
-        code: OK
-        response:
-          jobs:
-            - { id: 7, job_type: export, status: 1, created_at: "2026-11-06T00:00:00Z" }
-            - { id: 6 }
-            - { id: 5 }
-            - { id: 4, job_type: export, status: 0, created_at: "2026-11-04T00:00:00Z" }
-            - { id: 3 }
-            - { id: 2 }
-            - { id: 1 }
-          next_page_token: $absent
-
-    - name: status=1 筛选
-      request: { status: 1 }
-      expect: { code: OK, response: { jobs: [{ id: 7 }, { id: 6 }, { id: 5 }, { id: 1 }] } }
-
-    - name: status=0 也是有效筛选(不能当作未指定)
-      request: { status: 0 }
-      expect: { code: OK, response: { jobs: [{ id: 4 }, { id: 2 }] } }
-
-    - name: job_type 筛选
-      request: { job_type: import }
-      expect: { code: OK, response: { jobs: [{ id: 5 }, { id: 2 }] } }
-
-    - name: 组合筛选
-      request: { job_type: export, status: 1 }
-      expect: { code: OK, response: { jobs: [{ id: 7 }, { id: 6 }, { id: 1 }] } }
-
-    - name: 时间范围是左闭右开
+    - name: 时间范围是左闭右开(业务上"11/2 到 11/5"指 11/2 当天到 11/4 当天)
       request: { created_after: "2026-11-02T00:00:00Z", created_before: "2026-11-05T00:00:00Z" }
       expect: { code: OK, response: { jobs: [{ id: 4 }, { id: 3 }, { id: 2 }] } }
 
-    - name: 0 件也是 OK
-      request: { job_type: import, status: 2 }
-      expect: { code: OK, response: { jobs: [], next_page_token: $absent } }
+    - name: 管理画面最常用的查询 — 某类型的成功任务,新的在前
+      request: { job_type: export, status: 1 }
+      expect: { code: OK, response: { jobs: [{ id: 7 }, { id: 6 }, { id: 1 }] } }
 
-    - name: 翻页走到最后
-      steps:
-        - request: { page_size: 3 }
-          expect: { code: OK, response: { jobs: [{ id: 7 }, { id: 6 }, { id: 5 }], next_page_token: $nonempty } }
-        - request: { page_size: 3, page_token: $prev.next_page_token }
-          expect: { code: OK, response: { jobs: [{ id: 4 }, { id: 3 }, { id: 2 }], next_page_token: $nonempty } }
-        - request: { page_size: 3, page_token: $prev.next_page_token }
-          expect: { code: OK, response: { jobs: [{ id: 1 }], next_page_token: $absent } }
-
-    - name: 同一时间的两行跨页时不重复不遗漏
-      steps:
-        - request: { page_size: 1 }
-          expect: { code: OK, response: { jobs: [{ id: 7 }], next_page_token: $nonempty } }
-        - request: { page_size: 1, page_token: $prev.next_page_token }
-          expect: { code: OK, response: { jobs: [{ id: 6 }], next_page_token: $nonempty } }
-        - request: { page_size: 1, page_token: $prev.next_page_token }
-          expect: { code: OK, response: { jobs: [{ id: 5 }] } }
-
-    - name: 筛选 + 翻页,最后一页刚好装满时没有下一页
-      steps:
-        - request: { status: 1, page_size: 2 }
-          expect: { code: OK, response: { jobs: [{ id: 7 }, { id: 6 }], next_page_token: $nonempty } }
-        - request: { status: 1, page_size: 2, page_token: $prev.next_page_token }
-          expect: { code: OK, response: { jobs: [{ id: 5 }, { id: 1 }], next_page_token: $absent } }
-
-    - name: 翻页途中改变筛选条件 → 旧 token 失效
-      steps:
-        - request: { status: 1, page_size: 2 }
-          expect: { code: OK, response: { next_page_token: $nonempty } }
-        - request: { status: 0, page_size: 2, page_token: $prev.next_page_token }
-          expect: { code: INVALID_ARGUMENT }
-
-    - name: 翻页途中只改 page_size 是允许的
-      steps:
-        - request: { page_size: 2 }
-          expect: { code: OK, response: { jobs: [{ id: 7 }, { id: 6 }], next_page_token: $nonempty } }
-        - request: { page_size: 3, page_token: $prev.next_page_token }
-          expect: { code: OK, response: { jobs: [{ id: 5 }, { id: 4 }, { id: 3 }], next_page_token: $nonempty } }
-
-    - name: 非法 page_token
-      request: { page_token: "not-a-valid-token" }
-      expect: { code: INVALID_ARGUMENT }
-
-    - name: page_size 超过上限
-      request: { page_size: 101 }
-      expect: { code: INVALID_ARGUMENT }
-
-    - name: page_size 为负
-      request: { page_size: -1 }
-      expect: { code: INVALID_ARGUMENT }
-
-    - name: status 不在允许值内
-      request: { status: 3 }
-      expect: { code: INVALID_ARGUMENT }
-
-    - name: 时间范围颠倒
+    - name: 时间范围颠倒(消息级 CEL 规则,不自动生成)
       request: { created_after: "2026-11-05T00:00:00Z", created_before: "2026-11-02T00:00:00Z" }
       expect: { code: INVALID_ARGUMENT }

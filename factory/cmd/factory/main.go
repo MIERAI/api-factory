@@ -200,7 +200,6 @@ func cmdPrompt(args []string) error {
 	return template.Must(template.New("").Parse(tmpl)).Execute(os.Stdout, data)
 }
 
-
 func cmdGuard(args []string) error {
 	specs, err := loadChecked(specsDir(args))
 	if err != nil {
@@ -309,14 +308,19 @@ func cmdReviewPrompt(args []string) error {
 	if err != nil {
 		return fmt.Errorf("generated query not found (run factory prepare first): %w", err)
 	}
+	var coverage []string
+	if auto, err := spec.LoadAutoAcceptance(s.ID()); err == nil && auto != nil {
+		coverage = auto.Coverage
+	}
 	data := map[string]any{
-		"SpecPath":  args[0],
-		"SpecYAML":  strings.TrimSpace(string(raw)),
-		"ProtoPath": protoPath,
-		"Proto":     strings.TrimSpace(string(protoSrc)),
-		"Schema":    strings.TrimSpace(string(schema)),
-		"QueryPath": queryPath,
-		"Query":     strings.TrimSpace(string(query)),
+		"AutoCoverage": coverage,
+		"SpecPath":     args[0],
+		"SpecYAML":     strings.TrimSpace(string(raw)),
+		"ProtoPath":    protoPath,
+		"Proto":        strings.TrimSpace(string(protoSrc)),
+		"Schema":       strings.TrimSpace(string(schema)),
+		"QueryPath":    queryPath,
+		"Query":        strings.TrimSpace(string(query)),
 	}
 	return template.Must(template.New("").Parse(prompts.Review)).Execute(os.Stdout, data)
 }
