@@ -463,6 +463,9 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 			s.Pattern.PageSize = spec.PageSize{Default: a.PageDefault, Max: a.PageMax}
 		} else {
 			s.Pattern.MaxRows = a.MaxRows
+			if len(a.GroupBy) > 0 {
+				s.Pattern.PickPerGroup = &spec.PickPerGroup{By: a.GroupBy, Order: a.GroupOrder}
+			}
 		}
 	}
 	s.Datasource = spec.Datasource{Table: table, Filters: filters}

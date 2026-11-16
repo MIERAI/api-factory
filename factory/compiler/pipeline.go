@@ -4,6 +4,7 @@ package compiler
 
 import (
 	"fmt"
+	"strings"
 
 	"apifactory/factory/cells"
 	"apifactory/factory/core"
@@ -87,6 +88,14 @@ func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []re
 			parts.Order = append(parts.Order, core.SortKey{Col: c, Desc: s.Pattern.Direction == "desc"})
 		}
 		parts.Limit = int(s.Pattern.MaxRows) + 1
+		if g := s.Pattern.PickPerGroup; g != nil {
+			st := core.Step{Kind: "pick_per_key", Keys: g.By}
+			for _, o := range g.Order {
+				col, dir, _ := strings.Cut(o, " ")
+				st.Order = append(st.Order, core.SortKey{Col: col, Desc: dir == "desc"})
+			}
+			parts.Group = &st
+		}
 	}
 	name, ok := patternCells[s.PatternKind()]
 	if !ok {

@@ -128,12 +128,13 @@ type Query struct {
 }
 
 type Filter struct {
-	Field      string `json:"field"` // 请求字段名 = 查询参数名
-	Column     string `json:"column"`
-	ColumnType string `json:"column_type"`
-	Op         string `json:"op"`     // eq / gt / gte / lt / lte / prefix
-	SQLOp      string `json:"sql_op"` // = / > / ...
-	Presence   bool   `json:"presence,omitempty"`
+	Field      string   `json:"field"` // 请求字段名 = 查询参数名
+	Column     string   `json:"column"`
+	ColumnType string   `json:"column_type"`
+	Op         string   `json:"op"`     // eq / gt / gte / lt / lte / prefix
+	SQLOp      string   `json:"sql_op"` // = / > / ...
+	Presence   bool     `json:"presence,omitempty"`
+	Columns    []string `json:"columns,omitempty"` // 多列的筛选单元(有效期包含: 开始, 结束)
 }
 
 type GetByID struct {

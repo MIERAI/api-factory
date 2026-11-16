@@ -404,7 +404,9 @@ type API struct {
 	OrderBy     []string
 	Desc_       bool // 排序方向
 	PageDefault int32
-	MaxRows     int32 // 多条: 上限
+	MaxRows     int32    // 多条: 上限
+	GroupBy     []string // 多条: 每组取一条 的分组列
+	GroupOrder  []string // 多条: 组内的顺序("valid_from desc")
 	PageMax     int32
 	ItemName    string // 一览的行 message 名(默认: 表名的单数形)
 	ListField   string // 一览的列表字段名(默认: 表名)
@@ -447,7 +449,7 @@ func loadAPI(path string) (*API, error) {
 	}
 	e := &errs{file: path}
 	checkKeys(e, root, "API", "API", "说明", "背景", "负责人", "风险", "种类", "数据来源", "使用的列", "输入", "输入之间的规则",
-		"输出", "找不到时", "排序", "分页", "上限", "输出行名", "输出列表名", "业务规则", "例子", "计算例子")
+		"输出", "找不到时", "排序", "分页", "上限", "每组取一条", "输出行名", "输出列表名", "业务规则", "例子", "计算例子")
 	checkKeys(e, get(root, "例子"), "例子", "准备数据", "用例")
 	checkKeys(e, get(root, "分页"), "分页", "默认每页", "每页最多")
 	a := &API{
@@ -519,6 +521,25 @@ func loadAPI(path string) (*API, error) {
 		}
 		if _, err := fmt.Sscan(str(root, "上限"), &a.MaxRows); err != nil || a.MaxRows <= 0 {
 			e.add(root.Line, "多条: 上限 必须是正整数(超过上限时返回错误,不会悄悄截断)")
+		}
+		if g := get(root, "每组取一条"); g != nil { // { 按: [a, b], 取: c 最大 }
+			checkKeys(e, g, "每组取一条", "按", "取")
+			a.GroupBy = strList(get(g, "按"))
+			for _, t := range strings.Split(str(g, "取"), "、") {
+				f := strings.Fields(t)
+				if len(f) != 2 || (f[1] != "最大" && f[1] != "最小") {
+					e.add(g.Line, "每组取一条.取: 写成「列 最大」或「列 最小」(多个用、隔开),现在是 %q", t)
+					continue
+				}
+				dir := "asc"
+				if f[1] == "最大" {
+					dir = "desc"
+				}
+				a.GroupOrder = append(a.GroupOrder, f[0]+" "+dir)
+			}
+			if len(a.GroupBy) == 0 || len(a.GroupOrder) == 0 {
+				e.add(g.Line, "每组取一条: 需要 按 和 取")
+			}
 		}
 	}
 	if a.Kind == "get_by_id" && a.NotFound == "" {

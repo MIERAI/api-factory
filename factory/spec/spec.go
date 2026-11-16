@@ -60,12 +60,19 @@ type ReviewDecision struct {
 //   - compute     : 工厂生成 handler(映射 + 查询),AI 只写纯函数 <method>Logic(req, rows)
 //   - custom      : AI 写整个 handler(逃生口)
 type Pattern struct {
-	Kind            string   `yaml:"kind"`
-	NotFoundMessage string   `yaml:"not_found_message"` // get_by_id: "job not found: {job_id}"
-	OrderBy         []string `yaml:"order_by"`          // list_keyset: 游标列,最后一列必须唯一
-	Direction       string   `yaml:"direction"`         // list_keyset: desc / asc
-	PageSize        PageSize `yaml:"page_size"`
-	MaxRows         int32    `yaml:"max_rows,omitempty"` // list_all: 最多返回的件数(超过时报错,不悄悄截断)
+	Kind            string        `yaml:"kind"`
+	NotFoundMessage string        `yaml:"not_found_message"` // get_by_id: "job not found: {job_id}"
+	OrderBy         []string      `yaml:"order_by"`          // list_keyset: 游标列,最后一列必须唯一
+	Direction       string        `yaml:"direction"`         // list_keyset: desc / asc
+	PageSize        PageSize      `yaml:"page_size"`
+	MaxRows         int32         `yaml:"max_rows,omitempty"`       // list_all: 最多返回的件数(超过时报错,不悄悄截断)
+	PickPerGroup    *PickPerGroup `yaml:"pick_per_group,omitempty"` // list_all: 筛选之后每组取一条
+}
+
+// PickPerGroup: 按 by 分组,组内按 order(列 + 方向)取第一行。
+type PickPerGroup struct {
+	By    []string `yaml:"by"`
+	Order []string `yaml:"order"` // "valid_from desc"
 }
 
 type PageSize struct {

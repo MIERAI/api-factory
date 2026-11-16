@@ -95,7 +95,7 @@ func Compile(specs []*spec.Spec) (*ir.Plan, error) {
 				return nil, fmt.Errorf("%s: %w", s.Path, err)
 			}
 			for _, f := range filters {
-				api.Filters = append(api.Filters, ir.Filter{Field: f.Name, Column: f.Column.Name, ColumnType: f.Column.Type, Op: f.Op, SQLOp: f.SQLOp, Presence: f.Presence})
+				api.Filters = append(api.Filters, ir.Filter{Field: f.Name, Column: f.Column.Name, ColumnType: f.Column.Type, Op: f.Op, SQLOp: f.SQLOp, Presence: f.Presence, Columns: f.Columns})
 			}
 			pl, err := buildPipeline(s, lib, cols, filters, cat)
 			if err != nil {
