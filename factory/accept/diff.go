@@ -338,7 +338,15 @@ func (e *diffEnv) requests() []core.Params {
 			}
 			if f.Op == "prefix" {
 				s := []rune(v.(string))
-				v = string(s[:e.rnd.Intn(len(s)+1)])
+				cut := e.rnd.Intn(len(s) + 1)
+				// 陷阱前缀: 有一半的机会截在 % 或 _ 之后(它们必须按字面匹配,不是通配符)
+				for j, r := range s {
+					if (r == '%' || r == '_') && e.rnd.Intn(2) == 0 {
+						cut = j + 1
+						break
+					}
+				}
+				v = string(s[:cut])
 				if v == "" && !d.Required {
 					continue
 				}
@@ -473,15 +481,23 @@ func (e *diffEnv) runOne(url string, ps core.Params) (bool, string, int) {
 		items := e.api.Keyset.ItemsField
 		msg := e.api.Response.Field(items).Message
 		var steps []spec.Step
-		for start := 0; start == 0 || start < n; start += diffPageSize {
-			end := min(start+diffPageSize, n)
+		size := diffPageSize
+		omitSize := e.rnd.Intn(4) == 0 // 有时不传 page_size: 用式样书的默认值
+		if omitSize {
+			size = int(e.api.Keyset.DefaultSize)
+		}
+		for start := 0; start == 0 || start < n; start += size {
+			end := min(start+size, n)
 			list := []any{}
 			for _, r := range res.Rows[start:end] {
 				list = append(list, e.item(r, msg))
 			}
-			stepReq := map[string]any{"page_size": diffPageSize}
+			stepReq := map[string]any{"page_size": size}
 			for k, v := range req {
 				stepReq[k] = v
+			}
+			if omitSize {
+				delete(stepReq, "page_size")
 			}
 			if start > 0 {
 				stepReq["page_token"] = "$prev.next_page_token"
