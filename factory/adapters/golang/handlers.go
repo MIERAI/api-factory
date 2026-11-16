@@ -593,9 +593,13 @@ func genListAll(g *genCtx) (string, error) {
 		elemLines = append(elemLines, fmt.Sprintf("%s: %s,", goCamelCase(f.Name), e))
 	}
 	itemsGo := goCamelCase(items.Name)
+	msgLine := "m := req.Msg"
+	if !strings.Contains(call, "m.") { // 没有输入的 API
+		msgLine = "_ = req"
+	}
 	body := fmt.Sprintf(`// %s %s
 func (h *Handler) %s(ctx context.Context, req *connect.Request[%s]) (*connect.Response[%s], error) {
-	m := req.Msg
+	`+msgLine+`
 	rows, err := %s
 	if err != nil {
 		return nil, err

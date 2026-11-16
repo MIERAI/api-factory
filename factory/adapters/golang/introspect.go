@@ -53,7 +53,7 @@ func loadDBPackage(dir string) (*dbPackage, error) {
 					if !ok {
 						continue
 					}
-					var fields []goField
+					fields := []goField{} // 空结构体(没有参数的查询)也要算作结构体
 					for _, fl := range st.Fields.List {
 						for _, n := range fl.Names {
 							fields = append(fields, goField{Name: n.Name, Type: exprString(fl.Type)})

@@ -183,6 +183,9 @@ func runDiff(ctx context.Context, conn *pgx.Conn, url string, plan *ir.Plan, api
 	// 覆盖条件: 单条 → 找到和找不到都出现;分页 → 出现多行(要翻页)和 0 行
 	cover := fmt.Sprintf("数据 %d 行(拒绝 %d,来源 %d 行)/ 结果 0 行 %d 次、1 行 %d 次、多行 %d 次、不合法 %d 次", inserted, rejected, len(env.anchors), hits["0"], hits["1"], hits["n"], hits["invalid"])
 	okCover := hits["0"] > 0 && hits["1"]+hits["n"] > 0
+	if len(env.userParams()) == 0 { // 没有输入: 只有一种请求,"0 行"的情况不存在
+		okCover = hits["1"]+hits["n"] > 0
+	}
 	if api.Pattern == "list_keyset" || api.Pattern == "list_all" {
 		okCover = okCover && hits["n"] > 0
 	}
