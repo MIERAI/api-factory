@@ -12,7 +12,7 @@ import (
 
 // sqlKinds: schema 的列类型 → 核心类型
 var sqlKinds = map[string]core.Kind{
-	"int4": core.Int32, "integer": core.Int32, "int8": core.Int64, "bigint": core.Int64,
+	"int4": core.Int32, "integer": core.Int32, "int8": core.Int64, "bigint": core.Int64, "bigserial": core.Int64, "serial": core.Int32,
 	"text": core.Text, "varchar": core.Text, "bpchar": core.Text,
 	"bool": core.Bool, "boolean": core.Bool, "numeric": core.Decimal, "date": core.Date,
 	"timestamptz": core.Timestamp, "jsonb": core.JSON,
