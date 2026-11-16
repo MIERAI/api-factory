@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"apifactory/platform/anomaly"
 	"apifactory/platform/apierr"
 	"apifactory/platform/paging"
 )
@@ -112,6 +113,10 @@ func run(log *slog.Logger, build Builder) error {
 		mux.Handle(s.Path, s.Handler)
 		log.Info("service mounted", "path", s.Path)
 	}
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+		anomaly.WriteMetrics(w)
+	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		pingCtx, cancel := context.WithTimeout(r.Context(), time.Second)
 		defer cancel()

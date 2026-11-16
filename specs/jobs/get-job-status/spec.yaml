@@ -29,7 +29,7 @@ acceptance:
   cases:
     - name: 普通的 id
       request: { job_id: 102 }
-      expect: { code: OK, response: { status: 1 } }
+      expect: { code: OK, response: { status: JOB_STATUS_SUCCEEDED } }
     - name: 超过 int32 范围的 id 也能查到(业务上 id 是 bigint)
       request: { job_id: 3000000000 }
-      expect: { code: OK, response: { status: 2 } }
+      expect: { code: OK, response: { status: JOB_STATUS_FAILED } }

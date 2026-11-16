@@ -23,6 +23,6 @@ func (h *Handler) GetJobStatus(ctx context.Context, req *connect.Request[jobsv1.
 		return nil, err
 	}
 	return connect.NewResponse(&jobsv1.GetJobStatusResponse{
-		Status: row,
+		Status: jobsStatusToProto(row),
 	}), nil
 }

@@ -28,7 +28,7 @@ func (h *Handler) ListJobs(ctx context.Context, req *connect.Request[jobsv1.List
 	size := paging.Size(m.GetPageSize(), 20, 100)
 	fp := paging.Fingerprint(m, "page_token", "page_size")
 	params := db.ListJobsParams{
-		Status:        m.Status,
+		Status:        jobsStatusPtrToDB(m.Status),
 		JobType:       m.JobType,
 		CreatedAfter:  conv.TimePtr(m.CreatedAfter),
 		CreatedBefore: conv.TimePtr(m.CreatedBefore),
@@ -52,7 +52,7 @@ func (h *Handler) ListJobs(ctx context.Context, req *connect.Request[jobsv1.List
 		res.Jobs = append(res.Jobs, &jobsv1.Job{
 			Id:        r.ID,
 			JobType:   r.JobType,
-			Status:    r.Status,
+			Status:    jobsStatusToProto(r.Status),
 			CreatedAt: conv.TS(r.CreatedAt),
 		})
 	}

@@ -108,15 +108,22 @@ func Run(specs []*spec.Spec) error {
 			return err
 		}
 	}
+	enumsBySvc := map[string]map[string]*enumMapping{}
 	for _, s := range specs {
 		if s.PatternKind() == "custom" {
 			continue
 		}
-		g, svc, err := newGenCtx(s, services, files, dbp)
+		g, svc, err := newGenCtx(s, services, files, dbp, cat, methods[s])
 		if err != nil {
 			return err
 		}
 		parts := g.parts
+		if enumsBySvc[svc.HandlerPath] == nil {
+			enumsBySvc[svc.HandlerPath] = map[string]*enumMapping{}
+		}
+		for _, m := range g.enums {
+			enumsBySvc[svc.HandlerPath][m.Helper] = m
+		}
 		var src string
 		switch s.PatternKind() {
 		case "get_by_id":
@@ -141,11 +148,22 @@ func Run(specs []*spec.Spec) error {
 			return err
 		}
 	}
+	for _, svc := range services {
+		var ms []*enumMapping
+		for _, m := range enumsBySvc[svc.HandlerPath] {
+			ms = append(ms, m)
+		}
+		segs := strings.Split(svc.ProtoPackage, ".")
+		alias := svc.Domain + segs[len(segs)-1]
+		if err := writeEnums(svc, ms, alias, modulePath+"/gen/"+strings.Join(segs, "/")); err != nil {
+			return err
+		}
+	}
 	return writeWiring(services)
 }
 
 // newGenCtx 准备一个 API 的代码生成上下文(proto 描述符 + sqlc 函数签名)。
-func newGenCtx(s *spec.Spec, services []service, files *protoregistry.Files, dbp *dbPackage) (*genCtx, service, error) {
+func newGenCtx(s *spec.Spec, services []service, files *protoregistry.Files, dbp *dbPackage, cat *catalog, md protoreflect.MethodDescriptor) (*genCtx, service, error) {
 	parts, _ := s.RPCParts()
 	svc := serviceFor(services, parts)
 	md, err := findMethod(files, parts.ProtoPackage, parts.Service, parts.Method)
@@ -165,6 +183,31 @@ func newGenCtx(s *spec.Spec, services []service, files *protoregistry.Files, dbp
 	g.use("context", "")
 	g.use("connectrpc.com/connect", "")
 	g.use(modulePath+"/gen/"+strings.Join(segs, "/"), g.pbAlias)
+	g.enums = map[string]*enumMapping{}
+	g.filterCol = map[string]string{}
+	if table := s.Datasource.Table; table != "" {
+		if s.Domain != nil {
+			if e, ok := s.Domain.Entities[table]; ok {
+				for col, meta := range e.Columns {
+					if meta.Enum == nil {
+						continue
+					}
+					m, err := resolveEnum(s.Domain, table, col, files, cat, g.pbAlias, parts.ProtoPackage)
+					if err != nil {
+						return nil, svc, fmt.Errorf("%s: %w", s.Path, err)
+					}
+					g.enums[col] = m
+				}
+			}
+		}
+		filters, err := resolveFilters(s, md, cat)
+		if err != nil {
+			return nil, svc, fmt.Errorf("%s: %w", s.Path, err)
+		}
+		for _, f := range filters {
+			g.filterCol[norm(f.Name)] = f.Column.Name
+		}
+	}
 	return g, svc, nil
 }
 

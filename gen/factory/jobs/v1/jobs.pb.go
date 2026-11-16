@@ -23,6 +23,61 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// 异步任务的状态查询
+// 任务的处理状态。0 是 UNSPECIFIED(proto3 无法区分"未设置"和 0,所以 0 不能有业务含义)。
+// DB 里的值(0/1/2)和这里的对应关系定义在 specs/jobs/_domain.yaml。
+type JobStatus int32
+
+const (
+	JobStatus_JOB_STATUS_UNSPECIFIED JobStatus = 0
+	JobStatus_JOB_STATUS_PENDING     JobStatus = 1
+	JobStatus_JOB_STATUS_SUCCEEDED   JobStatus = 2
+	JobStatus_JOB_STATUS_FAILED      JobStatus = 3
+)
+
+// Enum value maps for JobStatus.
+var (
+	JobStatus_name = map[int32]string{
+		0: "JOB_STATUS_UNSPECIFIED",
+		1: "JOB_STATUS_PENDING",
+		2: "JOB_STATUS_SUCCEEDED",
+		3: "JOB_STATUS_FAILED",
+	}
+	JobStatus_value = map[string]int32{
+		"JOB_STATUS_UNSPECIFIED": 0,
+		"JOB_STATUS_PENDING":     1,
+		"JOB_STATUS_SUCCEEDED":   2,
+		"JOB_STATUS_FAILED":      3,
+	}
+)
+
+func (x JobStatus) Enum() *JobStatus {
+	p := new(JobStatus)
+	*p = x
+	return p
+}
+
+func (x JobStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (JobStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_factory_jobs_v1_jobs_proto_enumTypes[0].Descriptor()
+}
+
+func (JobStatus) Type() protoreflect.EnumType {
+	return &file_factory_jobs_v1_jobs_proto_enumTypes[0]
+}
+
+func (x JobStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use JobStatus.Descriptor instead.
+func (JobStatus) EnumDescriptor() ([]byte, []int) {
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{0}
+}
+
 type GetJobStatusRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// jobs.id (> 0)。校验由 protovalidate 确定性执行,不交给 AI
@@ -70,8 +125,8 @@ func (x *GetJobStatusRequest) GetJobId() int64 {
 
 type GetJobStatusResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// 0: 未完成 / 1: 成功 / 2: 失败
-	Status        int32 `protobuf:"varint,1,opt,name=status,proto3" json:"status,omitempty"`
+	// 读到不认识的 DB 值时为 JOB_STATUS_UNSPECIFIED(客户端应同样处理将来新增的值)
+	Status        JobStatus `protobuf:"varint,1,opt,name=status,proto3,enum=factory.jobs.v1.JobStatus" json:"status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -106,11 +161,11 @@ func (*GetJobStatusResponse) Descriptor() ([]byte, []int) {
 	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *GetJobStatusResponse) GetStatus() int32 {
+func (x *GetJobStatusResponse) GetStatus() JobStatus {
 	if x != nil {
 		return x.Status
 	}
-	return 0
+	return JobStatus_JOB_STATUS_UNSPECIFIED
 }
 
 type ListJobsRequest struct {
@@ -119,8 +174,8 @@ type ListJobsRequest struct {
 	PageSize int32 `protobuf:"varint,1,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
 	// 上一页返回的 next_page_token。不透明字符串,调用方不应解析
 	PageToken string `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
-	// 指定时按 status 筛选(0 也是合法的筛选值)
-	Status *int32 `protobuf:"varint,3,opt,name=status,proto3,oneof" json:"status,omitempty"`
+	// 指定时按 status 筛选
+	Status *JobStatus `protobuf:"varint,3,opt,name=status,proto3,enum=factory.jobs.v1.JobStatus,oneof" json:"status,omitempty"`
 	// 指定时按 job_type 完全一致筛选
 	JobType *string `protobuf:"bytes,4,opt,name=job_type,json=jobType,proto3,oneof" json:"job_type,omitempty"`
 	// created_at >= created_after
@@ -175,11 +230,11 @@ func (x *ListJobsRequest) GetPageToken() string {
 	return ""
 }
 
-func (x *ListJobsRequest) GetStatus() int32 {
+func (x *ListJobsRequest) GetStatus() JobStatus {
 	if x != nil && x.Status != nil {
 		return *x.Status
 	}
-	return 0
+	return JobStatus_JOB_STATUS_UNSPECIFIED
 }
 
 func (x *ListJobsRequest) GetJobType() string {
@@ -260,7 +315,7 @@ type Job struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
 	JobType       string                 `protobuf:"bytes,2,opt,name=job_type,json=jobType,proto3" json:"job_type,omitempty"`
-	Status        int32                  `protobuf:"varint,3,opt,name=status,proto3" json:"status,omitempty"`
+	Status        JobStatus              `protobuf:"varint,3,opt,name=status,proto3,enum=factory.jobs.v1.JobStatus" json:"status,omitempty"`
 	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -310,11 +365,11 @@ func (x *Job) GetJobType() string {
 	return ""
 }
 
-func (x *Job) GetStatus() int32 {
+func (x *Job) GetStatus() JobStatus {
 	if x != nil {
 		return x.Status
 	}
-	return 0
+	return JobStatus_JOB_STATUS_UNSPECIFIED
 }
 
 func (x *Job) GetCreatedAt() *timestamppb.Timestamp {
@@ -496,14 +551,15 @@ const file_factory_jobs_v1_jobs_proto_rawDesc = "" +
 	"\n" +
 	"\x1afactory/jobs/v1/jobs.proto\x12\x0ffactory.jobs.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"5\n" +
 	"\x13GetJobStatusRequest\x12\x1e\n" +
-	"\x06job_id\x18\x01 \x01(\x03B\a\xbaH\x04\"\x02 \x00R\x05jobId\".\n" +
-	"\x14GetJobStatusResponse\x12\x16\n" +
-	"\x06status\x18\x01 \x01(\x05R\x06status\"\xf8\x03\n" +
+	"\x06job_id\x18\x01 \x01(\x03B\a\xbaH\x04\"\x02 \x00R\x05jobId\"J\n" +
+	"\x14GetJobStatusResponse\x122\n" +
+	"\x06status\x18\x01 \x01(\x0e2\x1a.factory.jobs.v1.JobStatusR\x06status\"\x93\x04\n" +
 	"\x0fListJobsRequest\x12&\n" +
 	"\tpage_size\x18\x01 \x01(\x05B\t\xbaH\x06\x1a\x04\x18d(\x00R\bpageSize\x12\x1d\n" +
 	"\n" +
-	"page_token\x18\x02 \x01(\tR\tpageToken\x12(\n" +
-	"\x06status\x18\x03 \x01(\x05B\v\xbaH\b\x1a\x060\x000\x010\x02H\x00R\x06status\x88\x01\x01\x12)\n" +
+	"page_token\x18\x02 \x01(\tR\tpageToken\x12C\n" +
+	"\x06status\x18\x03 \x01(\x0e2\x1a.factory.jobs.v1.JobStatusB\n" +
+	"\xbaH\a\x82\x01\x04\x10\x01 \x00H\x00R\x06status\x88\x01\x01\x12)\n" +
 	"\bjob_type\x18\x04 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18@H\x01R\ajobType\x88\x01\x01\x12?\n" +
 	"\rcreated_after\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\fcreatedAfter\x12A\n" +
 	"\x0ecreated_before\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\rcreatedBefore:\xac\x01\xbaH\xa8\x01\x1a\xa5\x01\n" +
@@ -512,11 +568,11 @@ const file_factory_jobs_v1_jobs_proto_rawDesc = "" +
 	"\t_job_type\"d\n" +
 	"\x10ListJobsResponse\x12(\n" +
 	"\x04jobs\x18\x01 \x03(\v2\x14.factory.jobs.v1.JobR\x04jobs\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\x83\x01\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\x9f\x01\n" +
 	"\x03Job\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x19\n" +
-	"\bjob_type\x18\x02 \x01(\tR\ajobType\x12\x16\n" +
-	"\x06status\x18\x03 \x01(\x05R\x06status\x129\n" +
+	"\bjob_type\x18\x02 \x01(\tR\ajobType\x122\n" +
+	"\x06status\x18\x03 \x01(\x0e2\x1a.factory.jobs.v1.JobStatusR\x06status\x129\n" +
 	"\n" +
 	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\x94\x03\n" +
 	"\x14GetJobSummaryRequest\x12$\n" +
@@ -535,7 +591,12 @@ const file_factory_jobs_v1_jobs_proto_rawDesc = "" +
 	"\fsla_breaches\x18\a \x01(\x03R\vslaBreaches\x12\x16\n" +
 	"\x06health\x18\b \x01(\tR\x06healthB\x0f\n" +
 	"\r_success_rateB\x17\n" +
-	"\x15_avg_duration_seconds2\x9a\x02\n" +
+	"\x15_avg_duration_seconds*p\n" +
+	"\tJobStatus\x12\x1a\n" +
+	"\x16JOB_STATUS_UNSPECIFIED\x10\x00\x12\x16\n" +
+	"\x12JOB_STATUS_PENDING\x10\x01\x12\x18\n" +
+	"\x14JOB_STATUS_SUCCEEDED\x10\x02\x12\x15\n" +
+	"\x11JOB_STATUS_FAILED\x10\x032\x9a\x02\n" +
 	"\n" +
 	"JobService\x12[\n" +
 	"\fGetJobStatus\x12$.factory.jobs.v1.GetJobStatusRequest\x1a%.factory.jobs.v1.GetJobStatusResponse\x12O\n" +
@@ -554,35 +615,40 @@ func file_factory_jobs_v1_jobs_proto_rawDescGZIP() []byte {
 	return file_factory_jobs_v1_jobs_proto_rawDescData
 }
 
+var file_factory_jobs_v1_jobs_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_factory_jobs_v1_jobs_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_factory_jobs_v1_jobs_proto_goTypes = []any{
-	(*GetJobStatusRequest)(nil),   // 0: factory.jobs.v1.GetJobStatusRequest
-	(*GetJobStatusResponse)(nil),  // 1: factory.jobs.v1.GetJobStatusResponse
-	(*ListJobsRequest)(nil),       // 2: factory.jobs.v1.ListJobsRequest
-	(*ListJobsResponse)(nil),      // 3: factory.jobs.v1.ListJobsResponse
-	(*Job)(nil),                   // 4: factory.jobs.v1.Job
-	(*GetJobSummaryRequest)(nil),  // 5: factory.jobs.v1.GetJobSummaryRequest
-	(*GetJobSummaryResponse)(nil), // 6: factory.jobs.v1.GetJobSummaryResponse
-	(*timestamppb.Timestamp)(nil), // 7: google.protobuf.Timestamp
+	(JobStatus)(0),                // 0: factory.jobs.v1.JobStatus
+	(*GetJobStatusRequest)(nil),   // 1: factory.jobs.v1.GetJobStatusRequest
+	(*GetJobStatusResponse)(nil),  // 2: factory.jobs.v1.GetJobStatusResponse
+	(*ListJobsRequest)(nil),       // 3: factory.jobs.v1.ListJobsRequest
+	(*ListJobsResponse)(nil),      // 4: factory.jobs.v1.ListJobsResponse
+	(*Job)(nil),                   // 5: factory.jobs.v1.Job
+	(*GetJobSummaryRequest)(nil),  // 6: factory.jobs.v1.GetJobSummaryRequest
+	(*GetJobSummaryResponse)(nil), // 7: factory.jobs.v1.GetJobSummaryResponse
+	(*timestamppb.Timestamp)(nil), // 8: google.protobuf.Timestamp
 }
 var file_factory_jobs_v1_jobs_proto_depIdxs = []int32{
-	7, // 0: factory.jobs.v1.ListJobsRequest.created_after:type_name -> google.protobuf.Timestamp
-	7, // 1: factory.jobs.v1.ListJobsRequest.created_before:type_name -> google.protobuf.Timestamp
-	4, // 2: factory.jobs.v1.ListJobsResponse.jobs:type_name -> factory.jobs.v1.Job
-	7, // 3: factory.jobs.v1.Job.created_at:type_name -> google.protobuf.Timestamp
-	7, // 4: factory.jobs.v1.GetJobSummaryRequest.period_start:type_name -> google.protobuf.Timestamp
-	7, // 5: factory.jobs.v1.GetJobSummaryRequest.period_end:type_name -> google.protobuf.Timestamp
-	0, // 6: factory.jobs.v1.JobService.GetJobStatus:input_type -> factory.jobs.v1.GetJobStatusRequest
-	2, // 7: factory.jobs.v1.JobService.ListJobs:input_type -> factory.jobs.v1.ListJobsRequest
-	5, // 8: factory.jobs.v1.JobService.GetJobSummary:input_type -> factory.jobs.v1.GetJobSummaryRequest
-	1, // 9: factory.jobs.v1.JobService.GetJobStatus:output_type -> factory.jobs.v1.GetJobStatusResponse
-	3, // 10: factory.jobs.v1.JobService.ListJobs:output_type -> factory.jobs.v1.ListJobsResponse
-	6, // 11: factory.jobs.v1.JobService.GetJobSummary:output_type -> factory.jobs.v1.GetJobSummaryResponse
-	9, // [9:12] is the sub-list for method output_type
-	6, // [6:9] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	0,  // 0: factory.jobs.v1.GetJobStatusResponse.status:type_name -> factory.jobs.v1.JobStatus
+	0,  // 1: factory.jobs.v1.ListJobsRequest.status:type_name -> factory.jobs.v1.JobStatus
+	8,  // 2: factory.jobs.v1.ListJobsRequest.created_after:type_name -> google.protobuf.Timestamp
+	8,  // 3: factory.jobs.v1.ListJobsRequest.created_before:type_name -> google.protobuf.Timestamp
+	5,  // 4: factory.jobs.v1.ListJobsResponse.jobs:type_name -> factory.jobs.v1.Job
+	0,  // 5: factory.jobs.v1.Job.status:type_name -> factory.jobs.v1.JobStatus
+	8,  // 6: factory.jobs.v1.Job.created_at:type_name -> google.protobuf.Timestamp
+	8,  // 7: factory.jobs.v1.GetJobSummaryRequest.period_start:type_name -> google.protobuf.Timestamp
+	8,  // 8: factory.jobs.v1.GetJobSummaryRequest.period_end:type_name -> google.protobuf.Timestamp
+	1,  // 9: factory.jobs.v1.JobService.GetJobStatus:input_type -> factory.jobs.v1.GetJobStatusRequest
+	3,  // 10: factory.jobs.v1.JobService.ListJobs:input_type -> factory.jobs.v1.ListJobsRequest
+	6,  // 11: factory.jobs.v1.JobService.GetJobSummary:input_type -> factory.jobs.v1.GetJobSummaryRequest
+	2,  // 12: factory.jobs.v1.JobService.GetJobStatus:output_type -> factory.jobs.v1.GetJobStatusResponse
+	4,  // 13: factory.jobs.v1.JobService.ListJobs:output_type -> factory.jobs.v1.ListJobsResponse
+	7,  // 14: factory.jobs.v1.JobService.GetJobSummary:output_type -> factory.jobs.v1.GetJobSummaryResponse
+	12, // [12:15] is the sub-list for method output_type
+	9,  // [9:12] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_factory_jobs_v1_jobs_proto_init() }
@@ -597,13 +663,14 @@ func file_factory_jobs_v1_jobs_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_factory_jobs_v1_jobs_proto_rawDesc), len(file_factory_jobs_v1_jobs_proto_rawDesc)),
-			NumEnums:      0,
+			NumEnums:      1,
 			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_factory_jobs_v1_jobs_proto_goTypes,
 		DependencyIndexes: file_factory_jobs_v1_jobs_proto_depIdxs,
+		EnumInfos:         file_factory_jobs_v1_jobs_proto_enumTypes,
 		MessageInfos:      file_factory_jobs_v1_jobs_proto_msgTypes,
 	}.Build()
 	File_factory_jobs_v1_jobs_proto = out.File

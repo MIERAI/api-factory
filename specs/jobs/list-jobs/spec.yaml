@@ -42,7 +42,7 @@ acceptance:
       expect: { code: OK, response: { jobs: [{ id: 4 }, { id: 3 }, { id: 2 }] } }
 
     - name: 管理画面最常用的查询 — 某类型的成功任务,新的在前
-      request: { job_type: export, status: 1 }
+      request: { job_type: export, status: JOB_STATUS_SUCCEEDED }
       expect: { code: OK, response: { jobs: [{ id: 7 }, { id: 6 }, { id: 1 }] } }
 
     - name: 时间范围颠倒(消息级 CEL 规则,不自动生成)

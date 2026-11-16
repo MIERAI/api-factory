@@ -26,6 +26,7 @@ const Version = "0.2"
 
 type Spec struct {
 	Path        string     `yaml:"-"`
+	Domain      *Domain    `yaml:"-"` // specs/<domain>/_domain.yaml(可选)
 	SpecVersion string     `yaml:"spec_version"`
 	API         API        `yaml:"api"`
 	Pattern     Pattern    `yaml:"pattern"`
@@ -234,6 +235,9 @@ func Load(path string) (*Spec, error) {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	s.Path = path
+	if s.Domain, err = LoadDomain(DomainPath(path)); err != nil {
+		return nil, err
+	}
 	return &s, nil
 }
 
@@ -266,6 +270,11 @@ func (s *Spec) Check() []string {
 	var errs []string
 	add := func(format string, args ...any) { errs = append(errs, fmt.Sprintf(format, args...)) }
 
+	if s.Domain != nil {
+		for _, e := range s.Domain.Check() {
+			add("%s: %s", s.Domain.Path, e)
+		}
+	}
 	if s.SpecVersion != Version {
 		add("spec_version: unsupported %q (want %q)", s.SpecVersion, Version)
 	}

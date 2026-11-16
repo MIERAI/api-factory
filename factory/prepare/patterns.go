@@ -71,6 +71,18 @@ type genCtx struct {
 	query   queryFunc
 	db      *dbPackage
 	imports map[string]string // path → alias("" = 默认)
+	// 领域层的 enum: 列名 → 映射(只限 datasource.table)
+	enums map[string]*enumMapping
+	// 请求字段名(norm) → 列名(声明式 datasource 的筛选条件)
+	filterCol map[string]string
+}
+
+// enumFor: 列对应的 enum 映射;proto 是 enum 但领域层没有映射时报错。
+func (g *genCtx) enumFor(column string) (*enumMapping, error) {
+	if m, ok := g.enums[column]; ok {
+		return m, nil
+	}
+	return nil, fmt.Errorf("column %q is mapped to a proto enum but the domain layer has no enum mapping for %s.%s", column, g.spec.Datasource.Table, column)
 }
 
 func (g *genCtx) use(path, alias string) { g.imports[path] = alias }
@@ -81,6 +93,24 @@ func (g *genCtx) pbType(m protoreflect.MessageDescriptor) string {
 
 // reqExpr: 请求字段 → 查询参数类型 的转换表达式。
 func (g *genCtx) reqExpr(fd protoreflect.FieldDescriptor, paramType string) (string, error) {
+	if fd.Kind() == protoreflect.EnumKind && !fd.IsList() {
+		column := string(fd.Name())
+		if c, ok := g.filterCol[norm(column)]; ok {
+			column = c
+		}
+		m, err := g.enumFor(column)
+		if err != nil {
+			return "", err
+		}
+		goName := goCamelCase(string(fd.Name()))
+		switch {
+		case fd.HasOptionalKeyword() && paramType == "*"+m.DBGoType:
+			return fmt.Sprintf("%sPtrToDB(m.%s)", m.Helper, goName), nil
+		case !fd.HasOptionalKeyword() && paramType == m.DBGoType:
+			return fmt.Sprintf("%sToDB(m.Get%s())", m.Helper, goName), nil
+		}
+		return "", fmt.Errorf("enum request field %s (optional=%v) cannot be mapped to query param type %s", fd.Name(), fd.HasOptionalKeyword(), paramType)
+	}
 	kind, err := protoGoKind(fd)
 	if err != nil {
 		return "", err
@@ -103,6 +133,16 @@ func (g *genCtx) reqExpr(fd protoreflect.FieldDescriptor, paramType string) (str
 
 // resExpr: 查询结果字段 → 响应字段 的转换表达式。
 func (g *genCtx) resExpr(src, srcType string, fd protoreflect.FieldDescriptor) (string, error) {
+	if fd.Kind() == protoreflect.EnumKind && !fd.IsList() {
+		m, err := g.enumFor(string(fd.Name()))
+		if err != nil {
+			return "", err
+		}
+		if srcType != m.DBGoType {
+			return "", fmt.Errorf("query column %s (%s) cannot be mapped to enum field %s (DB type %s)", src, srcType, fd.Name(), m.DBGoType)
+		}
+		return fmt.Sprintf("%sToProto(%s)", m.Helper, src), nil
+	}
 	kind, err := protoGoKind(fd)
 	if err != nil {
 		return "", err

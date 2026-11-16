@@ -3,7 +3,7 @@
 spec: specs/jobs/list-jobs/spec.yaml
 coverage:
     - 'validation: page_size(int32 范围/in)'
-    - 'validation: status(int32 范围/in)'
+    - 'validation: status(enum defined_only/not_in)'
     - 'validation: job_type(string 长度)'
     - 'validation: 消息级 CEL 规则不自动生成(需要人写用例)'
     - 'list_keyset: 排序 [created_at id] desc(合成数据含并列值)与字段映射'
@@ -53,47 +53,47 @@ suites:
             code: '!INVALID_ARGUMENT'
             response: {}
           steps: []
-        - name: status = 3(不在 in [0 1 2] 内)
-          request:
-            created_after: "2026-11-02T00:00:00Z"
-            created_before: "2026-11-05T00:00:00Z"
-            status: 3
-          expect:
-            code: INVALID_ARGUMENT
-            response: {}
-          steps: []
-        - name: status = -1(不在 in [0 1 2] 内)
-          request:
-            created_after: "2026-11-02T00:00:00Z"
-            created_before: "2026-11-05T00:00:00Z"
-            status: -1
-          expect:
-            code: INVALID_ARGUMENT
-            response: {}
-          steps: []
-        - name: status = 0(in [0 1 2] 内)
+        - name: status = 0(not_in)
           request:
             created_after: "2026-11-02T00:00:00Z"
             created_before: "2026-11-05T00:00:00Z"
             status: 0
           expect:
-            code: '!INVALID_ARGUMENT'
+            code: INVALID_ARGUMENT
             response: {}
           steps: []
-        - name: status = 1(in [0 1 2] 内)
+        - name: status = 4(未定义的值,defined_only)
           request:
             created_after: "2026-11-02T00:00:00Z"
             created_before: "2026-11-05T00:00:00Z"
-            status: 1
+            status: 4
+          expect:
+            code: INVALID_ARGUMENT
+            response: {}
+          steps: []
+        - name: status = JOB_STATUS_PENDING
+          request:
+            created_after: "2026-11-02T00:00:00Z"
+            created_before: "2026-11-05T00:00:00Z"
+            status: JOB_STATUS_PENDING
           expect:
             code: '!INVALID_ARGUMENT'
             response: {}
           steps: []
-        - name: status = 2(in [0 1 2] 内)
+        - name: status = JOB_STATUS_SUCCEEDED
           request:
             created_after: "2026-11-02T00:00:00Z"
             created_before: "2026-11-05T00:00:00Z"
-            status: 2
+            status: JOB_STATUS_SUCCEEDED
+          expect:
+            code: '!INVALID_ARGUMENT'
+            response: {}
+          steps: []
+        - name: status = JOB_STATUS_FAILED
+          request:
+            created_after: "2026-11-02T00:00:00Z"
+            created_before: "2026-11-05T00:00:00Z"
+            status: JOB_STATUS_FAILED
           expect:
             code: '!INVALID_ARGUMENT'
             response: {}
@@ -179,40 +179,40 @@ suites:
                     - created_at: "2026-01-01T03:00:00Z"
                       id: 8
                       job_type: beta
-                      status: 0
+                      status: JOB_STATUS_PENDING
                     - created_at: "2026-01-01T03:00:00Z"
                       id: 7
                       job_type: beta
-                      status: 0
+                      status: JOB_STATUS_PENDING
                     - created_at: "2026-01-01T02:00:00Z"
                       id: 6
                       job_type: alpha
-                      status: 2
+                      status: JOB_STATUS_FAILED
                     - created_at: "2026-01-01T02:00:00Z"
                       id: 5
                       job_type: alpha
-                      status: 2
+                      status: JOB_STATUS_FAILED
                     - created_at: "2026-01-01T01:00:00Z"
                       id: 4
                       job_type: beta
-                      status: 1
+                      status: JOB_STATUS_SUCCEEDED
                     - created_at: "2026-01-01T01:00:00Z"
                       id: 3
                       job_type: beta
-                      status: 1
+                      status: JOB_STATUS_SUCCEEDED
                     - created_at: "2026-01-01T00:00:00Z"
                       id: 2
                       job_type: alpha
-                      status: 0
+                      status: JOB_STATUS_PENDING
                     - created_at: "2026-01-01T00:00:00Z"
                       id: 1
                       job_type: alpha
-                      status: 0
+                      status: JOB_STATUS_PENDING
                 next_page_token: $absent
           steps: []
-        - name: 筛选 status = 0
+        - name: 筛选 status = JOB_STATUS_PENDING
           request:
-            status: 0
+            status: JOB_STATUS_PENDING
           expect:
             code: OK
             response:
@@ -222,9 +222,9 @@ suites:
                     - id: 2
                     - id: 1
           steps: []
-        - name: 筛选 status = 1
+        - name: 筛选 status = JOB_STATUS_SUCCEEDED
           request:
-            status: 1
+            status: JOB_STATUS_SUCCEEDED
           expect:
             code: OK
             response:
@@ -232,9 +232,9 @@ suites:
                     - id: 4
                     - id: 3
           steps: []
-        - name: 筛选 status = 2
+        - name: 筛选 status = JOB_STATUS_FAILED
           request:
-            status: 2
+            status: JOB_STATUS_FAILED
           expect:
             code: OK
             response:
@@ -293,7 +293,7 @@ suites:
         - name: 所有 eq 条件组合(筛选后排序,并列行次序)
           request:
             job_type: alpha
-            status: 0
+            status: JOB_STATUS_PENDING
           expect:
             code: OK
             response:
@@ -477,7 +477,7 @@ suites:
           steps:
             - request:
                 page_size: 1
-                status: 0
+                status: JOB_STATUS_PENDING
               expect:
                 code: OK
                 response:
@@ -485,7 +485,7 @@ suites:
             - request:
                 page_size: 1
                 page_token: $prev.next_page_token
-                status: 1
+                status: JOB_STATUS_SUCCEEDED
               expect:
                 code: INVALID_ARGUMENT
                 response: {}

@@ -185,6 +185,27 @@ func boundariesFor(fd protoreflect.FieldDescriptor, r *validate.FieldRules) ([]b
 		}
 		b = append(b, intBoundaries(gt, gte, lt, lte, x.GetIn())...)
 		rules = append(rules, "int64 范围/in")
+	case r.HasEnum() && fd.Enum() != nil:
+		x := r.GetEnum()
+		bad := map[int32]bool{}
+		for _, v := range x.GetNotIn() {
+			bad[v] = true
+			b = append(b, boundary{fmt.Sprintf("= %d(not_in)", v), int64(v), false, false})
+		}
+		if x.GetDefinedOnly() {
+			mx := int32(0)
+			for i := 0; i < fd.Enum().Values().Len(); i++ {
+				mx = max(mx, int32(fd.Enum().Values().Get(i).Number()))
+			}
+			b = append(b, boundary{fmt.Sprintf("= %d(未定义的值,defined_only)", mx+1), int64(mx + 1), false, false})
+		}
+		for i := 0; i < fd.Enum().Values().Len(); i++ {
+			v := fd.Enum().Values().Get(i)
+			if !bad[int32(v.Number())] {
+				b = append(b, boundary{fmt.Sprintf("= %s", v.Name()), string(v.Name()), true, false})
+			}
+		}
+		rules = append(rules, "enum defined_only/not_in")
 	case r.HasString():
 		x := r.GetString()
 		if x.HasMinLen() && x.GetMinLen() > 0 {
@@ -259,11 +280,37 @@ func validationSuite(s *spec.Spec, md protoreflect.MethodDescriptor) (spec.Suite
 // ---------------------------------------------------------------------------
 
 type synthPlan struct {
-	eqValues map[string][]any // 列 → 轮流取的值(eq 筛选列)
-	tieCol   string           // 制造并列值的列(keyset 的第一排序列)
+	eqValues   map[string][]any // 列 → 轮流取的值(eq 筛选列)
+	enumValues map[string][]any // 列 → 领域层定义的 DB 值(enum 列)
+	tieCol     string           // 制造并列值的列(keyset 的第一排序列)
 }
 
-func eqCandidates(f resolvedFilter) []any {
+func enumDBValues(d *spec.Domain, table, column string) []any {
+	m := d.Column(table, column)
+	if m == nil || m.Enum == nil {
+		return nil
+	}
+	var out []any
+	for _, v := range m.Enum.SortedDBValues() {
+		out = append(out, v)
+	}
+	return out
+}
+
+func enumPlan(d *spec.Domain, table string, cat *catalog) map[string][]any {
+	out := map[string][]any{}
+	for _, c := range cat.tables[table] {
+		if vals := enumDBValues(d, table, c.Name); vals != nil {
+			out[c.Name] = vals
+		}
+	}
+	return out
+}
+
+func eqCandidates(d *spec.Domain, table string, f resolvedFilter) []any {
+	if vals := enumDBValues(d, table, f.Column.Name); vals != nil {
+		return vals
+	}
 	if r := fieldRules(f.Field); r != nil {
 		switch {
 		case r.HasInt32() && len(r.GetInt32().GetIn()) > 0:
@@ -321,6 +368,10 @@ func synthesize(cat *catalog, table string, n int, plan synthPlan, needed map[st
 				row[c.Name] = vals[group%len(vals)]
 				continue
 			}
+			if vals, ok := plan.enumValues[c.Name]; ok {
+				row[c.Name] = vals[i%len(vals)] // 每个 enum 值都出现,映射表的每一项都被验证
+				continue
+			}
 			if !c.NotNull && !needed[c.Name] {
 				continue
 			}
@@ -356,6 +407,18 @@ func fixtureRows(rows []map[string]any) []map[string]any {
 		out = append(out, m)
 	}
 	return out
+}
+
+// present: 请求 / 期待值里的表示。enum 列: DB 值 → proto 值名(protojson 输出的是名字)。
+func present(d *spec.Domain, table, column string, v any) any {
+	if m := d.Column(table, column); m != nil && m.Enum != nil {
+		if n, ok := v.(int64); ok {
+			if name, ok := m.Enum.Values[n]; ok {
+				return name
+			}
+		}
+	}
+	return jsonValue(v)
 }
 
 // jsonValue: fixture / 请求 / 期待值里的表示(时间 → RFC3339 UTC,与 protojson 一致)。
@@ -448,13 +511,13 @@ func oracleSort(rows []map[string]any, orderBy []string, desc bool) []map[string
 	return out
 }
 
-func items(rows []map[string]any, fields []string) []any {
+func items(d *spec.Domain, table string, rows []map[string]any, fields []string) []any {
 	out := []any{}
 	for _, r := range rows {
 		m := map[string]any{}
 		for _, f := range fields {
 			if v, ok := r[f]; ok {
-				m[f] = jsonValue(v)
+				m[f] = present(d, table, f, v)
 			}
 		}
 		out = append(out, m)
@@ -489,7 +552,7 @@ func getByIDSuite(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalog) 
 	for _, c := range cols {
 		needed[c] = true
 	}
-	rows, err := synthesize(cat, table, 3, synthPlan{}, needed)
+	rows, err := synthesize(cat, table, 3, synthPlan{enumValues: enumPlan(s.Domain, table, cat)}, needed)
 	if err != nil {
 		return suite, nil, err
 	}
@@ -498,11 +561,11 @@ func getByIDSuite(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalog) 
 	for i, r := range rows {
 		req := map[string]any{}
 		for _, f := range filters {
-			req[f.Name] = jsonValue(r[f.Column.Name])
+			req[f.Name] = present(s.Domain, table, f.Column.Name, r[f.Column.Name])
 		}
 		resp := map[string]any{}
 		for _, f := range out {
-			resp[f] = jsonValue(r[f])
+			resp[f] = present(s.Domain, table, f, r[f])
 		}
 		suite.Cases = append(suite.Cases, spec.Case{
 			Name:    fmt.Sprintf("按键取到第 %d 行,响应字段与列一致", i+1),
@@ -546,10 +609,10 @@ func listKeysetSuite(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalo
 	for _, c := range cols {
 		needed[c] = true
 	}
-	plan := synthPlan{eqValues: map[string][]any{}, tieCol: p.OrderBy[0]}
+	plan := synthPlan{eqValues: map[string][]any{}, enumValues: enumPlan(s.Domain, table, cat), tieCol: p.OrderBy[0]}
 	for _, f := range filters {
 		if f.Op == "eq" {
-			if c := eqCandidates(f); len(c) > 0 && f.Column.Name != plan.tieCol {
+			if c := eqCandidates(s.Domain, table, f); len(c) > 0 && f.Column.Name != plan.tieCol {
 				plan.eqValues[f.Column.Name] = c
 			}
 		}
@@ -587,7 +650,7 @@ func listKeysetSuite(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalo
 	// 无筛选: 全部,排序(含并列行的次序),字段映射
 	all := list(nil)
 	add("无筛选 — 排序与字段映射(含并列行)", map[string]any{},
-		map[string]any{itemName: items(all, itemFields), "next_page_token": tokenFor(len(all) > int(p.PageSize.Default))})
+		map[string]any{itemName: items(s.Domain, table, all, itemFields), "next_page_token": tokenFor(len(all) > int(p.PageSize.Default))})
 	cov = append(cov, fmt.Sprintf("list_keyset: 排序 %v %s(合成数据含并列值)与字段映射", p.OrderBy, p.Direction))
 
 	key := p.OrderBy[len(p.OrderBy)-1]
@@ -603,9 +666,10 @@ func listKeysetSuite(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalo
 		}
 		for _, v := range vals {
 			got := list(map[string]any{f.Name: v})
-			add(fmt.Sprintf("筛选 %s %s %v", f.Name, f.SQLOp, jsonValue(v)),
-				map[string]any{f.Name: jsonValue(v)},
-				map[string]any{itemName: items(got, []string{p.OrderBy[len(p.OrderBy)-1]})})
+			pv := present(s.Domain, table, f.Column.Name, v)
+			add(fmt.Sprintf("筛选 %s %s %v", f.Name, f.SQLOp, pv),
+				map[string]any{f.Name: pv},
+				map[string]any{itemName: items(s.Domain, table, got, []string{key})})
 		}
 		cov = append(cov, fmt.Sprintf("list_keyset: 筛选 %s → %s %s(presence=%v)", f.Name, f.Column.Name, f.SQLOp, f.Presence))
 	}
@@ -620,10 +684,12 @@ func listKeysetSuite(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalo
 	if len(combo) >= 2 {
 		got := list(combo)
 		req := map[string]any{}
-		for k, v := range combo {
-			req[k] = jsonValue(v)
+		for _, f := range filters {
+			if v, ok := combo[f.Name]; ok {
+				req[f.Name] = present(s.Domain, table, f.Column.Name, v)
+			}
 		}
-		add("所有 eq 条件组合(筛选后排序,并列行次序)", req, map[string]any{itemName: items(got, []string{key})})
+		add("所有 eq 条件组合(筛选后排序,并列行次序)", req, map[string]any{itemName: items(s.Domain, table, got, []string{key})})
 		cov = append(cov, "list_keyset: eq 条件组合(不依赖索引顺序的排序)")
 	}
 
@@ -637,7 +703,7 @@ func listKeysetSuite(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalo
 				req["page_token"] = "$prev.next_page_token"
 			}
 			steps = append(steps, spec.Step{Request: req, Expect: spec.Expect{Code: "OK",
-				Response: map[string]any{itemName: items(all[start:end], []string{key}), "next_page_token": tokenFor(end < len(all))}}})
+				Response: map[string]any{itemName: items(s.Domain, table, all[start:end], []string{key}), "next_page_token": tokenFor(end < len(all))}}})
 		}
 		suite.Cases = append(suite.Cases, spec.Case{Name: fmt.Sprintf("翻页走到底 page_size=%d", k), Steps: steps})
 	}
@@ -646,16 +712,16 @@ func listKeysetSuite(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalo
 	// 翻页途中改 page_size 是允许的
 	if len(all) >= 5 {
 		suite.Cases = append(suite.Cases, spec.Case{Name: "翻页途中改 page_size 是允许的", Steps: []spec.Step{
-			{Request: map[string]any{"page_size": 2}, Expect: spec.Expect{Code: "OK", Response: map[string]any{itemName: items(all[:2], []string{key}), "next_page_token": "$nonempty"}}},
-			{Request: map[string]any{"page_size": 3, "page_token": "$prev.next_page_token"}, Expect: spec.Expect{Code: "OK", Response: map[string]any{itemName: items(all[2:5], []string{key})}}},
+			{Request: map[string]any{"page_size": 2}, Expect: spec.Expect{Code: "OK", Response: map[string]any{itemName: items(s.Domain, table, all[:2], []string{key}), "next_page_token": "$nonempty"}}},
+			{Request: map[string]any{"page_size": 3, "page_token": "$prev.next_page_token"}, Expect: spec.Expect{Code: "OK", Response: map[string]any{itemName: items(s.Domain, table, all[2:5], []string{key})}}},
 		}})
 	}
 	// 翻页途中改筛选条件 → 旧 token 失效
 	for _, f := range filters {
 		if vals := plan.eqValues[f.Column.Name]; len(vals) >= 2 {
 			suite.Cases = append(suite.Cases, spec.Case{Name: fmt.Sprintf("翻页途中改筛选条件(%s) → INVALID_ARGUMENT", f.Name), Steps: []spec.Step{
-				{Request: map[string]any{f.Name: jsonValue(vals[0]), "page_size": 1}, Expect: spec.Expect{Code: "OK", Response: map[string]any{"next_page_token": "$nonempty"}}},
-				{Request: map[string]any{f.Name: jsonValue(vals[1]), "page_size": 1, "page_token": "$prev.next_page_token"}, Expect: spec.Expect{Code: "INVALID_ARGUMENT"}},
+				{Request: map[string]any{f.Name: present(s.Domain, table, f.Column.Name, vals[0]), "page_size": 1}, Expect: spec.Expect{Code: "OK", Response: map[string]any{"next_page_token": "$nonempty"}}},
+				{Request: map[string]any{f.Name: present(s.Domain, table, f.Column.Name, vals[1]), "page_size": 1, "page_token": "$prev.next_page_token"}, Expect: spec.Expect{Code: "INVALID_ARGUMENT"}},
 			}})
 			break
 		}

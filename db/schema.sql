@@ -2,7 +2,7 @@
 CREATE TABLE IF NOT EXISTS jobs (
     id         BIGINT      PRIMARY KEY,
     job_type   TEXT        NOT NULL DEFAULT 'default',
-    status     INTEGER     NOT NULL,
+    status     INTEGER     NOT NULL CHECK (status IN (0, 1, 2)),  -- 含义见 specs/jobs/_domain.yaml
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now() CHECK (isfinite(created_at)),
     finished_at TIMESTAMPTZ          CHECK (finished_at IS NULL OR isfinite(finished_at))  -- 成功/失败时写入;未完成为 NULL
 );

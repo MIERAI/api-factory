@@ -8,6 +8,15 @@ import "google/protobuf/timestamp.proto";
 option go_package = "apifactory/gen/factory/jobs/v1;jobsv1";
 
 // 异步任务的状态查询
+// 任务的处理状态。0 是 UNSPECIFIED(proto3 无法区分"未设置"和 0,所以 0 不能有业务含义)。
+// DB 里的值(0/1/2)和这里的对应关系定义在 specs/jobs/_domain.yaml。
+enum JobStatus {
+  JOB_STATUS_UNSPECIFIED = 0;
+  JOB_STATUS_PENDING = 1;
+  JOB_STATUS_SUCCEEDED = 2;
+  JOB_STATUS_FAILED = 3;
+}
+
 service JobService {
   // 按 id 返回一个任务的 status
   //   OK               : 存在
@@ -32,8 +41,8 @@ message GetJobStatusRequest {
 }
 
 message GetJobStatusResponse {
-  // 0: 未完成 / 1: 成功 / 2: 失败
-  int32 status = 1;
+  // 读到不认识的 DB 值时为 JOB_STATUS_UNSPECIFIED(客户端应同样处理将来新增的值)
+  JobStatus status = 1;
 }
 
 message ListJobsRequest {
@@ -50,9 +59,10 @@ message ListJobsRequest {
   }];
   // 上一页返回的 next_page_token。不透明字符串,调用方不应解析
   string page_token = 2;
-  // 指定时按 status 筛选(0 也是合法的筛选值)
-  optional int32 status = 3 [(buf.validate.field).int32 = {
-    in: [0, 1, 2]
+  // 指定时按 status 筛选
+  optional JobStatus status = 3 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
   }];
   // 指定时按 job_type 完全一致筛选
   optional string job_type = 4 [(buf.validate.field).string = {
@@ -74,7 +84,7 @@ message ListJobsResponse {
 message Job {
   int64 id = 1;
   string job_type = 2;
-  int32 status = 3;
+  JobStatus status = 3;
   google.protobuf.Timestamp created_at = 4;
 }
 
