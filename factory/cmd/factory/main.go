@@ -40,6 +40,8 @@ func main() {
 		err = cmdGuard(args)
 	case "accept":
 		err = cmdAccept(args)
+	case "ai-paths":
+		err = cmdAIPaths(args)
 	default:
 		usage()
 	}
@@ -189,5 +191,21 @@ func cmdAccept(args []string) error {
 		return fmt.Errorf("acceptance failed: %d/%d case(s)", failed, len(results))
 	}
 	fmt.Printf("✓ acceptance passed (%d case(s))\n", len(results))
+	return nil
+}
+
+// cmdAIPaths 列出式样书允许 AI 编辑的路径(试验脚本用来重置到 AI 动手前的状态)。
+func cmdAIPaths(args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("usage: factory ai-paths <spec.yaml>")
+	}
+	s, err := spec.Load(args[0])
+	if err != nil {
+		return err
+	}
+	fmt.Println(s.API.ID)
+	for _, p := range s.Generation.AIMayEdit {
+		fmt.Println(p)
+	}
 	return nil
 }
