@@ -3,6 +3,7 @@
 spec: specs/shop/get-order-with-items/spec.yaml
 coverage:
     - 'validation: order_id(int64 范围/in)'
+    - '逃生口 SQL: 没有差分测试(只有人写的用例)'
 suites:
     - name: validation
       cases:

@@ -124,6 +124,9 @@ func runDiff(ctx context.Context, conn *pgx.Conn, url string, plan *ir.Plan, api
 		}
 		results = append(results, Result{Spec: api.ID, Suite: "diff", Case: name, Passed: ok, Detail: detail})
 	}
+	if api.Pattern == "list_keyset" {
+		results = append(results, env.pageExitCases(url)...)
+	}
 	// 覆盖条件: 单条 → 找到和找不到都出现;分页 → 出现多行(要翻页)和 0 行
 	cover := fmt.Sprintf("数据 %d 行(拒绝 %d)/ 结果 0 行 %d 次、1 行 %d 次、多行 %d 次、不合法 %d 次", inserted, rejected, hits["0"], hits["1"], hits["n"], hits["invalid"])
 	okCover := hits["0"] > 0 && hits["1"]+hits["n"] > 0
@@ -141,9 +144,12 @@ func runDiff(ctx context.Context, conn *pgx.Conn, url string, plan *ir.Plan, api
 var textDomain = []string{"a", "b", "B", "a%", "a_", "ab", "abc", "é"}
 var intDomain = []int64{1, 2, 3, 10}
 
+// uniqueColumns: 需要唯一序号的列。单列的主键 / 唯一约束 → 这一列;
+// 复合的 → 最后一列(前面的列保持小值域,形成分组: 例如 (order_id, line_no) 每个订单有多行)。
 func (e *diffEnv) uniqueColumns() (map[string]bool, error) {
 	rows, err := e.conn.Query(e.ctx, `
-		SELECT kcu.column_name, count(*) OVER (PARTITION BY tc.constraint_name)
+		SELECT kcu.column_name,
+		       kcu.ordinal_position = max(kcu.ordinal_position) OVER (PARTITION BY tc.constraint_name)
 		FROM information_schema.table_constraints tc
 		JOIN information_schema.key_column_usage kcu
 		  ON kcu.constraint_schema = tc.constraint_schema AND kcu.constraint_name = tc.constraint_name
@@ -155,11 +161,11 @@ func (e *diffEnv) uniqueColumns() (map[string]bool, error) {
 	out := map[string]bool{}
 	for rows.Next() {
 		var col string
-		var n int64
-		if err := rows.Scan(&col, &n); err != nil {
+		var last bool
+		if err := rows.Scan(&col, &last); err != nil {
 			return nil, err
 		}
-		if n == 1 { // 单列的主键 / 唯一约束
+		if last {
 			out[col] = true
 		}
 	}
@@ -481,8 +487,8 @@ func (e *diffEnv) runOne(url string, ps core.Params) (bool, string, int) {
 		items := e.api.Keyset.ItemsField
 		msg := e.api.Response.Field(items).Message
 		var steps []spec.Step
-		size := diffPageSize
-		omitSize := e.rnd.Intn(4) == 0 // 有时不传 page_size: 用式样书的默认值
+		size := []int{1, diffPageSize, diffPageSize}[e.rnd.Intn(3)] // 1: 并列行跨页
+		omitSize := e.rnd.Intn(4) == 0                              // 有时不传 page_size: 用式样书的默认值
 		if omitSize {
 			size = int(e.api.Keyset.DefaultSize)
 		}
@@ -512,4 +518,81 @@ func (e *diffEnv) runOne(url string, ps core.Params) (bool, string, int) {
 		return ok, fmt.Sprintf("%d 行 / %d 页: %s", n, len(steps), detail), n
 	}
 	return false, "不支持的模式", n
+}
+
+// pageExitCases: 分页出口自己的行为(不在 SQL 流水线里): 途中改 page_size / 途中改筛选条件 / 非法 token。
+// 期待值同样来自参考求值器。
+func (e *diffEnv) pageExitCases(url string) []Result {
+	items := e.api.Keyset.ItemsField
+	msg := e.api.Response.Field(items).Message
+	res := func(name string, c spec.Case) Result {
+		ok, detail := runCase(url, c, &e.api.Response)
+		return Result{Spec: e.api.ID, Suite: "diff", Case: "分页出口: " + name, Passed: ok, Detail: detail}
+	}
+	// 找一个合法、结果 ≥ 5 行的请求做基础
+	var base core.Params
+	var rows []core.Row
+	for _, ps := range e.requests() {
+		req := e.request(ps)
+		req["page_size"] = 1
+		if bad, err := e.invalid(req); err != nil || bad {
+			continue
+		}
+		evalParams := core.Params{"row_limit": int64(1 << 30)}
+		for k, v := range ps {
+			evalParams[k] = v
+		}
+		r, err := core.Eval(e.api.Pipeline, map[string][]core.Row{e.table: e.rows}, evalParams)
+		if err == nil && len(r.Rows) >= 5 {
+			base, rows = ps, r.Rows
+			break
+		}
+	}
+	if base == nil {
+		return []Result{{Spec: e.api.ID, Suite: "diff", Case: "分页出口", Passed: false, Detail: "找不到结果 ≥ 5 行的请求(覆盖不足)"}}
+	}
+	list := func(rs []core.Row) []any {
+		out := []any{}
+		for _, r := range rs {
+			out = append(out, e.item(r, msg))
+		}
+		return out
+	}
+	with := func(extra map[string]any) map[string]any {
+		req := e.request(base)
+		for k, v := range extra {
+			req[k] = v
+		}
+		return req
+	}
+	out := []Result{
+		res("途中改 page_size 是允许的", spec.Case{Steps: []spec.Step{
+			{Request: with(map[string]any{"page_size": 2}), Expect: spec.Expect{Code: "OK", Response: map[string]any{items: list(rows[:2]), "next_page_token": "$nonempty"}}},
+			{Request: with(map[string]any{"page_size": 3, "page_token": "$prev.next_page_token"}), Expect: spec.Expect{Code: "OK", Response: map[string]any{items: list(rows[2:5])}}},
+		}}),
+		res("非法 page_token → INVALID_ARGUMENT", spec.Case{Request: with(map[string]any{"page_token": "not-a-valid-token"}),
+			Expect: spec.Expect{Code: "INVALID_ARGUMENT", MessageContains: "page_token"}}),
+	}
+	// 途中改筛选条件 → 旧 token 失效: 改一个筛选参数的值(或者加上一个),改了之后的请求本身必须合法
+	for _, d := range e.userParams() {
+		f := e.filter[d.Name]
+		for _, r := range e.rows {
+			v := r[f.Column]
+			if v == nil || core.Canonical(v) == core.Canonical(base[d.Name]) {
+				continue
+			}
+			changed := with(map[string]any{d.Name: e.present(f.Column, v), "page_size": 1, "page_token": "$prev.next_page_token"})
+			probe := with(map[string]any{d.Name: e.present(f.Column, v), "page_size": 1})
+			if bad, err := e.invalid(probe); err != nil || bad {
+				continue
+			}
+			out = append(out, res(fmt.Sprintf("途中改筛选条件(%s)→ INVALID_ARGUMENT", d.Name), spec.Case{Steps: []spec.Step{
+				{Request: with(map[string]any{"page_size": 1}), Expect: spec.Expect{Code: "OK", Response: map[string]any{"next_page_token": "$nonempty"}}},
+				{Request: changed, Expect: spec.Expect{Code: "INVALID_ARGUMENT", MessageContains: "page_token"}},
+			}}))
+			return out
+		}
+	}
+	return append(out, Result{Spec: e.api.ID, Suite: "diff", Case: "分页出口: 途中改筛选条件", Passed: len(e.userParams()) == 0,
+		Detail: "没有可以改的筛选参数"})
 }

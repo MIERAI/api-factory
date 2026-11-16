@@ -3,8 +3,8 @@
 spec: specs/shop/get-product-by-sku/spec.yaml
 coverage:
     - 'validation: sku(string 长度)'
-    - 'get_by_id: 按键取得(响应字段 ↔ 列映射)'
-    - 'get_by_id: 不存在 → NOT_FOUND'
+    - '差分测试(运行时): 随机数据 + 核心代数的参考求值器,覆盖筛选 / 排序 / 字段映射 / 翻页'
+    - '差分测试(运行时): 不合法的随机请求(protovalidate)→ INVALID_ARGUMENT'
 suites:
     - name: validation
       cases:
@@ -34,73 +34,5 @@ suites:
             sku: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
           expect:
             code: '!INVALID_ARGUMENT'
-            response: {}
-          steps: []
-    - name: pattern:get_by_id
-      fixtures:
-        products:
-            - category: v01
-              created_at: "2026-01-01T00:00:00Z"
-              id: 1
-              name: v01
-              sku: v01
-              status: 0
-            - category: v02
-              created_at: "2026-01-01T01:00:00Z"
-              id: 2
-              name: v02
-              sku: v02
-              status: 1
-            - category: v03
-              created_at: "2026-01-01T02:00:00Z"
-              id: 3
-              name: v03
-              sku: v03
-              status: 2
-      cases:
-        - name: 按键取到第 1 行,响应字段与列一致
-          request:
-            sku: v01
-          expect:
-            code: OK
-            response:
-                category: v01
-                created_at: "2026-01-01T00:00:00Z"
-                id: 1
-                name: v01
-                sku: v01
-                status: PRODUCT_STATUS_ACTIVE
-          steps: []
-        - name: 按键取到第 2 行,响应字段与列一致
-          request:
-            sku: v02
-          expect:
-            code: OK
-            response:
-                category: v02
-                created_at: "2026-01-01T01:00:00Z"
-                id: 2
-                name: v02
-                sku: v02
-                status: PRODUCT_STATUS_DISCONTINUED
-          steps: []
-        - name: 按键取到第 3 行,响应字段与列一致
-          request:
-            sku: v03
-          expect:
-            code: OK
-            response:
-                category: v03
-                created_at: "2026-01-01T02:00:00Z"
-                id: 3
-                name: v03
-                sku: v03
-                status: PRODUCT_STATUS_DRAFT
-          steps: []
-        - name: 不存在的键 → NOT_FOUND
-          request:
-            sku: not-found-key
-          expect:
-            code: NOT_FOUND
             response: {}
           steps: []

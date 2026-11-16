@@ -47,10 +47,9 @@ type API struct {
 	Request  Message `json:"request"`
 	Response Message `json:"response"`
 
-	Query        Query          `json:"query"`
-	Pipeline     *core.Pipeline `json:"pipeline,omitempty"`      // 声明式查询: 只含基本元件(逃生口的 SQL 没有)
-	Filters      []Filter       `json:"filters,omitempty"`       // 声明式 datasource 才有
-	TableColumns []Column       `json:"table_columns,omitempty"` // datasource.table 的全部列(合成测试数据用)
+	Query    Query          `json:"query"`
+	Pipeline *core.Pipeline `json:"pipeline,omitempty"` // 声明式查询: 只含基本元件(逃生口的 SQL 没有)
+	Filters  []Filter       `json:"filters,omitempty"`  // 声明式 datasource 才有
 
 	GetByID *GetByID `json:"get_by_id,omitempty"`
 	Keyset  *Keyset  `json:"keyset,omitempty"`
@@ -122,7 +121,6 @@ type Query struct {
 	Escape      bool     `json:"escape,omitempty"` // datasource.sql 逃生口
 	Columns     []Column `json:"columns"`          // 结果列(sqlc 分析)
 	Params      []Param  `json:"params"`           // 参数(sqlc 分析)
-	Select      []string `json:"select,omitempty"` // 声明式: SELECT 的列(合成数据用)
 }
 
 type Filter struct {

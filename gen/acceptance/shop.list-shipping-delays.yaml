@@ -5,6 +5,7 @@ coverage:
     - 'validation: page_size(int32 范围/in)'
     - 'validation: as_of(required)'
     - 'validation: min_days(int32 范围/in)'
+    - '逃生口 SQL: 没有差分测试(只有人写的用例)'
 suites:
     - name: validation
       cases:

@@ -75,7 +75,6 @@ func Compile(specs []*spec.Spec) (*ir.Plan, error) {
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", s.Path, err)
 			}
-			api.Query.Select = cols
 			for _, f := range filters {
 				api.Filters = append(api.Filters, ir.Filter{Field: f.Name, Column: f.Column.Name, ColumnType: f.Column.Type, Op: f.Op, SQLOp: f.SQLOp, Presence: f.Presence})
 			}
@@ -204,9 +203,6 @@ func apiSkeleton(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalog) (
 		Query: ir.Query{
 			Name: s.QueryName(), Cardinality: s.Cardinality(), Escape: s.Datasource.SQL != "",
 		},
-	}
-	for _, c := range cat.tables[s.Datasource.Table] {
-		api.TableColumns = append(api.TableColumns, ir.Column{Name: c.Name, Type: c.Type, NotNull: c.NotNull})
 	}
 	switch s.PatternKind() {
 	case "get_by_id":

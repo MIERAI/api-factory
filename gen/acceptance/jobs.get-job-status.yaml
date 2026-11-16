@@ -3,8 +3,8 @@
 spec: specs/jobs/get-job-status/spec.yaml
 coverage:
     - 'validation: job_id(int64 范围/in)'
-    - 'get_by_id: 按键取得(响应字段 ↔ 列映射)'
-    - 'get_by_id: 不存在 → NOT_FOUND'
+    - '差分测试(运行时): 随机数据 + 核心代数的参考求值器,覆盖筛选 / 排序 / 字段映射 / 翻页'
+    - '差分测试(运行时): 不合法的随机请求(protovalidate)→ INVALID_ARGUMENT'
 suites:
     - name: validation
       cases:
@@ -20,52 +20,5 @@ suites:
             job_id: 1
           expect:
             code: '!INVALID_ARGUMENT'
-            response: {}
-          steps: []
-    - name: pattern:get_by_id
-      fixtures:
-        jobs:
-            - created_at: "2026-01-01T00:00:00Z"
-              id: 1
-              job_type: v01
-              status: 0
-            - created_at: "2026-01-01T01:00:00Z"
-              id: 2
-              job_type: v02
-              status: 1
-            - created_at: "2026-01-01T02:00:00Z"
-              id: 3
-              job_type: v03
-              status: 2
-      cases:
-        - name: 按键取到第 1 行,响应字段与列一致
-          request:
-            job_id: 1
-          expect:
-            code: OK
-            response:
-                status: JOB_STATUS_PENDING
-          steps: []
-        - name: 按键取到第 2 行,响应字段与列一致
-          request:
-            job_id: 2
-          expect:
-            code: OK
-            response:
-                status: JOB_STATUS_SUCCEEDED
-          steps: []
-        - name: 按键取到第 3 行,响应字段与列一致
-          request:
-            job_id: 3
-          expect:
-            code: OK
-            response:
-                status: JOB_STATUS_FAILED
-          steps: []
-        - name: 不存在的键 → NOT_FOUND
-          request:
-            job_id: 1000
-          expect:
-            code: NOT_FOUND
             response: {}
           steps: []

@@ -4,6 +4,7 @@ spec: specs/shop/get-product-price-as-of/spec.yaml
 coverage:
     - 'validation: product_id(int64 范围/in)'
     - 'validation: as_of(required)'
+    - '逃生口 SQL: 没有差分测试(只有人写的用例)'
 suites:
     - name: validation
       cases:
