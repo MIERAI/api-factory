@@ -28,3 +28,31 @@ func TSPtr(t *time.Time) *timestamppb.Timestamp {
 	}
 	return timestamppb.New(*t)
 }
+
+// 日期(DB 的 date)在 API 里是 "YYYY-MM-DD" 字符串。格式由 protovalidate 的正则先检查过。
+const dateLayout = "2006-01-02"
+
+// Date: "2026-11-01" → time.Time(UTC 0 点)
+func Date(s string) time.Time {
+	t, _ := time.Parse(dateLayout, s)
+	return t
+}
+
+// DatePtr: 可选的日期(nil = 未指定)
+func DatePtr(s *string) *time.Time {
+	if s == nil {
+		return nil
+	}
+	t := Date(*s)
+	return &t
+}
+
+func DateString(t time.Time) string { return t.Format(dateLayout) }
+
+func DateStringPtr(t *time.Time) *string {
+	if t == nil {
+		return nil
+	}
+	s := DateString(*t)
+	return &s
+}

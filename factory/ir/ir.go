@@ -101,6 +101,7 @@ type Rules struct {
 	MaxLen   *uint64 `json:"max_len,omitempty"`
 	Defined  bool    `json:"defined_only,omitempty"`
 	MinItems *uint64 `json:"min_items,omitempty"` // repeated: 至少几个(1 = 列表不能为空)
+	Pattern  string  `json:"pattern,omitempty"`   // string: 正则(日期 YYYY-MM-DD / 十进制)
 }
 
 type Column struct {

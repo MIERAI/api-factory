@@ -45,4 +45,7 @@ run "前缀: 去掉 _ 的转义"               $P "s/, '_', '\\\\_'\\)/, '_', '_
 L=gen/db/jobs.list-jobs-by-types.sql.go
 run "属于: 不传时没有 coalesce(试用里的真 bug)" $L 's/\(coalesce\(cardinality\(\$1::text\[\]\), 0\) = 0\)/(cardinality(\$1::text[]) = 0)/'
 run "属于: 忽略列表条件"                $L 's/OR \(t1\.id = ANY\(\$2::int8\[\]\)\)/OR TRUE/'
+S=gen/db/sales.list-top-sales.sql.go
+run "小数: 按文本比较(试用里的真 bug)"    $S 's/\(t1\.amount >= \$3::numeric\)/(t1.amount::text >= \$3::text)/'
+run "小数: 按文本排序(试用里的真 bug)"    $S 's/ORDER BY t2\.amount DESC/ORDER BY t2.amount::text DESC/'
 go build -o bin/server ./cmd/server; git status --short

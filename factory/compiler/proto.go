@@ -141,6 +141,9 @@ func convRules(fd protoreflect.FieldDescriptor) *ir.Rules {
 		if x.HasMaxLen() {
 			out.MaxLen = ptr(x.GetMaxLen())
 		}
+		if x.HasPattern() {
+			out.Pattern = x.GetPattern()
+		}
 	}
 	return out
 }

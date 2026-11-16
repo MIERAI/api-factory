@@ -9,6 +9,7 @@ package design
 
 import (
 	"fmt"
+	"math/big"
 	"regexp"
 	"strconv"
 	"strings"
@@ -74,6 +75,16 @@ func (c *ctx) value(kind string, n *yaml.Node) (any, error) {
 			names = append(names, x.Name)
 		}
 		return nil, fmt.Errorf("%q 不是枚举 %s 的值(可以用: %v / 未指定)", v, en.Name, names)
+	case kind == "date":
+		if _, err := time.Parse("2006-01-02", v); err != nil {
+			return nil, fmt.Errorf("日期 %q 要写成 2026-11-01 的形式", v)
+		}
+		return v, nil
+	case kind == "decimal":
+		if _, ok := new(big.Rat).SetString(v); !ok {
+			return nil, fmt.Errorf("%q 不是十进制数", v)
+		}
+		return v, nil // 小数保持原样的十进制写法
 	case kind == "int":
 		i, err := strconv.ParseInt(v, 10, 64)
 		if err != nil {

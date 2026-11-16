@@ -66,6 +66,13 @@ func (g *genCtx) reqExpr(f *ir.Field, paramType string) (string, error) {
 		}
 		return "", fmt.Errorf("list request field %s (%s) cannot be mapped to query param type %s", f.Name, f.Kind, paramType)
 	}
+	if f.Kind == "string" && (paramType == "time.Time" || paramType == "*time.Time") { // 日期 "YYYY-MM-DD"
+		g.use("apifactory/platform/conv", "")
+		if paramType == "*time.Time" {
+			return fmt.Sprintf("conv.DatePtr(m.%s)", goName), nil
+		}
+		return fmt.Sprintf("conv.Date(m.Get%s())", goName), nil
+	}
 	if f.Kind == "enum" && !f.List {
 		column := f.Name
 		if c, ok := g.filterCol[norm(column)]; ok {
@@ -118,6 +125,12 @@ func (g *genCtx) resExpr(src, srcType string, f *ir.Field) (string, error) {
 		return "", err
 	}
 	switch {
+	case kind == "string" && srcType == "time.Time": // date 列 → "YYYY-MM-DD"
+		g.use("apifactory/platform/conv", "")
+		return fmt.Sprintf("conv.DateString(%s)", src), nil
+	case kind == "string" && srcType == "*time.Time" && f.Optional:
+		g.use("apifactory/platform/conv", "")
+		return fmt.Sprintf("conv.DateStringPtr(%s)", src), nil
 	case kind == "ts" && srcType == "time.Time":
 		g.use("apifactory/platform/conv", "")
 		return fmt.Sprintf("conv.TS(%s)", src), nil

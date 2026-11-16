@@ -1,0 +1,43 @@
+# ============================================================================
+# ListTopSales: 売上の多い順(日期 / 十进制 的示例)
+# ============================================================================
+API: ListTopSales
+说明: 売上金額の多い順に、日別・店別の売上を返す
+背景: 売上ランキング。金額は十进制で比較・並べ替えする(文字列の辞書順にしてはいけない)
+负责人: sales-team
+风险: 低
+
+种类: 一览
+数据来源: daily_sales
+
+输入:
+  store_code: { 类型: 整数32, 必填: 否, 范围: "> 0", 说明: 店舗コード, 筛选: store_code 等于 }
+  date_from:  { 类型: 日期,   必填: 否, 说明: 売上日の下限(含), 筛选: sales_date 大于等于 }
+  min_amount: { 类型: 十进制, 必填: 否, 说明: 金額の下限(含),   筛选: amount 大于等于 }
+
+输出:
+  sales_date: 売上日
+  store_code: 店舗コード
+  amount:     売上金額
+  discount:   値引き額
+  closed_on:  締め日
+
+排序: [amount 大到小, sales_date 大到小, store_code 大到小]
+分页: { 默认每页: 20, 每页最多: 100 }
+
+例子:
+  准备数据:
+    daily_sales:
+      - { sales_date: 2026-11-01, store_code: 1, amount: 9,      discount: null, closed_on: 2026-11-02 }
+      - { sales_date: 2026-11-01, store_code: 2, amount: 10,     discount: 0.5,  closed_on: null }
+      - { sales_date: 2026-11-02, store_code: 1, amount: 100.25, discount: null, closed_on: null }
+  用例:
+    - 说明: 金額は数値として並べる(10 は 9 より大きい。文字列の辞書順だと逆になる)
+      输入: {}
+      结果: { daily_sales: [{ amount: "100.25", sales_date: "2026-11-02" }, { amount: "10", discount: "0.5", closed_on: 不设置 }, { amount: "9", closed_on: "2026-11-02" }] }
+    - 说明: "金額の下限(数値で比較、10 >= 9.5)"
+      输入: { min_amount: "9.5" }
+      结果: { daily_sales: [{ amount: "100.25" }, { amount: "10" }] }
+    - 说明: 売上日の下限
+      输入: { date_from: 2026-11-02 }
+      结果: { daily_sales: [{ store_code: 1, amount: "100.25" }] }

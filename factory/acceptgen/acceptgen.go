@@ -154,10 +154,26 @@ func boundariesFor(f *ir.Field) ([]boundary, []string) {
 			b = append(b, boundary{fmt.Sprintf("长度 %d(max_len %d 的边界,违反)", n+1, n), strings.Repeat("a", n+1), false, false},
 				boundary{fmt.Sprintf("长度 %d(max_len %d 的边界,合法)", n, n), strings.Repeat("a", n), true, false})
 		}
+		switch r.Pattern {
+		case datePattern:
+			b = append(b, boundary{"日期格式不对(2026/01/01)", "2026/01/01", false, false},
+				boundary{"日期格式正确(2026-01-01)", "2026-01-01", true, false})
+			rules = append(rules, "日期格式")
+		case decimalPattern:
+			b = append(b, boundary{"十进制格式不对(1e3)", "1e3", false, false},
+				boundary{"十进制格式正确(-12.50)", "-12.50", true, false})
+			rules = append(rules, "十进制格式")
+		}
 		rules = append(rules, "string 长度")
 	}
 	return b, rules
 }
+
+// 设计编译器生成的格式(proto 里的 string.pattern)
+const (
+	datePattern    = `^\d{4}-\d{2}-\d{2}$`
+	decimalPattern = `^-?\d+(\.\d+)?$`
+)
 
 func (c *ctx) validationSuite() (spec.Suite, []string) {
 	suite := spec.Suite{Name: "validation"}

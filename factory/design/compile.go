@@ -182,13 +182,21 @@ func writeYAML(path, from string, v any) error {
 var inputTypes = map[string][2]string{ // 中文类型 → proto 类型, 值的种类
 	"整数32": {"int32", "int"}, "整数64": {"int64", "int"}, "文本": {"string", "string"},
 	"时间": {"google.protobuf.Timestamp", "time"}, "布尔": {"bool", "bool"}, "小数": {"double", "float"},
+	"日期": {"string", "date"}, "十进制": {"string", "decimal"}, // "YYYY-MM-DD" / 精确的十进制字符串(numeric 列用)
 }
+
+// proto 字符串里的写法(反斜杠要转义)
+const (
+	datePattern    = `^\\d{4}-\\d{2}-\\d{2}$`
+	decimalPattern = `^-?\\d+(\\.\\d+)?$`
+)
 
 var columnTypes = map[string][2]string{
 	"int2": {"int32", "int"}, "int4": {"int32", "int"}, "int8": {"int64", "int"},
 	"text": {"string", "string"}, "varchar": {"string", "string"}, "bpchar": {"string", "string"},
 	"bool": {"bool", "bool"}, "float8": {"double", "float"}, "float4": {"float", "float"},
 	"timestamptz": {"google.protobuf.Timestamp", "time"}, "timestamp": {"google.protobuf.Timestamp", "time"},
+	"date": {"string", "date"}, "numeric": {"string", "decimal"}, // "YYYY-MM-DD" / 十进制字符串(保持精度)
 }
 
 var filterOps = map[string]string{"等于": "eq", "大于": "gt", "大于等于": "gte", "小于": "lt", "小于等于": "lte", "前缀匹配": "prefix"}
@@ -266,6 +274,13 @@ func (c *ctx) inputField(a *API, in *Input, e *errs) *field {
 		if in.Required {
 			f.Rules = append(f.Rules, "required = true")
 		}
+	case kind == "date" || kind == "decimal":
+		f.Optional = !in.Required
+		pat := datePattern
+		if kind == "decimal" {
+			pat = decimalPattern
+		}
+		f.Rules = append(f.Rules, fmt.Sprintf("string.pattern = \"%s\"", pat))
 	default:
 		f.Optional = !in.Required
 	}
