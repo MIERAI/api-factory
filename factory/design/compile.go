@@ -708,3 +708,6 @@ func (l *Lock) save() error {
 	head := "# 由设计编译器维护,不要手改。proto 的字段编号对外发布后不能变: 只追加,删掉的字段编号保留(reserved)\n"
 	return os.WriteFile(l.path, append([]byte(head), b...), 0o644)
 }
+
+// Kebab: GetJobSummary → get-job-summary(design 的文件名 → API 的 id)
+func Kebab(api string) string { return kebab(api) }

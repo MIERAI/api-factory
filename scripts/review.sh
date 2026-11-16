@@ -33,6 +33,10 @@ findings.sort(key=lambda f: order.get(f.get("severity"), 3))
 for f in findings:
     print(f"  [{f.get('severity','?'):7}] {f.get('id','')} {f.get('category','')} @ {f.get('location','')}")
     print(f"            {f.get('question','')}")
+    for i, o in enumerate(f.get('options') or []):
+        label = o.get('label') if isinstance(o, dict) else o
+        rec = "  (推荐)" if i == f.get('recommended') else ""
+        print(f"              {i+1}) {label}{rec}")
 n = {k: sum(1 for f in findings if f.get("severity") == k) for k in order}
 # 收敛规则: 只有"规格不明确"的 blocker/major 挡流水线;"验收覆盖"只是建议(审查员总能想出更多测试)
 blocking = [f for f in findings if f.get("severity") in ("blocker", "major") and f.get("category") != "验收覆盖"]

@@ -47,14 +47,10 @@ behavior:
         成功率 >= 0.95 且没有违约 → OK
         成功率 >= 0.80 → DEGRADED
         其他 → CRITICAL
-    - when: SLA 的边界
-      then: 有效处理时间 > 300 秒的已结束任务数
-    - when: 处理时间为负(finished_at 早于 created_at)
-      then: 照常计入 succeeded / failed
     - when: 成功或失败但 finished_at 为空
-      then: 计入 succeeded / failed
+      then: 计入 succeeded / failed,不参与平均和 SLA
     - when: 未完成但 finished_at 不为空
-      then: 按未完成计
+      then: 按未完成计,忽略 finished_at
     - when: 已结束为 0 件
       then: success_rate 和 avg_duration_seconds 不设置;没有有效处理时间时 avg_duration_seconds 也不设置
     - when: 健康度的判定
@@ -63,6 +59,8 @@ behavior:
       then: float64 计算后 math.Round(x × 10^n) / 10^n(0.5 远离零)
     - when: status 是"未指定"
       then: 这一行从所有统计中排除(total 也不计)。平台已记录监控指标
+    - when: 成功或失败的任务,finished_at 早于 created_at(处理时间为负数)
+      then: 计入 succeeded / failed,不参与平均和 SLA;处理时间为 0 秒的任务正常参与平均。有效处理时间(不为空且不为负数)为 0 件时 avg_duration_seconds 不设置
 acceptance:
     fixtures:
         jobs:
@@ -608,10 +606,6 @@ logic_examples:
         success_rate: 0.8
         total: 25000
 review_decisions:
-    - question: 恰好 300 秒算不算违约?
-      decision: 不算
-    - question: finished_at 早于 created_at(处理时间为负)时,这一行算不算进平均时间和 SLA?
-      decision: 不算(但照常计入成功/失败)
     - question: 成功或失败的任务,finished_at 却为空时怎么办?
       decision: 计入成功/失败,不参与平均和 SLA
     - question: 没有结束的任务时,成功率和平均时间返回 0 还是不设置?
@@ -622,3 +616,5 @@ review_decisions:
       decision: 0.5 远离零(0.3)
     - question: 读到不认识的状态(写入方先上线了新状态)时,这一行算不算进 total?
       decision: 从所有统计中排除
+    - question: 'finished_at 早于 created_at(处理时间为负数,例: id 82 是 -60 秒)的任务,算不算进平均处理时间和 SLA?'
+      decision: 排除负数,0 秒有效(和现在的例子一致)

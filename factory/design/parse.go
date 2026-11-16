@@ -75,6 +75,24 @@ func strList(n *yaml.Node) []string {
 	return out
 }
 
+// checkKeys: 只允许已知的键。花括号 { } 里的值如果有半角逗号,YAML 会把后半截当成一个新的键,
+// 而且不报错 —— 规则会悄悄丢掉半句(实测)。所以遇到不认识的键一律报错。
+func checkKeys(e *errs, n *yaml.Node, where string, allowed ...string) {
+	ok := map[string]bool{}
+	for _, a := range allowed {
+		ok[a] = true
+	}
+	for _, p := range pairs(n) {
+		if !ok[p.Key] {
+			hint := ""
+			if n.Style&yaml.FlowStyle != 0 || p.Val.Tag == "!!null" {
+				hint = "。如果这是上一个值的后半截: 值里的半角逗号「,」会把值切断,请给值加引号,或改用全角逗号「，」"
+			}
+			e.add(p.Line, "%s: 不认识的键 %q(可以用: %s)%s", where, p.Key, strings.Join(allowed, " / "), hint)
+		}
+	}
+}
+
 // errf: 带文件名和行号的中文错误。
 type errs struct {
 	file string
@@ -167,9 +185,12 @@ func loadDomain(dir string) (*Domain, error) {
 	if d.TZ == "" {
 		d.TZ = "UTC"
 	}
+	checkKeys(e, root, "领域", "领域", "说明", "时区", "枚举", "表")
 	for _, p := range pairs(get(root, "枚举")) {
+		checkKeys(e, p.Val, "枚举 "+p.Key, "说明", "值", "读到不认识的值")
 		en := &Enum{Name: p.Key, Desc: str(p.Val, "说明"), OnUnknown: str(p.Val, "读到不认识的值")}
 		for _, v := range pairs(get(p.Val, "值")) {
+			checkKeys(e, v.Val, "枚举 "+p.Key+"."+v.Key, "说明", "数据库值")
 			var db int64
 			if _, err := fmt.Sscan(str(v.Val, "数据库值"), &db); err != nil {
 				e.add(v.Line, "枚举 %s.%s: 数据库值 必须是整数", p.Key, v.Key)
@@ -182,6 +203,7 @@ func loadDomain(dir string) (*Domain, error) {
 		d.Enums = append(d.Enums, en)
 	}
 	for _, p := range pairs(get(root, "表")) {
+		checkKeys(e, p.Val, "表 "+p.Key, "说明", "主键", "更新方式", "列", "规则")
 		t := &Table{Name: p.Key, Desc: str(p.Val, "说明"), PrimaryKey: strList(get(p.Val, "主键")), ColDesc: map[string]string{}, ColEnum: map[string]string{}}
 		switch str(p.Val, "更新方式") {
 		case "", "可以更新":
@@ -199,6 +221,7 @@ func loadDomain(dir string) (*Domain, error) {
 				t.ColDesc[c.Key] = c.Val.Value
 				continue
 			}
+			checkKeys(e, c.Val, "表 "+p.Key+" 的列 "+c.Key, "说明", "枚举")
 			t.ColDesc[c.Key] = str(c.Val, "说明")
 			if en := str(c.Val, "枚举"); en != "" {
 				t.ColEnum[c.Key] = en
@@ -206,6 +229,7 @@ func loadDomain(dir string) (*Domain, error) {
 		}
 		if rs := get(p.Val, "规则"); rs != nil {
 			for _, r := range rs.Content {
+				checkKeys(e, r, "表 "+p.Key+" 的规则", "规则", "数据库保证")
 				t.Rules = append(t.Rules, Rule{Text: str(r, "规则"), Enforced: str(r, "数据库保证") == "是"})
 			}
 		}
@@ -230,6 +254,7 @@ func loadDomain(dir string) (*Domain, error) {
 }
 
 func loadQA(path string) ([]QA, error) {
+	e := &errs{file: path}
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -240,9 +265,11 @@ func loadQA(path string) ([]QA, error) {
 	var out []QA
 	if list := get(root, "问答"); list != nil {
 		for _, q := range list.Content {
+			checkKeys(e, q, "问答", "问题", "选项", "回答", "补充规则", "补充例子", "补充计算例子", "来自")
 			qa := QA{Question: str(q, "问题"), Options: strList(get(q, "选项")), Answer: str(q, "回答"), From: str(q, "来自")}
 			if r := get(q, "补充规则"); r != nil {
 				for _, b := range seqOrOne(r) {
+					checkKeys(e, b, "补充规则", "情况", "结果")
 					qa.AddRules = append(qa.AddRules, Behavior{When: str(b, "情况"), Then: str(b, "结果")})
 				}
 			}
@@ -255,7 +282,7 @@ func loadQA(path string) ([]QA, error) {
 			out = append(out, qa)
 		}
 	}
-	return out, nil
+	return out, e.err()
 }
 
 func seqOrOne(n *yaml.Node) []*yaml.Node {
@@ -327,6 +354,10 @@ func loadAPI(path string) (*API, error) {
 		return nil, err
 	}
 	e := &errs{file: path}
+	checkKeys(e, root, "API", "API", "说明", "背景", "负责人", "风险", "种类", "数据来源", "使用的列", "输入", "输入之间的规则",
+		"输出", "找不到时", "排序", "分页", "输出行名", "输出列表名", "业务规则", "例子", "计算例子")
+	checkKeys(e, get(root, "例子"), "例子", "准备数据", "用例")
+	checkKeys(e, get(root, "分页"), "分页", "默认每页", "每页最多")
 	a := &API{
 		Path: path, Name: str(root, "API"), Desc: str(root, "说明"), Background: str(root, "背景"),
 		Owner: str(root, "负责人"), Source: str(root, "数据来源"), UseColumns: strList(get(root, "使用的列")),
@@ -351,6 +382,7 @@ func loadAPI(path string) (*API, error) {
 		e.add(root.Line, "风险 只能是 低 / 中 / 高")
 	}
 	for _, p := range pairs(get(root, "输入")) {
+		checkKeys(e, p.Val, "输入 "+p.Key, "类型", "必填", "范围", "长度", "说明", "筛选")
 		in := &Input{Name: p.Key, Type: str(p.Val, "类型"), Required: str(p.Val, "必填") == "是", Range: str(p.Val, "范围"),
 			Length: str(p.Val, "长度"), Desc: str(p.Val, "说明"), Filter: str(p.Val, "筛选"), Line: p.Line}
 		if in.Type == "" {
@@ -366,6 +398,7 @@ func loadAPI(path string) (*API, error) {
 		if p.Val.Kind == yaml.ScalarNode {
 			o.Desc = p.Val.Value
 		} else {
+			checkKeys(e, p.Val, "输出 "+p.Key, "类型", "说明", "来自", "可以不设置")
 			o.Type, o.Desc, o.From = str(p.Val, "类型"), str(p.Val, "说明"), str(p.Val, "来自")
 			o.Optional = str(p.Val, "可以不设置") == "是"
 		}
@@ -392,18 +425,25 @@ func loadAPI(path string) (*API, error) {
 	}
 	if rs := get(root, "业务规则"); rs != nil {
 		for _, r := range rs.Content {
+			checkKeys(e, r, "业务规则", "情况", "结果")
 			a.Rules = append(a.Rules, Behavior{When: str(r, "情况"), Then: str(r, "结果")})
 		}
 	}
 	if c := get(get(root, "例子"), "用例"); c != nil {
 		a.Cases = c.Content
+		for _, x := range c.Content {
+			checkKeys(e, x, "用例", "说明", "输入", "结果")
+		}
 	}
 	if c := get(root, "计算例子"); c != nil {
 		a.LogicCases = c.Content
+		for _, x := range c.Content {
+			checkKeys(e, x, "计算例子", "说明", "输入", "输入行", "结果")
+		}
 	}
 	review := strings.TrimSuffix(path, ".yaml") + ".审查.yaml"
 	if a.Reviewed, err = loadQA(review); err != nil {
-		return nil, err
+		e.list = append(e.list, err.Error())
 	}
 	for _, qa := range a.Reviewed {
 		a.Rules = append(a.Rules, qa.AddRules...)
