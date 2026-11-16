@@ -11,3 +11,13 @@ CREATE TABLE IF NOT EXISTS daily_sales (
 
 -- ListTopSales 的 keyset 分页用
 CREATE INDEX IF NOT EXISTS daily_sales_amount_idx ON daily_sales (amount DESC, sales_date DESC, store_code DESC);
+
+-- 店別の売価(有効期間つき: valid_to が空 = 期限なし)
+CREATE TABLE IF NOT EXISTS store_prices (
+    store_code   INTEGER NOT NULL CHECK (store_code > 0),
+    product_code TEXT    NOT NULL,
+    valid_from   DATE    NOT NULL,
+    valid_to     DATE,
+    price        NUMERIC NOT NULL CHECK (price >= 0),
+    PRIMARY KEY (store_code, product_code, valid_from)
+);

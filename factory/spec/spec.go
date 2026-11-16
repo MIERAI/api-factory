@@ -89,8 +89,9 @@ type Datasource struct {
 }
 
 type Filter struct {
-	Column string `yaml:"column"`
-	Op     string `yaml:"op"` // eq / gt / gte / lt / lte / prefix
+	Column  string   `yaml:"column"`
+	Columns []string `yaml:"columns,omitempty"` // 多列的筛选单元(有效期包含: [开始, 结束]);Column = 第一列
+	Op      string   `yaml:"op"`                // eq / gt / gte / lt / lte / prefix
 }
 
 // FilterOps: 运算符 → SQL。prefix 由 SQL 生成器特别处理(转义 % _ \,按字面匹配)。

@@ -73,21 +73,34 @@ func (l *Library) add(name string, b []byte) error {
 	return nil
 }
 
-// Filter: 筛选单元 → 表达式。column = 列名,param = 请求参数名。
-func (l *Library) Filter(name, column, param string) (*core.Expr, error) {
+// Filter: 筛选单元 → 表达式。columns = 列名(列 = 列1 = 第一列,列2 = 第二列 …),param = 请求参数名。
+func (l *Library) Filter(name string, columns []string, param string) (*core.Expr, error) {
 	def, ok := l.Filters[name]
 	if !ok {
 		return nil, fmt.Errorf("筛选单元 %q 不存在(单元库里有: %s)", name, strings.Join(l.names(), " / "))
 	}
-	return core.ParseExpr(def, func(id string) (*core.Expr, bool) {
+	used := 0
+	e, err := core.ParseExpr(def, func(id string) (*core.Expr, bool) {
 		switch id {
 		case "列":
-			return core.Col(column), true
+			id = "列1"
 		case "值":
 			return core.Param(param), true
 		}
+		var i int
+		if _, err := fmt.Sscanf(id, "列%d", &i); err == nil && i >= 1 && i <= len(columns) {
+			used = max(used, i)
+			return core.Col(columns[i-1]), true
+		}
 		return nil, false
 	})
+	if err != nil {
+		return nil, fmt.Errorf("筛选单元 %s(给了 %d 列): %w", name, len(columns), err)
+	}
+	if used != len(columns) {
+		return nil, fmt.Errorf("筛选单元 %s 用 %d 列,给了 %d 列", name, used, len(columns))
+	}
+	return e, nil
 }
 
 // HasFilter: 有没有这个筛选单元。

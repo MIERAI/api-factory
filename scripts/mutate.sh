@@ -52,4 +52,7 @@ M=gen/db/sales.list-store-sales.sql.go
 MH=internal/handler/sales/list_store_sales_gen.go
 run "多条: 超限时悄悄截断"             $MH 's/return nil, (apierr\.FailedPrecondition\([^\n]*\))/rows, _ = rows[:10], $1/'
 run "多条: 没有多取一行(LIMIT 10)"     $M 's/LIMIT 11/LIMIT 10/'
+V=gen/db/sales.list-prices-as-of.sql.go
+run "有效期: 结束日不含当天(<= → <)"     $V 's/\(\$2::date <= t1\.valid_to\)/(\$2::date < t1.valid_to)/'
+run "有效期: 结束日为空没处理"          $V 's/\(t1\.valid_to IS NULL\) OR //'
 go build -o bin/server ./cmd/server; git status --short

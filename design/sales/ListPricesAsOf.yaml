@@ -1,0 +1,42 @@
+# ============================================================================
+# ListPricesAsOf: 基準日に有効な売価(有效期包含 = 两列的筛选单元)
+# ============================================================================
+API: ListPricesAsOf
+说明: 店舗の、基準日に有効な売価を返す
+背景: 売価は期間で管理する。valid_from <= 基準日 <= valid_to(valid_to が空なら期限なし)
+负责人: sales-team
+风险: 中
+
+种类: 多条
+数据来源: store_prices
+
+输入:
+  store_code: { 类型: 整数32, 必填: 是, 范围: "> 0", 说明: 店舗コード, 筛选: store_code 等于 }
+  as_of:      { 类型: 日期,   必填: 是, 说明: 基準日, 筛选: valid_from~valid_to 有效期包含 }
+
+输出:
+  product_code: 商品コード
+  valid_from:   適用開始日
+  valid_to:     適用終了日
+  price:        売価
+
+排序: [product_code 小到大, valid_from 小到大]
+上限: 500
+
+例子:
+  准备数据:
+    store_prices:
+      - { store_code: 1, product_code: A, valid_from: 2026-10-01, valid_to: 2026-10-31, price: 100 }
+      - { store_code: 1, product_code: A, valid_from: 2026-11-01, valid_to: null,       price: 120 }
+      - { store_code: 1, product_code: B, valid_from: 2026-11-15, valid_to: null,       price: 50 }
+      - { store_code: 2, product_code: A, valid_from: 2026-01-01, valid_to: null,       price: 999 }
+  用例:
+    - 说明: 終了日の当日は有効(含む)
+      输入: { store_code: 1, as_of: 2026-10-31 }
+      结果: { store_prices: [{ product_code: A, price: "100" }] }
+    - 说明: 終了日が空 = 期限なし。開始日前の B は返さない
+      输入: { store_code: 1, as_of: 2026-11-01 }
+      结果: { store_prices: [{ product_code: A, price: "120", valid_to: 不设置 }] }
+    - 说明: 開始日の当日は有効
+      输入: { store_code: 1, as_of: 2026-11-15 }
+      结果: { store_prices: [{ product_code: A }, { product_code: B }] }

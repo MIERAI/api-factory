@@ -343,10 +343,17 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 				e.add(in.Line, "输入 %s: 筛选 %q 无法识别。写成 \"列 <筛选单元>\",单元库里有: %s", in.Name, in.Filter, strings.Join(c.lib.FilterNames(), " / "))
 				continue
 			}
-			if _, has := c.column(table, parts[0]); !has {
-				e.add(in.Line, "输入 %s: 筛选的列 %s 不在表 %s 里", in.Name, parts[0], table)
+			cols := strings.Split(parts[0], "~") // 多列的单元: 开始列~结束列
+			for _, col := range cols {
+				if _, has := c.column(table, col); !has {
+					e.add(in.Line, "输入 %s: 筛选的列 %s 不在表 %s 里", in.Name, col, table)
+				}
 			}
-			filters[in.Name] = spec.Filter{Column: parts[0], Op: op}
+			sf := spec.Filter{Column: cols[0], Op: op}
+			if len(cols) > 1 {
+				sf.Columns = cols
+			}
+			filters[in.Name] = sf
 		}
 	}
 	for i, r := range a.InputRules {

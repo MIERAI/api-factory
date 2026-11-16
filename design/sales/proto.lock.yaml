@@ -6,6 +6,11 @@
         discount: 4
         sales_date: 1
         store_code: 2
+    ListPricesAsOfRequest:
+        as_of: 2
+        store_code: 1
+    ListPricesAsOfResponse:
+        store_prices: 1
     ListStoreSalesRequest:
         sales_date: 1
         store_codes: 2
@@ -20,6 +25,11 @@
     ListTopSalesResponse:
         daily_sales: 1
         next_page_token: 2
+    StorePrice:
+        price: 4
+        product_code: 1
+        valid_from: 2
+        valid_to: 3
     StoreSale:
         amount: 2
         discount: 3

@@ -17,3 +17,13 @@
       amount:     売上金額(十进制,保持精度)
       discount:   値引き額(没有值引时为空)
       closed_on:  締め日(未締めは空)
+  store_prices:
+    说明: 店別の売価(有効期間つき)
+    主键: [store_code, product_code, valid_from]
+    更新方式: 可以更新
+    列:
+      store_code:   店舗コード
+      product_code: 商品コード
+      valid_from:   適用開始日(含)
+      valid_to:     適用終了日(含;空 = 期限なし)
+      price:        売価

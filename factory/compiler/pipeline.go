@@ -54,7 +54,11 @@ func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []re
 		if !ok {
 			cell = f.Op // 直接写单元名(属于 / 有效期包含 …)
 		}
-		e, err := lib.Filter(cell, f.Column.Name, f.Name)
+		cols := f.Columns
+		if len(cols) == 0 {
+			cols = []string{f.Column.Name}
+		}
+		e, err := lib.Filter(cell, cols, f.Name)
 		if err != nil {
 			return nil, fmt.Errorf("筛选 %s: %w", f.Name, err)
 		}

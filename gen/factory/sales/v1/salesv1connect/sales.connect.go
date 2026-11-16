@@ -36,6 +36,9 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// SaleServiceListPricesAsOfProcedure is the fully-qualified name of the SaleService's
+	// ListPricesAsOf RPC.
+	SaleServiceListPricesAsOfProcedure = "/factory.sales.v1.SaleService/ListPricesAsOf"
 	// SaleServiceListStoreSalesProcedure is the fully-qualified name of the SaleService's
 	// ListStoreSales RPC.
 	SaleServiceListStoreSalesProcedure = "/factory.sales.v1.SaleService/ListStoreSales"
@@ -46,6 +49,8 @@ const (
 
 // SaleServiceClient is a client for the factory.sales.v1.SaleService service.
 type SaleServiceClient interface {
+	// 店舗の、基準日に有効な売価を返す
+	ListPricesAsOf(context.Context, *connect.Request[v1.ListPricesAsOfRequest]) (*connect.Response[v1.ListPricesAsOfResponse], error)
 	// 指定した売上日の、店舗別の売上を返す(分页なし)
 	ListStoreSales(context.Context, *connect.Request[v1.ListStoreSalesRequest]) (*connect.Response[v1.ListStoreSalesResponse], error)
 	// 売上金額の多い順に、日別・店別の売上を返す
@@ -63,6 +68,12 @@ func NewSaleServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 	baseURL = strings.TrimRight(baseURL, "/")
 	saleServiceMethods := v1.File_factory_sales_v1_sales_proto.Services().ByName("SaleService").Methods()
 	return &saleServiceClient{
+		listPricesAsOf: connect.NewClient[v1.ListPricesAsOfRequest, v1.ListPricesAsOfResponse](
+			httpClient,
+			baseURL+SaleServiceListPricesAsOfProcedure,
+			connect.WithSchema(saleServiceMethods.ByName("ListPricesAsOf")),
+			connect.WithClientOptions(opts...),
+		),
 		listStoreSales: connect.NewClient[v1.ListStoreSalesRequest, v1.ListStoreSalesResponse](
 			httpClient,
 			baseURL+SaleServiceListStoreSalesProcedure,
@@ -80,8 +91,14 @@ func NewSaleServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 
 // saleServiceClient implements SaleServiceClient.
 type saleServiceClient struct {
+	listPricesAsOf *connect.Client[v1.ListPricesAsOfRequest, v1.ListPricesAsOfResponse]
 	listStoreSales *connect.Client[v1.ListStoreSalesRequest, v1.ListStoreSalesResponse]
 	listTopSales   *connect.Client[v1.ListTopSalesRequest, v1.ListTopSalesResponse]
+}
+
+// ListPricesAsOf calls factory.sales.v1.SaleService.ListPricesAsOf.
+func (c *saleServiceClient) ListPricesAsOf(ctx context.Context, req *connect.Request[v1.ListPricesAsOfRequest]) (*connect.Response[v1.ListPricesAsOfResponse], error) {
+	return c.listPricesAsOf.CallUnary(ctx, req)
 }
 
 // ListStoreSales calls factory.sales.v1.SaleService.ListStoreSales.
@@ -96,6 +113,8 @@ func (c *saleServiceClient) ListTopSales(ctx context.Context, req *connect.Reque
 
 // SaleServiceHandler is an implementation of the factory.sales.v1.SaleService service.
 type SaleServiceHandler interface {
+	// 店舗の、基準日に有効な売価を返す
+	ListPricesAsOf(context.Context, *connect.Request[v1.ListPricesAsOfRequest]) (*connect.Response[v1.ListPricesAsOfResponse], error)
 	// 指定した売上日の、店舗別の売上を返す(分页なし)
 	ListStoreSales(context.Context, *connect.Request[v1.ListStoreSalesRequest]) (*connect.Response[v1.ListStoreSalesResponse], error)
 	// 売上金額の多い順に、日別・店別の売上を返す
@@ -109,6 +128,12 @@ type SaleServiceHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewSaleServiceHandler(svc SaleServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
 	saleServiceMethods := v1.File_factory_sales_v1_sales_proto.Services().ByName("SaleService").Methods()
+	saleServiceListPricesAsOfHandler := connect.NewUnaryHandler(
+		SaleServiceListPricesAsOfProcedure,
+		svc.ListPricesAsOf,
+		connect.WithSchema(saleServiceMethods.ByName("ListPricesAsOf")),
+		connect.WithHandlerOptions(opts...),
+	)
 	saleServiceListStoreSalesHandler := connect.NewUnaryHandler(
 		SaleServiceListStoreSalesProcedure,
 		svc.ListStoreSales,
@@ -123,6 +148,8 @@ func NewSaleServiceHandler(svc SaleServiceHandler, opts ...connect.HandlerOption
 	)
 	return "/factory.sales.v1.SaleService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case SaleServiceListPricesAsOfProcedure:
+			saleServiceListPricesAsOfHandler.ServeHTTP(w, r)
 		case SaleServiceListStoreSalesProcedure:
 			saleServiceListStoreSalesHandler.ServeHTTP(w, r)
 		case SaleServiceListTopSalesProcedure:
@@ -135,6 +162,10 @@ func NewSaleServiceHandler(svc SaleServiceHandler, opts ...connect.HandlerOption
 
 // UnimplementedSaleServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedSaleServiceHandler struct{}
+
+func (UnimplementedSaleServiceHandler) ListPricesAsOf(context.Context, *connect.Request[v1.ListPricesAsOfRequest]) (*connect.Response[v1.ListPricesAsOfResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.sales.v1.SaleService.ListPricesAsOf is not implemented"))
+}
 
 func (UnimplementedSaleServiceHandler) ListStoreSales(context.Context, *connect.Request[v1.ListStoreSalesRequest]) (*connect.Response[v1.ListStoreSalesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.sales.v1.SaleService.ListStoreSales is not implemented"))

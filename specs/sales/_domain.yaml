@@ -9,4 +9,12 @@ entities:
         policy: mutable
         columns: {}
         invariants: []
+    store_prices:
+        natural_key:
+            - store_code
+            - product_code
+            - valid_from
+        policy: mutable
+        columns: {}
+        invariants: []
 review_decisions: []
