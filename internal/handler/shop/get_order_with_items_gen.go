@@ -9,6 +9,7 @@ import (
 
 	"connectrpc.com/connect"
 
+	"apifactory/gen/db"
 	shopv1 "apifactory/gen/factory/shop/v1"
 )
 
@@ -30,7 +31,9 @@ type getOrderWithItemsRow struct {
 // 业务逻辑在 getOrderWithItemsLogic(纯函数,由 AI 实现)。
 func (h *Handler) GetOrderWithItems(ctx context.Context, req *connect.Request[shopv1.GetOrderWithItemsRequest]) (*connect.Response[shopv1.GetOrderWithItemsResponse], error) {
 	m := req.Msg
-	rows, err := h.q.GetOrderWithItems(ctx, m.GetOrderId())
+	rows, err := h.q.GetOrderWithItems(ctx, db.GetOrderWithItemsParams{
+		OrderID: m.GetOrderId(),
+	})
 	if err != nil {
 		return nil, err
 	}

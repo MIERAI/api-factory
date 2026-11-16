@@ -8,6 +8,7 @@ import (
 
 	"connectrpc.com/connect"
 
+	"apifactory/gen/db"
 	shopv1 "apifactory/gen/factory/shop/v1"
 	"apifactory/platform/apierr"
 	"apifactory/platform/conv"
@@ -16,7 +17,9 @@ import (
 // GetProductBySku R2: 按 SKU 返回商品
 func (h *Handler) GetProductBySku(ctx context.Context, req *connect.Request[shopv1.GetProductBySkuRequest]) (*connect.Response[shopv1.GetProductBySkuResponse], error) {
 	m := req.Msg
-	row, err := h.q.GetProductBySku(ctx, m.GetSku())
+	row, err := h.q.GetProductBySku(ctx, db.GetProductBySkuParams{
+		Sku: m.GetSku(),
+	})
 	if err != nil {
 		if apierr.IsNoRows(err) {
 			return nil, apierr.NotFound("product not found: %v", m.GetSku())

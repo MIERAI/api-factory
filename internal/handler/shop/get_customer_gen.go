@@ -8,6 +8,7 @@ import (
 
 	"connectrpc.com/connect"
 
+	"apifactory/gen/db"
 	shopv1 "apifactory/gen/factory/shop/v1"
 	"apifactory/platform/apierr"
 	"apifactory/platform/conv"
@@ -16,7 +17,9 @@ import (
 // GetCustomer R1: 按顾客 id 返回顾客信息
 func (h *Handler) GetCustomer(ctx context.Context, req *connect.Request[shopv1.GetCustomerRequest]) (*connect.Response[shopv1.GetCustomerResponse], error) {
 	m := req.Msg
-	row, err := h.q.GetCustomer(ctx, m.GetCustomerId())
+	row, err := h.q.GetCustomer(ctx, db.GetCustomerParams{
+		CustomerID: m.GetCustomerId(),
+	})
 	if err != nil {
 		if apierr.IsNoRows(err) {
 			return nil, apierr.NotFound("customer not found: %v", m.GetCustomerId())

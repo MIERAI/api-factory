@@ -8,6 +8,7 @@ import (
 
 	"connectrpc.com/connect"
 
+	"apifactory/gen/db"
 	jobsv1 "apifactory/gen/factory/jobs/v1"
 	"apifactory/platform/apierr"
 )
@@ -15,7 +16,9 @@ import (
 // GetJobStatus 按 id 返回一个任务的处理状态
 func (h *Handler) GetJobStatus(ctx context.Context, req *connect.Request[jobsv1.GetJobStatusRequest]) (*connect.Response[jobsv1.GetJobStatusResponse], error) {
 	m := req.Msg
-	row, err := h.q.GetJobStatus(ctx, m.GetJobId())
+	row, err := h.q.GetJobStatus(ctx, db.GetJobStatusParams{
+		JobID: m.GetJobId(),
+	})
 	if err != nil {
 		if apierr.IsNoRows(err) {
 			return nil, apierr.NotFound("job not found: %v", m.GetJobId())
@@ -23,6 +26,6 @@ func (h *Handler) GetJobStatus(ctx context.Context, req *connect.Request[jobsv1.
 		return nil, err
 	}
 	return connect.NewResponse(&jobsv1.GetJobStatusResponse{
-		Status: jobsStatusToProto(row),
+		Status: jobsStatusToProto(row.Status),
 	}), nil
 }

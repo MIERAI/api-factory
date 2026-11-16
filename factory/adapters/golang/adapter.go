@@ -1,7 +1,7 @@
 // Package golang 是 Go 运行时模板的适配器: IR → Go 代码。
 //
 // 输入只有 IR(.factory/plan.json)和编译器写好的 db/queries/*.sql。自己负责 Go 的工具链:
-//  1. sqlc generate(SQL → Go 的查询函数)
+//  1. gen/db: 查询函数(querygen.go;类型来自核心代数 / sqlc 的分析,不用 sqlc 生成 Go 代码)
 //  2. buf generate(proto → Go 类型 + Connect 接口)
 //  3. handler 骨架 / 模式 handler / enum 转换 / 逻辑样例测试 / 逻辑函数的桩 / wiring
 //
@@ -26,7 +26,7 @@ const modulePath = "apifactory"
 
 func Run(plan *ir.Plan) error {
 	clearGenerated()
-	if err := run("sqlc", "generate"); err != nil {
+	if err := writeQueries(plan); err != nil {
 		return err
 	}
 	dbp, err := loadDBPackage("gen/db")
@@ -115,7 +115,7 @@ func newGenCtx(plan *ir.Plan, api *ir.API, services []service, dbp *dbPackage) (
 	svc := serviceFor(services, api.ProtoPackage, api.Service)
 	q, ok := dbp.funcs[api.Query.Name]
 	if !ok {
-		return nil, svc, fmt.Errorf("%s: sqlc did not generate %s", api.SpecPath, api.Query.Name)
+		return nil, svc, fmt.Errorf("%s: gen/db has no query %s", api.SpecPath, api.Query.Name)
 	}
 	segs := strings.Split(api.ProtoPackage, ".")
 	g := &genCtx{
