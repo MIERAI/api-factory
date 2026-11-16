@@ -18,8 +18,11 @@ import (
 	"text/template"
 
 	"apifactory/factory/accept"
+	"apifactory/factory/acceptgen"
+	"apifactory/factory/adapters/golang"
+	"apifactory/factory/compiler"
 	"apifactory/factory/guard"
-	"apifactory/factory/prepare"
+	"apifactory/factory/ir"
 	"apifactory/factory/prompts"
 	"apifactory/factory/protoload"
 	"apifactory/factory/spec"
@@ -138,7 +141,20 @@ func cmdPrepare(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := prepare.Run(specs); err != nil {
+	// ① 编译器(语言无关): 式样书 → IR + 最终的 SQL
+	plan, err := compiler.Compile(specs)
+	if err != nil {
+		return err
+	}
+	if err := compiler.Write(plan, ir.DefaultPath); err != nil {
+		return err
+	}
+	// ② 验收生成(语言无关): IR → gen/acceptance
+	if err := acceptgen.Write(plan); err != nil {
+		return err
+	}
+	// ③ Go 适配器: IR → Go 代码
+	if err := golang.Run(plan); err != nil {
 		return err
 	}
 	fmt.Printf("✓ prepared %d spec(s)\n", len(specs))

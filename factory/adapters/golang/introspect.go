@@ -1,4 +1,4 @@
-package prepare
+package golang
 
 import (
 	"fmt"
@@ -7,11 +7,6 @@ import (
 	"go/token"
 	"path/filepath"
 	"strings"
-
-	"google.golang.org/protobuf/reflect/protoreflect"
-	"google.golang.org/protobuf/reflect/protoregistry"
-
-	"apifactory/factory/protoload"
 )
 
 // ---------------------------------------------------------------------------
@@ -110,16 +105,6 @@ func (p *dbPackage) rowFields(q queryFunc) ([]goField, string) {
 	return nil, t
 }
 
-// ---------------------------------------------------------------------------
-// proto 描述符: 用 buf build 产出的 image 读取,拿到字段类型和 presence
-// ---------------------------------------------------------------------------
-
-func loadProto() (*protoregistry.Files, error) { return protoload.Load() }
-
-func findMethod(files *protoregistry.Files, pkg, service, method string) (protoreflect.MethodDescriptor, error) {
-	return protoload.FindMethod(files, pkg, service, method)
-}
-
 // goCamelCase 与 protoc-gen-go 的字段命名规则一致(job_type → JobType)。
 func goCamelCase(s string) string {
 	var b []byte
@@ -152,45 +137,4 @@ func isLower(c byte) bool { return c >= 'a' && c <= 'z' }
 // norm 用于名字对应: 忽略大小写和下划线(job_type ≈ JobType ≈ jobType)。
 func norm(s string) string {
 	return strings.ToLower(strings.ReplaceAll(s, "_", ""))
-}
-
-// protoGoKind 返回字段在 Go 里的基础类型;Timestamp 返回 "ts"。
-func protoGoKind(fd protoreflect.FieldDescriptor) (string, error) {
-	if fd.IsList() || fd.IsMap() {
-		return "", fmt.Errorf("field %s: repeated/map is not supported by mapping", fd.Name())
-	}
-	switch fd.Kind() {
-	case protoreflect.MessageKind:
-		if fd.Message().FullName() == "google.protobuf.Timestamp" {
-			return "ts", nil
-		}
-		return "", fmt.Errorf("field %s: message type %s is not supported by mapping", fd.Name(), fd.Message().FullName())
-	case protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind:
-		return "int32", nil
-	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
-		return "int64", nil
-	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
-		return "uint32", nil
-	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
-		return "uint64", nil
-	case protoreflect.StringKind:
-		return "string", nil
-	case protoreflect.BoolKind:
-		return "bool", nil
-	case protoreflect.DoubleKind:
-		return "float64", nil
-	case protoreflect.FloatKind:
-		return "float32", nil
-	}
-	return "", fmt.Errorf("field %s: kind %s is not supported by mapping", fd.Name(), fd.Kind())
-}
-
-// goToSQLCast 用于给游标参数加类型转换(sqlc 在行比较里需要显式类型)。
-var goToSQLCast = map[string]string{
-	"time.Time": "timestamptz",
-	"int64":     "bigint",
-	"int32":     "int",
-	"string":    "text",
-	"bool":      "boolean",
-	"float64":   "float8",
 }

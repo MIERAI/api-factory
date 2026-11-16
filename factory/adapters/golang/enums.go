@@ -1,4 +1,4 @@
-package prepare
+package golang
 
 // 领域层的 enum 映射(DB 值 ↔ proto enum)→ 生成转换函数。
 // 读取宽容: DB 里出现映射表以外的值 → 返回 UNSPECIFIED,并调用 anomaly.Report 记录指标。
@@ -10,10 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"google.golang.org/protobuf/reflect/protoreflect"
-	"google.golang.org/protobuf/reflect/protoregistry"
-
-	"apifactory/factory/spec"
+	"apifactory/factory/ir"
 )
 
 var dbIntGoType = map[string]string{"int2": "int16", "int4": "int32", "int8": "int64", "smallint": "int16", "integer": "int32", "bigint": "int64"}
@@ -36,69 +33,21 @@ func enumHelperName(table, column string) string {
 	return lowerFirst(goCamelCase(table)) + goCamelCase(column)
 }
 
-// resolveEnum: 检查领域层的映射和 proto enum 一致,返回生成用的信息。
-func resolveEnum(d *spec.Domain, table, column string, files *protoregistry.Files, cat *catalog, pbAlias, protoPkg string) (*enumMapping, error) {
-	meta := d.Column(table, column)
-	if meta == nil || meta.Enum == nil {
-		return nil, fmt.Errorf("%s.%s is an enum in proto but has no enum mapping in the domain layer (specs/<domain>/_domain.yaml)", table, column)
-	}
-	desc, err := files.FindDescriptorByName(protoreflect.FullName(meta.Enum.Proto))
-	if err != nil {
-		return nil, fmt.Errorf("domain enum %s.%s: proto %s: %w", table, column, meta.Enum.Proto, err)
-	}
-	ed, ok := desc.(protoreflect.EnumDescriptor)
-	if !ok {
-		return nil, fmt.Errorf("domain enum %s.%s: %s is not an enum", table, column, meta.Enum.Proto)
-	}
-	if string(ed.ParentFile().Package()) != protoPkg {
-		return nil, fmt.Errorf("domain enum %s.%s: %s must be in package %s", table, column, meta.Enum.Proto, protoPkg)
-	}
-	goType := string(ed.Name())
-	if p, ok := ed.Parent().(protoreflect.MessageDescriptor); ok {
-		goType = string(p.Name()) + "_" + goType
-	}
-	col, ok := cat.column(table, column)
-	if !ok {
-		return nil, fmt.Errorf("domain enum %s.%s: column not in schema", table, column)
-	}
-	dbType, ok := dbIntGoType[col.Type]
-	if !ok {
-		return nil, fmt.Errorf("domain enum %s.%s: column type %s is not an integer type", table, column, col.Type)
+// mappingFrom: IR 的 enum → Go 的转换函数需要的信息。
+func mappingFrom(e *ir.Enum, pbAlias string) *enumMapping {
+	goType := e.Name
+	if e.Parent != "" {
+		goType = e.Parent + "_" + e.Name
 	}
 	m := &enumMapping{
-		Table: table, Column: column, Helper: enumHelperName(table, column), DBGoType: dbType,
-		GoType: pbAlias + "." + goType,
+		Table: e.Table, Column: e.Column, Helper: enumHelperName(e.Table, e.Column),
+		DBGoType: dbIntGoType[e.DBType], GoType: pbAlias + "." + goType,
+		Unspecified: pbAlias + "." + goType + "_" + e.Unspecified,
 	}
-	covered := map[string]bool{}
-	for _, dbv := range meta.Enum.SortedDBValues() {
-		name := meta.Enum.Values[dbv]
-		v := ed.Values().ByName(protoreflect.Name(name))
-		if v == nil {
-			return nil, fmt.Errorf("domain enum %s.%s: %s is not a value of %s", table, column, name, meta.Enum.Proto)
-		}
-		if v.Number() == 0 {
-			return nil, fmt.Errorf("domain enum %s.%s: %s is the zero value (reserved for UNSPECIFIED)", table, column, name)
-		}
-		if covered[name] {
-			return nil, fmt.Errorf("domain enum %s.%s: %s is mapped from more than one DB value", table, column, name)
-		}
-		covered[name] = true
-		m.Cases = append(m.Cases, enumCase{DB: dbv, Const: pbAlias + "." + goType + "_" + name})
+	for _, v := range e.Values {
+		m.Cases = append(m.Cases, enumCase{DB: v.DB, Const: pbAlias + "." + goType + "_" + v.Name})
 	}
-	for i := 0; i < ed.Values().Len(); i++ {
-		v := ed.Values().Get(i)
-		if v.Number() == 0 {
-			m.Unspecified = pbAlias + "." + goType + "_" + string(v.Name())
-			continue
-		}
-		if !covered[string(v.Name())] {
-			return nil, fmt.Errorf("domain enum %s.%s: proto value %s has no DB value in the domain layer", table, column, v.Name())
-		}
-	}
-	if m.Unspecified == "" {
-		return nil, fmt.Errorf("proto enum %s has no zero value", meta.Enum.Proto)
-	}
-	return m, nil
+	return m
 }
 
 // writeEnums: 每个 handler 包一个 enums_gen.go。

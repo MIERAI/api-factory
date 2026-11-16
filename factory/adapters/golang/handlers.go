@@ -1,4 +1,4 @@
-package prepare
+package golang
 
 import (
 	"fmt"
@@ -7,67 +7,17 @@ import (
 	"sort"
 	"strings"
 
-	"google.golang.org/protobuf/reflect/protoreflect"
-
-	"apifactory/factory/spec"
+	"apifactory/factory/ir"
 )
 
 // ---------------------------------------------------------------------------
-// list_keyset: 把式样书的基础查询包一层,追加游标条件 / ORDER BY / LIMIT
-// ---------------------------------------------------------------------------
-
-func keysetSQL(s *spec.Spec, base string, row []goField) (string, error) {
-	p := s.Pattern
-	op := "<"
-	if p.Direction == "asc" {
-		op = ">"
-	}
-	var cols, args, order []string
-	for _, c := range p.OrderBy {
-		f, ok := fieldByNorm(row, c)
-		if !ok {
-			return "", fmt.Errorf("%s: order_by column %q is not in the SELECT list", s.Path, c)
-		}
-		cast, ok := goToSQLCast[f.Type]
-		if !ok {
-			return "", fmt.Errorf("%s: order_by column %q has type %s (must be NOT NULL and one of time/int/text/bool/float)", s.Path, c, f.Type)
-		}
-		cols = append(cols, "base."+c)
-		args = append(args, fmt.Sprintf("sqlc.narg(cursor_%s)::%s", c, cast))
-		order = append(order, "base."+c+" "+strings.ToUpper(p.Direction))
-	}
-	first := args[0]
-	return fmt.Sprintf("SELECT * FROM (\n%s\n) AS base\nWHERE (%s IS NULL\n       OR (%s) %s (%s))\nORDER BY %s\nLIMIT sqlc.arg(row_limit)::int",
-		indent(base), first, strings.Join(cols, ", "), op, strings.Join(args, ", "), strings.Join(order, ", ")), nil
-}
-
-func indent(s string) string {
-	lines := strings.Split(s, "\n")
-	for i, l := range lines {
-		lines[i] = "  " + l
-	}
-	return strings.Join(lines, "\n")
-}
-
-func fieldByNorm(fields []goField, name string) (goField, bool) {
-	for _, f := range fields {
-		if norm(f.Name) == norm(name) {
-			return f, true
-		}
-	}
-	return goField{}, false
-}
-
-// ---------------------------------------------------------------------------
-// handler 代码生成
+// handler 代码生成(输入: IR + sqlc 生成的 Go 代码的结构)
 // ---------------------------------------------------------------------------
 
 type genCtx struct {
-	spec    *spec.Spec
-	parts   spec.RPCParts
+	api     *ir.API
 	svc     service
 	pbAlias string // jobsv1
-	method  protoreflect.MethodDescriptor
 	query   queryFunc
 	db      *dbPackage
 	imports map[string]string // path → alias("" = 默认)
@@ -77,24 +27,41 @@ type genCtx struct {
 	filterCol map[string]string
 }
 
+func (g *genCtx) use(path, alias string) { g.imports[path] = alias }
+
+func (g *genCtx) pbType(m *ir.Message) string { return g.pbAlias + "." + m.Name }
+
 // enumFor: 列对应的 enum 映射;proto 是 enum 但领域层没有映射时报错。
 func (g *genCtx) enumFor(column string) (*enumMapping, error) {
 	if m, ok := g.enums[column]; ok {
 		return m, nil
 	}
-	return nil, fmt.Errorf("column %q is mapped to a proto enum but the domain layer has no enum mapping for %s.%s", column, g.spec.Datasource.Table, column)
+	return nil, fmt.Errorf("column %q is mapped to a proto enum but the domain layer has no enum mapping for %s.%s", column, g.api.Table, column)
 }
 
-func (g *genCtx) use(path, alias string) { g.imports[path] = alias }
-
-func (g *genCtx) pbType(m protoreflect.MessageDescriptor) string {
-	return g.pbAlias + "." + string(m.Name())
+// goKind: IR 的字段类型 → Go 的基础类型;Timestamp 返回 "ts"。
+func goKind(f *ir.Field) (string, error) {
+	if f.List {
+		return "", fmt.Errorf("field %s: repeated is not supported by mapping", f.Name)
+	}
+	switch f.Kind {
+	case "int32", "int64", "uint32", "uint64", "string", "bool":
+		return f.Kind, nil
+	case "double":
+		return "float64", nil
+	case "float":
+		return "float32", nil
+	case "timestamp":
+		return "ts", nil
+	}
+	return "", fmt.Errorf("field %s: kind %s is not supported by mapping", f.Name, f.Kind)
 }
 
 // reqExpr: 请求字段 → 查询参数类型 的转换表达式。
-func (g *genCtx) reqExpr(fd protoreflect.FieldDescriptor, paramType string) (string, error) {
-	if fd.Kind() == protoreflect.EnumKind && !fd.IsList() {
-		column := string(fd.Name())
+func (g *genCtx) reqExpr(f *ir.Field, paramType string) (string, error) {
+	goName := goCamelCase(f.Name)
+	if f.Kind == "enum" && !f.List {
+		column := f.Name
 		if c, ok := g.filterCol[norm(column)]; ok {
 			column = c
 		}
@@ -102,48 +69,45 @@ func (g *genCtx) reqExpr(fd protoreflect.FieldDescriptor, paramType string) (str
 		if err != nil {
 			return "", err
 		}
-		goName := goCamelCase(string(fd.Name()))
 		switch {
-		case fd.HasOptionalKeyword() && paramType == "*"+m.DBGoType:
+		case f.Optional && paramType == "*"+m.DBGoType:
 			return fmt.Sprintf("%sPtrToDB(m.%s)", m.Helper, goName), nil
-		case !fd.HasOptionalKeyword() && paramType == m.DBGoType:
+		case !f.Optional && paramType == m.DBGoType:
 			return fmt.Sprintf("%sToDB(m.Get%s())", m.Helper, goName), nil
 		}
-		return "", fmt.Errorf("enum request field %s (optional=%v) cannot be mapped to query param type %s", fd.Name(), fd.HasOptionalKeyword(), paramType)
+		return "", fmt.Errorf("enum request field %s (optional=%v) cannot be mapped to query param type %s", f.Name, f.Optional, paramType)
 	}
-	kind, err := protoGoKind(fd)
+	kind, err := goKind(f)
 	if err != nil {
 		return "", err
 	}
-	goName := goCamelCase(string(fd.Name()))
 	switch {
 	case kind == "ts" && paramType == "*time.Time":
 		g.use("apifactory/platform/conv", "")
 		return fmt.Sprintf("conv.TimePtr(m.%s)", goName), nil
 	case kind == "ts" && paramType == "time.Time":
 		return fmt.Sprintf("m.Get%s().AsTime()", goName), nil
-	case fd.HasOptionalKeyword() && paramType == "*"+kind:
+	case f.Optional && paramType == "*"+kind:
 		return "m." + goName, nil // nil = 未指定 = 不筛选;*0 也是有效值
 	case paramType == kind:
 		return fmt.Sprintf("m.Get%s()", goName), nil
 	}
-	return "", fmt.Errorf("request field %s (%s, optional=%v) cannot be mapped to query param type %s",
-		fd.Name(), kind, fd.HasOptionalKeyword(), paramType)
+	return "", fmt.Errorf("request field %s (%s, optional=%v) cannot be mapped to query param type %s", f.Name, kind, f.Optional, paramType)
 }
 
 // resExpr: 查询结果字段 → 响应字段 的转换表达式。
-func (g *genCtx) resExpr(src, srcType string, fd protoreflect.FieldDescriptor) (string, error) {
-	if fd.Kind() == protoreflect.EnumKind && !fd.IsList() {
-		m, err := g.enumFor(string(fd.Name()))
+func (g *genCtx) resExpr(src, srcType string, f *ir.Field) (string, error) {
+	if f.Kind == "enum" && !f.List {
+		m, err := g.enumFor(f.Name)
 		if err != nil {
 			return "", err
 		}
 		if srcType != m.DBGoType {
-			return "", fmt.Errorf("query column %s (%s) cannot be mapped to enum field %s (DB type %s)", src, srcType, fd.Name(), m.DBGoType)
+			return "", fmt.Errorf("query column %s (%s) cannot be mapped to enum field %s (DB type %s)", src, srcType, f.Name, m.DBGoType)
 		}
 		return fmt.Sprintf("%sToProto(%s)", m.Helper, src), nil
 	}
-	kind, err := protoGoKind(fd)
+	kind, err := goKind(f)
 	if err != nil {
 		return "", err
 	}
@@ -156,37 +120,34 @@ func (g *genCtx) resExpr(src, srcType string, fd protoreflect.FieldDescriptor) (
 		return fmt.Sprintf("conv.TSPtr(%s)", src), nil
 	case srcType == kind:
 		return src, nil
-	case fd.HasOptionalKeyword() && srcType == "*"+kind:
+	case f.Optional && srcType == "*"+kind:
 		return src, nil
 	}
-	return "", fmt.Errorf("query column %s (%s) cannot be mapped to response field %s (%s)", src, srcType, fd.Name(), kind)
+	return "", fmt.Errorf("query column %s (%s) cannot be mapped to response field %s (%s)", src, srcType, f.Name, kind)
 }
 
-// requestField 按名字(或 pattern.mapping)找到查询参数对应的请求字段。
-func (g *genCtx) requestField(param string) (protoreflect.FieldDescriptor, error) {
-	in := g.method.Input()
-	for i := 0; i < in.Fields().Len(); i++ {
-		fd := in.Fields().Get(i)
-		if norm(string(fd.Name())) == norm(param) {
-			return fd, nil
+// requestField 按名字找到查询参数对应的请求字段。
+func (g *genCtx) requestField(param string) (*ir.Field, error) {
+	for i := range g.api.Request.Fields {
+		if f := &g.api.Request.Fields[i]; norm(f.Name) == norm(param) {
+			return f, nil
 		}
 	}
-	return nil, fmt.Errorf("query param %q has no matching field in %s (with datasource.sql, name params after request fields)", param, in.Name())
+	return nil, fmt.Errorf("query param %q has no matching field in %s (with datasource.sql, name params after request fields)", param, g.api.Request.Name)
 }
 
 // paramAssignments 生成查询参数结构体的各字段赋值。skip 里的参数由模式本身处理。
 func (g *genCtx) paramAssignments(skip func(string) bool) ([]string, error) {
-	fields := g.db.structs[g.query.ParamType]
 	var lines []string
-	for _, f := range fields {
+	for _, f := range g.db.structs[g.query.ParamType] {
 		if skip(f.Name) {
 			continue
 		}
-		fd, err := g.requestField(f.Name)
+		rf, err := g.requestField(f.Name)
 		if err != nil {
 			return nil, err
 		}
-		e, err := g.reqExpr(fd, f.Type)
+		e, err := g.reqExpr(rf, f.Type)
 		if err != nil {
 			return nil, err
 		}
@@ -195,9 +156,35 @@ func (g *genCtx) paramAssignments(skip func(string) bool) ([]string, error) {
 	return lines, nil
 }
 
+// queryCall: 调用 sqlc 生成的查询函数(无参数 / 参数结构体 / 单个参数)。
+func (g *genCtx) queryCall() (string, error) {
+	name := g.api.Query.Name
+	switch {
+	case g.query.ParamType == "":
+		return fmt.Sprintf("h.q.%s(ctx)", name), nil
+	case g.db.structs[g.query.ParamType] != nil:
+		g.use("apifactory/gen/db", "")
+		lines, err := g.paramAssignments(func(string) bool { return false })
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("h.q.%s(ctx, db.%s{\n%s\n})", name, g.query.ParamType, strings.Join(lines, "\n")), nil
+	default:
+		rf, err := g.requestField(g.query.ParamName)
+		if err != nil {
+			return "", err
+		}
+		e, err := g.reqExpr(rf, g.query.ParamType)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("h.q.%s(ctx, %s)", name, e), nil
+	}
+}
+
 func (g *genCtx) header(body string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "// Code generated by factory from %s. DO NOT EDIT.\n// pattern: %s\n\npackage %s\n\nimport (\n", g.spec.Path, g.spec.PatternKind(), g.svc.Domain)
+	fmt.Fprintf(&b, "// Code generated by factory from %s. DO NOT EDIT.\n// pattern: %s\n\npackage %s\n\nimport (\n", g.api.SpecPath, g.api.Pattern, g.svc.Domain)
 	paths := make([]string, 0, len(g.imports))
 	for p := range g.imports {
 		paths = append(paths, p)
@@ -207,8 +194,7 @@ func (g *genCtx) header(body string) string {
 	groups := [3][]string{}
 	for _, p := range paths {
 		i := 1
-		switch {
-		case !strings.Contains(strings.Split(p, "/")[0], "."):
+		if !strings.Contains(strings.Split(p, "/")[0], ".") {
 			i = 0
 			if strings.HasPrefix(p, modulePath+"/") {
 				i = 2
@@ -239,39 +225,20 @@ func (g *genCtx) header(body string) string {
 var placeholderRe = regexp.MustCompile(`\{([a-z0-9_]+)\}`)
 
 func genGetByID(g *genCtx) (string, error) {
-	in, out := g.method.Input(), g.method.Output()
+	in, out := &g.api.Request, &g.api.Response
 	g.use("apifactory/platform/apierr", "")
 
-	// 查询参数
-	var call string
-	switch {
-	case g.query.ParamType == "":
-		call = fmt.Sprintf("h.q.%s(ctx)", g.spec.QueryName())
-	case g.db.structs[g.query.ParamType] != nil:
-		g.use("apifactory/gen/db", "")
-		lines, err := g.paramAssignments(func(string) bool { return false })
-		if err != nil {
-			return "", err
-		}
-		call = fmt.Sprintf("h.q.%s(ctx, db.%s{\n%s\n})", g.spec.QueryName(), g.query.ParamType, strings.Join(lines, "\n"))
-	default:
-		fd, err := g.requestField(g.query.ParamName)
-		if err != nil {
-			return "", err
-		}
-		e, err := g.reqExpr(fd, g.query.ParamType)
-		if err != nil {
-			return "", err
-		}
-		call = fmt.Sprintf("h.q.%s(ctx, %s)", g.spec.QueryName(), e)
+	call, err := g.queryCall()
+	if err != nil {
+		return "", err
 	}
 
 	// NOT_FOUND 消息: {field} → %v
 	var nfArgs []string
 	var nfErr error
-	nfFormat := placeholderRe.ReplaceAllStringFunc(g.spec.Pattern.NotFoundMessage, func(m string) string {
+	nfFormat := placeholderRe.ReplaceAllStringFunc(g.api.GetByID.NotFoundMessage, func(m string) string {
 		name := m[1 : len(m)-1]
-		if in.Fields().ByName(protoreflect.Name(name)) == nil {
+		if in.Field(name) == nil {
 			nfErr = fmt.Errorf("not_found_message: {%s} is not a request field", name)
 		}
 		nfArgs = append(nfArgs, fmt.Sprintf("m.Get%s()", goCamelCase(name)))
@@ -289,27 +256,27 @@ func genGetByID(g *genCtx) (string, error) {
 	row, _ := g.db.rowFields(g.query)
 	var resLines []string
 	if row == nil { // 标量结果 → 响应必须只有一个字段
-		if out.Fields().Len() != 1 {
-			return "", fmt.Errorf("query returns a single column but %s has %d fields", out.Name(), out.Fields().Len())
+		if len(out.Fields) != 1 {
+			return "", fmt.Errorf("query returns a single column but %s has %d fields", out.Name, len(out.Fields))
 		}
-		fd := out.Fields().Get(0)
-		e, err := g.resExpr("row", g.query.ReturnType, fd)
+		f := &out.Fields[0]
+		e, err := g.resExpr("row", g.query.ReturnType, f)
 		if err != nil {
 			return "", err
 		}
-		resLines = append(resLines, fmt.Sprintf("%s: %s,", goCamelCase(string(fd.Name())), e))
+		resLines = append(resLines, fmt.Sprintf("%s: %s,", goCamelCase(f.Name), e))
 	} else {
-		for i := 0; i < out.Fields().Len(); i++ {
-			fd := out.Fields().Get(i)
-			f, ok := fieldByNorm(row, string(fd.Name()))
+		for i := range out.Fields {
+			f := &out.Fields[i]
+			col, ok := fieldByNorm(row, f.Name)
 			if !ok {
-				return "", fmt.Errorf("response field %s has no matching query column", fd.Name())
+				return "", fmt.Errorf("response field %s has no matching query column", f.Name)
 			}
-			e, err := g.resExpr("row."+f.Name, f.Type, fd)
+			e, err := g.resExpr("row."+col.Name, col.Type, f)
 			if err != nil {
 				return "", err
 			}
-			resLines = append(resLines, fmt.Sprintf("%s: %s,", goCamelCase(string(fd.Name())), e))
+			resLines = append(resLines, fmt.Sprintf("%s: %s,", goCamelCase(f.Name), e))
 		}
 	}
 
@@ -327,41 +294,23 @@ func (h *Handler) %s(ctx context.Context, req *connect.Request[%s]) (*connect.Re
 		%s
 	}), nil
 }
-`, g.parts.Method, g.summary(), g.parts.Method, g.pbType(in), g.pbType(out), call, nf, g.pbType(out), strings.Join(resLines, "\n"))
+`, g.api.Method, g.api.Summary, g.api.Method, g.pbType(in), g.pbType(out), call, nf, g.pbType(out), strings.Join(resLines, "\n"))
 	return g.header(body), nil
 }
 
 func genListKeyset(g *genCtx) (string, error) {
-	in, out := g.method.Input(), g.method.Output()
-	p := g.spec.Pattern
+	in, out := &g.api.Request, &g.api.Response
+	k := g.api.Keyset
 	g.use("apifactory/platform/apierr", "")
 	g.use("apifactory/platform/paging", "")
 	g.use("apifactory/gen/db", "")
 
-	// AIP-158 约定的分页字段
-	for _, name := range []string{"page_size", "page_token"} {
-		if in.Fields().ByName(protoreflect.Name(name)) == nil {
-			return "", fmt.Errorf("pattern list_keyset: %s must have field %s", in.Name(), name)
-		}
-	}
-	if out.Fields().ByName("next_page_token") == nil {
-		return "", fmt.Errorf("pattern list_keyset: %s must have field next_page_token", out.Name())
-	}
-	var items protoreflect.FieldDescriptor
-	for i := 0; i < out.Fields().Len(); i++ {
-		fd := out.Fields().Get(i)
-		if fd.IsList() && fd.Kind() == protoreflect.MessageKind {
-			if items != nil {
-				return "", fmt.Errorf("pattern list_keyset: %s must have exactly one repeated message field", out.Name())
-			}
-			items = fd
-		}
-	}
-	if items == nil {
-		return "", fmt.Errorf("pattern list_keyset: %s has no repeated message field", out.Name())
+	items := out.Field(k.ItemsField)
+	if items == nil || items.Message == nil {
+		return "", fmt.Errorf("pattern list_keyset: %s has no repeated message field %s", out.Name, k.ItemsField)
 	}
 	if g.db.structs[g.query.ParamType] == nil {
-		return "", fmt.Errorf("pattern list_keyset: query %s must take a params struct", g.spec.QueryName())
+		return "", fmt.Errorf("pattern list_keyset: query %s must take a params struct", g.api.Query.Name)
 	}
 	row, rowType := g.db.rowFields(g.query)
 	if row == nil {
@@ -369,10 +318,10 @@ func genListKeyset(g *genCtx) (string, error) {
 	}
 
 	// 游标
-	cursorType := lowerFirst(g.parts.Method) + "Cursor"
+	cursorType := lowerFirst(g.api.Method) + "Cursor"
 	var cursorFields, cursorSet, cursorBuild []string
 	cursorParams := map[string]bool{"RowLimit": true}
-	for _, c := range p.OrderBy {
+	for _, c := range k.OrderBy {
 		f, _ := fieldByNorm(row, c)
 		if f.Type == "time.Time" {
 			g.use("time", "")
@@ -393,21 +342,21 @@ func genListKeyset(g *genCtx) (string, error) {
 	}
 
 	// 行 → 响应元素
-	elem := items.Message()
+	elem := items.Message
 	var elemLines []string
-	for i := 0; i < elem.Fields().Len(); i++ {
-		fd := elem.Fields().Get(i)
-		f, ok := fieldByNorm(row, string(fd.Name()))
+	for i := range elem.Fields {
+		f := &elem.Fields[i]
+		col, ok := fieldByNorm(row, f.Name)
 		if !ok {
-			return "", fmt.Errorf("response field %s.%s has no matching query column", elem.Name(), fd.Name())
+			return "", fmt.Errorf("response field %s.%s has no matching query column", elem.Name, f.Name)
 		}
-		e, err := g.resExpr("r."+f.Name, f.Type, fd)
+		e, err := g.resExpr("r."+col.Name, col.Type, f)
 		if err != nil {
 			return "", err
 		}
-		elemLines = append(elemLines, fmt.Sprintf("%s: %s,", goCamelCase(string(fd.Name())), e))
+		elemLines = append(elemLines, fmt.Sprintf("%s: %s,", goCamelCase(f.Name), e))
 	}
-	itemsGo := goCamelCase(string(items.Name()))
+	itemsGo := goCamelCase(items.Name)
 
 	body := fmt.Sprintf(`// %s 是 page_token 里携带的游标(本页最后一行的 order_by 列)。
 type %s struct {
@@ -454,11 +403,11 @@ func (h *Handler) %s(ctx context.Context, req *connect.Request[%s]) (*connect.Re
 	return connect.NewResponse(res), nil
 }
 `, cursorType, cursorType, strings.Join(cursorFields, "\n"),
-		g.parts.Method, g.summary(), g.parts.Method, g.pbType(in), g.pbType(out),
-		p.PageSize.Default, p.PageSize.Max,
+		g.api.Method, g.api.Summary, g.api.Method, g.pbType(in), g.pbType(out),
+		k.DefaultSize, k.MaxSize,
 		g.query.ParamType, strings.Join(assigns, "\n"),
 		cursorType, strings.Join(cursorSet, "\n"),
-		g.spec.QueryName(),
+		g.api.Query.Name,
 		g.pbType(out), itemsGo, g.pbType(elem),
 		itemsGo, itemsGo, g.pbType(elem), strings.Join(elemLines, "\n"),
 		cursorType, strings.Join(cursorBuild, "\n"))
@@ -467,28 +416,10 @@ func (h *Handler) %s(ctx context.Context, req *connect.Request[%s]) (*connect.Re
 
 // genCompute: handler = 映射 + 查询 + 调用 AI 写的纯函数。
 func genCompute(g *genCtx) (string, error) {
-	in, out := g.method.Input(), g.method.Output()
-	var call string
-	switch {
-	case g.query.ParamType == "":
-		call = fmt.Sprintf("h.q.%s(ctx)", g.spec.QueryName())
-	case g.db.structs[g.query.ParamType] != nil:
-		g.use("apifactory/gen/db", "")
-		lines, err := g.paramAssignments(func(string) bool { return false })
-		if err != nil {
-			return "", err
-		}
-		call = fmt.Sprintf("h.q.%s(ctx, db.%s{\n%s\n})", g.spec.QueryName(), g.query.ParamType, strings.Join(lines, "\n"))
-	default:
-		fd, err := g.requestField(g.query.ParamName)
-		if err != nil {
-			return "", err
-		}
-		e, err := g.reqExpr(fd, g.query.ParamType)
-		if err != nil {
-			return "", err
-		}
-		call = fmt.Sprintf("h.q.%s(ctx, %s)", g.spec.QueryName(), e)
+	in, out := &g.api.Request, &g.api.Response
+	call, err := g.queryCall()
+	if err != nil {
+		return "", err
 	}
 	// 逻辑函数的输入行: enum 列按领域层转换成 proto enum(未知值 → UNSPECIFIED + 指标),
 	// 逻辑代码不依赖 DB 的编码,也不 import gen/db。
@@ -496,6 +427,7 @@ func genCompute(g *genCtx) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	fn := g.api.Compute.LogicFunction
 	body := fmt.Sprintf(`%s
 // %s %s
 // 业务逻辑在 %s(纯函数,由 AI 实现)。
@@ -512,11 +444,11 @@ func (h *Handler) %s(ctx context.Context, req *connect.Request[%s]) (*connect.Re
 	}
 	return connect.NewResponse(res), nil
 }
-`, rowDecl, g.parts.Method, g.summary(), logicFuncName(g.parts.Method), g.parts.Method, g.pbType(in), g.pbType(out), call, convert, logicFuncName(g.parts.Method))
+`, rowDecl, g.api.Method, g.api.Summary, fn, g.api.Method, g.pbType(in), g.pbType(out), call, convert, fn)
 	return g.header(body), nil
 }
 
-func (g *genCtx) logicRowType() string { return lowerFirst(g.parts.Method) + "Row" }
+func (g *genCtx) logicRowType() string { return lowerFirst(g.api.Method) + "Row" }
 
 // logicRows: 逻辑输入行的类型声明 + 从 sqlc 行转换的代码。
 func (g *genCtx) logicRows() (decl, convert string, err error) {
@@ -546,7 +478,8 @@ func (g *genCtx) logicRows() (decl, convert string, err error) {
 		assigns = append(assigns, fmt.Sprintf("%s: %s,", f.Name, expr))
 	}
 	t := g.logicRowType()
-	decl = fmt.Sprintf("// %s: %s 的输入行(enum 列已按领域层转换成 proto enum)。\ntype %s struct {\n%s\n}\n", t, logicFuncName(g.parts.Method), t, strings.Join(fields, "\n"))
+	fn := g.api.Compute.LogicFunction
+	decl = fmt.Sprintf("// %s: %s 的输入行(enum 列已按领域层转换成 proto enum)。\ntype %s struct {\n%s\n}\n", t, fn, t, strings.Join(fields, "\n"))
 	convert = fmt.Sprintf("in := make([]%s, 0, len(rows))\n\tfor _, r := range rows {\n\t\tin = append(in, %s{\n%s\n})\n\t}", t, t, strings.Join(assigns, "\n"))
 	return decl, convert, nil
 }
@@ -554,41 +487,34 @@ func (g *genCtx) logicRows() (decl, convert string, err error) {
 // LogicSignature 返回 compute 模式里 AI 要实现的函数签名(prompt 和桩共用)。
 func LogicSignature(g *genCtx) string {
 	return fmt.Sprintf("func %s(req *%s, rows %s) (*%s, error)",
-		logicFuncName(g.parts.Method), g.pbType(g.method.Input()), g.rowsType(), g.pbType(g.method.Output()))
+		g.api.Compute.LogicFunction, g.pbType(&g.api.Request), "[]"+g.logicRowType(), g.pbType(&g.api.Response))
 }
-
-func (g *genCtx) rowsType() string { return "[]" + g.logicRowType() }
-
-func logicFuncName(method string) string { return lowerFirst(method) + "Logic" }
 
 // genLogicStub: 逻辑文件不存在时生成桩(返回 UNIMPLEMENTED),AI 在此基础上实现。
 func genLogicStub(g *genCtx) string {
-	g2 := &genCtx{spec: g.spec, parts: g.parts, svc: g.svc, method: g.method, query: g.query, db: g.db, pbAlias: g.pbAlias, imports: map[string]string{}}
+	g2 := &genCtx{api: g.api, svc: g.svc, query: g.query, db: g.db, pbAlias: g.pbAlias, imports: map[string]string{}}
 	g2.use("errors", "")
 	g2.use("connectrpc.com/connect", "")
-	segs := strings.Split(g.parts.ProtoPackage, ".")
-	g2.use(modulePath+"/gen/"+strings.Join(segs, "/"), g.pbAlias)
+	g2.use(modulePath+"/gen/"+strings.ReplaceAll(g.api.ProtoPackage, ".", "/"), g.pbAlias)
+	fn := g.api.Compute.LogicFunction
 	body := fmt.Sprintf(`// %s 实现 %s 的业务逻辑(式样书 behavior 节)。
 // 纯函数: 不访问 DB/网络/文件,不用 context,不调用 time.Now,不用全局可变状态。
 %s {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("%s: not implemented"))
 }
-`, logicFuncName(g.parts.Method), g.parts.Method, LogicSignature(g), logicFuncName(g.parts.Method))
+`, fn, g.api.Method, LogicSignature(g), fn)
 	src := g2.header(body)
 	// 桩不是生成物(AI 会改写),去掉 DO NOT EDIT 标记
-	src = strings.Replace(src, "// Code generated by factory from "+g.spec.Path+". DO NOT EDIT.\n// pattern: compute\n", "// Logic for "+g.spec.Path+" — implemented by AI.\n", 1)
-	return src
+	return strings.Replace(src, "// Code generated by factory from "+g.api.SpecPath+". DO NOT EDIT.\n// pattern: compute\n", "// Logic for "+g.api.SpecPath+" — implemented by AI.\n", 1)
 }
 
-// summary: proto 里 rpc 的注释第一行(式样书不再重复写 summary)。
-func (g *genCtx) summary() string {
-	loc := g.method.ParentFile().SourceLocations().ByDescriptor(g.method)
-	for _, line := range strings.Split(loc.LeadingComments, "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			return line
+func fieldByNorm(fields []goField, name string) (goField, bool) {
+	for _, f := range fields {
+		if norm(f.Name) == norm(name) {
+			return f, true
 		}
 	}
-	return ""
+	return goField{}, false
 }
 
 func lowerFirst(s string) string {
@@ -596,10 +522,6 @@ func lowerFirst(s string) string {
 		return s
 	}
 	return strings.ToLower(s[:1]) + s[1:]
-}
-
-func oneLine(s string) string {
-	return strings.Join(strings.Fields(s), " ")
 }
 
 func snake(s string) string {
