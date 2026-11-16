@@ -40,6 +40,15 @@ const (
 	ShopServiceGetProductBySkuProcedure = "/factory.shop.v1.ShopService/GetProductBySku"
 	// ShopServiceListOrdersProcedure is the fully-qualified name of the ShopService's ListOrders RPC.
 	ShopServiceListOrdersProcedure = "/factory.shop.v1.ShopService/ListOrders"
+	// ShopServiceListProductsProcedure is the fully-qualified name of the ShopService's ListProducts
+	// RPC.
+	ShopServiceListProductsProcedure = "/factory.shop.v1.ShopService/ListProducts"
+	// ShopServiceListOrderItemsProcedure is the fully-qualified name of the ShopService's
+	// ListOrderItems RPC.
+	ShopServiceListOrderItemsProcedure = "/factory.shop.v1.ShopService/ListOrderItems"
+	// ShopServiceGetProductPriceAsOfProcedure is the fully-qualified name of the ShopService's
+	// GetProductPriceAsOf RPC.
+	ShopServiceGetProductPriceAsOfProcedure = "/factory.shop.v1.ShopService/GetProductPriceAsOf"
 )
 
 // ShopServiceClient is a client for the factory.shop.v1.ShopService service.
@@ -50,6 +59,12 @@ type ShopServiceClient interface {
 	GetProductBySku(context.Context, *connect.Request[v1.GetProductBySkuRequest]) (*connect.Response[v1.GetProductBySkuResponse], error)
 	// R3: 订单一览(按顾客/状态/下单期间筛选,新的在前,游标分页)
 	ListOrders(context.Context, *connect.Request[v1.ListOrdersRequest]) (*connect.Response[v1.ListOrdersResponse], error)
+	// R4: 商品一览(按分类/状态筛选,按商品名前缀搜索,新的在前,游标分页)
+	ListProducts(context.Context, *connect.Request[v1.ListProductsRequest]) (*connect.Response[v1.ListProductsResponse], error)
+	// R5: 某个订单的明细,按行号升序
+	ListOrderItems(context.Context, *connect.Request[v1.ListOrderItemsRequest]) (*connect.Response[v1.ListOrderItemsResponse], error)
+	// R6: 某商品在某个时点的有效价格
+	GetProductPriceAsOf(context.Context, *connect.Request[v1.GetProductPriceAsOfRequest]) (*connect.Response[v1.GetProductPriceAsOfResponse], error)
 }
 
 // NewShopServiceClient constructs a client for the factory.shop.v1.ShopService service. By default,
@@ -81,14 +96,35 @@ func NewShopServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(shopServiceMethods.ByName("ListOrders")),
 			connect.WithClientOptions(opts...),
 		),
+		listProducts: connect.NewClient[v1.ListProductsRequest, v1.ListProductsResponse](
+			httpClient,
+			baseURL+ShopServiceListProductsProcedure,
+			connect.WithSchema(shopServiceMethods.ByName("ListProducts")),
+			connect.WithClientOptions(opts...),
+		),
+		listOrderItems: connect.NewClient[v1.ListOrderItemsRequest, v1.ListOrderItemsResponse](
+			httpClient,
+			baseURL+ShopServiceListOrderItemsProcedure,
+			connect.WithSchema(shopServiceMethods.ByName("ListOrderItems")),
+			connect.WithClientOptions(opts...),
+		),
+		getProductPriceAsOf: connect.NewClient[v1.GetProductPriceAsOfRequest, v1.GetProductPriceAsOfResponse](
+			httpClient,
+			baseURL+ShopServiceGetProductPriceAsOfProcedure,
+			connect.WithSchema(shopServiceMethods.ByName("GetProductPriceAsOf")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // shopServiceClient implements ShopServiceClient.
 type shopServiceClient struct {
-	getCustomer     *connect.Client[v1.GetCustomerRequest, v1.GetCustomerResponse]
-	getProductBySku *connect.Client[v1.GetProductBySkuRequest, v1.GetProductBySkuResponse]
-	listOrders      *connect.Client[v1.ListOrdersRequest, v1.ListOrdersResponse]
+	getCustomer         *connect.Client[v1.GetCustomerRequest, v1.GetCustomerResponse]
+	getProductBySku     *connect.Client[v1.GetProductBySkuRequest, v1.GetProductBySkuResponse]
+	listOrders          *connect.Client[v1.ListOrdersRequest, v1.ListOrdersResponse]
+	listProducts        *connect.Client[v1.ListProductsRequest, v1.ListProductsResponse]
+	listOrderItems      *connect.Client[v1.ListOrderItemsRequest, v1.ListOrderItemsResponse]
+	getProductPriceAsOf *connect.Client[v1.GetProductPriceAsOfRequest, v1.GetProductPriceAsOfResponse]
 }
 
 // GetCustomer calls factory.shop.v1.ShopService.GetCustomer.
@@ -106,6 +142,21 @@ func (c *shopServiceClient) ListOrders(ctx context.Context, req *connect.Request
 	return c.listOrders.CallUnary(ctx, req)
 }
 
+// ListProducts calls factory.shop.v1.ShopService.ListProducts.
+func (c *shopServiceClient) ListProducts(ctx context.Context, req *connect.Request[v1.ListProductsRequest]) (*connect.Response[v1.ListProductsResponse], error) {
+	return c.listProducts.CallUnary(ctx, req)
+}
+
+// ListOrderItems calls factory.shop.v1.ShopService.ListOrderItems.
+func (c *shopServiceClient) ListOrderItems(ctx context.Context, req *connect.Request[v1.ListOrderItemsRequest]) (*connect.Response[v1.ListOrderItemsResponse], error) {
+	return c.listOrderItems.CallUnary(ctx, req)
+}
+
+// GetProductPriceAsOf calls factory.shop.v1.ShopService.GetProductPriceAsOf.
+func (c *shopServiceClient) GetProductPriceAsOf(ctx context.Context, req *connect.Request[v1.GetProductPriceAsOfRequest]) (*connect.Response[v1.GetProductPriceAsOfResponse], error) {
+	return c.getProductPriceAsOf.CallUnary(ctx, req)
+}
+
 // ShopServiceHandler is an implementation of the factory.shop.v1.ShopService service.
 type ShopServiceHandler interface {
 	// R1: 按顾客 id 返回顾客信息
@@ -114,6 +165,12 @@ type ShopServiceHandler interface {
 	GetProductBySku(context.Context, *connect.Request[v1.GetProductBySkuRequest]) (*connect.Response[v1.GetProductBySkuResponse], error)
 	// R3: 订单一览(按顾客/状态/下单期间筛选,新的在前,游标分页)
 	ListOrders(context.Context, *connect.Request[v1.ListOrdersRequest]) (*connect.Response[v1.ListOrdersResponse], error)
+	// R4: 商品一览(按分类/状态筛选,按商品名前缀搜索,新的在前,游标分页)
+	ListProducts(context.Context, *connect.Request[v1.ListProductsRequest]) (*connect.Response[v1.ListProductsResponse], error)
+	// R5: 某个订单的明细,按行号升序
+	ListOrderItems(context.Context, *connect.Request[v1.ListOrderItemsRequest]) (*connect.Response[v1.ListOrderItemsResponse], error)
+	// R6: 某商品在某个时点的有效价格
+	GetProductPriceAsOf(context.Context, *connect.Request[v1.GetProductPriceAsOfRequest]) (*connect.Response[v1.GetProductPriceAsOfResponse], error)
 }
 
 // NewShopServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -141,6 +198,24 @@ func NewShopServiceHandler(svc ShopServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(shopServiceMethods.ByName("ListOrders")),
 		connect.WithHandlerOptions(opts...),
 	)
+	shopServiceListProductsHandler := connect.NewUnaryHandler(
+		ShopServiceListProductsProcedure,
+		svc.ListProducts,
+		connect.WithSchema(shopServiceMethods.ByName("ListProducts")),
+		connect.WithHandlerOptions(opts...),
+	)
+	shopServiceListOrderItemsHandler := connect.NewUnaryHandler(
+		ShopServiceListOrderItemsProcedure,
+		svc.ListOrderItems,
+		connect.WithSchema(shopServiceMethods.ByName("ListOrderItems")),
+		connect.WithHandlerOptions(opts...),
+	)
+	shopServiceGetProductPriceAsOfHandler := connect.NewUnaryHandler(
+		ShopServiceGetProductPriceAsOfProcedure,
+		svc.GetProductPriceAsOf,
+		connect.WithSchema(shopServiceMethods.ByName("GetProductPriceAsOf")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/factory.shop.v1.ShopService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ShopServiceGetCustomerProcedure:
@@ -149,6 +224,12 @@ func NewShopServiceHandler(svc ShopServiceHandler, opts ...connect.HandlerOption
 			shopServiceGetProductBySkuHandler.ServeHTTP(w, r)
 		case ShopServiceListOrdersProcedure:
 			shopServiceListOrdersHandler.ServeHTTP(w, r)
+		case ShopServiceListProductsProcedure:
+			shopServiceListProductsHandler.ServeHTTP(w, r)
+		case ShopServiceListOrderItemsProcedure:
+			shopServiceListOrderItemsHandler.ServeHTTP(w, r)
+		case ShopServiceGetProductPriceAsOfProcedure:
+			shopServiceGetProductPriceAsOfHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -168,4 +249,16 @@ func (UnimplementedShopServiceHandler) GetProductBySku(context.Context, *connect
 
 func (UnimplementedShopServiceHandler) ListOrders(context.Context, *connect.Request[v1.ListOrdersRequest]) (*connect.Response[v1.ListOrdersResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.shop.v1.ShopService.ListOrders is not implemented"))
+}
+
+func (UnimplementedShopServiceHandler) ListProducts(context.Context, *connect.Request[v1.ListProductsRequest]) (*connect.Response[v1.ListProductsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.shop.v1.ShopService.ListProducts is not implemented"))
+}
+
+func (UnimplementedShopServiceHandler) ListOrderItems(context.Context, *connect.Request[v1.ListOrderItemsRequest]) (*connect.Response[v1.ListOrderItemsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.shop.v1.ShopService.ListOrderItems is not implemented"))
+}
+
+func (UnimplementedShopServiceHandler) GetProductPriceAsOf(context.Context, *connect.Request[v1.GetProductPriceAsOfRequest]) (*connect.Response[v1.GetProductPriceAsOfResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.shop.v1.ShopService.GetProductPriceAsOf is not implemented"))
 }

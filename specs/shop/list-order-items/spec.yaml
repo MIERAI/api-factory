@@ -1,0 +1,30 @@
+# R5: 某个订单的明细,按行号升序
+spec_version: "0.2"
+api:
+  rpc: factory.shop.v1.ShopService/ListOrderItems
+  owner: cs-team
+  risk_level: low
+pattern:
+  kind: list_keyset
+  order_by: [line_no]          # order_id 是必填的筛选条件,所以 line_no 在结果里唯一
+  direction: asc
+  page_size: { default: 50, max: 200 }
+datasource:
+  table: order_items
+acceptance:
+  fixtures:
+    order_items:
+      - { order_id: 1, line_no: 2, product_id: 11, quantity: 1, unit_price: 1200 }
+      - { order_id: 1, line_no: 1, product_id: 10, quantity: 2, unit_price: 1000 }
+      - { order_id: 2, line_no: 1, product_id: 10, quantity: 1, unit_price: 1000 }
+  cases:
+    - name: 只返回这个订单的明细,按行号升序
+      request: { order_id: 1 }
+      expect: { code: OK, response: { items: [{ line_no: 1, product_id: 10, quantity: 2, unit_price: 1000 }, { line_no: 2 }] } }
+    - name: 不存在的订单(或没有明细的订单)→ OK + 空列表
+      request: { order_id: 999 }
+      expect: { code: OK, response: { items: [] } }
+
+review_decisions:
+  - question: order_id 指向不存在的订单(或订单没有明细)时,返回 OK + 空列表还是 NOT_FOUND?
+    decision: OK + 空列表。AIP-132 建议父资源不存在时返回 NOT_FOUND,但那需要再查 orders(多表),list_keyset 做不到 → 记为工厂缺口"列出子资源时检查父资源"

@@ -1,0 +1,42 @@
+# R6: 某商品在某个时点的有效价格
+# 【缺口】版本化主数据(as-of): "valid_from <= as_of 的最新一行" 无法声明 → get_by_id + datasource.sql 逃生口
+spec_version: "0.2"
+api:
+  rpc: factory.shop.v1.ShopService/GetProductPriceAsOf
+  owner: pricing-team
+  risk_level: medium           # 价格,金额相关
+pattern:
+  kind: get_by_id
+  not_found_message: "no price for product {product_id} at the given time"
+datasource:
+  table: product_prices
+  sql: |
+    SELECT price, currency, valid_from
+    FROM product_prices
+    WHERE product_id = sqlc.arg(product_id)::int8
+      AND valid_from <= sqlc.arg(as_of)::timestamptz
+    ORDER BY valid_from DESC
+    LIMIT 1
+acceptance:
+  fixtures:
+    product_prices:
+      - { product_id: 10, valid_from: "2025-01-01T00:00:00Z", price: 1000, currency: JPY }
+      - { product_id: 10, valid_from: "2025-07-01T00:00:00Z", price: 1200, currency: JPY }
+  cases:
+    - name: 改价前的时点 → 旧价格
+      request: { product_id: 10, as_of: "2025-06-30T23:59:59Z" }
+      expect: { code: OK, response: { price: 1000, valid_from: "2025-01-01T00:00:00Z" } }
+    - name: 恰好在 valid_from 那一刻 → 新价格生效
+      request: { product_id: 10, as_of: "2025-07-01T00:00:00Z" }
+      expect: { code: OK, response: { price: 1200 } }
+    - name: 第一个价格生效之前 → NOT_FOUND
+      request: { product_id: 10, as_of: "2024-12-31T00:00:00Z" }
+      expect: { code: NOT_FOUND }
+
+review_decisions:
+  - question: currency 不是 JPY 时 price 怎么解释?
+    decision: 本店只用日元,schema 加 CHECK (currency = 'JPY'),不会出现。多币种时再修改 schema 和领域层
+  - question: as_of 是未来时点时,是否返回已登记但尚未生效的预约价格?
+    decision: 返回。语义就是"在 as_of 时点有效的价格",预约价格在那个时点确实有效
+  - question: 商品不存在或是 DRAFT/DISCONTINUED 时,只要有价格行就返回?
+    decision: 是。这个 API 只回答价格表的事实,不判断商品状态

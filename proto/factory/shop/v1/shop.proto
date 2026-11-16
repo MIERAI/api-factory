@@ -37,6 +37,12 @@ service ShopService {
   rpc GetProductBySku(GetProductBySkuRequest) returns (GetProductBySkuResponse);
   // R3: 订单一览(按顾客/状态/下单期间筛选,新的在前,游标分页)
   rpc ListOrders(ListOrdersRequest) returns (ListOrdersResponse);
+  // R4: 商品一览(按分类/状态筛选,按商品名前缀搜索,新的在前,游标分页)
+  rpc ListProducts(ListProductsRequest) returns (ListProductsResponse);
+  // R5: 某个订单的明细,按行号升序
+  rpc ListOrderItems(ListOrderItemsRequest) returns (ListOrderItemsResponse);
+  // R6: 某商品在某个时点的有效价格
+  rpc GetProductPriceAsOf(GetProductPriceAsOfRequest) returns (GetProductPriceAsOfResponse);
 }
 
 message GetCustomerRequest {
@@ -104,4 +110,73 @@ message Order {
   // 未发货时不设置
   google.protobuf.Timestamp shipped_at = 5;
   int64 total_amount = 6;
+}
+
+message ListProductsRequest {
+  int32 page_size = 1 [(buf.validate.field).int32 = {
+    gte: 0
+    lte: 100
+  }];
+  string page_token = 2;
+  optional string category = 3 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 32
+  }];
+  optional ProductStatus status = 4 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+  // 商品名以此开头(区分大小写)
+  optional string name_prefix = 5 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 64
+  }];
+}
+
+message ListProductsResponse {
+  repeated Product products = 1;
+  string next_page_token = 2;
+}
+
+message Product {
+  int64 id = 1;
+  string sku = 2;
+  string name = 3;
+  string category = 4;
+  ProductStatus status = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+message ListOrderItemsRequest {
+  int64 order_id = 1 [(buf.validate.field).int64.gt = 0];
+  int32 page_size = 2 [(buf.validate.field).int32 = {
+    gte: 0
+    lte: 200
+  }];
+  string page_token = 3;
+}
+
+message ListOrderItemsResponse {
+  repeated OrderItem items = 1;
+  string next_page_token = 2;
+}
+
+message OrderItem {
+  int32 line_no = 1;
+  int64 product_id = 2;
+  int32 quantity = 3;
+  int64 unit_price = 4;
+}
+
+message GetProductPriceAsOfRequest {
+  int64 product_id = 1 [(buf.validate.field).int64.gt = 0];
+  // 这个时点有效的价格(valid_from <= as_of 的最新一行)
+  google.protobuf.Timestamp as_of = 2 [(buf.validate.field).required = true];
+}
+
+message GetProductPriceAsOfResponse {
+  int64 price = 1;
+  string currency = 2;
+  // 这个价格从何时起生效
+  google.protobuf.Timestamp valid_from = 3;
 }

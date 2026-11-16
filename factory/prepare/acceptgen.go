@@ -609,7 +609,12 @@ func listKeysetSuite(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalo
 	for _, c := range cols {
 		needed[c] = true
 	}
-	plan := synthPlan{eqValues: map[string][]any{}, enumValues: enumPlan(s.Domain, table, cat), tieCol: p.OrderBy[0]}
+	// 并列只在 order_by 有多列时才有意义(第一列可以重复,由后面的列决定次序)。
+	// order_by 只有一列时,这一列在结果里必须唯一,制造并列反而会违反唯一约束(实测: order_items 的主键)
+	plan := synthPlan{eqValues: map[string][]any{}, enumValues: enumPlan(s.Domain, table, cat)}
+	if len(p.OrderBy) > 1 {
+		plan.tieCol = p.OrderBy[0]
+	}
 	for _, f := range filters {
 		if f.Op == "eq" {
 			if c := eqCandidates(s.Domain, table, f); len(c) > 0 && f.Column.Name != plan.tieCol {

@@ -1,0 +1,44 @@
+# R4: 商品一览(分类/状态筛选 + 商品名前缀搜索)
+# 【缺口】声明式 datasource 没有 prefix 运算符 → 用 datasource.sql 逃生口
+#   第 1 版用了 LIKE x || '%',审查发现 % 和 _ 会被当成通配符 → 改成 starts_with(按字面匹配)
+spec_version: "0.2"
+api:
+  rpc: factory.shop.v1.ShopService/ListProducts
+  owner: merchandising-team
+  risk_level: low
+pattern:
+  kind: list_keyset
+  order_by: [created_at, id]
+  direction: desc
+  page_size: { default: 20, max: 100 }
+datasource:
+  table: products               # 结果列来自 products(领域层的 status enum 映射)
+  sql: |
+    SELECT id, sku, name, category, status, created_at
+    FROM products
+    WHERE (sqlc.narg(category)::text IS NULL OR category = sqlc.narg(category)::text)
+      AND (sqlc.narg(status)::int4 IS NULL OR status = sqlc.narg(status)::int4)
+      AND (sqlc.narg(name_prefix)::text IS NULL OR starts_with(name, sqlc.narg(name_prefix)::text))
+acceptance:
+  fixtures:
+    products:
+      - { id: 1, sku: A-1, name: 有机咖啡豆, category: food, status: 0, created_at: "2025-01-01T00:00:00Z" }
+      - { id: 2, sku: A-2, name: 有机红茶, category: food, status: 0, created_at: "2025-01-02T00:00:00Z" }
+      - { id: 3, sku: A-3, name: 咖啡杯, category: kitchen, status: 0, created_at: "2025-01-03T00:00:00Z" }
+  cases:
+    - name: 按前缀搜索 "有机",新的在前
+      request: { name_prefix: 有机 }
+      expect: { code: OK, response: { products: [{ id: 2 }, { id: 1 }] } }
+    - name: 前缀 + 分类
+      request: { name_prefix: 咖啡, category: kitchen }
+      expect: { code: OK, response: { products: [{ id: 3 }] } }
+    - name: 前缀里的 % 和 _ 按字面匹配,不是通配符
+      request: { name_prefix: "有%" }
+      expect: { code: OK, response: { products: [] } }
+    - name: status 筛选(proto 值 → DB 值的转换)
+      request: { status: PRODUCT_STATUS_ACTIVE, category: kitchen }
+      expect: { code: OK, response: { products: [{ id: 3, status: PRODUCT_STATUS_ACTIVE }] } }
+
+review_decisions:
+  - question: name_prefix 里的 %、_、\ 按字面匹配还是当通配符?
+    decision: 按字面匹配(starts_with)。注意 starts_with 用不上普通 B-tree 索引;商品数量小,先接受,数量变大时加 text_pattern_ops 索引并改成转义后的 LIKE

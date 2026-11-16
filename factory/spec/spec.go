@@ -80,7 +80,8 @@ type Datasource struct {
 	Filters map[string]Filter `yaml:"filters"`
 	// Columns: SELECT 的列。默认从响应字段推导;compute 的输入是逻辑函数用的列,需要显式写
 	Columns []string `yaml:"columns"`
-	// SQL: 逃生口(JOIN / 聚合 / 复杂条件)。写了 sql 就不写 table/filters/columns
+	// SQL: 逃生口(JOIN / 聚合 / 复杂条件)。写了 sql 就不写 filters/columns;
+	// table 可以写,表示结果列来自哪张表(用于查领域层的 enum 映射)
 	SQL string `yaml:"sql"`
 }
 
@@ -303,10 +304,11 @@ func (s *Spec) Check() []string {
 
 	// datasource: 声明式 / 逃生口 二选一
 	ds := s.Datasource
-	declarative := ds.Table != "" || len(ds.Filters) > 0 || len(ds.Columns) > 0
+	// 逃生口(sql)也可以写 table: 表示结果列来自哪张表(用于查领域层的 enum 等)
+	declarative := len(ds.Filters) > 0 || len(ds.Columns) > 0
 	switch {
 	case ds.SQL != "" && declarative:
-		add("datasource: use either table/filters/columns or sql, not both")
+		add("datasource: filters/columns are for the declarative form; with sql, write the conditions in sql (table is allowed as metadata)")
 	case ds.SQL == "" && ds.Table == "":
 		add("datasource: table (declarative) or sql (escape hatch) is required")
 	}
@@ -357,7 +359,7 @@ func (s *Spec) Check() []string {
 			}
 		}
 	}
-	if ds.Table != "" {
+	if ds.Table != "" && ds.SQL == "" {
 		for table := range s.Acceptance.Fixtures {
 			if table != ds.Table {
 				add("acceptance.fixtures: table %s is not datasource.table (%s)", table, ds.Table)

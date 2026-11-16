@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS product_prices (
     product_id BIGINT      NOT NULL,
     valid_from TIMESTAMPTZ NOT NULL CHECK (isfinite(valid_from)),
     price      BIGINT      NOT NULL CHECK (price >= 0),
-    currency   TEXT        NOT NULL,
+    currency   TEXT        NOT NULL CHECK (currency = 'JPY'),  -- 本店只用日元;多币种时再放开
     PRIMARY KEY (product_id, valid_from)
 );
 

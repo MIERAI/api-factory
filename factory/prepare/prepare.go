@@ -203,12 +203,14 @@ func newGenCtx(s *spec.Spec, services []service, files *protoregistry.Files, dbp
 				}
 			}
 		}
-		filters, err := resolveFilters(s, md, cat)
-		if err != nil {
-			return nil, svc, fmt.Errorf("%s: %w", s.Path, err)
-		}
-		for _, f := range filters {
-			g.filterCol[norm(f.Name)] = f.Column.Name
+		if s.Datasource.SQL == "" {
+			filters, err := resolveFilters(s, md, cat)
+			if err != nil {
+				return nil, svc, fmt.Errorf("%s: %w", s.Path, err)
+			}
+			for _, f := range filters {
+				g.filterCol[norm(f.Name)] = f.Column.Name
+			}
 		}
 	}
 	return g, svc, nil
