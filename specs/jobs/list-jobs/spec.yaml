@@ -22,7 +22,7 @@ datasource:
   query:
     name: ListJobs
     cardinality: many
-    # sqlc.narg = 可空参数(NULL 时不筛选)。生成: Queries.ListJobs(ctx, ListJobsParams) ([]ListJobsRow, error)
+    # sqlc.narg = 可空参数(NULL 时不筛选)。生成: Queries.ListJobs(ctx, ListJobsParams) ([]Job, error)
     # 游标 (cursor_created_at, cursor_id) 是上一页最后一行;都为 NULL 时从头开始
     sql: |
       SELECT id, job_type, status, created_at

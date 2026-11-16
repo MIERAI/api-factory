@@ -178,10 +178,11 @@ func runStep(url string, reqBody map[string]any, expect spec.Expect) (bool, stri
 	if wantCode != "OK" {
 		return false, fmt.Sprintf("want %s, got OK: %s", wantCode, raw), nil
 	}
-	var got map[string]any
-	if err := json.Unmarshal(raw, &got); err != nil {
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return false, fmt.Sprintf("bad json: %s", raw), nil
 	}
+	got, _ := snakeKeys(decoded).(map[string]any)
 	for k, want := range expect.Response {
 		if msg := match("response."+k, want, got[k]); msg != "" {
 			return false, fmt.Sprintf("%s (body %s)", msg, truncate(raw, 300)), got
@@ -248,6 +249,40 @@ func match(path string, want, got any) string {
 		return fmt.Sprintf("%s: want %v, got %v", path, want, got)
 	}
 	return ""
+}
+
+// snakeKeys 把 protojson 输出的 lowerCamelCase 键(nextPageToken)转回 proto 字段名(next_page_token),
+// 这样式样书可以统一用 proto 里的字段名书写。
+func snakeKeys(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, val := range x {
+			out[toSnake(k)] = snakeKeys(val)
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, val := range x {
+			out[i] = snakeKeys(val)
+		}
+		return out
+	}
+	return v
+}
+
+func toSnake(s string) string {
+	var b strings.Builder
+	for i, r := range s {
+		if r >= 'A' && r <= 'Z' {
+			if i > 0 {
+				b.WriteByte('_')
+			}
+			r += 'a' - 'A'
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 func truncate(b []byte, n int) string {
