@@ -7,8 +7,7 @@ package db
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
+	"time"
 )
 
 const listJobs = `-- name: ListJobs :many
@@ -28,9 +27,9 @@ LIMIT $7::int
 type ListJobsParams struct {
 	Status          *int32
 	JobType         *string
-	CreatedAfter    pgtype.Timestamptz
-	CreatedBefore   pgtype.Timestamptz
-	CursorCreatedAt pgtype.Timestamptz
+	CreatedAfter    *time.Time
+	CreatedBefore   *time.Time
+	CursorCreatedAt *time.Time
 	CursorID        *int64
 	RowLimit        int32
 }
