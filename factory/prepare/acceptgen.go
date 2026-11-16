@@ -629,6 +629,32 @@ func listKeysetSuite(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalo
 	}
 	suite.Fixtures = map[string][]map[string]any{table: fixtureRows(rows)}
 
+	// 必填的筛选条件(没有 presence 的字段)必须出现在每个请求里: 取一个值作为基础
+	baseReq, baseVals := map[string]any{}, map[string]any{}
+	for _, f := range filters {
+		if f.Presence {
+			continue
+		}
+		var v any
+		if c := plan.eqValues[f.Column.Name]; f.Op == "eq" && len(c) > 0 {
+			v = c[0]
+		} else {
+			v = rows[len(rows)/2][f.Column.Name]
+		}
+		baseVals[f.Name] = v
+		baseReq[f.Name] = present(s.Domain, table, f.Column.Name, v)
+	}
+	withBase := func(extra map[string]any) map[string]any {
+		out := map[string]any{}
+		for k, v := range baseReq {
+			out[k] = v
+		}
+		for k, v := range extra {
+			out[k] = v
+		}
+		return out
+	}
+
 	var itemsField protoreflect.FieldDescriptor
 	out := md.Output()
 	for i := 0; i < out.Fields().Len(); i++ {
@@ -639,10 +665,17 @@ func listKeysetSuite(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalo
 	itemName := string(itemsField.Name())
 	itemFields := messageFieldNames(itemsField.Message())
 	list := func(vals map[string]any) []map[string]any {
-		return oracleSort(oracleFilter(rows, filters, vals), p.OrderBy, desc)
+		merged := map[string]any{}
+		for k, v := range baseVals {
+			merged[k] = v
+		}
+		for k, v := range vals {
+			merged[k] = v
+		}
+		return oracleSort(oracleFilter(rows, filters, merged), p.OrderBy, desc)
 	}
 	add := func(name string, req map[string]any, resp map[string]any) {
-		suite.Cases = append(suite.Cases, spec.Case{Name: name, Request: req, Expect: spec.Expect{Code: "OK", Response: resp}})
+		suite.Cases = append(suite.Cases, spec.Case{Name: name, Request: withBase(req), Expect: spec.Expect{Code: "OK", Response: resp}})
 	}
 	tokenFor := func(more bool) any {
 		if more {
@@ -654,7 +687,7 @@ func listKeysetSuite(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalo
 
 	// 无筛选: 全部,排序(含并列行的次序),字段映射
 	all := list(nil)
-	add("无筛选 — 排序与字段映射(含并列行)", map[string]any{},
+	add("可选筛选全部不指定 — 排序与字段映射(含并列行)", map[string]any{},
 		map[string]any{itemName: items(s.Domain, table, all, itemFields), "next_page_token": tokenFor(len(all) > int(p.PageSize.Default))})
 	cov = append(cov, fmt.Sprintf("list_keyset: 排序 %v %s(合成数据含并列值)与字段映射", p.OrderBy, p.Direction))
 
@@ -703,7 +736,7 @@ func listKeysetSuite(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalo
 		var steps []spec.Step
 		for start := 0; start < len(all); start += k {
 			end := min(start+k, len(all))
-			req := map[string]any{"page_size": k}
+			req := withBase(map[string]any{"page_size": k})
 			if start > 0 {
 				req["page_token"] = "$prev.next_page_token"
 			}
@@ -717,22 +750,22 @@ func listKeysetSuite(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalo
 	// 翻页途中改 page_size 是允许的
 	if len(all) >= 5 {
 		suite.Cases = append(suite.Cases, spec.Case{Name: "翻页途中改 page_size 是允许的", Steps: []spec.Step{
-			{Request: map[string]any{"page_size": 2}, Expect: spec.Expect{Code: "OK", Response: map[string]any{itemName: items(s.Domain, table, all[:2], []string{key}), "next_page_token": "$nonempty"}}},
-			{Request: map[string]any{"page_size": 3, "page_token": "$prev.next_page_token"}, Expect: spec.Expect{Code: "OK", Response: map[string]any{itemName: items(s.Domain, table, all[2:5], []string{key})}}},
+			{Request: withBase(map[string]any{"page_size": 2}), Expect: spec.Expect{Code: "OK", Response: map[string]any{itemName: items(s.Domain, table, all[:2], []string{key}), "next_page_token": "$nonempty"}}},
+			{Request: withBase(map[string]any{"page_size": 3, "page_token": "$prev.next_page_token"}), Expect: spec.Expect{Code: "OK", Response: map[string]any{itemName: items(s.Domain, table, all[2:5], []string{key})}}},
 		}})
 	}
 	// 翻页途中改筛选条件 → 旧 token 失效
 	for _, f := range filters {
 		if vals := plan.eqValues[f.Column.Name]; len(vals) >= 2 {
 			suite.Cases = append(suite.Cases, spec.Case{Name: fmt.Sprintf("翻页途中改筛选条件(%s) → INVALID_ARGUMENT", f.Name), Steps: []spec.Step{
-				{Request: map[string]any{f.Name: present(s.Domain, table, f.Column.Name, vals[0]), "page_size": 1}, Expect: spec.Expect{Code: "OK", Response: map[string]any{"next_page_token": "$nonempty"}}},
-				{Request: map[string]any{f.Name: present(s.Domain, table, f.Column.Name, vals[1]), "page_size": 1, "page_token": "$prev.next_page_token"}, Expect: spec.Expect{Code: "INVALID_ARGUMENT"}},
+				{Request: withBase(map[string]any{f.Name: present(s.Domain, table, f.Column.Name, vals[0]), "page_size": 1}), Expect: spec.Expect{Code: "OK", Response: map[string]any{"next_page_token": "$nonempty"}}},
+				{Request: withBase(map[string]any{f.Name: present(s.Domain, table, f.Column.Name, vals[1]), "page_size": 1, "page_token": "$prev.next_page_token"}), Expect: spec.Expect{Code: "INVALID_ARGUMENT", MessageContains: "page_token"}},
 			}})
 			break
 		}
 	}
 	suite.Cases = append(suite.Cases, spec.Case{Name: "非法 page_token → INVALID_ARGUMENT",
-		Request: map[string]any{"page_token": "not-a-valid-token"}, Expect: spec.Expect{Code: "INVALID_ARGUMENT"}})
+		Request: withBase(map[string]any{"page_token": "not-a-valid-token"}), Expect: spec.Expect{Code: "INVALID_ARGUMENT", MessageContains: "page_token"}})
 	cov = append(cov, "list_keyset: page_token(改 page_size 允许 / 改筛选条件失效 / 非法 token)")
 	return suite, cov, nil
 }

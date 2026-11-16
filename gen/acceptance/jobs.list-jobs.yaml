@@ -170,7 +170,7 @@ suites:
               job_type: beta
               status: 0
       cases:
-        - name: 无筛选 — 排序与字段映射(含并列行)
+        - name: 可选筛选全部不指定 — 排序与字段映射(含并列行)
           request: {}
           expect:
             code: OK
@@ -489,10 +489,12 @@ suites:
               expect:
                 code: INVALID_ARGUMENT
                 response: {}
+                message_contains: page_token
         - name: 非法 page_token → INVALID_ARGUMENT
           request:
             page_token: not-a-valid-token
           expect:
             code: INVALID_ARGUMENT
             response: {}
+            message_contains: page_token
           steps: []

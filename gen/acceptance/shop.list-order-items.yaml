@@ -101,8 +101,9 @@ suites:
               quantity: 8
               unit_price: 8
       cases:
-        - name: 无筛选 — 排序与字段映射(含并列行)
-          request: {}
+        - name: 可选筛选全部不指定 — 排序与字段映射(含并列行)
+          request:
+            order_id: 1
           expect:
             code: OK
             response:
@@ -111,34 +112,14 @@ suites:
                       product_id: 1
                       quantity: 1
                       unit_price: 1
-                    - line_no: 2
-                      product_id: 2
-                      quantity: 2
-                      unit_price: 2
-                    - line_no: 3
-                      product_id: 3
-                      quantity: 3
-                      unit_price: 3
                     - line_no: 4
                       product_id: 4
                       quantity: 4
                       unit_price: 4
-                    - line_no: 5
-                      product_id: 5
-                      quantity: 5
-                      unit_price: 5
-                    - line_no: 6
-                      product_id: 6
-                      quantity: 6
-                      unit_price: 6
                     - line_no: 7
                       product_id: 7
                       quantity: 7
                       unit_price: 7
-                    - line_no: 8
-                      product_id: 8
-                      quantity: 8
-                      unit_price: 8
                 next_page_token: $absent
           steps: []
         - name: 筛选 order_id = 1
@@ -180,6 +161,7 @@ suites:
             response: {}
           steps:
             - request:
+                order_id: 1
                 page_size: 1
               expect:
                 code: OK
@@ -188,24 +170,7 @@ suites:
                         - line_no: 1
                     next_page_token: $nonempty
             - request:
-                page_size: 1
-                page_token: $prev.next_page_token
-              expect:
-                code: OK
-                response:
-                    items:
-                        - line_no: 2
-                    next_page_token: $nonempty
-            - request:
-                page_size: 1
-                page_token: $prev.next_page_token
-              expect:
-                code: OK
-                response:
-                    items:
-                        - line_no: 3
-                    next_page_token: $nonempty
-            - request:
+                order_id: 1
                 page_size: 1
                 page_token: $prev.next_page_token
               expect:
@@ -215,24 +180,7 @@ suites:
                         - line_no: 4
                     next_page_token: $nonempty
             - request:
-                page_size: 1
-                page_token: $prev.next_page_token
-              expect:
-                code: OK
-                response:
-                    items:
-                        - line_no: 5
-                    next_page_token: $nonempty
-            - request:
-                page_size: 1
-                page_token: $prev.next_page_token
-              expect:
-                code: OK
-                response:
-                    items:
-                        - line_no: 6
-                    next_page_token: $nonempty
-            - request:
+                order_id: 1
                 page_size: 1
                 page_token: $prev.next_page_token
               expect:
@@ -240,15 +188,6 @@ suites:
                 response:
                     items:
                         - line_no: 7
-                    next_page_token: $nonempty
-            - request:
-                page_size: 1
-                page_token: $prev.next_page_token
-              expect:
-                code: OK
-                response:
-                    items:
-                        - line_no: 8
                     next_page_token: $absent
         - name: 翻页走到底 page_size=3
           request: {}
@@ -257,35 +196,15 @@ suites:
             response: {}
           steps:
             - request:
+                order_id: 1
                 page_size: 3
               expect:
                 code: OK
                 response:
                     items:
                         - line_no: 1
-                        - line_no: 2
-                        - line_no: 3
-                    next_page_token: $nonempty
-            - request:
-                page_size: 3
-                page_token: $prev.next_page_token
-              expect:
-                code: OK
-                response:
-                    items:
                         - line_no: 4
-                        - line_no: 5
-                        - line_no: 6
-                    next_page_token: $nonempty
-            - request:
-                page_size: 3
-                page_token: $prev.next_page_token
-              expect:
-                code: OK
-                response:
-                    items:
                         - line_no: 7
-                        - line_no: 8
                     next_page_token: $absent
         - name: 翻页走到底 page_size=4
           request: {}
@@ -294,53 +213,16 @@ suites:
             response: {}
           steps:
             - request:
+                order_id: 1
                 page_size: 4
               expect:
                 code: OK
                 response:
                     items:
                         - line_no: 1
-                        - line_no: 2
-                        - line_no: 3
                         - line_no: 4
-                    next_page_token: $nonempty
-            - request:
-                page_size: 4
-                page_token: $prev.next_page_token
-              expect:
-                code: OK
-                response:
-                    items:
-                        - line_no: 5
-                        - line_no: 6
                         - line_no: 7
-                        - line_no: 8
                     next_page_token: $absent
-        - name: 翻页途中改 page_size 是允许的
-          request: {}
-          expect:
-            code: ""
-            response: {}
-          steps:
-            - request:
-                page_size: 2
-              expect:
-                code: OK
-                response:
-                    items:
-                        - line_no: 1
-                        - line_no: 2
-                    next_page_token: $nonempty
-            - request:
-                page_size: 3
-                page_token: $prev.next_page_token
-              expect:
-                code: OK
-                response:
-                    items:
-                        - line_no: 3
-                        - line_no: 4
-                        - line_no: 5
         - name: 翻页途中改筛选条件(order_id) → INVALID_ARGUMENT
           request: {}
           expect:
@@ -361,10 +243,13 @@ suites:
               expect:
                 code: INVALID_ARGUMENT
                 response: {}
+                message_contains: page_token
         - name: 非法 page_token → INVALID_ARGUMENT
           request:
+            order_id: 1
             page_token: not-a-valid-token
           expect:
             code: INVALID_ARGUMENT
             response: {}
+            message_contains: page_token
           steps: []

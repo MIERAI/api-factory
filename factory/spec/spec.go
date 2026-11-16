@@ -134,6 +134,9 @@ func (c Case) AllSteps() []Step {
 type Expect struct {
 	Code     string         `yaml:"code"`
 	Response map[string]any `yaml:"response"`
+	// MessageContains: 错误时同时检查消息,防止"理由错误的通过"
+	// (实测: 非法 page_token 的用例因为缺了必填参数而返回 INVALID_ARGUMENT,被误判为通过)
+	MessageContains string `yaml:"message_contains,omitempty"`
 }
 
 // ---------------------------------------------------------------------------

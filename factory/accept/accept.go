@@ -233,6 +233,9 @@ func runStep(url string, reqBody map[string]any, expect spec.Expect, out protore
 		_ = json.Unmarshal(raw, &e)
 		gotCode := strings.ToUpper(e.Code)
 		if gotCode == wantCode {
+			if expect.MessageContains != "" && !strings.Contains(e.Message, expect.MessageContains) {
+				return false, fmt.Sprintf("%s for the wrong reason: message %q does not contain %q", gotCode, e.Message, expect.MessageContains), nil
+			}
 			return true, fmt.Sprintf("%s (%s)", gotCode, e.Message), nil
 		}
 		return false, fmt.Sprintf("want %s, got %s: %s", wantCode, gotCode, e.Message), nil
