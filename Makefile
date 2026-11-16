@@ -5,6 +5,7 @@ DB_URL  ?= postgres://factory:factory@127.0.0.1:$(FACTORY_DB_PORT)/factory?sslmo
 FACTORY := go run ./factory/cmd/factory
 SPEC    ?= specs/jobs/get-job-status/spec.yaml
 MODEL   ?= claude
+ACCEPT_SPECS ?= specs
 
 .PHONY: db-up db-down db-schema check prepare build guard accept loop reset-handlers
 
@@ -36,8 +37,8 @@ build:            ## 编译服务
 guard:            ## ④ 路径闸门
 	@$(FACTORY) guard
 
-accept: build     ## ⑤ 验收
-	@$(FACTORY) accept --server bin/server --db '$(DB_URL)'
+accept: build     ## 验收(ACCEPT_SPECS 可限定为某个式样书目录)
+	@$(FACTORY) accept --server bin/server --db '$(DB_URL)' $(ACCEPT_SPECS)
 
 loop:             ## 整条流水线: 闸门 → 审查 → 生成 → AI → 闸门 → 验收 (MODEL=claude|local)
 	@./scripts/loop.sh $(SPEC) $(MODEL)

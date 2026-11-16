@@ -46,6 +46,6 @@ else
   echo; echo "━━ ④⑤ 跳过: pattern 由工厂完整生成,AI 不参与"
 fi
 
-step "⑥ 编译 + 验收" make --no-print-directory accept
+step "⑥ 编译 + 验收" make --no-print-directory accept ACCEPT_SPECS="$(dirname "$SPEC")"
 
 echo; echo "✓ 流水线完成,总耗时 $(( $(date +%s) - T0 ))s,日志: $LOG"
