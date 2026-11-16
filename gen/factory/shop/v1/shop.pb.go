@@ -1553,7 +1553,7 @@ type ListShippingDelaysRequest struct {
 	PageToken string                 `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
 	// 判定基准时点
 	AsOf *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=as_of,json=asOf,proto3" json:"as_of,omitempty"`
-	// 下单后超过多少天算延迟
+	// 下单后满多少天算延迟(ordered_at <= as_of - min_days 天)
 	MinDays       int32 `protobuf:"varint,4,opt,name=min_days,json=minDays,proto3" json:"min_days,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

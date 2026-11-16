@@ -32,3 +32,9 @@ acceptance:
     - name: 恰好 N 天也算延迟(<=)
       request: { as_of: "2026-10-15T00:00:00Z", min_days: 7 }
       expect: { code: OK, response: { orders: [{ id: 1 }, { id: 2 }] } }
+
+review_decisions:
+  - question: 恰好 min_days 天算不算延迟?
+    decision: 算(<=)。第 1 版的 proto 注释写成了"超过",与 SQL 和用例矛盾(审查发现),已改为"已满 N 天"
+  - question: '"未发货"同时要求 status=PLACED 和 shipped_at IS NULL,两者矛盾的数据不告警,是有意的吗?'
+    decision: 是。告警只针对状态和时间戳都表明"未发货"的订单;矛盾的数据由数据质量监控处理,不进这个告警

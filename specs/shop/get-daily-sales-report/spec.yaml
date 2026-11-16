@@ -21,7 +21,9 @@ behavior:
   - when: 每一天
     then: order_count = 当天的订单数;total_amount = 当天的 total_amount 之和
   - when: 返回哪些日期
-    then: 期间内(按日本时间)的每一天都返回,没有订单的日子 order_count = 0、total_amount = 0;按日期升序
+    then: 从 period_start 所在的日本日期,到 period_end 前一刻(period_end - 1ns)所在的日本日期,每一天都返回;没有订单的日子 order_count = 0、total_amount = 0;按日期升序
+  - when: period_start / period_end 不在日本时间 0 点
+    then: 照常处理,不拒绝。首尾两天只统计期间内的订单(不完整的日子照样返回)。日报画面通常传 0 点,这是为了让 API 的语义在任何输入下都确定
 acceptance:
   fixtures:
     orders:
@@ -38,3 +40,15 @@ acceptance:
             - { date: "2026-10-01", order_count: 1, total_amount: 1000 }
             - { date: "2026-10-02", order_count: 1, total_amount: 2000 }
             - { date: "2026-10-03", order_count: 0, total_amount: 0 }
+    - name: 期间不在 0 点 — 首尾两天只统计期间内的订单
+      request: { period_start: "2026-10-01T03:00:00Z", period_end: "2026-10-01T15:30:00Z" }   # JST 10/1 12:00 ~ 10/2 00:30
+      expect:
+        code: OK
+        response:
+          days:
+            - { date: "2026-10-01", order_count: 1, total_amount: 1000 }
+            - { date: "2026-10-02", order_count: 1, total_amount: 2000 }
+
+review_decisions:
+  - question: period_start / period_end 不在日本时间 0 点时怎么处理?
+    decision: 不拒绝。返回从 period_start 的日本日期到 period_end 前一刻的日本日期的每一天,首尾两天只统计期间内的订单

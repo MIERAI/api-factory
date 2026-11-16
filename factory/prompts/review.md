@@ -18,7 +18,10 @@
   有 presence 的字段(proto3 `optional`、message 类型)写具体值(包括 0.0)时,"未设置"判为不一致——即验收能区分"未设置"和"设置为 0"
 - **DB 约束**:schema 的 CHECK / NOT NULL 约束排除的值不会出现在查询结果里,不需要为它们定义行为
 - **领域层**(下面附有原文):这个领域所有 API 共用的决定。
-  - `invariants` 里 `enforced: true` 的规则由 DB 约束保证,不会被违反;`enforced: false` 的规则**可能被违反**,如果这个 API 会受影响,式样书必须定义违反时怎么处理
+  - `invariants` 里 `enforced: true` 的规则由 DB 约束保证,不会被违反;`enforced: false` 的规则**可能被违反**
+  - **查询工厂的默认策略**:违反 `enforced: false` 不变量的数据,查询 API **原样返回存储的值**(不修正、不报错、不标记),
+    修复是写入方的责任。只有当这个 API 的计算结果会因此产生歧义(例如汇总时要不要计入)时,式样书才需要另外定义——
+    单纯把存储值返回出去的 API 不要再为此提问
   - enum 列的映射和 `on_unknown` 策略由平台生成的代码执行(读到不认识的值 → UNSPECIFIED + 指标)。
     请求里的 enum 字段传给查询参数之前,平台同样按映射转换成 DB 值——声明式 datasource 和 `datasource.sql` 逃生口都一样(逃生口需要写 `datasource.table`)
   - 领域层 `review_decisions` 里已经决定的问题,和式样书里的一样,不要再报告

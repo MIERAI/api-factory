@@ -83,7 +83,7 @@ type ShopServiceClient interface {
 	GetOrderWithItems(context.Context, *connect.Request[v1.GetOrderWithItemsRequest]) (*connect.Response[v1.GetOrderWithItemsResponse], error)
 	// R9: 日别销售额报表
 	GetDailySalesReport(context.Context, *connect.Request[v1.GetDailySalesReportRequest]) (*connect.Response[v1.GetDailySalesReportResponse], error)
-	// R10: 发货延迟告警(截至 as_of,下单超过 min_days 天仍未发货的订单)
+	// R10: 发货延迟告警(截至 as_of,下单已满 min_days 天仍未发货的订单;恰好 min_days 天也算)
 	ListShippingDelays(context.Context, *connect.Request[v1.ListShippingDelaysRequest]) (*connect.Response[v1.ListShippingDelaysResponse], error)
 }
 
@@ -245,7 +245,7 @@ type ShopServiceHandler interface {
 	GetOrderWithItems(context.Context, *connect.Request[v1.GetOrderWithItemsRequest]) (*connect.Response[v1.GetOrderWithItemsResponse], error)
 	// R9: 日别销售额报表
 	GetDailySalesReport(context.Context, *connect.Request[v1.GetDailySalesReportRequest]) (*connect.Response[v1.GetDailySalesReportResponse], error)
-	// R10: 发货延迟告警(截至 as_of,下单超过 min_days 天仍未发货的订单)
+	// R10: 发货延迟告警(截至 as_of,下单已满 min_days 天仍未发货的订单;恰好 min_days 天也算)
 	ListShippingDelays(context.Context, *connect.Request[v1.ListShippingDelaysRequest]) (*connect.Response[v1.ListShippingDelaysResponse], error)
 }
 

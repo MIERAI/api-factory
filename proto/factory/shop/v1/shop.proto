@@ -49,7 +49,7 @@ service ShopService {
   rpc GetOrderWithItems(GetOrderWithItemsRequest) returns (GetOrderWithItemsResponse);
   // R9: 日别销售额报表
   rpc GetDailySalesReport(GetDailySalesReportRequest) returns (GetDailySalesReportResponse);
-  // R10: 发货延迟告警(截至 as_of,下单超过 min_days 天仍未发货的订单)
+  // R10: 发货延迟告警(截至 as_of,下单已满 min_days 天仍未发货的订单;恰好 min_days 天也算)
   rpc ListShippingDelays(ListShippingDelaysRequest) returns (ListShippingDelaysResponse);
 }
 
@@ -250,7 +250,7 @@ message ListShippingDelaysRequest {
   string page_token = 2;
   // 判定基准时点
   google.protobuf.Timestamp as_of = 3 [(buf.validate.field).required = true];
-  // 下单后超过多少天算延迟
+  // 下单后满多少天算延迟(ordered_at <= as_of - min_days 天)
   int32 min_days = 4 [(buf.validate.field).int32 = {
     gte: 1
     lte: 90

@@ -22,7 +22,7 @@ type listShippingDelaysCursor struct {
 	ID        int64     `json:"id"`
 }
 
-// ListShippingDelays R10: 发货延迟告警(截至 as_of,下单超过 min_days 天仍未发货的订单)
+// ListShippingDelays R10: 发货延迟告警(截至 as_of,下单已满 min_days 天仍未发货的订单;恰好 min_days 天也算)
 func (h *Handler) ListShippingDelays(ctx context.Context, req *connect.Request[shopv1.ListShippingDelaysRequest]) (*connect.Response[shopv1.ListShippingDelaysResponse], error) {
 	m := req.Msg
 	size := paging.Size(m.GetPageSize(), 20, 100)
