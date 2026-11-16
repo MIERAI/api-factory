@@ -458,7 +458,9 @@ type ListTopSalesRequest struct {
 	// 売上日の下限(含)
 	DateFrom *string `protobuf:"bytes,4,opt,name=date_from,json=dateFrom,proto3,oneof" json:"date_from,omitempty"`
 	// 金額の下限(含)
-	MinAmount     *string `protobuf:"bytes,5,opt,name=min_amount,json=minAmount,proto3,oneof" json:"min_amount,omitempty"`
+	MinAmount *string `protobuf:"bytes,5,opt,name=min_amount,json=minAmount,proto3,oneof" json:"min_amount,omitempty"`
+	// 除外する店舗
+	ExcludeStore  *int32 `protobuf:"varint,6,opt,name=exclude_store,json=excludeStore,proto3,oneof" json:"exclude_store,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -526,6 +528,13 @@ func (x *ListTopSalesRequest) GetMinAmount() string {
 		return *x.MinAmount
 	}
 	return ""
+}
+
+func (x *ListTopSalesRequest) GetExcludeStore() int32 {
+	if x != nil && x.ExcludeStore != nil {
+		return *x.ExcludeStore
+	}
+	return 0
 }
 
 // 売上金額の多い順に、日別・店別の売上を返す
@@ -625,7 +634,7 @@ const file_factory_sales_v1_sales_proto_rawDesc = "" +
 	"\tclosed_on\x18\x05 \x01(\tH\x01R\bclosedOn\x88\x01\x01B\v\n" +
 	"\t_discountB\f\n" +
 	"\n" +
-	"_closed_on\"\xaf\x02\n" +
+	"_closed_on\"\xf4\x02\n" +
 	"\x13ListTopSalesRequest\x12&\n" +
 	"\tpage_size\x18\x01 \x01(\x05B\t\xbaH\x06\x1a\x04\x18d(\x00R\bpageSize\x12\x1d\n" +
 	"\n" +
@@ -634,11 +643,13 @@ const file_factory_sales_v1_sales_proto_rawDesc = "" +
 	"store_code\x18\x03 \x01(\x05B\a\xbaH\x04\x1a\x02 \x00H\x00R\tstoreCode\x88\x01\x01\x12<\n" +
 	"\tdate_from\x18\x04 \x01(\tB\x1a\xbaH\x17r\x152\x13^\\d{4}-\\d{2}-\\d{2}$H\x01R\bdateFrom\x88\x01\x01\x12:\n" +
 	"\n" +
-	"min_amount\x18\x05 \x01(\tB\x16\xbaH\x13r\x112\x0f^-?\\d+(\\.\\d+)?$H\x02R\tminAmount\x88\x01\x01B\r\n" +
+	"min_amount\x18\x05 \x01(\tB\x16\xbaH\x13r\x112\x0f^-?\\d+(\\.\\d+)?$H\x02R\tminAmount\x88\x01\x01\x121\n" +
+	"\rexclude_store\x18\x06 \x01(\x05B\a\xbaH\x04\x1a\x02 \x00H\x03R\fexcludeStore\x88\x01\x01B\r\n" +
 	"\v_store_codeB\f\n" +
 	"\n" +
 	"_date_fromB\r\n" +
-	"\v_min_amount\"|\n" +
+	"\v_min_amountB\x10\n" +
+	"\x0e_exclude_store\"|\n" +
 	"\x14ListTopSalesResponse\x12<\n" +
 	"\vdaily_sales\x18\x01 \x03(\v2\x1b.factory.sales.v1.DailySaleR\n" +
 	"dailySales\x12&\n" +

@@ -14,6 +14,7 @@ API: ListTopSales
   store_code: { 类型: 整数32, 必填: 否, 范围: "> 0", 说明: 店舗コード, 筛选: store_code 等于 }
   date_from:  { 类型: 日期,   必填: 否, 说明: 売上日の下限(含), 筛选: sales_date 大于等于 }
   min_amount: { 类型: 十进制, 必填: 否, 说明: 金額の下限(含),   筛选: amount 大于等于 }
+  exclude_store: { 类型: 整数32, 必填: 否, 范围: "> 0", 说明: 除外する店舗, 筛选: store_code 不等于 }
 
 输出:
   sales_date: 売上日

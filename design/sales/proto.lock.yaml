@@ -18,6 +18,7 @@
         daily_sales: 1
     ListTopSalesRequest:
         date_from: 4
+        exclude_store: 6
         min_amount: 5
         page_size: 1
         page_token: 2

@@ -23,6 +23,9 @@ datasource:
         date_from:
             column: sales_date
             op: gte
+        exclude_store:
+            column: store_code
+            op: 不等于
         min_amount:
             column: amount
             op: gte

@@ -8,6 +8,7 @@ FROM (
     WHERE ((sqlc.narg(store_code)::int4 IS NULL) OR (t1.store_code = sqlc.narg(store_code)::int4))
       AND ((sqlc.narg(date_from)::date IS NULL) OR (t1.sales_date >= sqlc.narg(date_from)::date))
       AND ((sqlc.narg(min_amount)::numeric IS NULL) OR (t1.amount >= sqlc.narg(min_amount)::numeric))
+      AND ((sqlc.narg(exclude_store)::int4 IS NULL) OR (t1.store_code <> sqlc.narg(exclude_store)::int4))
 ) AS t2
 WHERE (sqlc.narg(cursor_amount)::numeric IS NULL OR (t2.amount, t2.sales_date, t2.store_code) < (sqlc.narg(cursor_amount)::numeric, sqlc.narg(cursor_sales_date)::date, sqlc.narg(cursor_store_code)::int4))
 ORDER BY t2.amount DESC, t2.sales_date DESC, t2.store_code DESC

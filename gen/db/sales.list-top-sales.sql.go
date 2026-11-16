@@ -15,16 +15,18 @@ FROM (
     WHERE (($1::int4 IS NULL) OR (t1.store_code = $1::int4))
       AND (($2::date IS NULL) OR (t1.sales_date >= $2::date))
       AND (($3::numeric IS NULL) OR (t1.amount >= $3::numeric))
+      AND (($4::int4 IS NULL) OR (t1.store_code <> $4::int4))
 ) AS t2
-WHERE ($4::numeric IS NULL OR (t2.amount, t2.sales_date, t2.store_code) < ($4::numeric, $5::date, $6::int4))
+WHERE ($5::numeric IS NULL OR (t2.amount, t2.sales_date, t2.store_code) < ($5::numeric, $6::date, $7::int4))
 ORDER BY t2.amount DESC, t2.sales_date DESC, t2.store_code DESC
-LIMIT $7::int4
+LIMIT $8::int4
 `
 
 type ListTopSalesParams struct {
 	StoreCode       *int32
 	DateFrom        *time.Time
 	MinAmount       *string
+	ExcludeStore    *int32
 	CursorAmount    *string
 	CursorSalesDate *time.Time
 	CursorStoreCode *int32
@@ -40,7 +42,7 @@ type ListTopSalesRow struct {
 }
 
 func (q *Queries) ListTopSales(ctx context.Context, arg ListTopSalesParams) ([]ListTopSalesRow, error) {
-	rows, err := q.db.Query(ctx, listTopSales, arg.StoreCode, arg.DateFrom, arg.MinAmount, arg.CursorAmount, arg.CursorSalesDate, arg.CursorStoreCode, arg.RowLimit)
+	rows, err := q.db.Query(ctx, listTopSales, arg.StoreCode, arg.DateFrom, arg.MinAmount, arg.ExcludeStore, arg.CursorAmount, arg.CursorSalesDate, arg.CursorStoreCode, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}

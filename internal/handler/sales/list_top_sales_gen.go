@@ -29,10 +29,11 @@ func (h *Handler) ListTopSales(ctx context.Context, req *connect.Request[salesv1
 	size := paging.Size(m.GetPageSize(), 20, 100)
 	fp := paging.Fingerprint(m, "page_token", "page_size")
 	params := db.ListTopSalesParams{
-		StoreCode: m.StoreCode,
-		DateFrom:  conv.DatePtr(m.DateFrom),
-		MinAmount: m.MinAmount,
-		RowLimit:  size + 1,
+		StoreCode:    m.StoreCode,
+		DateFrom:     conv.DatePtr(m.DateFrom),
+		MinAmount:    m.MinAmount,
+		ExcludeStore: m.ExcludeStore,
+		RowLimit:     size + 1,
 	}
 	if tok := m.GetPageToken(); tok != "" {
 		var c listTopSalesCursor
