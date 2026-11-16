@@ -162,7 +162,16 @@ func newGenCtx(s *spec.Spec, services []service, files *protoregistry.Files, dbp
 	return g, svc, nil
 }
 
+// clearGenerated 删除 sqlc 的旧输出: sqlc 不会删除已经不存在的查询对应的 .go 文件。
+func clearGenerated() {
+	old, _ := filepath.Glob("gen/db/*.sql.go")
+	for _, f := range old {
+		_ = os.Remove(f)
+	}
+}
+
 func clearQueries() (string, error) {
+	clearGenerated()
 	dir := "db/queries"
 	old, _ := filepath.Glob(filepath.Join(dir, "*.sql"))
 	for _, f := range old {
