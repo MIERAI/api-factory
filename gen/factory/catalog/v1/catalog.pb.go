@@ -10,7 +10,6 @@
 package catalogv1
 
 import (
-	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -212,7 +211,7 @@ var File_factory_catalog_v1_catalog_proto protoreflect.FileDescriptor
 
 const file_factory_catalog_v1_catalog_proto_rawDesc = "" +
 	"\n" +
-	" factory/catalog/v1/catalog.proto\x12\x12factory.catalog.v1\x1a\x1bbuf/validate/validate.proto\"\xdd\x01\n" +
+	" factory/catalog/v1/catalog.proto\x12\x12factory.catalog.v1\"\xdd\x01\n" +
 	"\rProductMaster\x12!\n" +
 	"\fproduct_code\x18\x01 \x01(\tR\vproductCode\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\x1f\n" +
