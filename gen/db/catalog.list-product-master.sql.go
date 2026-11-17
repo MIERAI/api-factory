@@ -16,7 +16,7 @@ FROM (
         FROM (
             SELECT DISTINCT ON (t2.product_code COLLATE "C") t2.product_code, t2.name, t2.category, t2.price, t2.launched_on, t2.maker_zip, t2._action, t2._o_registered_at, t2._o_id, t2._logical_delete
             FROM (
-                SELECT ((t1.data ->> 'product_code')::text) AS product_code, ((t1.data ->> 'name')::text) AS name, ((t1.data ->> 'category')::text) AS category, ((t1.data ->> 'price')::numeric) AS price, ((t1.data ->> 'launched_on')::date) AS launched_on, ((t1.data ->> 'maker_zip')::text) AS maker_zip, t1.action_type AS _action, t1.registered_at AS _o_registered_at, t1.id AS _o_id, ((t1.data ->> 'deleted')::text) AS _logical_delete
+                SELECT ((t1.data ->> 'product_code')::text) AS product_code, ((t1.data ->> 'name')::text) AS name, ((t1.data ->> 'category')::text) AS category, ((CASE WHEN (t1.data ->> 'price') ~ '^[ \t\n\r\f\v]*[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)[ \t\n\r\f\v]*$' THEN (t1.data ->> 'price') ELSE '✗' || (t1.data ->> 'price') END)::numeric) AS price, ((CASE WHEN (t1.data ->> 'launched_on') ~ '^[ \t\n\r\f\v]*[0-9]{4}-[0-9]{2}-[0-9]{2}[ \t\n\r\f\v]*$' THEN (t1.data ->> 'launched_on') ELSE '✗' || (t1.data ->> 'launched_on') END)::date) AS launched_on, ((t1.data ->> 'maker_zip')::text) AS maker_zip, t1.action_type AS _action, t1.registered_at AS _o_registered_at, t1.id AS _o_id, ((t1.data ->> 'deleted')::text) AS _logical_delete
                 FROM product_events AS t1
             ) AS t2
             WHERE (NOT (t2.product_code IS NULL))

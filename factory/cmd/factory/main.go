@@ -439,7 +439,7 @@ func cmdReviewPrompt(args []string) error {
 	if err != nil {
 		return err
 	}
-	data["Round"], data["Previous"] = len(cycle)+1, prev
+	data["Round"], data["Previous"], data["AIWrites"] = len(cycle)+1, prev, s.AIWrites()
 	if *out != "" {
 		b, _ := json.MarshalIndent(map[string]any{"round": len(cycle) + 1, "previous": prev}, "", "  ")
 		if err := os.WriteFile(filepath.Join(*out, "prev.json"), b, 0o644); err != nil {

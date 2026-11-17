@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -364,15 +365,48 @@ func jsonField(doc any, key string, k Kind) (any, error) {
 	default:
 		return nil, fmt.Errorf("json_field %s: 值 %T 参考实现不支持", key, v)
 	}
+	if f, ok := jsonFormats[k]; ok && !f.re.MatchString(text) {
+		return nil, fmt.Errorf("%w for type %s: %q(不是规范的写法)", errCast, k.SQLType(), text)
+	}
 	return castText(text, k)
 }
+
+// jsonFormats: JSON 字段只接受的规范写法(参考求值器和 SQL 共用同一个正则;两边的正则语法在这些写法上一致)。
+// Postgres 的 cast 本身很宽松("2026/01/10"、"20260110" 都能读成日期,"1e2" 能读成 100,"tr" 能读成 true),
+// 参考求值器只认规范写法 —— 两边曾经不一致。现在 SQL 也先检查格式,不符合就让 cast 失败(查询失败)。
+type jsonFormat struct {
+	pattern string // 不区分大小写时 SQL 用 ~*
+	ci      bool
+	re      *regexp.Regexp
+}
+
+const ws = `[ \t\n\r\f\v]*` // Postgres 的数值输入会跳过的空白(ASCII)
+
+var jsonFormats = func() map[Kind]*jsonFormat {
+	m := map[Kind]*jsonFormat{
+		Int32:     {pattern: `^` + ws + `[+-]?[0-9]+` + ws + `$`},
+		Int64:     {pattern: `^` + ws + `[+-]?[0-9]+` + ws + `$`},
+		Decimal:   {pattern: `^` + ws + `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)` + ws + `$`},
+		Bool:      {pattern: `^` + ws + `(t|true|y|yes|on|1|f|false|n|no|off|0)` + ws + `$`, ci: true},
+		Date:      {pattern: `^` + ws + `[0-9]{4}-[0-9]{2}-[0-9]{2}` + ws + `$`},
+		Timestamp: {pattern: `^` + ws + `[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,6})?(Z|[+-][0-9]{2}:[0-9]{2})` + ws + `$`},
+	}
+	for _, f := range m {
+		p := f.pattern
+		if f.ci {
+			p = "(?i)" + p
+		}
+		f.re = regexp.MustCompile(p)
+	}
+	return m
+}()
 
 var errCast = errors.New("invalid input")
 
 // castText: 模仿 Postgres 的文本 → 类型转换(只覆盖规范的写法;其他一律视为格式错)。
 func castText(s string, k Kind) (any, error) {
 	fail := func() (any, error) { return nil, fmt.Errorf("%w for type %s: %q", errCast, k.SQLType(), s) }
-	t := strings.TrimSpace(s)
+	t := strings.Trim(s, " \t\n\r\f\v") // 和 Postgres 一样只跳过 ASCII 的空白(全角空格不算)
 	switch k {
 	case Text:
 		return s, nil

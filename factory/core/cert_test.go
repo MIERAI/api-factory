@@ -268,6 +268,36 @@ func TestCertification(t *testing.T) {
 		p := &Pipeline{Steps: all(Filter(Cmp("=", Col("k"), Const(int64(1000), Type{Kind: Int64}))), Project(NamedExpr{"v", JSONField(Col("j"), f.key, Type{Kind: f.kind})}))}
 		env.checkError(fmt.Sprintf("json_field 格式错 %s %s", f.key, f.kind), p)
 	}
+	// 12b. Postgres 的 cast 宽松接受、但不是规范写法的值 → 两边都报错(以前 SQL 能读、参考求值器报错)
+	k := int64(2000)
+	for _, c := range []struct {
+		kind Kind
+		val  string
+	}{
+		{Date, `"2026/01/10"`}, {Date, `"20260110"`}, {Date, `"Jan 10 2026"`}, {Date, `"2026-01-10 00:00:00"`},
+		{Decimal, `"1e2"`}, {Decimal, `"NaN"`}, {Decimal, `"Infinity"`}, {Decimal, `"1_000"`},
+		{Int32, `"1_000"`}, {Int32, `"0x10"`}, {Int32, `"　5"`}, // 全角空格
+		{Bool, `"tr"`}, {Bool, `"ye"`},
+		{Timestamp, `"2026-01-10 10:00:00+09"`}, {Timestamp, `"2026-01-10T10:00:00"`}, {Timestamp, `"2026-01-10t10:00:00z"`}, {Timestamp, `"2026-01-10T10:00:00.1234567Z"`},
+	} {
+		k++
+		env.insert(Row{"k": k, "g": int64(1), "t": "a", "j": `{"v": ` + c.val + `}`})
+		p := &Pipeline{Steps: all(Filter(Cmp("=", Col("k"), Const(k, Type{Kind: Int64}))), Project(NamedExpr{"v", JSONField(Col("j"), "v", Type{Kind: c.kind})}))}
+		env.checkError(fmt.Sprintf("json_field 不是规范写法 %s %s", c.kind, c.val), p)
+	}
+	// 规范写法(含 ASCII 空白、大小写、符号)→ 两边一致
+	for _, c := range []struct {
+		kind Kind
+		val  string
+	}{
+		{Date, `" 2026-01-10 "`}, {Decimal, `" -1.50 "`}, {Decimal, `".5"`}, {Decimal, `"+2."`}, {Int32, `" +7 "`}, {Int32, `-3`},
+		{Bool, `"TRUE"`}, {Bool, `" Off "`}, {Bool, `true`}, {Timestamp, `"2026-01-10T10:00:00.5+09:00"`}, {Timestamp, `"2026-01-10T01:00:00Z"`},
+	} {
+		k++
+		env.insert(Row{"k": k, "g": int64(1), "t": "a", "j": `{"v": ` + c.val + `}`})
+		p := &Pipeline{Steps: all(Filter(Cmp("=", Col("k"), Const(k, Type{Kind: Int64}))), Project(NamedExpr{"v", JSONField(Col("j"), "v", Type{Kind: c.kind})}))}
+		env.check(fmt.Sprintf("json_field 规范写法 %s %s", c.kind, c.val), p, nil)
+	}
 	if !t.Failed() {
 		t.Logf("元件认证: %d 个用例全部一致", env.n)
 	}

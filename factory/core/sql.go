@@ -314,7 +314,17 @@ func (g *sqlGen) expr(e *Expr, lv *sqlLevel) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("((%s ->> %s)::%s)", a, quoteLit(e.Name), e.Type.Kind.SQLType()), nil
+		v := fmt.Sprintf("(%s ->> %s)", a, quoteLit(e.Name))
+		f, ok := jsonFormats[e.Type.Kind]
+		if !ok {
+			return fmt.Sprintf("(%s::%s)", v, e.Type.Kind.SQLType()), nil
+		}
+		// 不是规范写法 → 拼成必然转换失败的文本,查询失败(和参考求值器一致;NULL 仍然是 NULL)
+		op := "~"
+		if f.ci {
+			op = "~*"
+		}
+		return fmt.Sprintf("((CASE WHEN %s %s %s THEN %s ELSE '✗' || %s END)::%s)", v, op, quoteLit(f.pattern), v, v, e.Type.Kind.SQLType()), nil
 	case "tuple_after":
 		var cols, ps []string
 		var first string
