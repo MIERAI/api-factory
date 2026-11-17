@@ -1,0 +1,42 @@
+# ============================================================================
+# ListCurrentPrices: 商品ごとの基準日時点の売価を一覧(一览 + 每组取一条 の例)
+# ============================================================================
+API: ListCurrentPrices
+说明: 店舗の全商品について、基準日までに始まった売価のうち最新の 1 件をページごとに返す
+背景: 売価は適用開始日ごとに登録される。商品ごとに 適用開始日 <= 基準日 の中で最も新しいものが基準日の売価。商品数が多いのでページで返す
+负责人: sales-team
+风险: 中
+
+种类: 一览
+输出行名: CurrentPrice
+数据来源: store_prices
+
+输入:
+  store_code: { 类型: 整数32, 必填: 是, 范围: "> 0", 说明: 店舗コード, 筛选: store_code 等于 }
+  as_of:      { 类型: 日期,   必填: 是, 说明: 基準日, 筛选: valid_from 小于等于 }
+
+输出:
+  product_code: 商品コード
+  valid_from:   適用開始日
+  price:        売価
+
+每组取一条: { 按: [store_code, product_code], 取: valid_from 最大 }
+排序: [product_code 小到大]          # 商品ごとに 1 件なので商品コードだけで一意(游标)
+分页: { 默认每页: 2, 每页最多: 100 }
+
+例子:
+  准备数据:
+    store_prices:
+      - { store_code: 1, product_code: A, valid_from: 2026-10-01, valid_to: null, price: 100 }
+      - { store_code: 1, product_code: A, valid_from: 2026-11-01, valid_to: null, price: 120 }
+      - { store_code: 1, product_code: A, valid_from: 2026-12-01, valid_to: null, price: 130 }   # 未来の売価
+      - { store_code: 1, product_code: B, valid_from: 2026-11-15, valid_to: null, price: 50 }
+      - { store_code: 1, product_code: C, valid_from: 2026-09-01, valid_to: null, price: 70 }
+      - { store_code: 2, product_code: A, valid_from: 2026-01-01, valid_to: null, price: 999 }
+  用例:
+    - 说明: 商品ごとに基準日までの最新の 1 件(A は 11/01 の売価。12/01 は未来)。1 ページ目は 2 件
+      输入: { store_code: 1, as_of: 2026-11-20 }
+      结果: { store_prices: [{ product_code: A, valid_from: 2026-11-01, price: "120" }, { product_code: B, valid_from: 2026-11-15, price: "50" }] }
+    - 说明: 基準日より前に始まった売価がない商品(B)は出てこない
+      输入: { store_code: 1, as_of: 2026-11-01, page_size: 10 }
+      结果: { store_prices: [{ product_code: A, price: "120" }, { product_code: C, price: "70" }] }

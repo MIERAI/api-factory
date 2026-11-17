@@ -306,6 +306,20 @@ func TestCertification(t *testing.T) {
 	for _, ps := range []Params{{}, {"ts": []any{"a", "A"}}, {"ts": []any{"b"}, "pi": certDomain["i"][1]}, {"pp": "a"}, {"pp": "A", "pi": certDomain["i"][2]}, {"ts": []any{}}} {
 		env.check(fmt.Sprintf("下推 %v", ps), push, ps)
 	}
+	// 11c. 每组取一条 + 游标(游标列都是分组键 → 下推到取一条之前): 分组键 (g, t),游标 (g, t) 升序 / 降序
+	for _, desc := range []bool{false, true} {
+		cur := &Pipeline{Params: []ParamDecl{opt("cg", Int32), opt("ct", Text)}, Steps: all(
+			PickPerKey([]string{"g", "t"}, SortKey{"k", true}),
+			Project(NamedExpr{"g", Col("g")}, NamedExpr{"tt", Col("t")}, NamedExpr{"k", Col("k")}),
+			Filter(TupleAfter([]string{"g", "tt"}, []string{"cg", "ct"}, desc)),
+			Sort(SortKey{Col: "g", Desc: desc}, SortKey{Col: "tt", Desc: desc}), Limit(4))}
+		if q := pushdown(cur); q.Steps[1].Kind != "filter" || q.Steps[1].Pred.Op != "tuple_after" {
+			t.Errorf("游标没有下推: %+v", q.Steps)
+		}
+		for _, ps := range []Params{{}, {"cg": int64(1), "ct": "a"}, {"cg": int64(2), "ct": "B"}, {"cg": int64(1), "ct": "ab"}, {"cg": int64(3), "ct": "A"}} {
+			env.check(fmt.Sprintf("每组取一条 + 游标 desc=%v %v", desc, ps), cur, ps)
+		}
+	}
 	// 12. 格式错 → 两边都报错
 	env.insert(Row{"k": int64(1000), "g": int64(1), "t": "a", "j": `{"n": "abc", "d": "x", "b": "maybe", "dt": "2026/13/01"}`})
 	for _, f := range []struct {

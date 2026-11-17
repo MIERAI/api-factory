@@ -2,7 +2,6 @@ package exits
 
 import (
 	"fmt"
-	"strings"
 
 	"apifactory/factory/cells"
 	"apifactory/factory/core"
@@ -25,24 +24,7 @@ func init() {
 			if _, err := fmt.Sscan(d.Str("上限"), &p.MaxRows); err != nil || p.MaxRows <= 0 {
 				d.Err("多条: 上限 必须是正整数(超过上限时返回错误,不会悄悄截断)")
 			}
-			g := d.Node("每组取一条") // { 按: [a, b], 取: c 最大 }
-			if g == nil {
-				return
-			}
-			by, take := nodeList(g, "按"), nodeStr(g, "取")
-			pg := &spec.PickPerGroup{By: by}
-			for _, t := range strings.Split(take, "、") {
-				f := strings.Fields(t)
-				if len(f) != 2 || (f[1] != "最大" && f[1] != "最小") {
-					d.Err("每组取一条.取: 写成「列 最大」或「列 最小」(多个用、隔开),现在是 %q", t)
-					continue
-				}
-				pg.Order = append(pg.Order, f[0]+" "+direction(f[1] == "最大"))
-			}
-			if len(pg.By) == 0 || len(pg.Order) == 0 {
-				d.Err("每组取一条: 需要 按 和 取")
-			}
-			p.PickPerGroup = pg
+			p.PickPerGroup = parsePick(d)
 		},
 		Check: func(s *spec.Spec) []string {
 			var errs []string
@@ -73,14 +55,7 @@ func init() {
 		Parts: func(s *spec.Spec, x PartsCtx, parts *cells.Parts, p *core.Pipeline) error {
 			parts.Order = orderFrom(s.Pattern)
 			parts.Limit = int(s.Pattern.MaxRows) + 1
-			if g := s.Pattern.PickPerGroup; g != nil {
-				st := core.Step{Kind: "pick_per_key", Keys: g.By}
-				for _, o := range g.Order {
-					col, dir, _ := strings.Cut(o, " ")
-					st.Order = append(st.Order, core.SortKey{Col: col, Desc: dir == "desc"})
-				}
-				parts.Group = &st
-			}
+			parts.Group = pickStep(s.Pattern.PickPerGroup)
 			return nil
 		},
 		DiffMulti: true,

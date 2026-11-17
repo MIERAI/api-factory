@@ -16,7 +16,7 @@ const diffPageSize = 3
 func init() {
 	Register(&Exit{
 		Kind: "list_keyset", Name: "一览", Cardinality: "many", Cell: "分页", Rows: true, EmptyRequest: true, NotNullOrder: true,
-		DesignKeys: []string{"排序", "分页"},
+		DesignKeys: []string{"排序", "分页", "每组取一条"},
 		Parse: func(d Design, p *spec.Pattern) {
 			cols, desc, err := d.Order("排序")
 			if err != nil {
@@ -26,6 +26,7 @@ func init() {
 			if p.Direction == "mixed" { // 游标按整组比较(行比较),方向必须一致
 				d.Err("一览: 排序的方向必须一致(分页的游标按整组比较);方向混在一起请用 多条 / 前N条")
 			}
+			p.PickPerGroup = parsePick(d) // 每组取一条之后再分页(游标在取完之后的行上)
 			pg := d.Node("分页")
 			if _, err := fmt.Sscan(nodeStr(pg, "默认每页"), &p.PageSize.Default); err != nil {
 				d.Err("一览: 分页.默认每页 必须是整数")
@@ -89,6 +90,7 @@ func init() {
 			parts.Order = orderFrom(s.Pattern)
 			parts.Cursor = core.TupleAfter(s.Pattern.OrderBy, params, s.Pattern.Direction != "asc")
 			parts.Rows = "row_limit"
+			parts.Group = pickStep(s.Pattern.PickPerGroup)
 			p.Params = append(p.Params, core.ParamDecl{Name: "row_limit", Type: core.Type{Kind: core.Int32}, Required: true})
 			return nil
 		},

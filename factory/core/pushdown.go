@@ -99,7 +99,8 @@ func conjuncts(e *Expr) []*Expr {
 }
 
 // renameTo: 表达式里的列全部能映射到分组键时,返回改名后的副本。
-// 有 tuple_after(游标,和排序绑定)或者没有引用任何列,就不动。
+// 没有引用任何列就不动。游标(tuple_after)也一样: 列全是分组键时,同一组的行对它的结果相同,可以下推
+// (每组取一条 + 分页: 每一页只给游标之后的键取最新,不用每页都给全部的键取一遍)。
 func renameTo(e *Expr, name map[string]string) (*Expr, bool) {
 	refs := 0
 	var walk func(e *Expr) (*Expr, bool)
@@ -108,8 +109,6 @@ func renameTo(e *Expr, name map[string]string) (*Expr, bool) {
 			return nil, true
 		}
 		switch e.Op {
-		case "tuple_after":
-			return nil, false
 		case "col":
 			n, ok := name[e.Name]
 			if !ok {

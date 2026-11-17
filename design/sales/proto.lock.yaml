@@ -1,11 +1,23 @@
 # 由设计编译器维护,不要手改。proto 的字段编号对外发布后不能变: 只追加,删掉的字段编号保留(reserved)
 字段编号:
+    CurrentPrice:
+        price: 3
+        product_code: 1
+        valid_from: 2
     DailySale:
         amount: 3
         closed_on: 5
         discount: 4
         sales_date: 1
         store_code: 2
+    ListCurrentPricesRequest:
+        as_of: 4
+        page_size: 1
+        page_token: 2
+        store_code: 3
+    ListCurrentPricesResponse:
+        next_page_token: 2
+        store_prices: 1
     ListPricesAsOfRequest:
         as_of: 2
         store_code: 1

@@ -176,6 +176,41 @@ func orderFrom(p spec.Pattern) []core.SortKey {
 	return out
 }
 
+// parsePick: 设计稿的 每组取一条: { 按: [a, b], 取: c 最大 }(多条 / 一览 共用)。没写 → nil。
+func parsePick(d Design) *spec.PickPerGroup {
+	g := d.Node("每组取一条")
+	if g == nil {
+		return nil
+	}
+	by, take := nodeList(g, "按"), nodeStr(g, "取")
+	pg := &spec.PickPerGroup{By: by}
+	for _, t := range strings.Split(take, "、") {
+		f := strings.Fields(t)
+		if len(f) != 2 || (f[1] != "最大" && f[1] != "最小") {
+			d.Err("每组取一条.取: 写成「列 最大」或「列 最小」(多个用、隔开),现在是 %q", t)
+			continue
+		}
+		pg.Order = append(pg.Order, f[0]+" "+direction(f[1] == "最大"))
+	}
+	if len(pg.By) == 0 || len(pg.Order) == 0 {
+		d.Err("每组取一条: 需要 按 和 取")
+	}
+	return pg
+}
+
+// pickStep: spec 的 每组取一条 → 核心的 pick_per_key(没写 → nil)。
+func pickStep(g *spec.PickPerGroup) *core.Step {
+	if g == nil {
+		return nil
+	}
+	st := core.Step{Kind: "pick_per_key", Keys: g.By}
+	for _, o := range g.Order {
+		col, dir, _ := strings.Cut(o, " ")
+		st.Order = append(st.Order, core.SortKey{Col: col, Desc: dir == "desc"})
+	}
+	return &st
+}
+
 // setOrder: 设计稿的排序 → spec。方向都一样: Direction = asc / desc;混在一起: Direction = mixed + Directions(逐列)。
 func setOrder(p *spec.Pattern, cols []string, desc []bool) {
 	p.OrderBy, p.Direction, p.Directions = cols, "", nil
