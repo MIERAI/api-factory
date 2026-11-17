@@ -288,7 +288,7 @@ func parseStorage(e *errs, name string, n *yaml.Node, t *Table) *spec.Storage {
 		e.add(n.Line, "表 %s: 存储: JSON版本 需要 原始表(物理表名)", name)
 	}
 	if st.Table == name {
-		e.add(n.Line, "表 %s: 原始表 不能和逻辑表同名(逻辑表会生成为 VIEW)", name)
+		e.add(n.Line, "表 %s: 原始表 不能和逻辑表同名(两个名字都要在 catalog 里: 原始表给 scan,逻辑表给 API)", name)
 	}
 	if sc := get(n, "存储列"); sc != nil {
 		checkKeys(e, sc, "表 "+name+" 的存储列", "数据", "操作", "删除值", "登记顺序")
@@ -437,6 +437,7 @@ type Output struct {
 	Desc     string
 	From     string // 来自的列(默认同名)
 	Line     int
+	Rows     []*Output // 类型 列表: 每一行的字段(计算的输出)
 }
 
 type Behavior struct{ When, Then string }
@@ -494,9 +495,19 @@ func loadAPI(path string) (*API, error) {
 		if p.Val.Kind == yaml.ScalarNode {
 			o.Desc = p.Val.Value
 		} else {
-			checkKeys(e, p.Val, "输出 "+p.Key, "类型", "说明", "来自", "可以不设置")
+			checkKeys(e, p.Val, "输出 "+p.Key, "类型", "说明", "来自", "可以不设置", "每行")
 			o.Type, o.Desc, o.From = str(p.Val, "类型"), str(p.Val, "说明"), str(p.Val, "来自")
 			o.Optional = str(p.Val, "可以不设置") == "是"
+			if o.Type == "列表" { // 计算的输出: 行的列表(每行 = 每一行的字段)
+				for _, q := range pairs(get(p.Val, "每行")) {
+					checkKeys(e, q.Val, "输出 "+p.Key+" 的每行 "+q.Key, "类型", "说明", "可以不设置")
+					o.Rows = append(o.Rows, &Output{Name: q.Key, Line: q.Line, Type: str(q.Val, "类型"), Desc: str(q.Val, "说明"),
+						Optional: str(q.Val, "可以不设置") == "是"})
+				}
+				if len(o.Rows) == 0 {
+					e.add(p.Line, "输出 %s: 类型 列表 需要 每行(每一行的字段和类型)", p.Key)
+				}
+			}
 		}
 		a.Outputs = append(a.Outputs, o)
 	}

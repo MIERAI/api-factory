@@ -4,6 +4,7 @@ package golang
 // 用于 DB 里造不出来的输入: 约束不允许的值(读到的未知 enum → UNSPECIFIED)、需要上万行才出现的边界。
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -178,6 +179,14 @@ func (t *genCtx) expectCheck(field string, want any) (string, error) {
 	}
 	goName := goCamelCase(field)
 	presence := fd.Presence && !fd.List
+	if fd.List { // 列表(多为行的列表): protojson 子集匹配
+		b, err := json.Marshal(want)
+		if err != nil {
+			return "", err
+		}
+		t.use("apifactory/platform/testkit", "")
+		return fmt.Sprintf("\t\ttestkit.MatchField(t, res, %q, %s)\n", field, "`"+string(b)+"`"), nil
+	}
 	if s, ok := want.(string); ok && s == "$absent" {
 		if !presence {
 			return "", fmt.Errorf("$absent needs a field with presence (optional)")

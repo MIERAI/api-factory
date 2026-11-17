@@ -386,6 +386,25 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 			if o.From != "" && o.From != o.Name {
 				e.add(o.Line, "输出 %s: 来自 和名字不同的列还不支持", o.Name)
 			}
+			if o.Type == "列表" {
+				itemName := a.ItemName
+				if itemName == "" {
+					itemName = pascal(singular(o.Name))
+				}
+				item := &message{Name: itemName, Desc: o.Desc}
+				for _, r := range o.Rows {
+					pt, kind, ok := c.typeOf(r.Type)
+					if !ok {
+						e.add(r.Line, "输出 %s 的每行 %s: 类型 %q 无法识别", o.Name, r.Name, r.Type)
+						continue
+					}
+					item.Fields = append(item.Fields, &field{Name: r.Name, Desc: r.Desc, Type: pt, kind: kind, Optional: r.Optional && kind != "time"})
+				}
+				c.addMessage(item)
+				f.Type, f.kind, f.Repeated = item.Name, "message:"+item.Name, true
+				out = append(out, f)
+				continue
+			}
 			if o.Type != "" {
 				pt, kind, ok := c.typeOf(o.Type)
 				if !ok {
