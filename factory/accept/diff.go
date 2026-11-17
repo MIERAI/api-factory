@@ -16,6 +16,7 @@ import (
 	"hash/fnv"
 	"math/big"
 	"math/rand"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -57,11 +58,13 @@ type diffEnv struct {
 	out    core.Schema          // 流水线最后的列(响应的值按这里的类型表示)
 	// anchors: 请求参数取值的来源 = 来源部分(scan / 来源单元)的输出。
 	// 普通的表 = 物理行;JSON版本 = 展开后的逻辑行(筛选的列在物理表里不存在)
-	anchors []core.Row
-	consts  map[core.Kind][]any    // 流水线里出现的常量(加进值域: 删除值、逻辑删除值等要能被随机数据碰到)
-	ranges  map[string][]int64     // 列 → 整数值域(筛选这一列的参数有范围校验时,从范围里取,否则请求都不合法)
-	formats map[string]*kinds.Type // 列 → 带格式的类型(参数有格式校验时,数据要符合格式)
-	keyCol  map[string]string      // JSON 的键 → 逻辑列名(json_field 投影成的列)
+	anchors  []core.Row
+	consts   map[core.Kind][]any    // 流水线里出现的常量(加进值域: 删除值、逻辑删除值等要能被随机数据碰到)
+	ranges   map[string][]int64     // 列 → 整数值域(筛选这一列的参数有范围校验时,从范围里取,否则请求都不合法)
+	formats  map[string]*kinds.Type // 列 → 带格式的类型(参数有格式校验时,数据要符合格式)
+	keyCol   map[string]string      // JSON 的键 → 逻辑列名(json_field 投影成的列)
+	constFor map[string][]any       // 列(物理列或 JSON 的键投影成的列)→ 来源里和它比较的常量(删除值 / 逻辑删除值)
+	nkCols   map[string]bool        // 多版本来源的自然键(值域扩大,逻辑行才多)
 }
 
 type jsonKey struct {
@@ -75,6 +78,40 @@ func (e *diffEnv) collect() {
 	seen := map[string]bool{}
 	var walk func(x *core.Expr)
 	e.keyCol = map[string]string{}
+	e.constFor, e.nkCols = map[string][]any{}, map[string]bool{}
+	rawOf := map[string]string{} // 投影成的列 → 物理列(col(x) 的投影)
+	for _, st := range e.api.Pipeline.Steps {
+		for _, x := range st.Project {
+			if x.Expr.Op == "col" {
+				rawOf[x.Name] = x.Expr.Name
+			}
+		}
+		if st.Kind == "pick_per_key" && strings.HasPrefix(st.From, "来源 ") {
+			for _, k := range st.Keys {
+				e.nkCols[k] = true
+			}
+		}
+		// 来源部分的条件: cmp(列, 常量) → 这一列的数据要能碰到这个常量
+		if st.Kind == "filter" && strings.HasPrefix(st.From, "来源 ") {
+			var find func(x *core.Expr)
+			find = func(x *core.Expr) {
+				if x == nil {
+					return
+				}
+				if x.Op == "cmp" && len(x.Args) == 2 && x.Args[0].Op == "col" && x.Args[1].Op == "const" && x.Args[1].Value != nil {
+					name := x.Args[0].Name
+					if raw, ok := rawOf[name]; ok {
+						name = raw
+					}
+					e.constFor[name] = append(e.constFor[name], x.Args[1].Value)
+				}
+				for _, a := range x.Args {
+					find(a)
+				}
+			}
+			find(st.Pred)
+		}
+	}
 	walk = func(x *core.Expr) {
 		if x == nil {
 			return
@@ -174,7 +211,7 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 		return []Result{{Spec: api.ID, Suite: "diff", Case: "准备", Passed: false, Detail: fmt.Sprintf(format, args...)}}
 	}
 	h := fnv.New64a()
-	h.Write([]byte(api.ID))
+	h.Write([]byte(api.ID + os.Getenv("FACTORY_DIFF_SEED"))) // 换种子: 检查覆盖不是靠运气
 	env := &diffEnv{ctx: ctx, conn: conn, db: d, plan: plan, api: api, table: p.Steps[0].Table, cols: p.Steps[0].Columns,
 		rnd: rand.New(rand.NewSource(int64(h.Sum64()))), filter: map[string]ir.Filter{}, exit: ex}
 	for _, f := range api.Filters {
@@ -249,6 +286,11 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 	if ex.DiffCover != nil {
 		cover += ex.DiffCover(api, hits)
 	}
+	// 多版本的来源(每键取一条): 多版本的键 / 被删除的键 都要 ≥ 3,否则版本的机制没有被测到
+	if versions, removed, ok := env.versionCounts(); ok {
+		cover += fmt.Sprintf(" / 来源: 多出来的旧版本 %d 行、最新是删除或逻辑删除的键 %d 个", versions, removed)
+		okCover = okCover && versions >= 3 && removed >= 3
+	}
 	results = append(results, Result{Spec: api.ID, Suite: "diff", Case: "覆盖条件", Passed: okCover, Detail: cover})
 	return results
 }
@@ -320,6 +362,23 @@ func (e *diffEnv) value(c core.NamedType, i int, unique bool) any {
 
 // scalarFor: 某一列的值(这一列有范围值域时从里面取)。
 func (e *diffEnv) scalarFor(col string, kind core.Kind, unique bool, i int) any {
+	if cs := e.constFor[col]; len(cs) > 0 && !unique && e.rnd.Intn(3) == 0 {
+		return cs[e.rnd.Intn(len(cs))] // 来源里和这一列比较的常量(删除 / 逻辑删除要能出现)
+	}
+	if e.nkCols[col] && !unique {
+		if _, ranged := e.ranges[col]; !ranged {
+			if _, formatted := e.formats[col]; !formatted {
+				switch v := e.scalar(kind, false, i).(type) { // 多版本来源的自然键: 值域扩大
+				case int64:
+					return v + int64(100*e.rnd.Intn(3))
+				case string:
+					return fmt.Sprintf("%s%d", v, e.rnd.Intn(3))
+				default:
+					return v
+				}
+			}
+		}
+	}
 	if t, ok := e.formats[col]; ok && !unique {
 		return t.Domain[e.rnd.Intn(len(t.Domain))]
 	}
@@ -566,7 +625,7 @@ func (e *diffEnv) requests() []core.Params {
 		seen[key] = true
 		out = append(out, ps)
 	}
-	return out
+	return append(out, e.sweep(seen)...)
 }
 
 func (e *diffEnv) describe(ps core.Params) string {
@@ -738,4 +797,222 @@ func (e *diffEnv) missingFor(col string, k core.Kind) any {
 		return t.Missing
 	}
 	return missing(k)
+}
+
+// trapPrefixes: 前缀匹配的陷阱(% _ 在开头 / 中间 / 结尾)。按字面匹配时几乎不命中,当成通配符时会命中很多行
+var trapPrefixes = []string{"%", "a%", "%a", "_", "a_", "_b"}
+
+// sweep: 确定性的扫值请求(不消耗随机数)。每个筛选参数单独取它的列在来源里出现的值(最多 5 个)+ 不存在的值;
+// 前缀参数取陷阱前缀。必填的其他参数取自同一行(这样请求能命中)。陷阱值一定会被每个运算符碰到,不靠随机。
+func (e *diffEnv) sweep(seen map[string]bool) []core.Params {
+	var out []core.Params
+	add := func(ps core.Params) {
+		if k := e.describe(ps); !seen[k] {
+			seen[k] = true
+			out = append(out, ps)
+		}
+	}
+	params := e.userParams()
+	stale := e.staleRows()
+	for _, d := range params {
+		f := e.filter[d.Name]
+		// 这一列在来源里出现的值(规范文本排序,确定)
+		byVal := map[string]core.Row{}
+		var keys []string
+		for _, r := range e.anchors {
+			v := r[f.Column]
+			if v == nil {
+				continue
+			}
+			k := core.Canonical(v)
+			if _, ok := byVal[k]; !ok {
+				byVal[k] = r
+				keys = append(keys, k)
+			}
+		}
+		sort.Strings(keys)
+		if len(keys) > 5 {
+			keys = keys[:5]
+		}
+		// 多版本的来源: 只在旧版本里出现的值(用它筛选时,旧版本不能被返回: "先筛选再取最新"的陷阱)
+		var staleKeys []string
+		staleVal, staleRow := map[string]any{}, map[string]core.Row{}
+		for _, r := range stale {
+			v := r[f.Column]
+			if v == nil {
+				continue
+			}
+			k := core.Canonical(v)
+			if _, current := byVal[k]; current {
+				continue
+			}
+			if _, ok := staleVal[k]; !ok {
+				staleVal[k], staleRow[k] = v, r
+				staleKeys = append(staleKeys, k)
+			}
+		}
+		sort.Strings(staleKeys)
+		if len(staleKeys) > 3 {
+			staleKeys = staleKeys[:3]
+		}
+		withRequired := func(anchor core.Row, ps core.Params) core.Params {
+			for _, o := range params {
+				if o.Name == d.Name || !o.Required {
+					continue
+				}
+				col := e.filter[o.Name].Column
+				var v any
+				if anchor != nil {
+					v = anchor[col]
+				}
+				if v == nil {
+					v = e.missingFor(col, o.Type.Kind)
+				}
+				if o.List {
+					v = []any{v}
+				}
+				ps[o.Name] = v
+			}
+			return ps
+		}
+		if f.Op == "prefix" || f.Op == "前缀匹配" {
+			var anchor core.Row
+			if len(keys) > 0 {
+				anchor = byVal[keys[0]]
+			}
+			for _, p := range trapPrefixes {
+				add(withRequired(anchor, core.Params{d.Name: p}))
+			}
+			continue
+		}
+		for _, k := range keys {
+			r := byVal[k]
+			var v any = r[f.Column]
+			if d.List {
+				v = []any{v}
+			}
+			add(withRequired(r, core.Params{d.Name: v}))
+			// 同一行的全部参数(组合条件也要碰到每个值)
+			all := core.Params{}
+			for _, o := range params {
+				ov := r[e.filter[o.Name].Column]
+				if ov == nil || e.filter[o.Name].Op == "prefix" || e.filter[o.Name].Op == "前缀匹配" {
+					continue
+				}
+				if o.List {
+					ov = []any{ov}
+				}
+				all[o.Name] = ov
+			}
+			add(withRequired(r, all))
+			// 两两组合: 这个值 + 同一行的另一个参数(最多 2 个;全部参数一起时可能违反输入之间的规则)
+			pairs := 0
+			for _, o := range params {
+				if o.Name == d.Name || pairs == 2 {
+					continue
+				}
+				ov, ok := all[o.Name]
+				if !ok {
+					continue
+				}
+				add(withRequired(r, core.Params{d.Name: v, o.Name: ov}))
+				pairs++
+			}
+		}
+		for _, k := range staleKeys {
+			var v any = staleVal[k]
+			if d.List {
+				v = []any{v}
+			}
+			add(withRequired(staleRow[k], core.Params{d.Name: v})) // 其他必填参数取自同一行旧版本
+		}
+		var m any = e.missingFor(f.Column, d.Type.Kind)
+		if d.List {
+			m = []any{m}
+		}
+		var anchor core.Row
+		if len(keys) > 0 {
+			anchor = byVal[keys[0]]
+		}
+		add(withRequired(anchor, core.Params{d.Name: m}))
+	}
+	return out
+}
+
+// Missing: 参数的第 i 个"数据里不存在的值"。整数 +i,文本加后缀;带格式的类型只有一个(i > 0 → nil)。
+func (e *diffEnv) Missing(param string, i int) any {
+	var d *core.ParamDecl
+	for _, x := range e.userParams() {
+		if x.Name == param {
+			x := x
+			d = &x
+		}
+	}
+	if d == nil {
+		return nil
+	}
+	col := e.filter[param].Column
+	base := e.missingFor(col, d.Type.Kind)
+	if i == 0 {
+		return base
+	}
+	if _, formatted := e.formats[col]; formatted {
+		return nil
+	}
+	switch v := base.(type) {
+	case int64:
+		return v + int64(i)
+	case string:
+		return fmt.Sprintf("%s-%d", v, i)
+	case time.Time:
+		return v.AddDate(0, 0, i)
+	}
+	return nil
+}
+
+// versionCounts: 来源部分里"每键取一条"之前 / 之后 / 来源的最后,各有几行(参考求值器)。
+// versions = 被取最新淘汰的旧版本数;removed = 最新一行被删除 / 逻辑删除的键数。没有每键取一条 → ok = false。
+func (e *diffEnv) versionCounts() (versions, removed int, ok bool) {
+	var src []core.Step
+	pick := -1
+	for _, st := range e.api.Pipeline.Steps {
+		if st.From != "datasource.table" && !strings.HasPrefix(st.From, "来源 ") {
+			break
+		}
+		if st.Kind == "pick_per_key" && pick < 0 {
+			pick = len(src)
+		}
+		src = append(src, st)
+	}
+	if pick < 0 {
+		return 0, 0, false
+	}
+	count := func(steps []core.Step) int {
+		res, err := core.Eval(&core.Pipeline{Steps: steps, Params: e.api.Pipeline.Params}, map[string][]core.Row{e.table: e.rows}, core.Params{})
+		if err != nil {
+			return -1
+		}
+		return len(res.Rows)
+	}
+	before, keys, alive := count(src[:pick]), count(src[:pick+1]), count(src)
+	return before - keys, keys - alive, true
+}
+
+// staleRows: 多版本来源里"每键取一条"之前的行(包括被淘汰的旧版本)。没有每键取一条 → nil。
+func (e *diffEnv) staleRows() []core.Row {
+	var src []core.Step
+	for _, st := range e.api.Pipeline.Steps {
+		if st.From != "datasource.table" && !strings.HasPrefix(st.From, "来源 ") {
+			break
+		}
+		if st.Kind == "pick_per_key" {
+			res, err := core.Eval(&core.Pipeline{Steps: src, Params: e.api.Pipeline.Params}, map[string][]core.Row{e.table: e.rows}, core.Params{})
+			if err != nil {
+				return nil
+			}
+			return res.Rows
+		}
+		src = append(src, st)
+	}
+	return nil
 }

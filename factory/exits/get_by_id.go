@@ -29,6 +29,26 @@ func init() {
 			api.GetByID = &ir.GetByID{NotFoundMessage: s.Pattern.NotFoundMessage}
 			return nil
 		},
+		DiffExtra: func(x DiffCtx) []Case { // 找不到: 3 个不同的不存在的键(NOT_FOUND 的映射不能只靠一个请求)
+			var out []Case
+			for i := 0; i < 3; i++ {
+				ps := core.Params{}
+				for _, d := range x.UserParams() {
+					v := x.Missing(d.Name, i)
+					if v == nil {
+						return out
+					}
+					ps[d.Name] = v
+				}
+				req := x.Request(ps)
+				if bad, err := x.Invalid(req); err != nil || bad {
+					continue
+				}
+				out = append(out, Case{Name: fmt.Sprintf("单条出口: 不存在的键 #%d → NOT_FOUND", i+1),
+					Case: spec.Case{Request: req, Expect: spec.Expect{Code: "NOT_FOUND"}}})
+			}
+			return out
+		},
 		DiffCase: func(x DiffCtx, rows []core.Row, req map[string]any) (spec.Case, string, string) {
 			api := x.API()
 			switch n := len(rows); {

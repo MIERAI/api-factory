@@ -144,9 +144,8 @@ func pageExitCases(x DiffCtx) []Case {
 			continue
 		}
 		r, err := x.Eval(ps)
-		if err == nil && len(r) >= 5 {
+		if err == nil && len(r) >= 5 && (base == nil || len(r) > len(rows)) { // 结果最多的(默认件数的用例要能翻页)
 			base, rows = ps, r
-			break
 		}
 	}
 	if base == nil {
@@ -175,6 +174,7 @@ func pageExitCases(x DiffCtx) []Case {
 			Expect: spec.Expect{Code: "INVALID_ARGUMENT", MessageContains: "page_token"}}},
 	}
 	// 途中改筛选条件 → 旧 token 失效: 改一个筛选参数的值,改了之后的请求本身必须合法
+	changedParams := 0
 	for _, d := range x.UserParams() {
 		col := x.Column(d.Name)
 		for _, r := range x.Anchors() {
@@ -191,14 +191,44 @@ func pageExitCases(x DiffCtx) []Case {
 			if bad, err := x.Invalid(probe); err != nil || bad {
 				continue
 			}
-			return append(out, Case{Name: fmt.Sprintf("分页出口: 途中改筛选条件(%s)→ INVALID_ARGUMENT", d.Name), Case: spec.Case{Steps: []spec.Step{
+			out = append(out, Case{Name: fmt.Sprintf("分页出口: 途中改筛选条件(%s)→ INVALID_ARGUMENT", d.Name), Case: spec.Case{Steps: []spec.Step{
 				{Request: with(map[string]any{"page_size": 1}), Expect: spec.Expect{Code: "OK", Response: map[string]any{"next_page_token": "$nonempty"}}},
 				{Request: changed, Expect: spec.Expect{Code: "INVALID_ARGUMENT", MessageContains: "page_token"}},
 			}}})
+			changedParams++
+			break
+		}
+		if changedParams == 3 { // 每个参数各一次,最多 3 个
+			break
 		}
 	}
-	if len(x.UserParams()) > 0 {
-		return append(out, Case{Name: "分页出口: 途中改筛选条件", Fail: "没有可以改的筛选参数"})
+	if len(x.UserParams()) > 0 && changedParams == 0 {
+		out = append(out, Case{Name: "分页出口: 途中改筛选条件", Fail: "没有可以改的筛选参数"})
+	}
+	return append(out, defaultPageCases(x, base, rows, list, with)...)
+}
+
+// defaultPageCases: 不传 page_size / page_size = 0 → 用式样书的默认件数;不传 page_size 翻到第 2 页。
+func defaultPageCases(x DiffCtx, base core.Params, rows []core.Row, list func([]core.Row) []any, with func(map[string]any) map[string]any) []Case {
+	k := x.API().Keyset
+	def := int(k.DefaultSize)
+	first := rows[:min(def, len(rows))]
+	more := len(rows) > def
+	token := any("$absent")
+	if more {
+		token = "$nonempty"
+	}
+	firstPage := map[string]any{k.ItemsField: list(first), "next_page_token": token}
+	out := []Case{
+		{Name: "分页出口: 不传 page_size → 默认件数", Case: spec.Case{Request: with(nil), Expect: spec.Expect{Code: "OK", Response: firstPage}}},
+		{Name: "分页出口: page_size = 0 → 默认件数", Case: spec.Case{Request: with(map[string]any{"page_size": 0}), Expect: spec.Expect{Code: "OK", Response: firstPage}}},
+	}
+	if more {
+		second := rows[def:min(2*def, len(rows))]
+		out = append(out, Case{Name: "分页出口: 不传 page_size 翻到第 2 页", Case: spec.Case{Steps: []spec.Step{
+			{Request: with(nil), Expect: spec.Expect{Code: "OK", Response: firstPage}},
+			{Request: with(map[string]any{"page_token": "$prev.next_page_token"}), Expect: spec.Expect{Code: "OK", Response: map[string]any{k.ItemsField: list(second)}}},
+		}}})
 	}
 	return out
 }

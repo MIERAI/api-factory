@@ -52,6 +52,7 @@ type DiffCtx interface {
 	Column(param string) string                      // 参数筛选的列
 	Anchors() []core.Row                             // 来源部分的行(参数取值用)
 	Present(column string, v any) any                // 值 → 请求 / 期待值里的表示
+	Missing(param string, i int) any                 // 参数的第 i 个"数据里不存在的值"(没有更多 → nil)
 }
 
 // Case: 出口自己的差分用例(名字 + 用例)。

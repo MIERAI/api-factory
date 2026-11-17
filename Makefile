@@ -10,11 +10,14 @@ SPEC    ?= specs/jobs/get-job-status/spec.yaml
 MODEL   ?= claude
 ACCEPT_SPECS ?= specs
 
-.PHONY: hooks doctor db-up db-down db-schema design check prepare build test guard accept loop
+.PHONY: hooks margin doctor db-up db-down db-schema design check prepare build test guard accept loop
 
 # 排序规则用 ICU(en-US): Alpine 的 en_US.utf8 实际按字节排,和 C 一样,测不出"忘了 COLLATE C"(生产不是这样)
 hooks:            ## 安装 git 钩子(内容防护: 产品分支不能出现试用公司的内容)
 	@git config core.hooksPath scripts/hooks && echo "✓ hooks: scripts/hooks"
+
+margin:           ## 差分测试的余量: 换种子跑变异,每个变异 ≥3 个差分用例(慢)
+	@scripts/margin.sh
 
 doctor:           ## 环境检查(工具 / 数据库 / AI 命令行 / 钩子)
 	@scripts/doctor.sh
