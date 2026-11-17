@@ -58,14 +58,15 @@ type diffEnv struct {
 	out    core.Schema          // 流水线最后的列(响应的值按这里的类型表示)
 	// anchors: 请求参数取值的来源 = 来源部分(scan / 来源单元)的输出。
 	// 普通的表 = 物理行;JSON版本 = 展开后的逻辑行(筛选的列在物理表里不存在)
-	anchors  []core.Row
-	consts   map[core.Kind][]any    // 流水线里出现的常量(加进值域: 删除值、逻辑删除值等要能被随机数据碰到)
-	ranges   map[string][]int64     // 列 → 整数值域(筛选这一列的参数有范围校验时,从范围里取,否则请求都不合法)
-	formats  map[string]*kinds.Type // 列 → 带格式的类型(参数有格式校验时,数据要符合格式)
-	keyCol   map[string]string      // JSON 的键 → 逻辑列名(json_field 投影成的列)
-	constFor map[string][]any       // 列(物理列或 JSON 的键投影成的列)→ 来源里和它比较的常量(删除值 / 逻辑删除值)
-	nkCols   map[string]bool        // 多版本来源的自然键(值域扩大,逻辑行才多)
-	nkExtend bool                   // 自然键的组合太少(每个键的版本太多)时才扩大值域
+	anchors   []core.Row
+	consts    map[core.Kind][]any    // 流水线里出现的常量(加进值域: 删除值、逻辑删除值等要能被随机数据碰到)
+	ranges    map[string][]int64     // 列 → 整数值域(筛选这一列的参数有范围校验时,从范围里取,否则请求都不合法)
+	formats   map[string]*kinds.Type // 列 → 带格式的类型(参数有格式校验时,数据要符合格式)
+	keyCol    map[string]string      // JSON 的键 → 逻辑列名(json_field 投影成的列)
+	constFor  map[string][]any       // 列(物理列或 JSON 的键投影成的列)→ 来源里和它比较的常量(删除值 / 逻辑删除值)
+	nkCols    map[string]bool        // 多版本来源的自然键(值域扩大,逻辑行才多)
+	nkExtend  bool                   // 自然键的组合太少(每个键的版本太多)时才扩大值域
+	groupCols map[string]bool        // API 部分"每组取一条"的分组列: 值域缩小到 2 个,组里才有多个候选
 }
 
 type jsonKey struct {
@@ -79,12 +80,17 @@ func (e *diffEnv) collect() {
 	seen := map[string]bool{}
 	var walk func(x *core.Expr)
 	e.keyCol = map[string]string{}
-	e.constFor, e.nkCols = map[string][]any{}, map[string]bool{}
+	e.constFor, e.nkCols, e.groupCols = map[string][]any{}, map[string]bool{}, map[string]bool{}
 	rawOf := map[string]string{} // 投影成的列 → 物理列(col(x) 的投影)
 	for _, st := range e.api.Pipeline.Steps {
 		for _, x := range st.Project {
 			if x.Expr.Op == "col" {
 				rawOf[x.Name] = x.Expr.Name
+			}
+		}
+		if st.Kind == "pick_per_key" && !strings.HasPrefix(st.From, "来源 ") {
+			for _, k := range st.Keys {
+				e.groupCols[k] = true
 			}
 		}
 		if st.Kind == "pick_per_key" && strings.HasPrefix(st.From, "来源 ") {
@@ -242,20 +248,32 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 	if _, err := conn.Exec(ctx, "SET TimeZone = 'UTC'"); err != nil {
 		return fail("%v", err)
 	}
-	inserted, rejected, err := env.load()
-	if err != nil {
-		return fail("数据: %v", err)
-	}
-	if inserted < 2 {
-		return fail("数据: 只插入了 %d 行(拒绝 %d 行)", inserted, rejected)
-	}
-	if err := env.loadAnchors(); err != nil {
-		return fail("来源: %v", err)
+	// 生成数据 → 先用参考求值器预估覆盖条件 → 不满足就换派生种子重新生成(最多 5 次;种子确定,结果可复现)
+	seed0 := int64(h.Sum64())
+	var inserted, rejected, attempts int
+	var reqs []core.Params
+	for attempt := 0; attempt < 5; attempt++ {
+		attempts = attempt + 1
+		env.rnd = rand.New(rand.NewSource(seed0 + int64(attempt)*7919))
+		env.rows, env.anchors = nil, nil
+		if inserted, rejected, err = env.load(); err != nil {
+			return fail("数据: %v", err)
+		}
+		if inserted < 2 {
+			return fail("数据: 只插入了 %d 行(拒绝 %d 行)", inserted, rejected)
+		}
+		if err := env.loadAnchors(); err != nil {
+			return fail("来源: %v", err)
+		}
+		reqs = env.requests()
+		if env.planned(reqs) {
+			break
+		}
 	}
 
 	var results []Result
 	hits := map[string]int{} // 覆盖: 0 行 / 1 行 / 多行 / 出口的标签
-	for i, params := range env.requests() {
+	for i, params := range reqs {
 		name := fmt.Sprintf("#%02d %s", i+1, env.describe(params))
 		ok, detail, n, tag := env.runOne(url, params)
 		if tag != "" {
@@ -299,6 +317,21 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 	if versions, removed, ok := env.versionCounts(); ok {
 		cover += fmt.Sprintf(" / 来源: 多出来的旧版本 %d 行、最新是删除或逻辑删除的键 %d 个", versions, removed)
 		okCover = okCover && versions >= 3 && removed >= 3
+	}
+	// 每组取一条(API 部分): 组里有 ≥2 个候选、真的淘汰掉了行的请求要 ≥ 3,否则"取最大还是最小"没有被测到
+	if n, ok := env.pickReduced(reqs); ok {
+		cover += fmt.Sprintf(" / 每组取一条淘汰了候选的请求 %d 个", n)
+		okCover = okCover && n >= 3
+	}
+	if weak, total := env.sensitivity(reqs); total > 0 {
+		cover += fmt.Sprintf(" / 起作用的条件 %d/%d", total-len(weak), total)
+		if len(weak) > 0 {
+			cover += fmt.Sprintf("(不足 3 个请求: %s)", strings.Join(weak, "、"))
+			okCover = false
+		}
+	}
+	if attempts > 1 {
+		cover += fmt.Sprintf(" / 数据生成 %d 次(覆盖条件不满足时换种子重来)", attempts)
 	}
 	results = append(results, Result{Spec: api.ID, Suite: "diff", Case: "覆盖条件", Passed: okCover, Detail: cover})
 	return results
@@ -371,6 +404,14 @@ func (e *diffEnv) value(c core.NamedType, i int, unique bool) any {
 
 // scalarFor: 某一列的值(这一列有范围值域时从里面取)。
 func (e *diffEnv) scalarFor(col string, kind core.Kind, unique bool, i int) any {
+	if e.groupCols[col] && !unique { // 每组取一条的分组列: 2 个值(组要密)
+		if dom, ok := e.ranges[col]; ok {
+			return dom[e.rnd.Intn(2)]
+		}
+		if t, ok := kinds.ByCore(kind); ok && len(t.Domain) >= 2 {
+			return t.Domain[1+e.rnd.Intn(2)%len(t.Domain[1:])]
+		}
+	}
 	if cs := e.constFor[col]; len(cs) > 0 && !unique && e.rnd.Intn(6) == 0 {
 		return cs[e.rnd.Intn(len(cs))] // 来源里和这一列比较的常量(删除 / 逻辑删除要能出现)
 	}
@@ -827,21 +868,38 @@ func (e *diffEnv) sweep(seen map[string]bool) []core.Params {
 		f := e.filter[d.Name]
 		// 这一列在来源里出现的值(规范文本排序,确定)
 		byVal := map[string]core.Row{}
+		valOf := map[string]any{}
 		var keys []string
-		for _, r := range e.anchors {
-			v := r[f.Column]
+		cols := f.Columns // 多列的单元(有效期包含): 每一列的值都要扫(结束日的边界)
+		if len(cols) == 0 {
+			cols = []string{f.Column}
+		}
+		addVal := func(v any, r core.Row) {
 			if v == nil {
-				continue
+				return
 			}
 			k := core.Canonical(v)
 			if _, ok := byVal[k]; !ok {
-				byVal[k] = r
+				byVal[k], valOf[k] = r, v
 				keys = append(keys, k)
 			}
 		}
+		for _, c := range cols {
+			for _, r := range e.anchors {
+				addVal(r[c], r)
+				if len(cols) > 1 { // 边界的另一侧: 值 + 1(结束日的下一天)
+					switch x := r[c].(type) {
+					case int64:
+						addVal(x+1, r)
+					case time.Time:
+						addVal(x.AddDate(0, 0, 1), r)
+					}
+				}
+			}
+		}
 		sort.Strings(keys)
-		if len(keys) > 5 {
-			keys = keys[:5]
+		if limit := 5 * len(cols); len(keys) > limit {
+			keys = keys[:limit]
 		}
 		// 多版本的来源: 只在旧版本里出现的值(用它筛选时,旧版本不能被返回: "先筛选再取最新"的陷阱)
 		var staleKeys []string
@@ -896,7 +954,7 @@ func (e *diffEnv) sweep(seen map[string]bool) []core.Params {
 		}
 		for _, k := range keys {
 			r := byVal[k]
-			var v any = r[f.Column]
+			var v any = valOf[k]
 			if d.List {
 				v = []any{v}
 			}
@@ -931,9 +989,29 @@ func (e *diffEnv) sweep(seen map[string]bool) []core.Params {
 		if d.List && len(keys) > 1 { // 列表: 多个值一起(属于的多值命中)
 			var vs []any
 			for _, k := range keys {
-				vs = append(vs, byVal[k][f.Column])
+				vs = append(vs, valOf[k])
 			}
 			add(withRequired(byVal[keys[0]], core.Params{d.Name: vs}))
+		}
+		if len(cols) > 1 { // 多列单元的边界: 以每一行自己的结束列为基准(= 结束日 / 结束日 + 1),其他参数取自同一行
+			last := cols[len(cols)-1]
+			for i, r := range e.anchors {
+				if i == 20 {
+					break
+				}
+				var next any
+				switch x := r[last].(type) {
+				case int64:
+					next = x + 1
+				case time.Time:
+					next = x.AddDate(0, 0, 1)
+				default:
+					continue
+				}
+				for _, v := range []any{r[last], next} {
+					add(withRequired(r, core.Params{d.Name: v}))
+				}
+			}
 		}
 		for _, k := range staleKeys {
 			var v any = staleVal[k]
@@ -1059,4 +1137,182 @@ func (e *diffEnv) domainSize(col string) int {
 		}
 	}
 	return 5
+}
+
+// planned: 用参考求值器预估这批请求的覆盖条件(不需要服务器)。和 runDiff 最后的覆盖条件一致。
+func (e *diffEnv) planned(reqs []core.Params) bool {
+	hits := map[string]int{}
+	for _, ps := range reqs {
+		rows, err := e.Eval(ps)
+		if err != nil {
+			continue
+		}
+		if bad, err := e.invalid(e.request(ps)); err != nil || bad {
+			continue
+		}
+		switch n := len(rows); {
+		case n == 0:
+			hits["0"]++
+		case n == 1:
+			hits["1"]++
+		default:
+			hits["n"]++
+		}
+	}
+	ok := hits["0"] > 0 && hits["1"]+hits["n"] > 0
+	if len(e.userParams()) == 0 {
+		ok = hits["1"]+hits["n"] > 0
+	}
+	if e.exit.DiffMulti {
+		ok = ok && hits["n"] > 0
+	}
+	if versions, removed, has := e.versionCounts(); has {
+		ok = ok && versions >= 3 && removed >= 3
+	}
+	if n, has := e.pickReduced(reqs); has {
+		ok = ok && n >= 3
+	}
+	if weak, _ := e.sensitivity(reqs); len(weak) > 0 {
+		ok = false
+	}
+	return ok
+}
+
+// sensitivity: 每个筛选条件(和条件里 and 的每一项)都要在 ≥3 个合法请求里起作用:
+// 用参考求值器把它换成恒真,结果变了的请求数。不够 → 返回这些条件的说明(数据区分不出它们,测试会漏掉相应的 bug)。
+func (e *diffEnv) sensitivity(reqs []core.Params) (weak []string, total int) {
+	p := e.api.Pipeline
+	type target struct {
+		step int
+		node *core.Expr
+		desc string
+	}
+	var targets []target
+	for i, st := range p.Steps {
+		if st.Kind != "filter" || st.From == "datasource.table" || strings.HasPrefix(st.From, "来源 ") || st.Pred == nil {
+			continue
+		}
+		if st.Pred.Op == "tuple_after" { // 分页的游标: 由出口用例测
+			continue
+		}
+		targets = append(targets, target{i, st.Pred, st.From})
+		var walk func(x *core.Expr)
+		walk = func(x *core.Expr) {
+			if x == nil {
+				return
+			}
+			if x.Op == "and" {
+				for j, a := range x.Args {
+					targets = append(targets, target{i, a, fmt.Sprintf("%s 的第 %d 项", st.From, j+1)})
+				}
+			}
+			for _, a := range x.Args {
+				walk(a)
+			}
+		}
+		walk(st.Pred)
+	}
+	if len(targets) == 0 {
+		return nil, 0
+	}
+	valid := []core.Params{}
+	for _, ps := range reqs {
+		if bad, err := e.invalid(e.request(ps)); err == nil && !bad {
+			valid = append(valid, ps)
+		}
+	}
+	eval := func(pl *core.Pipeline, ps core.Params) string {
+		params := core.Params{}
+		for k, v := range ps {
+			params[k] = v
+		}
+		if e.exit.DiffParams != nil {
+			for k, v := range e.exit.DiffParams(e.api) {
+				params[k] = v
+			}
+		}
+		res, err := core.Eval(pl, map[string][]core.Row{e.table: e.rows}, params)
+		if err != nil {
+			return "error"
+		}
+		var b strings.Builder
+		for _, r := range res.Rows {
+			for _, c := range res.Columns {
+				b.WriteString(core.Canonical(r[c.Name]) + "|")
+			}
+			b.WriteString("\n")
+		}
+		return b.String()
+	}
+	base := map[int]string{}
+	for i, ps := range valid {
+		base[i] = eval(p, ps)
+	}
+	for _, t := range targets {
+		mut := *p
+		mut.Steps = append([]core.Step(nil), p.Steps...)
+		mut.Steps[t.step].Pred = replaceExpr(p.Steps[t.step].Pred, t.node, core.Const(true, core.Type{Kind: core.Bool}))
+		n := 0
+		for i, ps := range valid {
+			if eval(&mut, ps) != base[i] {
+				n++
+			}
+		}
+		total++
+		if n < 3 {
+			weak = append(weak, fmt.Sprintf("%s(%d 个请求)", t.desc, n))
+		}
+	}
+	return weak, total
+}
+
+// replaceExpr: 复制表达式树,把节点 target 换成 with(按指针)。
+func replaceExpr(x, target, with *core.Expr) *core.Expr {
+	if x == target {
+		return with
+	}
+	if x == nil {
+		return nil
+	}
+	c := *x
+	c.Args = make([]*core.Expr, len(x.Args))
+	for i, a := range x.Args {
+		c.Args[i] = replaceExpr(a, target, with)
+	}
+	return &c
+}
+
+// pickReduced: API 部分(来源之后)的"每组取一条": 有多少个合法的请求,在这一步真的淘汰了候选(组里 ≥2 行)。
+func (e *diffEnv) pickReduced(reqs []core.Params) (int, bool) {
+	steps := e.api.Pipeline.Steps
+	at := -1
+	for i, st := range steps {
+		if st.Kind == "pick_per_key" && !strings.HasPrefix(st.From, "来源 ") {
+			at = i
+		}
+	}
+	if at < 0 {
+		return 0, false
+	}
+	count := func(upto int, ps core.Params) int {
+		evalParams := core.Params{}
+		for k, v := range ps {
+			evalParams[k] = v
+		}
+		res, err := core.Eval(&core.Pipeline{Steps: steps[:upto], Params: e.api.Pipeline.Params}, map[string][]core.Row{e.table: e.rows}, evalParams)
+		if err != nil {
+			return -1
+		}
+		return len(res.Rows)
+	}
+	n := 0
+	for _, ps := range reqs {
+		if bad, err := e.invalid(e.request(ps)); err != nil || bad {
+			continue
+		}
+		if before, after := count(at, ps), count(at+1, ps); before > after && after >= 0 {
+			n++
+		}
+	}
+	return n, true
 }

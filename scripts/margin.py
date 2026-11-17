@@ -2,9 +2,11 @@
 import re
 import sys
 
-seed, mn = sys.argv[1], int(sys.argv[2])
-rows = []
+seed, mn, expected = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+rows, skipped = [], []
 for line in sys.stdin:
+    if line.startswith("  ? "):  # 没执行的变异(替换式没命中 / 编译失败 / 执行器出错)
+        skipped.append(line.strip())
     m = re.search(r"(抓到|漏掉) (.+?)\s+差分\s+(\d+)", line)
     if m:
         rows.append((int(m.group(3)), m.group(1), m.group(2).strip()))
@@ -15,5 +17,7 @@ label = seed or "(默认)"
 msg = f"seed={label}: 变异 {len(rows)} 个,差分最少 {lo[0]}({lo[2]})"
 if weak:
     msg += f"  ✗ 不足 {mn}: {[(r[0], r[2]) for r in weak]}"
+if len(rows) != expected:
+    msg += f"  ✗ 执行了 {len(rows)} 个,定义了 {expected} 个: {skipped}"
 print(msg)
-sys.exit(1 if weak or not rows else 0)
+sys.exit(1 if weak or not rows or len(rows) != expected else 0)

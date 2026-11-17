@@ -8,6 +8,7 @@ seeds=("$@"); [[ ${#seeds[@]} -eq 0 ]] && seeds=("" s1 s2)
 fail=0
 for seed in "${seeds[@]}"; do
   out=$(FACTORY_DIFF_SEED="$seed" "$(dirname "$0")/mutate.sh" 2>&1)
-  echo "$out" | python3 "$(dirname "$0")/margin.py" "$seed" "$MIN" || fail=1
+  expected=$(grep -c '^run "' "$(dirname "$0")/mutate.sh")
+  echo "$out" | python3 "$(dirname "$0")/margin.py" "$seed" "$MIN" "$expected" || fail=1
 done
 exit $fail
