@@ -81,6 +81,13 @@ func run(log *slog.Logger, build Builder) error {
 	if err != nil {
 		return err
 	}
+	authn, err := loadAuth()
+	if err != nil {
+		return err
+	}
+	if authn.mode == "none" {
+		log.Warn("AUTH_MODE=none: the server does not authenticate (the platform must, e.g. Cloud Run IAM)")
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -140,6 +147,7 @@ func run(log *slog.Logger, build Builder) error {
 			http.Error(w, "db unavailable", http.StatusServiceUnavailable)
 			return
 		}
+		w.Header().Set("X-App-Version", envOr("APP_VERSION", "dev")) // 部署后确认是哪个版本在服务
 		// INSTANCE_ID(测试用): 回答健康检查的是不是这个进程(并行测试时端口可能被别的服务器占着)
 		_, _ = w.Write([]byte("ok " + os.Getenv("INSTANCE_ID")))
 	})
@@ -149,7 +157,7 @@ func run(log *slog.Logger, build Builder) error {
 	protocols.SetUnencryptedHTTP2(true) // gRPC 需要 h2c
 	srv := &http.Server{
 		Addr:              ":" + cfg.port,
-		Handler:           mux,
+		Handler:           authn.wrap(mux),
 		Protocols:         protocols,
 		ReadHeaderTimeout: 5 * time.Second,
 	}

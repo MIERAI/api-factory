@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -190,6 +191,9 @@ func runStep(url string, reqBody map[string]any, expect spec.Expect, out *ir.Mes
 	req, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Connect-Protocol-Version", "1")
+	if t := os.Getenv("API_TOKEN"); t != "" { // 部署后的验收: 服务器 AUTH_MODE=token
+		req.Header.Set("Authorization", "Bearer "+t)
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return false, err.Error(), nil

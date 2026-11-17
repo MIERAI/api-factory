@@ -1,0 +1,28 @@
+# 阶段 1: 式样书的 PR(design/)。机械检查 + 生成检查 + AI 审查;结果贴到 PR 上
+name: spec-pr
+on:
+  pull_request:
+    paths: ["design/**"]
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  review:
+    if: ${{ !startsWith(github.head_ref, 'factory/gen-') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: ./.github/actions/setup
+      - name: AI 命令行
+        run: npm install -g @anthropic-ai/claude-code
+      - name: 式样书检查 + AI 审查
+        env:
+          BASE: origin/${{ github.base_ref }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: scripts/ci/spec-review.sh
+      - name: 结果贴到 PR
+        if: always()
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: gh pr comment ${{ github.event.pull_request.number }} --edit-last --body-file "$GITHUB_STEP_SUMMARY" || gh pr comment ${{ github.event.pull_request.number }} --body-file "$GITHUB_STEP_SUMMARY"

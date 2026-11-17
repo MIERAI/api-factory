@@ -1,0 +1,32 @@
+# 阶段 4: 代码合并到 main → 镜像 → Cloud Run(新版本不切流量 → 只读检查 → 切流量)
+# GCP 的认证: Workload Identity Federation(仓库里不放密钥)。连接信息在 Secret Manager(deploy.sh 的 --set-secrets)
+name: deploy
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["design/**", "docs/**"]
+concurrency: { group: deploy, cancel-in-progress: false }
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: 部署
+        env:
+          TARGET: cloudrun
+          GCP_PROJECT: ${{ vars.GCP_PROJECT }}
+          GCP_REGION: ${{ vars.GCP_REGION }}
+          SERVICE: ${{ vars.SERVICE }}
+          AR_REPO: ${{ vars.AR_REPO }}
+          RUN_SA: ${{ vars.RUN_SA }}
+        run: scripts/ci/deploy.sh

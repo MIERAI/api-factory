@@ -1,0 +1,34 @@
+# ============================================================================
+# GetDailySales: 日付と店舗の売上(流水线模拟用: scripts/ci/sim.sh 把它当作"新的式样书"提交)
+# ============================================================================
+API: GetDailySales
+说明: 売上日と店舗コードを指定して、その日の売上を返す。なければ found = false
+背景: 店舗の日次の画面。売上がまだ計上されていない日はエラーにしない
+负责人: sales-team
+风险: 低
+
+种类: 按键取一条
+数据来源: daily_sales
+
+输入:
+  sales_date: { 类型: 日期,   必填: 是, 说明: 売上日, 筛选: sales_date 等于 }
+  store_code: { 类型: 整数32, 必填: 是, 范围: "> 0", 说明: 店舗コード, 筛选: store_code 等于 }
+
+输出:
+  amount:   売上金額
+  discount: 値引き額
+
+找不到时: 返回空
+
+例子:
+  准备数据:
+    daily_sales:
+      - { sales_date: 2026-11-01, store_code: 1, amount: "1000.50", discount: "10" }
+      - { sales_date: 2026-11-01, store_code: 2, amount: "500", discount: null }
+  用例:
+    - 说明: その日の売上
+      输入: { sales_date: 2026-11-01, store_code: 1 }
+      结果: { found: true, amount: "1000.5", discount: "10" }
+    - 说明: まだ計上されていない日は found = false
+      输入: { sales_date: 2026-11-02, store_code: 1 }
+      结果: { found: false }

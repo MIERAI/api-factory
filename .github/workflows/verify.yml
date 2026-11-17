@@ -1,0 +1,22 @@
+# 阶段 3: 代码的 PR(生成物 / 工厂本身)。生成物是最新的 + 编译 + 单元测试 + 验收(3 个种子)+ 变异余量
+# 只改了 design/ 的 PR 由 spec-pr 负责(生成物还没生成,这里会说"不是最新的")
+name: verify
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: 只改了式样书?
+        id: scope
+        run: |
+          if git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -qv '^design/'; then echo "code=1" >> "$GITHUB_OUTPUT"; fi
+      - if: steps.scope.outputs.code == '1'
+        uses: ./.github/actions/setup
+      - if: steps.scope.outputs.code == '1'
+        run: scripts/ci/verify.sh

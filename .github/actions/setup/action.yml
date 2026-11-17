@@ -1,0 +1,17 @@
+name: setup
+description: 工厂的工具链(go / buf / sqlc)+ 本地的 Postgres(ICU 排序规则,和 make db-up 一样)
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+    - uses: bufbuild/buf-action@v1
+      with:
+        version: 1.75.0
+        setup_only: true
+    - uses: sqlc-dev/setup-sqlc@v4
+      with:
+        sqlc-version: 1.31.1
+    - shell: bash
+      run: make db-up

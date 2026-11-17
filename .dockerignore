@@ -1,0 +1,11 @@
+.git
+.factory
+bin
+design
+docs
+factory
+scripts
+specs
+db
+proto
+**/*_test.go
