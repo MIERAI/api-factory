@@ -67,6 +67,7 @@ type diffEnv struct {
 	constFor  map[string][]any       // 列(物理列或 JSON 的键投影成的列)→ 来源里和它比较的常量(删除值 / 逻辑删除值)
 	nkCols    map[string]bool        // 多版本来源的自然键(值域扩大,逻辑行才多)
 	nkExtend  bool                   // 自然键的组合太少(每个键的版本太多)时才扩大值域
+	nkTimes   int                    // 扩大的倍数: 键的数量 ≈ 数据行数 / 5(每个键约 5 个版本)
 	groupCols map[string]bool        // API 部分"每组取一条"的分组列: 值域缩小到 2 个,组里才有多个候选
 }
 
@@ -207,7 +208,9 @@ func (e *diffEnv) collect() {
 		for col := range e.nkCols {
 			space *= e.domainSize(col)
 		}
-		e.nkExtend = space < diffRows*3/5
+		target := diffRows * 3 / 5 // 多版本来源生成 diffRows*3 行
+		e.nkExtend = space < target
+		e.nkTimes = (target + space - 1) / max(space, 1)
 	}
 }
 
@@ -438,9 +441,9 @@ func (e *diffEnv) scalarFor(col string, kind core.Kind, unique bool, i int) any 
 			if _, formatted := e.formats[col]; !formatted {
 				switch v := e.scalar(kind, false, i).(type) { // 多版本来源的自然键: 值域扩大
 				case int64:
-					return v + int64(100*e.rnd.Intn(3))
+					return v + int64(100*e.rnd.Intn(e.nkTimes))
 				case string:
-					return fmt.Sprintf("%s%d", v, e.rnd.Intn(3))
+					return fmt.Sprintf("%s%d", v, e.rnd.Intn(e.nkTimes))
 				default:
 					return v
 				}
