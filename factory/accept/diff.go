@@ -1049,6 +1049,13 @@ func (e *diffEnv) sweep(seen map[string]bool) []core.Params {
 		// (复合键时同一个值在别的组里可能还是现存的,所以不能只看"只在旧版本里出现的值")
 		for _, rows := range removed {
 			n := 0
+			// 优先: 这个值在现存的行里已经没有了(删除让它消失 → 结果一定变;只看"存不存在"的 API 只有这种才看得出来)
+			rows := append([]core.Row(nil), rows...)
+			sort.SliceStable(rows, func(i, j int) bool {
+				_, ci := byVal[core.Canonical(rows[i][f.Column])]
+				_, cj := byVal[core.Canonical(rows[j][f.Column])]
+				return !ci && cj
+			})
 			for _, r := range rows {
 				v := r[f.Column]
 				if v == nil {
