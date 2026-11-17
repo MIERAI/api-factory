@@ -158,6 +158,9 @@ func Test_getJobSummaryLogic_Examples(t *testing.T) {
 }
 
 func mustTime(s string) time.Time {
+	if v, err := time.Parse(time.DateOnly, s); err == nil { // 日期 YYYY-MM-DD
+		return v
+	}
 	v, err := time.Parse(time.RFC3339Nano, s)
 	if err != nil {
 		panic(err)
