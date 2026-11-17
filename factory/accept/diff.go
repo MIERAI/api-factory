@@ -1659,6 +1659,30 @@ type sensTarget struct {
 	mutate func(p *core.Pipeline) *core.Pipeline
 }
 
+// onlyKeysOut: 第 i 步(每组取一条)之后的投影只输出分组键。
+func onlyKeysOut(p *core.Pipeline, i int) bool {
+	keys := map[string]bool{}
+	for _, k := range p.Steps[i].Keys {
+		keys[k] = true
+	}
+	for _, st := range p.Steps[i+1:] {
+		if st.Kind != "project" {
+			continue
+		}
+		for _, x := range st.Project {
+			if x.Expr.Op != "col" || !keys[x.Expr.Name] {
+				return false
+			}
+		}
+		next := map[string]bool{}
+		for _, x := range st.Project {
+			next[x.Name] = true
+		}
+		keys = next
+	}
+	return true
+}
+
 // mutated: 这个对象对应的"错误的实现"(覆盖条件要求 ≥3 个请求能把它和正确的结果区分开)。
 func (t sensTarget) mutated(p *core.Pipeline) *core.Pipeline {
 	if t.mutate != nil {
@@ -1714,6 +1738,9 @@ func (e *diffEnv) sensTargets() []sensTarget {
 		}
 		source := strings.HasPrefix(st.From, "来源 ")
 		if !source { // 每组取一条: 组内的顺序反过来(取最大 ↔ 取最小)要看得出来 —— 只靠"淘汰了候选"不够,候选的输出可能都一样
+			if onlyKeysOut(p, i) { // 只输出分组键(存在检查): 取哪一行输出都一样,顺序反过来在语义上等价,不要求
+				continue
+			}
 			i := i
 			out = append(out, sensTarget{desc: st.From + " 的顺序", mutate: func(p *core.Pipeline) *core.Pipeline {
 				mut := *p
