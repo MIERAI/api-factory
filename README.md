@@ -18,8 +18,10 @@
 逃生口的使用比例(**逃生率**)由 `factory stats` 显示: 逃生率高说明范围选错了或者缺模式。
 
 ```
-① 式样书闸门 → ② 确定性生成 → ③ AI 实现 → ④ 路径闸门 → ⑤ 编译 + 验收 → (⑥ 部署: 未接)
+① 式样书闸门 → ② 确定性生成 → ③ AI 实现 → ④ 路径闸门 → ⑤ 编译 + 验收 → ⑥ 部署(镜像 → 新版本 → 检查 → 切换)
 ```
+
+整条流水线(GitHub + Cloud Run)见下面的「流水线(CI/CD)与部署」。本地模拟: 式样书合并 → 新版本在服务约 90 秒。
 
 ## 快速开始
 
@@ -28,6 +30,33 @@ brew install go bufbuild/buf/buf sqlc   # 另需 docker 和 claude CLI
 make db-up                              # 本地 Postgres(端口 55432)
 make loop SPEC=specs/jobs/get-job-status/spec.yaml          # MODEL=local 可让实现用本地模型(审查总是强模型)
 ```
+
+## 流水线(CI/CD)与部署
+
+```
+式样书的 PR ──→ 合并 ──→ 生成物的 PR(机器人)──→ 合并 ──→ 部署
+spec-review     generate                verify               deploy
+检查 + AI 审查   生成代码 + PR 说明        生成物是最新的        镜像 → 新版本(不切流量)
+                (AI 只写计算 / 自定义)     + 验收(3 种子)+ margin  → 健康检查(版本号)/ 认证 → 切换
+```
+
+| 阶段 | 脚本 | GitHub Actions | 说明 |
+|---|---|---|---|
+| 式样书的 PR | `scripts/ci/spec-review.sh` | `spec-pr.yml` | 机械检查 + 确定性生成 + AI 审查(结果贴到 PR) |
+| 合并后: 生成 | `scripts/ci/generate.sh` | `generate.yml` | 生成物的分支 `factory/gen-<sha>` + PR 说明(管理者看这一页,不用逐行读生成的代码) |
+| 生成物的 PR | `scripts/ci/verify.sh` | `verify.yml` | 生成物和式样书一致 + 编译 + 单元测试 + 验收 3 种子 + 变异余量 |
+| 合并后: 部署 | `scripts/ci/deploy.sh` | `deploy.yml` | `TARGET=cloudrun`: Cloud Build → `--no-traffic` 的新版本 → 只读检查 → 切流量;失败时旧版本继续服务 |
+
+- workflow 只装工具、拿凭证、开 PR,逻辑都在脚本里: **本地跑的和 CI 跑的是同一套**
+- 本地模拟整条: `scripts/ci/sim.sh`(本地的 bare 仓库当 GitHub,docker 模拟 Cloud Run;部署后对新版本跑全部验收,`SIM_BREAK=1` 确认回滚)
+- 镜像: `Dockerfile`(distroless,约 20MB)。`/healthz` 的响应头 `X-App-Version` = 版本
+- 认证: `AUTH_MODE` 必须指定(不写不启动)。`token` = Bearer 令牌(服务器只存 SHA-256,`AUTH_TOKEN_SHA256` 逗号隔开可轮换)/
+  `none` = 交给平台(Cloud Run 的 IAM `--no-allow-unauthenticated`)
+- 在 GitHub 上启用(仓库的 variables / secrets;没设时对应的 workflow 跳过):
+  - `FACTORY_GENERATE=on` + secrets `FACTORY_BOT_TOKEN`(GitHub App / 机器人的令牌: `GITHUB_TOKEN` 开的 PR 不会触发 verify)、`ANTHROPIC_API_KEY`
+  - `GCP_PROJECT` / `GCP_REGION` / `SERVICE` / `AR_REPO` / `RUN_SA` / `GCP_WIF_PROVIDER` / `GCP_DEPLOY_SA`(Workload Identity Federation,仓库里不放密钥);
+    连接信息在 Secret Manager(`<SERVICE>-database-url` 等)。第一次部署(服务还不存在)不能用 `--no-traffic`,先普通部署一次
+- 真实环境的部署后检查只做只读的(健康检查 / 认证);对新版本跑验收会清空并灌测试数据,只用于模拟
 
 ## 架构: 各环节通过文件契约串起来
 
@@ -79,6 +108,8 @@ gen/acceptance/*.yaml                 [AI 实现] factory ai(模型和角色在 
 |---|---|---|---|
 | `get_by_id` | 工厂 | 无 | GetJobStatus |
 | `list_keyset` | 工厂(游标/ORDER BY/LIMIT 追加到查询,token 签名并绑定筛选条件) | 无 | ListJobs |
+| `list_all` | 工厂(多条: 筛选 + 排序 + 上限,超过上限报错) | 无 | ListStoreSales |
+| `top_n` | 工厂(前N条) | 无 | ListTopStores |
 | `compute` | 工厂(映射 + 查询 + 调用逻辑) | 纯函数 `<method>Logic(req, rows)` | GetJobSummary |
 | `custom` | AI(逃生口) | 整个 handler | — |
 
