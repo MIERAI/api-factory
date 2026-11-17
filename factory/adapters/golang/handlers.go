@@ -576,12 +576,15 @@ func handlerGenPath(svc service, method string) string {
 
 // genListAll: 多条(不分页)。查询取 上限+1 行,超过上限时报错(不悄悄截断: 截断的结果会被当成"全部")。
 func genListAll(g *genCtx) (string, error) {
+	return genRowsList(g, g.api.ListAll.ItemsField, g.api.ListAll.MaxRows)
+}
+
+// genRowsList: 响应 = 行的列表(多条 / 前N条 …)。maxRows > 0: 超过时报错(查询多取了一行)。
+func genRowsList(g *genCtx, itemsField string, maxRows int32) (string, error) {
 	in, out := &g.api.Request, &g.api.Response
-	la := g.api.ListAll
-	g.use("apifactory/platform/apierr", "")
-	items := out.Field(la.ItemsField)
+	items := out.Field(itemsField)
 	if items == nil || items.Message == nil {
-		return "", fmt.Errorf("pattern list_all: %s has no repeated message field %s", out.Name, la.ItemsField)
+		return "", fmt.Errorf("pattern %s: %s has no repeated message field %s", g.api.Pattern, out.Name, itemsField)
 	}
 	call, err := g.queryCall()
 	if err != nil {
@@ -589,7 +592,7 @@ func genListAll(g *genCtx) (string, error) {
 	}
 	row, rowType := g.db.rowFields(g.query)
 	if row == nil {
-		return "", fmt.Errorf("pattern list_all: query must return rows, got %s", rowType)
+		return "", fmt.Errorf("pattern %s: query must return rows, got %s", g.api.Pattern, rowType)
 	}
 	elem := items.Message
 	var elemLines []string
@@ -606,6 +609,11 @@ func genListAll(g *genCtx) (string, error) {
 		elemLines = append(elemLines, fmt.Sprintf("%s: %s,", goCamelCase(f.Name), e))
 	}
 	itemsGo := goCamelCase(items.Name)
+	guard := ""
+	if maxRows > 0 {
+		g.use("apifactory/platform/apierr", "")
+		guard = fmt.Sprintf("\tif len(rows) > %d {\n\t\treturn nil, apierr.FailedPrecondition(\"too many results (more than %d); narrow the conditions\")\n\t}\n", maxRows, maxRows)
+	}
 	msgLine := "m := req.Msg"
 	if !strings.Contains(call, "m.") { // 没有输入的 API
 		msgLine = "_ = req"
@@ -617,10 +625,7 @@ func (h *Handler) %s(ctx context.Context, req *connect.Request[%s]) (*connect.Re
 	if err != nil {
 		return nil, err
 	}
-	if len(rows) > %d {
-		return nil, apierr.FailedPrecondition("too many results (more than %d); narrow the conditions")
-	}
-	res := &%s{%s: make([]*%s, 0, len(rows))}
+%s	res := &%s{%s: make([]*%s, 0, len(rows))}
 	for _, r := range rows {
 		res.%s = append(res.%s, &%s{
 			%s
@@ -628,7 +633,7 @@ func (h *Handler) %s(ctx context.Context, req *connect.Request[%s]) (*connect.Re
 	}
 	return connect.NewResponse(res), nil
 }
-`, g.api.Method, g.api.Summary, g.api.Method, g.pbType(in), g.pbType(out), call, la.MaxRows, la.MaxRows,
+`, g.api.Method, g.api.Summary, g.api.Method, g.pbType(in), g.pbType(out), call, guard,
 		g.pbType(out), itemsGo, g.pbType(elem), itemsGo, itemsGo, g.pbType(elem), strings.Join(elemLines, "\n"))
 	return g.header(body), nil
 }
