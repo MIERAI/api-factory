@@ -1,6 +1,8 @@
 # 建表用的镜像(和 API 的镜像同一次构建: 表结构和代码的版本一致)。GitOps 的 Sync 钩子(Job)执行
-FROM postgres:16-alpine
+# 只要 psql 客户端(不用 postgres 的服务器镜像: 里面的 gosu 等工具有漏洞,也用不到)
+FROM alpine:3.24
+RUN apk add --no-cache postgresql16-client
 COPY db/schema/ /schema/
 COPY deploy/schema-apply.sh /usr/local/bin/schema-apply
-USER postgres
+USER 65532:65532
 ENTRYPOINT ["schema-apply"]
