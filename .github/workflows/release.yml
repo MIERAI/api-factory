@@ -1,0 +1,33 @@
+# 合并到 main → 验证 → 镜像(API + 建表,同一次构建,tag = 提交)→ gitops-manifests 的 dev 更新 → Argo CD 同步
+# 镜像 / 推送的模板: MIERAI/gitops-platform-blueprint 的共用 workflow。prod: gitops-manifests 的 promote(PR + 人批准)
+name: release
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["design/**", "docs/**", "**.md"]
+concurrency: { group: release, cancel-in-progress: false }
+permissions:
+  contents: read
+jobs:
+  verify:
+    uses: ./.github/workflows/verify.yml
+  image-api:
+    needs: verify
+    permissions: { contents: read, packages: write, id-token: write }
+    uses: MIERAI/gitops-platform-blueprint/.github/workflows/build-image.yml@main
+    with: { image: api-factory }
+  image-schema:
+    needs: verify
+    permissions: { contents: read, packages: write, id-token: write }
+    uses: MIERAI/gitops-platform-blueprint/.github/workflows/build-image.yml@main
+    with: { image: api-factory-schema, dockerfile: Dockerfile.schema }
+  promote:
+    needs: [image-api, image-schema]
+    uses: MIERAI/gitops-platform-blueprint/.github/workflows/promote-dev.yml@main
+    with:
+      app: api-factory
+      images: >-
+        ghcr.io/mierai/api-factory=${{ needs.image-api.outputs.tag }}
+        ghcr.io/mierai/api-factory-schema=${{ needs.image-schema.outputs.tag }}
+    secrets:
+      MANIFESTS_DEPLOY_KEY: ${{ secrets.MANIFESTS_DEPLOY_KEY }}

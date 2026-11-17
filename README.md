@@ -45,8 +45,12 @@ spec-review     generate                verify               deploy
 | 式样书的 PR | `scripts/ci/spec-review.sh` | `spec-pr.yml` | 机械检查 + 确定性生成 + AI 审查(结果贴到 PR) |
 | 合并后: 生成 | `scripts/ci/generate.sh` | `generate.yml` | 生成物的分支 `factory/gen-<sha>` + PR 说明(管理者看这一页,不用逐行读生成的代码) |
 | 生成物的 PR | `scripts/ci/verify.sh` | `verify.yml` | 生成物和式样书一致 + 编译 + 单元测试 + 验收 3 种子 + 变异余量 |
-| 合并后: 部署 | `scripts/ci/deploy.sh` | `deploy.yml` | `TARGET=cloudrun`: Cloud Build → `--no-traffic` 的新版本 → 只读检查 → 切流量;失败时旧版本继续服务 |
+| 合并后: 发布(GitOps) | 共用的 workflow | `release.yml` | 验证 → API 和建表的镜像(只构建一次,tag = 提交,Trivy / SBOM)→ gitops-manifests 的 dev 更新 → Argo CD 同步 |
+| (另一种)Cloud Run | `scripts/ci/deploy.sh` | `deploy.yml` | `TARGET=cloudrun`: Cloud Build → `--no-traffic` 的新版本 → 只读检查 → 切流量(GCP 的设定有了才运行) |
 
+- GitOps(MIERAI/gitops-platform-blueprint): 镜像 / 推送是共用的 workflow;集群的状态在 MIERAI/gitops-manifests
+  (`api-factory/overlays/{dev,prod}`: Postgres → 建表 Job(`Dockerfile.schema`)→ API → 部署后的检查);prod = promote 的 PR + 人批准;
+  本地的集群: MIERAI/infrastructure-live(kind + Argo CD)
 - workflow 只装工具、拿凭证、开 PR,逻辑都在脚本里: **本地跑的和 CI 跑的是同一套**
 - 本地模拟整条: `scripts/ci/sim.sh`(本地的 bare 仓库当 GitHub,docker 模拟 Cloud Run;部署后对新版本跑全部验收,`SIM_BREAK=1` 确认回滚)
 - 镜像: `Dockerfile`(distroless,约 20MB)。`/healthz` 的响应头 `X-App-Version` = 版本
