@@ -757,7 +757,8 @@ func (e *diffEnv) requests() []core.Params {
 		seen[key] = true
 		out = append(out, ps)
 	}
-	return append(out, e.sweep(seen)...)
+	out = append(out, e.sweep(seen)...)
+	return append(out, e.directed(out, seen)...)
 }
 
 func (e *diffEnv) describe(ps core.Params) string {
@@ -1384,14 +1385,16 @@ func (e *diffEnv) planned(reqs []core.Params) bool {
 
 // sensitivity: 每个筛选条件(和条件里 and 的每一项)都要在 ≥3 个合法请求里起作用:
 // 用参考求值器把它换成恒真,结果变了的请求数。不够 → 返回这些条件的说明(数据区分不出它们,测试会漏掉相应的 bug)。
-func (e *diffEnv) sensitivity(reqs []core.Params) (weak []string, total int) {
+// sensTarget: 条件的敏感度检查的对象(一个筛选,或筛选里 and 的一项)。
+type sensTarget struct {
+	step int
+	node *core.Expr
+	desc string
+}
+
+func (e *diffEnv) sensTargets() []sensTarget {
 	p := e.api.Pipeline
-	type target struct {
-		step int
-		node *core.Expr
-		desc string
-	}
-	var targets []target
+	var targets []sensTarget
 	picked := false // 来源里取最新版本之后的筛选(删除 / 逻辑删除)也要测到;之前的(键非空)不算
 	for i, st := range p.Steps {
 		source := st.From == "datasource.table" || strings.HasPrefix(st.From, "来源 ")
@@ -1404,7 +1407,7 @@ func (e *diffEnv) sensitivity(reqs []core.Params) (weak []string, total int) {
 		if st.Pred.Op == "tuple_after" { // 分页的游标: 由出口用例测
 			continue
 		}
-		targets = append(targets, target{i, st.Pred, st.From})
+		targets = append(targets, sensTarget{i, st.Pred, st.From})
 		var walk func(x *core.Expr)
 		walk = func(x *core.Expr) {
 			if x == nil {
@@ -1412,7 +1415,7 @@ func (e *diffEnv) sensitivity(reqs []core.Params) (weak []string, total int) {
 			}
 			if x.Op == "and" {
 				for j, a := range x.Args {
-					targets = append(targets, target{i, a, fmt.Sprintf("%s 的第 %d 项", st.From, j+1)})
+					targets = append(targets, sensTarget{i, a, fmt.Sprintf("%s 的第 %d 项", st.From, j+1)})
 				}
 			}
 			for _, a := range x.Args {
@@ -1421,6 +1424,103 @@ func (e *diffEnv) sensitivity(reqs []core.Params) (weak []string, total int) {
 		}
 		walk(st.Pred)
 	}
+	var out []sensTarget
+	for _, t := range targets {
+		if refersColumn(t.node) { // 不引用任何列的条件(没有逻辑删除列时的恒真项)不会让结果变化
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// directed: 按条件的敏感度定向补请求。起作用的请求不到 3 个的条件,从数据的行(现存 + 旧版本)构造候选请求
+// (每个参数取那一行的值;多列单元另外取结束日 / 结束日 + 1),用参考求值器验证"去掉这个条件结果会变",补到 3 个。
+// 只看"存不存在"的 API(只输出键)里,随机的请求很难碰到"某个键在这个日期一个有效版本都没有"这类情况。
+func (e *diffEnv) directed(reqs []core.Params, seen map[string]bool) []core.Params {
+	var out []core.Params
+	params := e.userParams()
+	if len(params) == 0 {
+		return nil
+	}
+	valid := []core.Params{}
+	for _, ps := range reqs {
+		if bad, err := e.invalid(e.request(ps)); err == nil && !bad {
+			valid = append(valid, ps)
+		}
+	}
+	rows := append(append([]core.Row(nil), e.anchors...), e.staleRows()...)
+	if len(rows) > 300 {
+		rows = rows[:300]
+	}
+	fromRow := func(r core.Row, shift int) core.Params {
+		ps := core.Params{}
+		for _, d := range params {
+			f := e.filter[d.Name]
+			col := f.Column
+			if len(f.Columns) > 1 && shift > 0 { // 多列单元: 结束日(+1)
+				col = f.Columns[len(f.Columns)-1]
+			}
+			v := r[col]
+			if v == nil {
+				v = r[f.Column]
+			}
+			if v == nil {
+				if d.Required {
+					v = e.missingFor(f.Column, d.Type.Kind)
+				} else {
+					continue
+				}
+			}
+			if shift == 2 {
+				switch x := v.(type) {
+				case int64:
+					v = x + 1
+				case time.Time:
+					v = x.AddDate(0, 0, 1)
+				}
+			}
+			if d.List {
+				v = []any{v}
+			}
+			ps[d.Name] = v
+		}
+		return ps
+	}
+	for _, t := range e.sensTargets() {
+		n := 0
+		for _, ps := range valid {
+			if e.sensitive(ps, t.step, t.node) {
+				if n++; n >= 3 {
+					break
+				}
+			}
+		}
+		for _, r := range rows {
+			if n >= 3 {
+				break
+			}
+			for shift := 0; shift <= 2 && n < 3; shift++ {
+				ps := fromRow(r, shift)
+				k := e.describe(ps)
+				if seen[k] {
+					continue
+				}
+				if bad, err := e.invalid(e.request(ps)); err != nil || bad || !e.sensitive(ps, t.step, t.node) {
+					continue
+				}
+				seen[k] = true
+				out = append(out, ps)
+				valid = append(valid, ps)
+				n++
+			}
+		}
+	}
+	return out
+}
+
+func (e *diffEnv) sensitivity(reqs []core.Params) (weak []string, total int) {
+	p := e.api.Pipeline
+	targets := e.sensTargets()
 	if len(targets) == 0 {
 		return nil, 0
 	}
