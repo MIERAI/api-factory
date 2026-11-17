@@ -5,6 +5,11 @@
 set -uo pipefail
 MIN=${MIN:-3}
 seeds=("$@"); [[ ${#seeds[@]} -eq 0 ]] && seeds=("" s1 s2)
+# 并行执行(scripts/mutate-par.py): 变异用 go build -overlay 编译(工作区不动),每个 worker 一套数据库。
+# 串行的旧方式: SERIAL=1
+if [[ -z ${SERIAL:-} ]]; then
+  exec python3 "$(dirname "$0")/mutate-par.py" --min "$MIN" ${WORKERS:+--workers "$WORKERS"} "${seeds[@]}"
+fi
 fail=0
 for seed in "${seeds[@]}"; do
   out=$(FACTORY_DIFF_SEED="$seed" "$(dirname "$0")/mutate.sh" 2>&1)

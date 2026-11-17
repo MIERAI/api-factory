@@ -23,8 +23,8 @@ perf:             ## 性能闸门: 每表 20 万行 + EXPLAIN ANALYZE(慢,不在
 	@cat db/schema/*.sql $(wildcard db/views/*.sql) | docker exec -i -e PGOPTIONS="-c client_min_messages=warning" $(PG_NAME) psql -q -U factory -d factory_perf -v ON_ERROR_STOP=1
 	@$(FACTORY) perf --db '$(PERF_DB_URL)' $(PERF_ARGS)
 
-margin:           ## 差分测试的余量: 换种子跑变异,每个变异 ≥3 个差分用例(慢)
-	@scripts/margin.sh
+margin:           ## 差分测试的余量: 换种子跑变异,每个变异 ≥3 个差分用例(并行: go build -overlay + 每个 worker 一套数据库)
+	@DB_URL='$(DB_URL)' PG_NAME=$(PG_NAME) scripts/margin.sh
 
 doctor:           ## 环境检查(工具 / 数据库 / AI 命令行 / 钩子)
 	@scripts/doctor.sh
@@ -70,9 +70,13 @@ guard:            ## ④ 路径闸门
 test:             ## 单元测试(含工厂生成的 enum / 逻辑样例测试)
 	@go test ./internal/... ./platform/...
 
-accept: build test  ## 验收(ACCEPT_SPECS 可限定为某个式样书目录)
+accept: build test  ## 验收(ACCEPT_SPECS 可限定为某个式样书目录;SEEDS="" s1 s2 多个种子同时跑;SERIAL=1 串行)
+ifdef SERIAL
 	@go build -o .factory/factory ./factory/cmd/factory
 	@.factory/factory serve-test --server bin/server --db '$(DB_URL)' -- .factory/factory accept --db '$(DB_URL)' $(ACCEPT_SPECS)
+else
+	@DB_URL='$(DB_URL)' PG_NAME=$(PG_NAME) python3 scripts/accept-par.py $(if $(SEEDS),--seeds $(SEEDS)) $(ACCEPT_SPECS)
+endif
 
 loop:             ## 整条流水线: 闸门 → 审查 → 生成 → AI → 闸门 → 验收 (MODEL=claude|local)
 	@./scripts/loop.sh $(SPEC) $(MODEL)

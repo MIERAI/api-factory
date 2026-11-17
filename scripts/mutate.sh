@@ -4,7 +4,7 @@ set -uo pipefail
 DB_URL=${DB_URL:-postgres://factory:factory@127.0.0.1:55432/factory?sslmode=disable}
 SHARD_BASE=${DB_URL%/factory\?*}
 export FACTORY_SHARDS=${FACTORY_SHARDS:-"1-2=$SHARD_BASE/shard_a?sslmode=disable;*=$SHARD_BASE/shard_b?sslmode=disable"}
-go build -o .factory/factory ./factory/cmd/factory
+[[ -z ${PLAN:-} ]] && go build -o .factory/factory ./factory/cmd/factory
 run() { # $1=名称 $2=文件 $3=perl 替换式
   cp "$2" /tmp/mut.bak
   perl -0pi -e "$3" "$2"
@@ -22,6 +22,8 @@ run() { # $1=名称 $2=文件 $3=perl 替换式
   printf "  %s %-36s 差分 %2d / 自动用例 %2d / 生成的单元测试 %d / 人写 %2d\n" "$verdict" "$1" "$diff" "$auto" "$unit" "$human"
   cp /tmp/mut.bak "$2"
 }
+# PLAN=1: 只列出变异(名称 \0 文件 \0 替换式 \0),由 scripts/mutate-par.py 并行执行
+if [[ -n ${PLAN:-} ]]; then run() { printf '%s\0%s\0%s\0' "$1" "$2" "$3"; }; fi
 Q=gen/db/jobs.list-jobs.sql.go
 H=internal/handler/jobs/list_jobs_gen.go
 run "游标比较 < 改成 <="           $Q 's/\(t2\.created_at, t2\.id\) < \(/(t2.created_at, t2.id) <= (/'
@@ -69,4 +71,5 @@ run "分库: 选错库(店铺代码 +1)"          $SH 's/h\.at\(int64\(m\.GetSto
 T=gen/db/sales.list-top-stores.sql.go
 run "前N条: 取的条数不对(LIMIT 4)"        $T 's/LIMIT 3/LIMIT 4/'
 run "前N条: 排序方向反了"                $T 's/ORDER BY t2\.amount DESC, t2\.store_code DESC/ORDER BY t2.amount, t2.store_code/'
+[[ -n ${PLAN:-} ]] && exit 0
 go build -o bin/server ./cmd/server; git status --short

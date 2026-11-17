@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 种类组合矩阵(P3): 在临时的 git 工作区里生成矩阵的设计稿,跑整条流水线(设计 → 生成 → 编译 → 验收含差分)。
 #   usage: scripts/matrix.sh [--keep]     失败的地方就是没被试过的组合留下的通用 bug
+#   3 个种子 × 每个 API 并行(scripts/accept-par.py,每个 worker 一套数据库)
 set -uo pipefail
 root=$(git rev-parse --show-toplevel)
 wt=${MATRIX_DIR:-${TMPDIR:-/tmp}/api-factory-matrix}
@@ -13,8 +14,9 @@ step "db-schema" make db-schema
 step "design" make design
 step "prepare" make prepare
 step "build" go build ./...
-echo "━━ accept"
-make accept ACCEPT_SPECS=specs/matrix 2>&1 | grep -E "^  ✗|acceptance" | head -60
+step "server" go build -o bin/server ./cmd/server
+echo "━━ accept(3 个种子 × 每个 API 并行)"
+python3 scripts/accept-par.py --seeds "" s1 s2 specs/matrix 2>&1 | grep -E "^  ✗|acceptance|⏱" | head -60
 rc=${PIPESTATUS[0]}
 [[ "${1:-}" == "--keep" ]] || { cd "$root"; git worktree remove --force "$wt"; }
 exit $rc
