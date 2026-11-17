@@ -414,6 +414,14 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 		}
 		return out
 	}
+	if a.Exit.NotNullOrder { // 分页的游标: 排序列不能为空(在设计稿的层面报错,不等到编译器的设计规则检查)
+		for _, col := range a.Pattern.OrderBy {
+			if cc, ok := c.column(table, col); ok && !cc.NotNull {
+				e.add(1, "排序的列 %s 可能为空,%s 的排序列必须不为空(翻页的位置记在排序列上)。"+
+					"请改用主键或不为空的列排序;存储: JSON版本 的字段除了主键都可能为空", col, a.Exit.Name)
+			}
+		}
+	}
 	itemKey := ""
 	switch {
 	case a.Exit.Rows: // 响应 = 行的列表(+ 出口另外的字段)

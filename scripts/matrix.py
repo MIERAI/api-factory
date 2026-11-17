@@ -102,7 +102,8 @@ for (t, ver, sh), ex in itertools.product(TABLES, EXITS):
         lines.append("找不到时: not found")
         result = "找不到"
     else:
-        lines.append("排序: [i32 小到大, id 小到大]")
+        # 分页的排序列必须不为空: JSON版本 的字段除了主键都可能为空 → 只按主键
+        lines.append("排序: [id 小到大]" if (ver and ex == "一览") else "排序: [i32 小到大, id 小到大]")
         lines.append({"一览": "分页: { 默认每页: 5, 每页最多: 50 }", "多条": "上限: 30", "前N条": "条数: 4"}[ex])
         lines.append(f"输出行名: {item}")
         result = f"{{ {t}: [] }}"

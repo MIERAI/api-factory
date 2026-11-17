@@ -15,7 +15,7 @@ const diffPageSize = 3
 // 一览: 筛选 + keyset 分页。请求加 page_size / page_token,响应加 next_page_token。
 func init() {
 	Register(&Exit{
-		Kind: "list_keyset", Name: "一览", Cardinality: "many", Cell: "分页", Rows: true, EmptyRequest: true,
+		Kind: "list_keyset", Name: "一览", Cardinality: "many", Cell: "分页", Rows: true, EmptyRequest: true, NotNullOrder: true,
 		DesignKeys: []string{"排序", "分页"},
 		Parse: func(d Design, p *spec.Pattern) {
 			cols, desc, err := d.Order("排序")

@@ -88,6 +88,7 @@ type Exit struct {
 	DiffExtra    func(x DiffCtx) []Case                                                                 // 出口自己的用例(分页: 途中改条件 …)
 	DiffCover    func(api *ir.API, tags map[string]int) string                                          // 覆盖信息里另外的说明(多条: 超过上限几次)
 	EmptyRequest bool                                                                                   // 没有人写用例时,空请求可以作为 validation 的基础请求(分页)
+	NotNullOrder bool                                                                                   // 排序列必须不为空(分页的游标)
 }
 
 var (
