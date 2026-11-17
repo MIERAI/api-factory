@@ -10,7 +10,7 @@ pattern:
     kind: list_keyset
     not_found_message: ""
     order_by:
-        - product_code
+        - item
     direction: asc
     page_size:
         default: 2
@@ -31,6 +31,8 @@ datasource:
             column: store_code
             op: eq
     columns: []
+    rename:
+        item: product_code
     sql: ""
 behavior: []
 acceptance:
@@ -75,11 +77,11 @@ acceptance:
             code: OK
             response:
                 store_prices:
-                    - price: "120"
-                      product_code: A
+                    - item: A
+                      price: "120"
                       valid_from: "2026-11-01"
-                    - price: "50"
-                      product_code: B
+                    - item: B
+                      price: "50"
                       valid_from: "2026-11-15"
           steps: []
         - name: 基準日より前に始まった売価がない商品(B)は出てこない
@@ -91,10 +93,10 @@ acceptance:
             code: OK
             response:
                 store_prices:
-                    - price: "120"
-                      product_code: A
-                    - price: "70"
-                      product_code: C
+                    - item: A
+                      price: "120"
+                    - item: C
+                      price: "70"
           steps: []
 logic_examples: []
 review_decisions: []

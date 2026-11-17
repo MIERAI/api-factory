@@ -320,6 +320,24 @@ func TestCertification(t *testing.T) {
 			env.check(fmt.Sprintf("每组取一条 + 游标 desc=%v %v", desc, ps), cur, ps)
 		}
 	}
+	// 11d. 两层的每组取一条(来源的取最新 (g, t) → API 的每组取一条 (g))+ 游标 g: 反复下推,越过两层
+	two := &Pipeline{Params: []ParamDecl{opt("cg", Int32)}, Steps: all(
+		PickPerKey([]string{"g", "t"}, SortKey{"k", true}),
+		Filter(Not(IsNull(Col("i")))),
+		PickPerKey([]string{"g"}, SortKey{"i", true}, SortKey{"k", false}),
+		Project(NamedExpr{"g", Col("g")}, NamedExpr{"i", Col("i")}, NamedExpr{"k", Col("k")}),
+		Filter(TupleAfter([]string{"g"}, []string{"cg"}, false)),
+		Sort(SortKey{Col: "g"}), Limit(2))}
+	q := two
+	for q2 := pushdown(q); q2 != q; q2 = pushdown(q) {
+		q = q2
+	}
+	if q.Steps[1].Kind != "filter" || q.Steps[1].Pred.Op != "tuple_after" {
+		t.Errorf("游标没有越过两层下推: %+v", q.Steps)
+	}
+	for _, ps := range []Params{{}, {"cg": int64(1)}, {"cg": int64(2)}, {"cg": int64(3)}} {
+		env.check(fmt.Sprintf("两层每组取一条 + 游标 %v", ps), two, ps)
+	}
 	// 12. 格式错 → 两边都报错
 	env.insert(Row{"k": int64(1000), "g": int64(1), "t": "a", "j": `{"n": "abc", "d": "x", "b": "maybe", "dt": "2026/13/01"}`})
 	for _, f := range []struct {

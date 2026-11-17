@@ -8,9 +8,9 @@ import (
 )
 
 const listCurrentPrices = `-- name: ListCurrentPrices :many
-SELECT t3.product_code, t3.valid_from, t3.price
+SELECT t3.item, t3.valid_from, t3.price
 FROM (
-    SELECT t2.product_code AS product_code, t2.valid_from AS valid_from, t2.price AS price
+    SELECT t2.product_code AS item, t2.valid_from AS valid_from, t2.price AS price
     FROM (
         SELECT DISTINCT ON (t1.store_code, t1.product_code COLLATE "C") t1.store_code, t1.product_code, t1.valid_from, t1.valid_to, t1.price
         FROM store_prices AS t1
@@ -20,25 +20,25 @@ FROM (
         ORDER BY t1.store_code, t1.product_code COLLATE "C", t1.valid_from DESC
     ) AS t2
 ) AS t3
-ORDER BY t3.product_code COLLATE "C"
+ORDER BY t3.item COLLATE "C"
 LIMIT $4::int4
 `
 
 type ListCurrentPricesParams struct {
-	StoreCode         int32
-	AsOf              time.Time
-	CursorProductCode *string
-	RowLimit          int32
+	StoreCode  int32
+	AsOf       time.Time
+	CursorItem *string
+	RowLimit   int32
 }
 
 type ListCurrentPricesRow struct {
-	ProductCode string
-	ValidFrom   time.Time
-	Price       string
+	Item      string
+	ValidFrom time.Time
+	Price     string
 }
 
 func (q *Queries) ListCurrentPrices(ctx context.Context, arg ListCurrentPricesParams) ([]ListCurrentPricesRow, error) {
-	rows, err := q.db.Query(ctx, listCurrentPrices, arg.StoreCode, arg.AsOf, arg.CursorProductCode, arg.RowLimit)
+	rows, err := q.db.Query(ctx, listCurrentPrices, arg.StoreCode, arg.AsOf, arg.CursorItem, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -46,7 +46,7 @@ func (q *Queries) ListCurrentPrices(ctx context.Context, arg ListCurrentPricesPa
 	var items []ListCurrentPricesRow
 	for rows.Next() {
 		var i ListCurrentPricesRow
-		if err := rows.Scan(&i.ProductCode, &i.ValidFrom, &i.Price); err != nil {
+		if err := rows.Scan(&i.Item, &i.ValidFrom, &i.Price); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

@@ -29,7 +29,7 @@ const (
 type CurrentPrice struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 商品コード
-	ProductCode string `protobuf:"bytes,1,opt,name=product_code,json=productCode,proto3" json:"product_code,omitempty"`
+	Item string `protobuf:"bytes,4,opt,name=item,proto3" json:"item,omitempty"`
 	// 適用開始日
 	ValidFrom string `protobuf:"bytes,2,opt,name=valid_from,json=validFrom,proto3" json:"valid_from,omitempty"`
 	// 売価
@@ -68,9 +68,9 @@ func (*CurrentPrice) Descriptor() ([]byte, []int) {
 	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *CurrentPrice) GetProductCode() string {
+func (x *CurrentPrice) GetItem() string {
 	if x != nil {
-		return x.ProductCode
+		return x.Item
 	}
 	return ""
 }
@@ -933,12 +933,12 @@ var File_factory_sales_v1_sales_proto protoreflect.FileDescriptor
 
 const file_factory_sales_v1_sales_proto_rawDesc = "" +
 	"\n" +
-	"\x1cfactory/sales/v1/sales.proto\x12\x10factory.sales.v1\x1a\x1bbuf/validate/validate.proto\"f\n" +
-	"\fCurrentPrice\x12!\n" +
-	"\fproduct_code\x18\x01 \x01(\tR\vproductCode\x12\x1d\n" +
+	"\x1cfactory/sales/v1/sales.proto\x12\x10factory.sales.v1\x1a\x1bbuf/validate/validate.proto\"]\n" +
+	"\fCurrentPrice\x12\x12\n" +
+	"\x04item\x18\x04 \x01(\tR\x04item\x12\x1d\n" +
 	"\n" +
 	"valid_from\x18\x02 \x01(\tR\tvalidFrom\x12\x14\n" +
-	"\x05price\x18\x03 \x01(\tR\x05price\"\xba\x01\n" +
+	"\x05price\x18\x03 \x01(\tR\x05priceJ\x04\b\x01\x10\x02\"\xba\x01\n" +
 	"\x18ListCurrentPricesRequest\x12&\n" +
 	"\tpage_size\x18\x01 \x01(\x05B\t\xbaH\x06\x1a\x04\x18d(\x00R\bpageSize\x12\x1d\n" +
 	"\n" +

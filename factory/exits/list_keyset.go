@@ -80,7 +80,11 @@ func init() {
 		Parts: func(s *spec.Spec, x PartsCtx, parts *cells.Parts, p *core.Pipeline) error {
 			var params []string
 			for _, c := range s.Pattern.OrderBy {
-				k, err := x.ColumnKind(c)
+				src := c
+				if r, ok := s.Datasource.Rename[c]; ok { // 排序 用输出的名字;类型按来源的列
+					src = r
+				}
+				k, err := x.ColumnKind(src)
 				if err != nil {
 					return fmt.Errorf("order_by: %w", err)
 				}

@@ -17,7 +17,7 @@ import (
 
 // listCurrentPricesCursor 是 page_token 里携带的游标(本页最后一行的 order_by 列)。
 type listCurrentPricesCursor struct {
-	ProductCode string `json:"product_code"`
+	Item string `json:"item"`
 }
 
 // ListCurrentPrices 店舗の全商品について、基準日までに始まった売価のうち最新の 1 件をページごとに返す
@@ -35,7 +35,7 @@ func (h *Handler) ListCurrentPrices(ctx context.Context, req *connect.Request[sa
 		if err := h.pager.Decode(tok, fp, &c); err != nil {
 			return nil, apierr.InvalidArgument("invalid page_token")
 		}
-		params.CursorProductCode = &c.ProductCode
+		params.CursorItem = &c.Item
 	}
 	rows, err := h.at(int64(m.GetStoreCode())).ListCurrentPrices(ctx, params)
 	if err != nil {
@@ -45,15 +45,15 @@ func (h *Handler) ListCurrentPrices(ctx context.Context, req *connect.Request[sa
 	res := &salesv1.ListCurrentPricesResponse{StorePrices: make([]*salesv1.CurrentPrice, 0, len(rows))}
 	for _, r := range rows {
 		res.StorePrices = append(res.StorePrices, &salesv1.CurrentPrice{
-			ProductCode: r.ProductCode,
-			ValidFrom:   conv.DateString(r.ValidFrom),
-			Price:       r.Price,
+			Item:      r.Item,
+			ValidFrom: conv.DateString(r.ValidFrom),
+			Price:     r.Price,
 		})
 	}
 	if hasNext {
 		last := rows[len(rows)-1]
 		tok, err := h.pager.Encode(fp, listCurrentPricesCursor{
-			ProductCode: last.ProductCode,
+			Item: last.Item,
 		})
 		if err != nil {
 			return nil, err

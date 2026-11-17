@@ -30,11 +30,12 @@ service SaleService {
 // 店別の売価(有効期間つき)。店舗ごとの DB に分かれている
 message CurrentPrice {
   // 商品コード
-  string product_code = 1;
+  string item = 4;
   // 適用開始日
   string valid_from = 2;
   // 売価
   string price = 3;
+  reserved 1;
 }
 
 // 店舗の全商品について、基準日までに始まった売価のうち最新の 1 件をページごとに返す
