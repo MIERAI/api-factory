@@ -65,6 +65,7 @@ type diffEnv struct {
 	keyCol   map[string]string      // JSON 的键 → 逻辑列名(json_field 投影成的列)
 	constFor map[string][]any       // 列(物理列或 JSON 的键投影成的列)→ 来源里和它比较的常量(删除值 / 逻辑删除值)
 	nkCols   map[string]bool        // 多版本来源的自然键(值域扩大,逻辑行才多)
+	nkExtend bool                   // 自然键的组合太少(每个键的版本太多)时才扩大值域
 }
 
 type jsonKey struct {
@@ -178,6 +179,14 @@ func (e *diffEnv) collect() {
 		for _, c := range cols {
 			e.ranges[c] = dom
 		}
+	}
+	// 自然键的组合数 < 数据行数 / 5 时才扩大(目标: 每个键平均约 5 个版本;复合键本来组合就多,不扩大)
+	if len(e.nkCols) > 0 {
+		space := 1
+		for col := range e.nkCols {
+			space *= e.domainSize(col)
+		}
+		e.nkExtend = space < diffRows*3/5
 	}
 }
 
@@ -362,10 +371,10 @@ func (e *diffEnv) value(c core.NamedType, i int, unique bool) any {
 
 // scalarFor: 某一列的值(这一列有范围值域时从里面取)。
 func (e *diffEnv) scalarFor(col string, kind core.Kind, unique bool, i int) any {
-	if cs := e.constFor[col]; len(cs) > 0 && !unique && e.rnd.Intn(3) == 0 {
+	if cs := e.constFor[col]; len(cs) > 0 && !unique && e.rnd.Intn(6) == 0 {
 		return cs[e.rnd.Intn(len(cs))] // 来源里和这一列比较的常量(删除 / 逻辑删除要能出现)
 	}
-	if e.nkCols[col] && !unique {
+	if e.nkCols[col] && e.nkExtend && !unique {
 		if _, ranged := e.ranges[col]; !ranged {
 			if _, formatted := e.formats[col]; !formatted {
 				switch v := e.scalar(kind, false, i).(type) { // 多版本来源的自然键: 值域扩大
@@ -919,6 +928,13 @@ func (e *diffEnv) sweep(seen map[string]bool) []core.Params {
 				pairs++
 			}
 		}
+		if d.List && len(keys) > 1 { // 列表: 多个值一起(属于的多值命中)
+			var vs []any
+			for _, k := range keys {
+				vs = append(vs, byVal[k][f.Column])
+			}
+			add(withRequired(byVal[keys[0]], core.Params{d.Name: vs}))
+		}
 		for _, k := range staleKeys {
 			var v any = staleVal[k]
 			if d.List {
@@ -1015,4 +1031,32 @@ func (e *diffEnv) staleRows() []core.Row {
 		src = append(src, st)
 	}
 	return nil
+}
+
+// domainSize: 这一列的值域大小(范围 / 格式 / 枚举 / 类型的值域)。
+func (e *diffEnv) domainSize(col string) int {
+	if d, ok := e.ranges[col]; ok {
+		return len(d)
+	}
+	if t, ok := e.formats[col]; ok {
+		return len(t.Domain)
+	}
+	if en := e.plan.Enum(e.api.Table, col); en != nil {
+		return len(en.Values)
+	}
+	if t, ok := core.Schema(e.out).Col(col); ok {
+		if k, ok := kinds.ByCore(t.Kind); ok && len(k.Domain) > 0 {
+			return len(k.Domain)
+		}
+	}
+	for _, k := range e.json { // JSON 的键: 投影后的列名找类型
+		for _, x := range k {
+			if e.keyCol[x.key] == col {
+				if t, ok := kinds.ByCore(x.kind); ok && len(t.Domain) > 0 {
+					return len(t.Domain)
+				}
+			}
+		}
+	}
+	return 5
 }
