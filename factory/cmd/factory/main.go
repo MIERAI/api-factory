@@ -15,6 +15,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"text/template"
 
@@ -32,6 +34,7 @@ import (
 	"apifactory/factory/perf"
 	"apifactory/factory/prompts"
 	"apifactory/factory/protoload"
+	"apifactory/factory/review"
 	"apifactory/factory/spec"
 	"apifactory/factory/testenv"
 )
@@ -57,6 +60,10 @@ func main() {
 		err = cmdAIPaths(args)
 	case "review-prompt":
 		err = cmdReviewPrompt(args)
+	case "review-result":
+		err = cmdReviewResult(args)
+	case "review-stats":
+		err = cmdReviewStats(args)
 	case "stats":
 		err = cmdStats(args)
 	case "serve-test":
@@ -347,8 +354,13 @@ func cmdAIPaths(args []string) error {
 
 // cmdReviewPrompt 生成式样书审查用的 prompt(式样书 + proto + schema 全部内嵌,审查员不需要工具)。
 func cmdReviewPrompt(args []string) error {
+	fs := flag.NewFlagSet("review-prompt", flag.ExitOnError)
+	label := fs.String("label", "", "审查的标签(和 review.sh 的第 3 个参数一样;轮次按 API + 标签计算)")
+	out := fs.String("out", "", "这一次的审查目录: 写入 prev.json(之前各轮的问题,收敛规则用)")
+	_ = fs.Parse(args)
+	args = fs.Args()
 	if len(args) != 1 {
-		return fmt.Errorf("usage: factory review-prompt <spec.yaml>")
+		return fmt.Errorf("usage: factory review-prompt [--label L] [--out DIR] <spec.yaml>")
 	}
 	s, err := spec.Load(args[0])
 	if err != nil {
@@ -416,6 +428,23 @@ func cmdReviewPrompt(args []string) error {
 	}
 	for k, v := range design {
 		data[k] = v
+	}
+	// 轮次: 同一个 API 上次通过之后连续没通过的审查
+	cycle := review.Cycle(review.History(".factory/reviews", s.ID(), *label))
+	var answers []string
+	if p := design["DesignReviewPath"]; p != "" {
+		answers = append(answers, p, filepath.Join(filepath.Dir(p), "领域.审查.yaml"))
+	}
+	prev, err := review.Previous(cycle, answers...)
+	if err != nil {
+		return err
+	}
+	data["Round"], data["Previous"] = len(cycle)+1, prev
+	if *out != "" {
+		b, _ := json.MarshalIndent(map[string]any{"round": len(cycle) + 1, "previous": prev}, "", "  ")
+		if err := os.WriteFile(filepath.Join(*out, "prev.json"), b, 0o644); err != nil {
+			return err
+		}
 	}
 	return template.Must(template.New("").Parse(prompts.Review)).Execute(os.Stdout, data)
 }
@@ -651,5 +680,171 @@ func cmdPerf(args []string) error {
 		return fmt.Errorf("perf: %d 个失败, %d 个警告 (每表 %d 行, 阈值 %.0fms)", fails, warns, *rows, *maxMs)
 	}
 	fmt.Printf("✓ perf passed (%d 个计划, 警告 %d 其中已知边界 %d, 每表 %d 行, 阈值 %.0fms)\n", len(reports), warns, bounds, *rows, *maxMs)
+	return nil
+}
+
+// cmdReviewResult: 解析审查员的输出 → findings.json;按收敛规则(factory/review)判定 → verdict.json。
+// 退出码: 0 = 通过,1 = 有挡流水线的问题,2 = 输出解析失败。
+func cmdReviewResult(args []string) error {
+	if len(args) != 2 {
+		return fmt.Errorf("usage: factory review-result <审查目录> <秒>")
+	}
+	dir := args[0]
+	sec, _ := strconv.Atoi(args[1])
+	raw, err := os.ReadFile(filepath.Join(dir, "ai.json"))
+	if err != nil {
+		return err
+	}
+	var result string
+	for _, l := range strings.Split(string(raw), "\n") {
+		if strings.HasPrefix(l, "{") {
+			var m struct {
+				Result string `json:"result"`
+			}
+			if json.Unmarshal([]byte(l), &m) == nil {
+				result = m.Result
+			}
+		}
+	}
+	block := regexp.MustCompile("(?s)```json\\s*(\\{.*?\\})\\s*```").FindAllStringSubmatch(result, -1)
+	var body string
+	if len(block) > 0 {
+		body = block[len(block)-1][1]
+	} else if i := strings.Index(result, `{`); i >= 0 {
+		body = result[i:]
+	}
+	var parsed struct {
+		Findings []review.Finding `json:"findings"`
+	}
+	if err := json.Unmarshal([]byte(body), &parsed); err != nil {
+		fmt.Printf("✗ 审查的输出解析不了(%v);见 %s/ai.json\n", err, dir)
+		os.Exit(2)
+	}
+	fs := parsed.Findings
+	var pj struct {
+		Round    int           `json:"round"`
+		Previous []review.Prev `json:"previous"`
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, "prev.json")); err == nil {
+		_ = json.Unmarshal(b, &pj)
+	}
+	if pj.Round == 0 {
+		pj.Round = 1
+	}
+	review.Resolve(fs, pj.Round)
+	v := review.Gate(pj.Round, fs, pj.Previous)
+	v.Seconds = sec
+	for _, x := range []struct {
+		name string
+		v    any
+	}{{"findings.json", fs}, {"verdict.json", v}} {
+		b, _ := json.MarshalIndent(x.v, "", "  ")
+		if err := os.WriteFile(filepath.Join(dir, x.name), b, 0o644); err != nil {
+			return err
+		}
+	}
+	tag := map[string]string{}
+	for _, id := range v.Blocking {
+		tag[id] = "挡"
+	}
+	for _, id := range v.Late {
+		tag[id] = "迟到"
+	}
+	for _, id := range v.Repeated {
+		tag[id] = "重复"
+	}
+	order := map[string]int{"blocker": 0, "major": 1, "minor": 2}
+	sort.SliceStable(fs, func(i, j int) bool { return order[fs[i].Severity] < order[fs[j].Severity] })
+	for _, f := range fs {
+		extra := ""
+		if f.SameAs != "" {
+			extra = " = " + f.SameAs
+		}
+		fmt.Printf("  [%-7s] %s %s @ %s  %s%s\n", f.Severity, f.ID, f.Category, f.Location, tag[f.ID], extra)
+		fmt.Printf("            %s\n", f.Question)
+		for i, o := range f.Options {
+			rec := ""
+			if i == f.Recommended {
+				rec = "  (推荐)"
+			}
+			fmt.Printf("              %d) %s%s\n", i+1, o.Label, rec)
+		}
+	}
+	fmt.Printf("⏱ %ds  第 %d 轮  → 挡流水线 %d 件 / 建议 %d 件 / 迟到 %d 件 / 重复提问 %d 件  (%s/findings.json)\n",
+		sec, v.Round, len(v.Blocking), len(v.Advisory), len(v.Late), len(v.Repeated), dir)
+	if !v.Passed {
+		os.Exit(1)
+	}
+	return nil
+}
+
+// cmdReviewStats: 每个 API 审查几轮才通过(P5 的指标: ≤2 轮)。
+func cmdReviewStats(args []string) error {
+	fs := flag.NewFlagSet("review-stats", flag.ExitOnError)
+	match := fs.String("match", "", "只统计名字里含有这个字符串的(例如 -converge)")
+	_ = fs.Parse(args)
+	root := ".factory/reviews"
+	if fs.NArg() > 0 {
+		root = fs.Arg(0)
+	}
+	ents, err := os.ReadDir(root)
+	if err != nil {
+		return err
+	}
+	type cyc struct {
+		rounds, late, repeated int
+		passed                 bool
+	}
+	byAPI := map[string][]*cyc{}
+	var names []string
+	for _, e := range ents {
+		v, err := review.ReadVerdict(filepath.Join(root, e.Name()))
+		if err != nil {
+			continue
+		}
+		_, key, _ := strings.Cut(e.Name()[16:], "-") // 去掉时间戳和模型
+		if !strings.Contains(key, *match) {
+			continue
+		}
+		cs := byAPI[key]
+		if len(cs) == 0 || cs[len(cs)-1].passed || v.Round == 1 {
+			cs = append(cs, &cyc{})
+			if len(byAPI[key]) == 0 {
+				names = append(names, key)
+			}
+		}
+		c := cs[len(cs)-1]
+		c.rounds, c.passed = v.Round, v.Passed
+		c.late += len(v.Late)
+		c.repeated += len(v.Repeated)
+		byAPI[key] = cs
+	}
+	sort.Strings(names)
+	hist := map[int]int{}
+	total, within := 0, 0
+	for _, n := range names {
+		for _, c := range byAPI[n] {
+			mark := "✓"
+			if !c.passed {
+				mark = "…"
+			} else {
+				total++
+				hist[c.rounds]++
+				if c.rounds <= 2 {
+					within++
+				}
+			}
+			fmt.Printf("%s %-50s %d 轮  迟到 %d  重复 %d\n", mark, n, c.rounds, c.late, c.repeated)
+		}
+	}
+	if total > 0 {
+		fmt.Printf("通过的周期 %d 个: ≤2 轮 %d 个(%.0f%%)", total, within, 100*float64(within)/float64(total))
+		for r := 1; r <= 10; r++ {
+			if hist[r] > 0 {
+				fmt.Printf("  %d 轮×%d", r, hist[r])
+			}
+		}
+		fmt.Println()
+	}
 	return nil
 }
