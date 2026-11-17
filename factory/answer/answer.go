@@ -34,6 +34,7 @@ type Option struct {
 		When string `json:"when"`
 		Then string `json:"then"`
 	} `json:"rule"`
+	InputChange []InputChange `json:"input_change,omitempty"` // 选中后直接改设计稿的输入定义
 }
 
 // UnmarshalJSON: 旧格式的审查结果里选项是纯字符串
@@ -80,7 +81,8 @@ type Decision struct {
 	Answer  string // 选中的选项或自己写的回答
 	When    string
 	Then    string
-	Domain  bool // 写进 领域.审查.yaml
+	Domain  bool          // 写进 领域.审查.yaml
+	Changes []InputChange // 改设计稿的输入定义
 }
 
 // Ask: 在终端里一题一题地问。
@@ -105,6 +107,9 @@ func Ask(in io.Reader, out io.Writer, fs []Finding, domain string) []Decision {
 				mark = "  (推荐)"
 			}
 			fmt.Fprintf(out, "  %d) %s%s\n       → 规则: %s → %s\n", i+1, o.Label, mark, o.Rule.When, o.Rule.Then)
+			for _, c := range o.InputChange {
+				fmt.Fprintf(out, "       → 改设计: %s\n", c)
+			}
 		}
 		fmt.Fprintf(out, "  0) 跳过    9) 自己写\n  选择 [%d]: ", f.Recommended+1)
 		choice := read()
@@ -165,7 +170,7 @@ func decide(f Finding, choice string, freeText func() string) (Decision, bool) {
 		return Decision{}, false
 	case err == nil && n >= 1 && n <= len(f.Options):
 		o := f.Options[n-1]
-		return Decision{Finding: f, Answer: o.Label, When: o.Rule.When, Then: o.Rule.Then}, true
+		return Decision{Finding: f, Answer: o.Label, When: o.Rule.When, Then: o.Rule.Then, Changes: o.InputChange}, true
 	case err == nil && n == 9:
 		text := freeText()
 		if text == "" {
@@ -184,6 +189,16 @@ func Write(designFile string, ds []Decision, reviewDir string) ([]string, error)
 	api := strings.TrimSuffix(filepath.Base(designFile), ".yaml")
 	src := fmt.Sprintf("%s 的审查 %s %s", api, time.Now().Format("2006-01-02"), filepath.Base(reviewDir))
 	var touched []string
+	var changes []InputChange
+	for _, d := range ds {
+		changes = append(changes, d.Changes...)
+	}
+	if len(changes) > 0 { // 先改设计稿(失败时什么都不写)
+		if err := ApplyInputChanges(designFile, changes); err != nil {
+			return nil, err
+		}
+		touched = append(touched, designFile)
+	}
 	for _, target := range []string{apiFile, domainFile} {
 		var entries []string
 		for _, d := range ds {
@@ -218,6 +233,9 @@ func entry(d Decision, src string) string {
 	fmt.Fprintf(&b, "    回答: %s\n", q(d.Answer))
 	if d.When != "" && d.Then != "" {
 		fmt.Fprintf(&b, "    补充规则: { 情况: %s, 结果: %s }\n", q(d.When), q(d.Then))
+	}
+	for _, c := range d.Changes {
+		fmt.Fprintf(&b, "    改了设计: %s\n", q(c.String()))
 	}
 	fmt.Fprintf(&b, "    来自: %s\n", q(src))
 	return b.String()

@@ -739,13 +739,14 @@ const file_factory_jobs_v1_jobs_proto_rawDesc = "" +
 	"\t_job_type\"d\n" +
 	"\x10ListJobsResponse\x12(\n" +
 	"\x04jobs\x18\x01 \x03(\v2\x14.factory.jobs.v1.JobR\x04jobs\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\x95\x01\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xb7\x01\n" +
 	"\x16ListJobsByTypesRequest\x12&\n" +
 	"\tpage_size\x18\x01 \x01(\x05B\t\xbaH\x06\x1a\x04\x18d(\x00R\bpageSize\x12\x1d\n" +
 	"\n" +
-	"page_token\x18\x02 \x01(\tR\tpageToken\x12\x1b\n" +
-	"\tjob_types\x18\x03 \x03(\tR\bjobTypes\x12\x17\n" +
-	"\ajob_ids\x18\x04 \x03(\x03R\x06jobIds\"k\n" +
+	"page_token\x18\x02 \x01(\tR\tpageToken\x12-\n" +
+	"\tjob_types\x18\x03 \x03(\tB\x10\xbaH\r\x92\x01\n" +
+	"\x102\"\x06r\x04\x10\x01\x18@R\bjobTypes\x12'\n" +
+	"\ajob_ids\x18\x04 \x03(\x03B\x0e\xbaH\v\x92\x01\b\x10d\"\x04\"\x02 \x00R\x06jobIds\"k\n" +
 	"\x17ListJobsByTypesResponse\x12(\n" +
 	"\x04jobs\x18\x01 \x03(\v2\x14.factory.jobs.v1.JobR\x04jobs\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken*p\n" +

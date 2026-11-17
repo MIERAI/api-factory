@@ -83,6 +83,11 @@ func convRules(fd protoreflect.FieldDescriptor) *ir.Rules {
 	if r == nil {
 		return nil
 	}
+	return fieldRules(r, fd)
+}
+
+// fieldRules: buf.validate 的规则 → IR(列表元素的规则递归)。
+func fieldRules(r *validate.FieldRules, fd protoreflect.FieldDescriptor) *ir.Rules {
 	out := &ir.Rules{Required: r.GetRequired()}
 	switch {
 	case r.HasInt32():
@@ -108,6 +113,12 @@ func convRules(fd protoreflect.FieldDescriptor) *ir.Rules {
 		out.Type = "repeated"
 		if x.HasMinItems() {
 			out.MinItems = ptr(x.GetMinItems())
+		}
+		if x.HasMaxItems() {
+			out.MaxItems = ptr(x.GetMaxItems())
+		}
+		if x.HasItems() {
+			out.Items = fieldRules(x.GetItems(), fd)
 		}
 	case r.HasInt64():
 		x := r.GetInt64()

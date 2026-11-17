@@ -135,9 +135,9 @@ message ListJobsByTypesRequest {
   // 上一页返回的 next_page_token(不透明的字符串)
   string page_token = 2;
   // 任务类型(任意一个)(空列表 = 不按这个条件筛选)
-  repeated string job_types = 3;
+  repeated string job_types = 3 [(buf.validate.field).repeated.max_items = 50, (buf.validate.field).repeated.items.string = {min_len: 1, max_len: 64}];
   // 任务 id(任意一个)(空列表 = 不按这个条件筛选)
-  repeated int64 job_ids = 4;
+  repeated int64 job_ids = 4 [(buf.validate.field).repeated.max_items = 100, (buf.validate.field).repeated.items.int64.gt = 0];
 }
 
 // 按任务类型和 id 的列表筛选任务,新的在前,分页

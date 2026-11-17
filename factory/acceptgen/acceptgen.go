@@ -115,7 +115,7 @@ func intBoundaries(gt, gte, lt, lte *int64, in []int64) []boundary {
 	return b
 }
 
-func boundariesFor(f *ir.Field) ([]boundary, []string) {
+func boundariesFor(f *ir.Field, base map[string]any) ([]boundary, []string) {
 	r := f.Rules
 	var b []boundary
 	var rules []string
@@ -124,6 +124,8 @@ func boundariesFor(f *ir.Field) ([]boundary, []string) {
 		rules = append(rules, "required")
 	}
 	switch r.Type {
+	case "repeated":
+		return listBoundaries(f, b, rules, base)
 	case "int32", "int64":
 		b = append(b, intBoundaries(r.Gt, r.Gte, r.Lt, r.Lte, r.In)...)
 		rules = append(rules, r.Type+" 范围/in")
@@ -168,6 +170,67 @@ func boundariesFor(f *ir.Field) ([]boundary, []string) {
 	return b, rules
 }
 
+// listBoundaries: 列表的个数(min_items / max_items)和每个元素的规则。
+// 元素的规则: 元素的边界值包成只有一个元素的列表。个数: 用一个合法的元素重复 n 次。
+func listBoundaries(f *ir.Field, b []boundary, rules []string, base map[string]any) ([]boundary, []string) {
+	r := f.Rules
+	var elem any
+	if xs, ok := base[f.Name].([]any); ok && len(xs) > 0 {
+		elem = xs[0]
+	}
+	if r.Items != nil {
+		ef := &ir.Field{Name: f.Name, Kind: f.Kind, Values: f.Values, Rules: r.Items}
+		ebs, erules := boundariesFor(ef, nil)
+		for _, x := range ebs {
+			if x.unset {
+				continue
+			}
+			b = append(b, boundary{"元素 " + x.label, []any{x.value}, x.valid, false})
+			if x.valid && elem == nil {
+				elem = x.value
+			}
+		}
+		for _, er := range erules {
+			rules = append(rules, "元素 "+er)
+		}
+	}
+	if elem == nil {
+		switch {
+		case len(f.Values) > 0:
+			for _, v := range f.Values {
+				if v.Number != 0 {
+					elem = v.Name
+					break
+				}
+			}
+		case strings.HasPrefix(f.Kind, "int"):
+			elem = int64(1)
+		case f.Kind == "string":
+			elem = "a"
+		}
+	}
+	rep := func(n uint64) []any {
+		out := make([]any, n)
+		for i := range out {
+			out[i] = elem
+		}
+		return out
+	}
+	if elem != nil && r.MinItems != nil && *r.MinItems > 0 {
+		n := *r.MinItems
+		b = append(b, boundary{fmt.Sprintf("%d 个(min_items %d 的边界,违反)", n-1, n), rep(n - 1), false, false},
+			boundary{fmt.Sprintf("%d 个(min_items %d 的边界,合法)", n, n), rep(n), true, false})
+		rules = append(rules, "min_items")
+	}
+	if elem != nil && r.MaxItems != nil {
+		n := *r.MaxItems
+		b = append(b, boundary{fmt.Sprintf("%d 个(max_items %d 的边界,违反)", n+1, n), rep(n + 1), false, false},
+			boundary{fmt.Sprintf("%d 个(max_items %d 的边界,合法)", n, n), rep(n), true, false})
+		rules = append(rules, "max_items")
+	}
+	return b, rules
+}
+
 func (c *ctx) validationSuite() (spec.Suite, []string) {
 	suite := spec.Suite{Name: "validation"}
 	base := c.api.BaseRequest
@@ -184,7 +247,7 @@ func (c *ctx) validationSuite() (spec.Suite, []string) {
 		if f.Rules == nil {
 			continue
 		}
-		bs, rules := boundariesFor(f)
+		bs, rules := boundariesFor(f, base)
 		if len(bs) == 0 {
 			continue
 		}

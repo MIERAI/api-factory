@@ -285,7 +285,7 @@ func loadQA(path string) ([]QA, error) {
 	var out []QA
 	if list := get(root, "问答"); list != nil {
 		for _, q := range list.Content {
-			checkKeys(e, q, "问答", "问题", "选项", "回答", "补充规则", "补充例子", "补充计算例子", "来自")
+			checkKeys(e, q, "问答", "问题", "选项", "回答", "补充规则", "补充例子", "补充计算例子", "改了设计", "来自")
 			qa := QA{Question: str(q, "问题"), Options: strList(get(q, "选项")), Answer: str(q, "回答"), From: str(q, "来自")}
 			if r := get(q, "补充规则"); r != nil {
 				for _, b := range seqOrOne(r) {
@@ -346,6 +346,7 @@ type Input struct {
 	Required bool
 	Range    string
 	Length   string
+	Count    string // 列表: 个数 "1~1000"
 	Desc     string
 	Filter   string // "created_at 大于等于"
 	Line     int
@@ -403,9 +404,9 @@ func loadAPI(path string) (*API, error) {
 		e.add(root.Line, "风险 只能是 低 / 中 / 高")
 	}
 	for _, p := range pairs(get(root, "输入")) {
-		checkKeys(e, p.Val, "输入 "+p.Key, "类型", "必填", "范围", "长度", "说明", "筛选")
+		checkKeys(e, p.Val, "输入 "+p.Key, "类型", "必填", "范围", "长度", "个数", "说明", "筛选")
 		in := &Input{Name: p.Key, Type: str(p.Val, "类型"), Required: str(p.Val, "必填") == "是", Range: str(p.Val, "范围"),
-			Length: str(p.Val, "长度"), Desc: str(p.Val, "说明"), Filter: str(p.Val, "筛选"), Line: p.Line}
+			Length: str(p.Val, "长度"), Count: str(p.Val, "个数"), Desc: str(p.Val, "说明"), Filter: str(p.Val, "筛选"), Line: p.Line}
 		if in.Type == "" {
 			e.add(p.Line, "输入 %s: 缺少 类型", p.Key)
 		}
