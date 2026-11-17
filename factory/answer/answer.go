@@ -52,6 +52,10 @@ func (f Finding) Blocking() bool {
 	return (f.Severity == "blocker" || f.Severity == "major") && f.Category != "验收覆盖"
 }
 
+// Answerable: 需要人做决定的问题 = 除了"验收覆盖"(覆盖建议: 补充例子即可)以外的全部。
+// minor 的矛盾也要能回答: 不记录的话,下一轮审查会把同一个问题升级后再问一遍(试用里实际发生)。
+func (f Finding) Answerable() bool { return f.Category != "验收覆盖" }
+
 // LatestReview: .factory/reviews 下这个 API 最新的审查结果。
 func LatestReview(apiID string) (string, []Finding, error) {
 	dirs, _ := filepath.Glob(filepath.Join(".factory/reviews", "*-"+apiID+"*"))
@@ -135,7 +139,10 @@ func FromArgs(fs []Finding, args []string) ([]Decision, error) {
 		}
 		f, ok := byID[id]
 		if !ok {
-			return nil, fmt.Errorf("没有问题 %s", id)
+			return nil, fmt.Errorf("没有问题 %s(这次没有写入任何回答)", id)
+		}
+		if !f.Answerable() {
+			return nil, fmt.Errorf("%s 是覆盖建议(验收覆盖),不用回答: 把例子补进式样书即可(这次没有写入任何回答)", id)
 		}
 		toDomain := false
 		if v, ok := strings.CutSuffix(val, "@domain"); ok {

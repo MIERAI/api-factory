@@ -563,7 +563,7 @@ func cmdAnswer(args []string) error {
 	}
 	var todo []answer.Finding
 	for _, f := range findings {
-		if *all || f.Blocking() {
+		if *all || f.Answerable() {
 			todo = append(todo, f)
 		}
 	}
