@@ -51,7 +51,7 @@ type table struct {
 	unique    map[string]bool
 	composite map[string][2]int               // 组合主键/唯一约束的列 → (该列在约束里的位置, 约束的列数)
 	json      map[string]map[string]core.Kind // JSON 列 → 键 → 类型
-	nkKeys    map[string]bool                 // JSON 版本的自然键(i/5: 每个键约 5 个版本)
+	nkKeys    map[string][2]int               // JSON 版本的自然键 → (位置, 列数)。按 i/5 混合进制拆开: 每个键约 5 个版本
 	delKey    map[string]string               // 逻辑删除的键 → 值
 	action    string                          // 操作列(删除值 1)
 	orderTs   string                          // 登记顺序(时间)
@@ -125,7 +125,7 @@ func collect(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, api *ir.API, ta
 	t, ok := tables[scan.Table]
 	if !ok {
 		t = &table{name: scan.Table, cols: scan.Columns, unique: map[string]bool{}, composite: map[string][2]int{}, json: map[string]map[string]core.Kind{},
-			nkKeys: map[string]bool{}, delKey: map[string]string{}, enums: map[string][]int64{}}
+			nkKeys: map[string][2]int{}, delKey: map[string]string{}, enums: map[string][]int64{}}
 		rows, err := conn.Query(ctx, `
 			SELECT kcu.column_name, count(*) OVER (PARTITION BY tc.constraint_name), kcu.ordinal_position
 			FROM information_schema.table_constraints tc
@@ -186,9 +186,9 @@ func collect(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, api *ir.API, ta
 		if en := plan.Enum(api.Table, f.Name); en != nil {
 			t.enums[f.Key] = enumValues(en)
 		}
-		for _, nk := range st.NaturalKey {
+		for pos, nk := range st.NaturalKey {
 			if nk == f.Name {
-				t.nkKeys[f.Key] = true
+				t.nkKeys[f.Key] = [2]int{pos, len(st.NaturalKey)}
 			}
 		}
 	}
@@ -260,13 +260,22 @@ func valueSQL(k core.Kind, salt int, unique bool) string {
 }
 
 // jsonSQL: JSON 里的值(和 json_field 的 cast 对应: 日期 / 十进制 / 时间是字符串)。
-func jsonSQL(k core.Kind, salt int, nk bool) string {
-	if nk { // 自然键: 每个键约 5 个版本
+func jsonSQL(k core.Kind, salt int, nk [2]int, n int) string {
+	if nk[1] > 0 { // 自然键: 行号 / 5 按混合进制拆到各个键列(3 列的键每列约 34 种值),每个键约 5 个版本
+		base := mixedRadix("(i / 5)", nk, n/5)
 		switch k {
 		case core.Text:
-			return "'k' || (i / 5)"
+			return "'k' || " + base
+		case core.Date:
+			return "to_char(date '2024-01-01' + " + base + ", 'YYYY-MM-DD')"
+		case core.Timestamp:
+			return "to_char(timestamptz '2024-01-01 00:00:00+00' + make_interval(mins => " + base + ") AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')"
+		case core.Decimal:
+			return base + "::text"
+		case core.Bool:
+			return base + " % 2 = 0"
 		default:
-			return "(i / 5)"
+			return base + " + 1"
 		}
 	}
 	v := valueSQL(k, salt, false)
@@ -300,7 +309,7 @@ func fill(ctx context.Context, conn *pgx.Conn, t *table, n int) error {
 			sort.Strings(names)
 			var parts []string
 			for j, k := range names {
-				v := jsonSQL(keys[k], salt*31+j, t.nkKeys[k])
+				v := jsonSQL(keys[k], salt*31+j, t.nkKeys[k], n)
 				if en, ok := t.enums[k]; ok {
 					v = enumSQL(en, j)
 				}
@@ -333,16 +342,7 @@ func fill(ctx context.Context, conn *pgx.Conn, t *table, n int) error {
 
 // compositeSQL: 组合键的第 pos 列。把行号按混合进制拆开(每列约 n^(1/k) 种值),元组就唯一。
 func compositeSQL(k core.Kind, pk [2]int, n int) string {
-	pos, cnt := pk[0], pk[1]
-	radix := int(math.Ceil(math.Pow(float64(n), 1/float64(cnt))))
-	div := 1
-	for j := 0; j < pos; j++ {
-		div *= radix
-	}
-	base := fmt.Sprintf("((i / %d) %% %d)", div, radix)
-	if pos == cnt-1 {
-		base = fmt.Sprintf("(i / %d)", div)
-	}
+	base := mixedRadix("i", pk, n)
 	switch k {
 	case core.Text:
 		return "'k' || " + base
@@ -354,6 +354,20 @@ func compositeSQL(k core.Kind, pk [2]int, n int) string {
 		return base + "::numeric"
 	}
 	return base + " + 1"
+}
+
+// mixedRadix: 把 idx(0..total)按混合进制拆开,取第 pos 位(共 cnt 位,最后一位不取模)。各位组合起来唯一。
+func mixedRadix(idx string, pk [2]int, total int) string {
+	pos, cnt := pk[0], pk[1]
+	radix := max(2, int(math.Ceil(math.Pow(float64(total), 1/float64(cnt)))))
+	div := 1
+	for j := 0; j < pos; j++ {
+		div *= radix
+	}
+	if pos == cnt-1 {
+		return fmt.Sprintf("(%s / %d)", idx, div)
+	}
+	return fmt.Sprintf("((%s / %d) %% %d)", idx, div, radix)
 }
 
 func quote(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
