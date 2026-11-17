@@ -15,7 +15,7 @@ const diffPageSize = 3
 // 一览: 筛选 + keyset 分页。请求加 page_size / page_token,响应加 next_page_token。
 func init() {
 	Register(&Exit{
-		Kind: "list_keyset", Name: "一览", Cardinality: "many", Cell: "分页", Rows: true, EmptyRequest: true, NotNullOrder: true, DiffMinRows: 5,
+		Kind: "list_keyset", Name: "一览", Cardinality: "many", Cell: "分页", Rows: true, EmptyRequest: true, NotNullOrder: true,
 		DesignKeys: []string{"排序", "分页"},
 		Parse: func(d Design, p *spec.Pattern) {
 			cols, desc, err := d.Order("排序")
@@ -89,8 +89,9 @@ func init() {
 			p.Params = append(p.Params, core.ParamDecl{Name: "row_limit", Type: core.Type{Kind: core.Int32}, Required: true})
 			return nil
 		},
-		DiffParams: func(*ir.API) core.Params { return core.Params{"row_limit": int64(1 << 30)} }, // 完整的有序结果,再按页切
-		DiffMulti:  true,
+		DiffRowsNeed: func(*ir.API) (int, int) { return 5, 1 },                                      // 出口用例(途中改 page_size)要 ≥5 行
+		DiffParams:   func(*ir.API) core.Params { return core.Params{"row_limit": int64(1 << 30)} }, // 完整的有序结果,再按页切
+		DiffMulti:    true,
 		DiffCase: func(x DiffCtx, rows []core.Row, req map[string]any) (spec.Case, string, string) {
 			k := x.API().Keyset
 			msg := x.API().Response.Field(k.ItemsField).Message

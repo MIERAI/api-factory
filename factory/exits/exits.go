@@ -89,7 +89,7 @@ type Exit struct {
 	DiffCover    func(api *ir.API, tags map[string]int) string                                          // 覆盖信息里另外的说明(多条: 超过上限几次)
 	EmptyRequest bool                                                                                   // 没有人写用例时,空请求可以作为 validation 的基础请求(分页)
 	NotNullOrder bool                                                                                   // 排序列必须不为空(分页的游标)
-	DiffMinRows  int                                                                                    // 出口用例至少要一个结果有这么多行的请求(分页: 5)
+	DiffRowsNeed func(api *ir.API) (minRows, requests int)                                              // 出口要的数据: 结果 ≥ minRows 行的合法请求至少 requests 个
 }
 
 var (

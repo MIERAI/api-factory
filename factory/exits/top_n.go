@@ -54,6 +54,15 @@ func init() {
 			return nil
 		},
 		DiffMulti: true,
+		DiffRowsNeed: func(api *ir.API) (int, int) { // 截断要真的发生: 结果超过 N 行的请求 ≥3
+			switch n := api.ExitParams["n"].(type) {
+			case float64:
+				return int(n) + 1, 3
+			case int:
+				return n + 1, 3
+			}
+			return 1, 3
+		},
 		DiffCase: func(x DiffCtx, rows []core.Row, req map[string]any) (spec.Case, string, string) {
 			items := x.API().ExitParams["items_field"].(string)
 			msg := x.API().Response.Field(items).Message

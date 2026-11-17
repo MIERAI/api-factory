@@ -344,6 +344,20 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 		cover += fmt.Sprintf(" / 每组取一条淘汰了候选的请求 %d 个", n)
 		okCover = okCover && n >= 3
 	}
+	if ex.DiffRowsNeed != nil { // 出口要的数据(分页: ≥5 行;前N条: 超过 N 行的请求 ≥3)
+		minRows, need := ex.DiffRowsNeed(api)
+		got := 0
+		for _, ps := range reqs {
+			if bad, err := env.invalid(env.request(ps)); err != nil || bad {
+				continue
+			}
+			if n, err := env.rowsBeforeLimit(ps); err == nil && n >= minRows {
+				got++
+			}
+		}
+		cover += fmt.Sprintf(" / 结果 ≥%d 行的请求 %d 个(出口要 %d 个)", minRows, got, need)
+		okCover = okCover && got >= need
+	}
 	if weak, total := env.sensitivity(reqs); total > 0 {
 		cover += fmt.Sprintf(" / 起作用的条件 %d/%d", total-len(weak), total)
 		if len(weak) > 0 {
@@ -425,12 +439,12 @@ func (e *diffEnv) value(c core.NamedType, i int, unique bool) any {
 
 // scalarFor: 某一列的值(这一列有范围值域时从里面取)。
 func (e *diffEnv) scalarFor(col string, kind core.Kind, unique bool, i int) any {
-	if e.groupCols[col] && !e.nkCols[col] && !unique { // 密集的列: 2 个值(多版本来源的自然键除外: 键要多样)
+	if e.groupCols[col] && !e.nkCols[col] && !unique { // 密集的列: 3 个值(多版本来源的自然键除外: 键要多样)
 		if dom, ok := e.ranges[col]; ok {
-			return dom[e.rnd.Intn(2)]
+			return dom[e.rnd.Intn(min(3, len(dom)))]
 		}
 		if t, ok := kinds.ByCore(kind); ok && len(t.Domain) >= 2 {
-			return t.Domain[1+e.rnd.Intn(2)%len(t.Domain[1:])]
+			return t.Domain[e.rnd.Intn(min(3, len(t.Domain)))] // 带范围校验的整数列走上面的 ranges
 		}
 	}
 	if cs := e.constFor[col]; len(cs) > 0 && !unique {
@@ -1207,15 +1221,26 @@ func (e *diffEnv) domainSize(col string) int {
 // planned: 用参考求值器预估这批请求的覆盖条件(不需要服务器)。和 runDiff 最后的覆盖条件一致。
 func (e *diffEnv) planned(reqs []core.Params) bool {
 	hits := map[string]int{}
-	maxRows := 0
+	var sizes []int
+	rowsAtLeast := func(n int) int {
+		c := 0
+		for _, x := range sizes {
+			if x >= n {
+				c++
+			}
+		}
+		return c
+	}
 	for _, ps := range reqs {
 		rows, err := e.Eval(ps)
 		if err != nil {
 			continue
 		}
-		maxRows = max(maxRows, len(rows))
 		if bad, err := e.invalid(e.request(ps)); err != nil || bad {
 			continue
+		}
+		if n, err := e.rowsBeforeLimit(ps); err == nil {
+			sizes = append(sizes, n)
 		}
 		switch n := len(rows); {
 		case n == 0:
@@ -1233,8 +1258,9 @@ func (e *diffEnv) planned(reqs []core.Params) bool {
 	if e.exit.DiffMulti {
 		ok = ok && hits["n"] > 0
 	}
-	if e.exit.DiffMinRows > 0 { // 出口用例要的行数
-		ok = ok && maxRows >= e.exit.DiffMinRows
+	if e.exit.DiffRowsNeed != nil { // 出口要的数据(分页: ≥5 行;前N条: 超过 N 行的请求 ≥3)
+		minRows, need := e.exit.DiffRowsNeed(e.api)
+		ok = ok && rowsAtLeast(minRows) >= need
 	}
 	if versions, removed, has := e.versionCounts(); has {
 		ok = ok && versions >= 3 && removed >= 3
@@ -1502,4 +1528,26 @@ func cmpOrdered[T int64 | float64](a, b T) int {
 		return 1
 	}
 	return 0
+}
+
+// rowsBeforeLimit: 截取(limit)之前的行数(前N条 的截断有没有发生 / 分页有没有多页)。
+func (e *diffEnv) rowsBeforeLimit(ps core.Params) (int, error) {
+	steps := e.api.Pipeline.Steps
+	for len(steps) > 0 && steps[len(steps)-1].Kind == "limit" {
+		steps = steps[:len(steps)-1]
+	}
+	params := core.Params{}
+	for k, v := range ps {
+		params[k] = v
+	}
+	if e.exit.DiffParams != nil {
+		for k, v := range e.exit.DiffParams(e.api) {
+			params[k] = v
+		}
+	}
+	res, err := core.Eval(&core.Pipeline{Steps: steps, Params: e.api.Pipeline.Params}, map[string][]core.Row{e.table: e.rowsFor(ps)}, params)
+	if err != nil {
+		return 0, err
+	}
+	return len(res.Rows), nil
 }
