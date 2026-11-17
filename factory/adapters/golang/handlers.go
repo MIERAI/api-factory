@@ -182,15 +182,27 @@ func (g *genCtx) paramAssignments(skip func(string) bool) ([]string, error) {
 // queryCall: 调用 sqlc 生成的查询函数(无参数 / 参数结构体 / 单个参数)。
 func (g *genCtx) queryCall() (string, error) {
 	call, err := g.queryCall0()
-	if err != nil || g.api.Shard == nil {
-		return call, err
+	if err != nil {
+		return "", err
 	}
-	// 分库: 按分库键选连接(分库键由必填的「等于」固定,编译时检查过)
+	ref, err := g.queries()
+	if err != nil {
+		return "", err
+	}
+	return strings.Replace(call, "h.q.", ref+".", 1), nil
+}
+
+// queries: 查询用的连接。分库的表 = 按分库键选(分库键由必填的「等于」固定,编译时检查过);否则主库。
+// 所有出口的 handler 都要经过这里(分页曾经直接写 h.q,分库 + 分页不选库: 矩阵发现)。
+func (g *genCtx) queries() (string, error) {
+	if g.api.Shard == nil {
+		return "h.q", nil
+	}
 	rf, err := g.requestField(g.api.Shard.Field)
 	if err != nil {
 		return "", err
 	}
-	return strings.Replace(call, "h.q.", fmt.Sprintf("h.at(int64(m.Get%s())).", goCamelCase(rf.Name)), 1), nil
+	return fmt.Sprintf("h.at(int64(m.Get%s()))", goCamelCase(rf.Name)), nil
 }
 
 func (g *genCtx) queryCall0() (string, error) {
@@ -394,6 +406,10 @@ func genListKeyset(g *genCtx) (string, error) {
 	}
 	itemsGo := goCamelCase(items.Name)
 
+	qref, err := g.queries()
+	if err != nil {
+		return "", err
+	}
 	body := fmt.Sprintf(`// %s 是 page_token 里携带的游标(本页最后一行的 order_by 列)。
 type %s struct {
 	%s
@@ -415,7 +431,7 @@ func (h *Handler) %s(ctx context.Context, req *connect.Request[%s]) (*connect.Re
 		}
 		%s
 	}
-	rows, err := h.q.%s(ctx, params)
+	rows, err := %s(ctx, params)
 	if err != nil {
 		return nil, err
 	}
@@ -443,7 +459,7 @@ func (h *Handler) %s(ctx context.Context, req *connect.Request[%s]) (*connect.Re
 		k.DefaultSize, k.MaxSize,
 		g.query.ParamType, strings.Join(assigns, "\n"),
 		cursorType, strings.Join(cursorSet, "\n"),
-		g.api.Query.Name,
+		qref+"."+g.api.Query.Name,
 		g.pbType(out), itemsGo, g.pbType(elem),
 		itemsGo, itemsGo, g.pbType(elem), strings.Join(elemLines, "\n"),
 		cursorType, strings.Join(cursorBuild, "\n"))
