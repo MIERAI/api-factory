@@ -31,6 +31,7 @@ import (
 	"apifactory/factory/ir"
 	"apifactory/factory/kinds"
 	"apifactory/factory/protoload"
+	"apifactory/factory/sources"
 	"apifactory/factory/spec"
 )
 
@@ -373,18 +374,11 @@ func (e *diffEnv) load() (int, int, error) {
 			return 0, 0, err
 		}
 	}
-	// 分库键在物理行里的位置: 普通的表 = 列;JSON版本 = JSON 里的键
-	shardCol, shardKey := "", ""
-	if sh != nil {
-		shardCol = sh.Column
-		if st := e.plan.Storage(e.api.Table); st != nil {
-			shardCol = st.DataColumn
-			for _, f := range st.Fields {
-				if f.Name == sh.Column {
-					shardKey = f.Key
-				}
-			}
-		}
+	// 分库键在物理行里的值: 普通的表 = 列;其他来源由来源决定(JSON版本 = JSON 里的键)
+	st := e.plan.Storage(e.api.Table)
+	var src *sources.Source
+	if st != nil {
+		src, _ = sources.ByKind(st.Kind)
 	}
 	var names, holders []string
 	for i, c := range e.cols {
@@ -400,21 +394,20 @@ func (e *diffEnv) load() (int, int, error) {
 	for i := 0; i < n; i++ {
 		var args []any
 		conn := e.conn
+		physical := map[string]any{}
 		for _, c := range e.cols {
 			v := e.value(c, i, unique[c.Name])
-			if sh != nil && c.Name == shardCol { // 分库: 写进分库键对应的库
-				key := v
-				if shardKey != "" {
-					var obj map[string]any
-					if s, ok := v.(string); ok && json.Unmarshal([]byte(s), &obj) == nil {
-						key = obj[shardKey]
-					}
-				}
-				if conn, err = e.db.forKey(key); err != nil {
-					return 0, 0, err
-				}
-			}
+			physical[c.Name] = v
 			args = append(args, sqlValue(v))
+		}
+		if sh != nil { // 分库: 写进分库键对应的库
+			key := physical[sh.Column]
+			if src != nil && src.ShardKey != nil {
+				key = src.ShardKey(st, sh.Column, physical)
+			}
+			if conn, err = e.db.forKey(key); err != nil {
+				return 0, 0, err
+			}
 		}
 		if _, err := conn.Exec(e.ctx, insert, args...); err != nil {
 			rejected++

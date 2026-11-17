@@ -194,6 +194,7 @@ type EnumValue struct {
 
 // Storage: 逻辑表 → 物理表(存储: JSON版本)。验收把逻辑表的数据行写成物理表的行(JSON + 操作列 + 登记顺序)。
 type Storage struct {
+	Kind               string         `json:"kind"` // 来源的种类(factory/sources): json_versions
 	View               string         `json:"view"`
 	Table              string         `json:"table"`
 	NaturalKey         []string       `json:"natural_key"`

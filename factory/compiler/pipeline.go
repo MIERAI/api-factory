@@ -9,6 +9,7 @@ import (
 	"apifactory/factory/core"
 	"apifactory/factory/exits"
 	"apifactory/factory/kinds"
+	"apifactory/factory/sources"
 	"apifactory/factory/spec"
 )
 
@@ -87,50 +88,26 @@ func scanStep(table string, cat *catalog) (core.Step, error) {
 	return scan, nil
 }
 
-// sourceSteps: 流水线的开头。普通的表 = scan;存储: JSON版本 的逻辑表 = 来源单元 JSON版本 展开。
+// sourceSteps: 流水线的开头,由来源决定(factory/sources: 普通的表 = scan;JSON版本 = 来源单元展开)。
 func sourceSteps(s *spec.Spec, lib *cells.Library, cat *catalog) ([]core.Step, error) {
 	table := s.Datasource.Table
 	var e spec.Entity
 	if s.Domain != nil {
 		e = s.Domain.Entities[table]
 	}
-	st := e.Storage
-	if st == nil {
-		scan, err := scanStep(table, cat)
-		return []core.Step{scan}, err
+	kind, physical := "table", table
+	if e.Storage != nil {
+		kind, physical = e.Storage.Kind, e.Storage.Table
 	}
-	scan, err := scanStep(st.Table, cat)
+	src, ok := sources.ByKind(kind)
+	if !ok {
+		return nil, fmt.Errorf("表 %s: 存储 %s 不存在", table, kind)
+	}
+	scan, err := scanStep(physical, cat)
 	if err != nil {
 		return nil, err
 	}
-	data := core.Col(st.DataColumn)
-	var parts cells.SourceParts
-	parts.Scan, parts.Keys = scan, e.NaturalKey
-	for _, f := range st.Fields {
-		k, ok := sqlKind(f.Type)
-		if !ok {
-			return nil, fmt.Errorf("存储字段 %s: 类型 %s 核心代数还不支持", f.Name, f.Type)
-		}
-		parts.Expand = append(parts.Expand, core.NamedExpr{Name: f.Name, Expr: core.JSONField(data, f.JSONKey(), core.Type{Kind: k})})
-		parts.Logical = append(parts.Logical, core.NamedExpr{Name: f.Name, Expr: core.Col(f.Name)})
-	}
-	parts.Expand = append(parts.Expand, core.NamedExpr{Name: "_action", Expr: core.Col(st.ActionColumn)})
-	for _, c := range st.OrderBy {
-		parts.Expand = append(parts.Expand, core.NamedExpr{Name: "_o_" + c, Expr: core.Col(c)})
-		parts.Order = append(parts.Order, core.SortKey{Col: "_o_" + c, Desc: true})
-	}
-	parts.Names = map[string]*core.Expr{
-		"操作":    core.Col("_action"),
-		"删除值":   core.Const(st.DeleteValue, core.Type{Kind: core.Int32}),
-		"逻辑删除":  core.Const(nil, core.Type{Kind: core.Text}),
-		"逻辑删除值": core.Const("", core.Type{Kind: core.Text}),
-	}
-	if ld := st.LogicalDelete; ld != nil {
-		parts.Expand = append(parts.Expand, core.NamedExpr{Name: "_logical_delete", Expr: core.JSONField(data, ld.Key, core.Type{Kind: core.Text})})
-		parts.Names["逻辑删除"] = core.Col("_logical_delete")
-		parts.Names["逻辑删除值"] = core.Const(ld.Value, core.Type{Kind: core.Text})
-	}
-	return lib.Source("JSON版本", parts)
+	return src.Steps(e.Storage, e.NaturalKey, scan, lib)
 }
 
 // sqlKind: schema 的列类型 → 核心类型(类型的注册表;jsonb 只能作为 json_field 的输入)

@@ -22,6 +22,7 @@ import (
 	"apifactory/factory/ir"
 	"apifactory/factory/kinds"
 	"apifactory/factory/protoload"
+	"apifactory/factory/sources"
 	"apifactory/factory/spec"
 )
 
@@ -60,9 +61,13 @@ func Compile(specs []*spec.Spec) (*ir.Plan, error) {
 			if _, raw := cat.tables[e.Storage.Table]; !raw {
 				return nil, fmt.Errorf("%s: 存储的原始表 %s 不在 db/schema 里", s.Domain.Path, e.Storage.Table)
 			}
+			src, ok := sources.ByKind(e.Storage.Kind) // 逻辑表的列由来源决定
+			if !ok || src.Columns == nil {
+				return nil, fmt.Errorf("%s: 存储 %s 不存在", s.Domain.Path, e.Storage.Kind)
+			}
 			var cols []catColumn
-			for _, f := range e.Storage.Fields {
-				cols = append(cols, catColumn{Name: f.Name, Type: f.Type, NotNull: contains(e.NaturalKey, f.Name)})
+			for _, c := range src.Columns(e.Storage, e.NaturalKey) {
+				cols = append(cols, catColumn{Name: c.Name, Type: c.SQLType, NotNull: c.NotNull})
 			}
 			cat.tables[name] = cols
 		}
@@ -348,7 +353,7 @@ func lowerFirst(s string) string {
 }
 
 func storageIR(view string, nk []string, st *spec.Storage) ir.Storage {
-	out := ir.Storage{View: view, Table: st.Table, NaturalKey: nk, DataColumn: st.DataColumn, ActionColumn: st.ActionColumn,
+	out := ir.Storage{Kind: st.Kind, View: view, Table: st.Table, NaturalKey: nk, DataColumn: st.DataColumn, ActionColumn: st.ActionColumn,
 		DeleteValue: st.DeleteValue, OrderBy: st.OrderBy}
 	if ld := st.LogicalDelete; ld != nil {
 		out.LogicalDeleteKey, out.LogicalDeleteValue = ld.Key, ld.Value

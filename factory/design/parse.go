@@ -12,7 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"apifactory/factory/exits"
-	"apifactory/factory/kinds"
+	"apifactory/factory/sources"
 	"apifactory/factory/spec"
 )
 
@@ -209,7 +209,7 @@ func loadDomain(dir string) (*Domain, error) {
 		d.Enums = append(d.Enums, en)
 	}
 	for _, p := range pairs(get(root, "表")) {
-		checkKeys(e, p.Val, "表 "+p.Key, "说明", "主键", "更新方式", "列", "规则", "存储", "原始表", "存储列", "逻辑删除", "字段", "分库")
+		checkKeys(e, p.Val, "表 "+p.Key, append([]string{"说明", "主键", "更新方式", "列", "规则", "存储", "分库"}, sources.AllKeys()...)...)
 		t := &Table{Name: p.Key, Desc: str(p.Val, "说明"), PrimaryKey: strList(get(p.Val, "主键")), ColDesc: map[string]string{}, ColEnum: map[string]string{}}
 		switch str(p.Val, "更新方式") {
 		case "", "可以更新":
@@ -219,18 +219,18 @@ func loadDomain(dir string) (*Domain, error) {
 		default:
 			e.add(p.Line, "表 %s: 更新方式 只能是 可以更新 / 只追加", p.Key)
 		}
-		switch str(p.Val, "存储") {
-		case "":
-			for _, k := range []string{"原始表", "存储列", "逻辑删除", "字段"} {
+		// 来源的注册表(factory/sources): 不写 存储 = 普通的表
+		if src, ok := sources.ByName(str(p.Val, "存储")); !ok {
+			e.add(p.Line, "表 %s: 存储 只能是 %s(不写 = 普通的表)", p.Key, sources.Names())
+		} else if src.Parse == nil {
+			for _, k := range sources.AllKeys() {
 				if get(p.Val, k) != nil {
-					e.add(p.Line, "表 %s: %s 只有 存储: JSON版本 时才能写", p.Key, k)
+					e.add(p.Line, "表 %s: %s 只能和 存储 一起写", p.Key, k)
 				}
 			}
-		case "JSON版本":
+		} else {
 			t.Policy = "versioned"
-			t.Storage = parseStorage(e, p.Key, p.Val, t)
-		default:
-			e.add(p.Line, "表 %s: 存储 只能是 JSON版本(不写 = 普通的表)", p.Key)
+			t.Storage = src.Parse(tableReader{e: e, name: p.Key, n: p.Val, t: t})
 		}
 		if len(t.PrimaryKey) == 0 {
 			e.add(p.Line, "表 %s: 缺少 主键", p.Key)
@@ -271,81 +271,6 @@ func loadDomain(dir string) (*Domain, error) {
 		return nil, err
 	}
 	return d, nil
-}
-
-// parseStorage: 存储: JSON版本 的表。
-//
-//	原始表: product_events            # 物理表(每次变更追加一行)
-//	存储列: { 数据: data, 操作: action_type, 删除值: 1, 登记顺序: [registered_at, id] }   # 可省略,这是默认值
-//	逻辑删除: deleted = 1              # 可省略
-//	字段:                              # 逻辑表的列(顺序 = 视图的列顺序)
-//	  product_id: { 类型: 整数32, 说明: 商品ID }
-//	  valid_from: { 类型: 整数32, 键: from, 说明: 生效开始日 }   # 键 = JSON 里的名字(默认 = 列名)
-func parseStorage(e *errs, name string, n *yaml.Node, t *Table) *spec.Storage {
-	st := &spec.Storage{Kind: "json_versions", Table: str(n, "原始表"), DataColumn: "data", ActionColumn: "action_type", DeleteValue: 1, OrderBy: []string{"registered_at", "id"}}
-	if st.Table == "" {
-		e.add(n.Line, "表 %s: 存储: JSON版本 需要 原始表(物理表名)", name)
-	}
-	if st.Table == name {
-		e.add(n.Line, "表 %s: 原始表 不能和逻辑表同名(两个名字都要在 catalog 里: 原始表给 scan,逻辑表给 API)", name)
-	}
-	if sc := get(n, "存储列"); sc != nil {
-		checkKeys(e, sc, "表 "+name+" 的存储列", "数据", "操作", "删除值", "登记顺序")
-		if v := str(sc, "数据"); v != "" {
-			st.DataColumn = v
-		}
-		if v := str(sc, "操作"); v != "" {
-			st.ActionColumn = v
-		}
-		if v := str(sc, "删除值"); v != "" {
-			if _, err := fmt.Sscan(v, &st.DeleteValue); err != nil {
-				e.add(sc.Line, "表 %s: 删除值 必须是整数", name)
-			}
-		}
-		if v := strList(get(sc, "登记顺序")); len(v) > 0 {
-			st.OrderBy = v
-		}
-	}
-	if ld := str(n, "逻辑删除"); ld != "" {
-		k, v, ok := strings.Cut(ld, "=")
-		if !ok {
-			e.add(n.Line, "表 %s: 逻辑删除 写成「键 = 值」(例如 deleted = 1)", name)
-		} else {
-			st.LogicalDelete = &spec.LogicalDelete{Key: strings.TrimSpace(k), Value: strings.TrimSpace(v)}
-		}
-	}
-	for _, c := range pairs(get(n, "字段")) {
-		checkKeys(e, c.Val, "表 "+name+" 的字段 "+c.Key, "类型", "键", "说明", "枚举")
-		typ := str(c.Val, "类型")
-		sqlType, ok := "", false
-		if k, found := kinds.ByName(typ); found && len(k.SQL) > 0 {
-			sqlType, ok = k.CanonicalSQL(), true
-		}
-		if en := str(c.Val, "枚举"); en != "" {
-			t.ColEnum[c.Key] = en
-			if typ == "" {
-				sqlType, ok = "int4", true
-			}
-		}
-		if !ok {
-			e.add(c.Line, "表 %s 的字段 %s: 类型 %q 无法识别(%s)", name, c.Key, typ, kinds.Names())
-		}
-		st.Fields = append(st.Fields, spec.StorageField{Name: c.Key, Key: str(c.Val, "键"), Type: sqlType})
-		t.ColDesc[c.Key] = str(c.Val, "说明")
-	}
-	if len(st.Fields) == 0 {
-		e.add(n.Line, "表 %s: 存储: JSON版本 需要 字段", name)
-	}
-	for _, k := range t.PrimaryKey {
-		found := false
-		for _, f := range st.Fields {
-			found = found || f.Name == k
-		}
-		if !found {
-			e.add(n.Line, "表 %s: 主键 %s 不在 字段 里", name, k)
-		}
-	}
-	return st
 }
 
 func loadQA(path string) ([]QA, error) {
@@ -623,3 +548,25 @@ func (r designReader) Order(key string) ([]string, bool, error) {
 	return parseOrder(strList(get(r.root, key)))
 }
 func (r designReader) Err(format string, args ...any) { r.e.add(r.root.Line, format, args...) }
+
+// tableReader: 来源读领域里一张表的写法(sources.Domain)。
+type tableReader struct {
+	e    *errs
+	name string
+	n    *yaml.Node
+	t    *Table
+}
+
+func (r tableReader) Name() string         { return r.name }
+func (r tableReader) Node() *yaml.Node     { return r.n }
+func (r tableReader) PrimaryKey() []string { return r.t.PrimaryKey }
+func (r tableReader) CheckKeys(n *yaml.Node, where string, keys ...string) {
+	checkKeys(r.e, n, where, keys...)
+}
+func (r tableReader) Err(line int, format string, args ...any) { r.e.add(line, format, args...) }
+func (r tableReader) Column(name, desc, enum string) {
+	r.t.ColDesc[name] = desc
+	if enum != "" {
+		r.t.ColEnum[name] = enum
+	}
+}

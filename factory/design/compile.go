@@ -19,6 +19,7 @@ import (
 	"apifactory/factory/cells"
 	"apifactory/factory/compiler"
 	"apifactory/factory/kinds"
+	"apifactory/factory/sources"
 	"apifactory/factory/spec"
 )
 
@@ -99,9 +100,13 @@ func CompileDir(dir string, m *adapter.Manifest) ([]string, error) {
 		if t.Storage == nil {
 			continue
 		}
+		src, ok := sources.ByKind(t.Storage.Kind) // 逻辑表的列由来源决定
+		if !ok || src.Columns == nil {
+			return nil, fmt.Errorf("表 %s: 存储 %s 不存在", name, t.Storage.Kind)
+		}
 		var cols []compiler.Column
-		for _, f := range t.Storage.Fields {
-			cols = append(cols, compiler.Column{Name: f.Name, Type: f.Type, NotNull: contains(t.PrimaryKey, f.Name)})
+		for _, c := range src.Columns(t.Storage, t.PrimaryKey) {
+			cols = append(cols, compiler.Column{Name: c.Name, Type: c.SQLType, NotNull: c.NotNull})
 		}
 		cat[name] = cols
 	}

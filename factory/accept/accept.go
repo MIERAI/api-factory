@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"apifactory/factory/ir"
+	"apifactory/factory/sources"
 	"apifactory/factory/spec"
 )
 
@@ -458,43 +459,31 @@ func loadStorageRows(ctx context.Context, d *dbs, plan *ir.Plan, st *ir.Storage,
 		}
 		orderTypes[c] = t
 	}
-	keyOf := map[string]string{}
-	for _, f := range st.Fields {
-		keyOf[f.Name] = f.Key
+	src, ok := sources.ByKind(st.Kind) // 逻辑表的一行 → 物理表的一行: 由来源决定
+	if !ok || src.Row == nil {
+		return fmt.Errorf("%s: 存储 %s 不存在", st.View, st.Kind)
 	}
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	for i, row := range rows {
-		data := map[string]any{}
-		action := int64(0)
-		for col, v := range row {
-			if col == spec.FixtureAction {
-				switch v {
-				case spec.ActionDelete:
-					action = st.DeleteValue
-				case spec.ActionLogicalDelete:
-					data[st.LogicalDeleteKey] = st.LogicalDeleteValue
-				default:
-					return fmt.Errorf("%s: unknown action %v", spec.FixtureAction, v)
-				}
-				continue
-			}
-			key, ok := keyOf[col]
-			if !ok {
-				return fmt.Errorf("%s has no field %s", st.View, col)
-			}
-			x, err := fixtureValue(plan, st.View, col, v)
-			if err != nil {
-				return err
-			}
-			data[key] = x
-		}
-		b, err := json.Marshal(data)
+		ph, err := src.Row(st, row, func(col string, v any) (any, error) { return fixtureValue(plan, st.View, col, v) })
 		if err != nil {
 			return err
 		}
-		cols := []string{pgx.Identifier{st.DataColumn}.Sanitize(), pgx.Identifier{st.ActionColumn}.Sanitize()}
-		args := []any{string(b), action}
-		for _, c := range st.OrderBy {
+		var cols []string
+		var args []any
+		names := make([]string, 0, len(ph.Values))
+		for c := range ph.Values {
+			names = append(names, c)
+		}
+		sort.Strings(names)
+		for _, c := range names {
+			cols = append(cols, pgx.Identifier{c}.Sanitize())
+			args = append(args, ph.Values[c])
+		}
+		for _, c := range st.OrderBy { // 行的顺序 = 登记的顺序
+			if !ph.Order {
+				break
+			}
 			var v any
 			switch orderTypes[c] {
 			case "timestamp with time zone", "timestamp without time zone":
