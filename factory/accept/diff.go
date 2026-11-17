@@ -79,7 +79,6 @@ type jsonKey struct {
 // collect: 遍历流水线的表达式,收集 json_field 的键和常量。
 func (e *diffEnv) collect() {
 	e.json, e.consts = map[string][]jsonKey{}, map[core.Kind][]any{}
-	seen := map[string]bool{}
 	var walk func(x *core.Expr)
 	e.keyCol = map[string]string{}
 	e.constFor, e.nkCols, e.groupCols = map[string][]any{}, map[string]bool{}, map[string]bool{}
@@ -127,9 +126,21 @@ func (e *diffEnv) collect() {
 		}
 		switch x.Op {
 		case "json_field":
-			if c := x.Args[0]; c.Op == "col" && !seen[c.Name+"."+x.Name+string(x.Type.Kind)] {
-				seen[c.Name+"."+x.Name+string(x.Type.Kind)] = true
-				e.json[c.Name] = append(e.json[c.Name], jsonKey{x.Name, x.Type.Kind})
+			if c := x.Args[0]; c.Op == "col" {
+				// 同一个键可能有两种用法(例: f_del 既是逻辑删除的键(按文本比较),又是整数的字段):
+				// 只生成一种值,按更严格的类型(非文本)—— 否则会生成整数字段读不了的文本,查询失败
+				found := false
+				for i, k := range e.json[c.Name] {
+					if k.key == x.Name {
+						found = true
+						if k.kind == core.Text && x.Type.Kind != core.Text {
+							e.json[c.Name][i].kind = x.Type.Kind
+						}
+					}
+				}
+				if !found {
+					e.json[c.Name] = append(e.json[c.Name], jsonKey{x.Name, x.Type.Kind})
+				}
 			}
 		case "const":
 			if x.Value != nil && x.Type != nil {
@@ -303,7 +314,7 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 	if len(env.userParams()) == 0 { // 没有输入: 只有一种请求,"0 行"的情况不存在
 		okCover = hits["1"]+hits["n"] > 0
 	}
-	if ex.DiffMulti {
+	if ex.DiffMulti && !env.atMostOneRow() {
 		okCover = okCover && hits["n"] > 0
 	}
 	if ex.DiffCover != nil {
@@ -350,6 +361,27 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 // ---------------------------------------------------------------------------
 // 数据
 // ---------------------------------------------------------------------------
+
+// atMostOneRow: 每个合法的请求最多返回 1 行(多版本来源的自然键全部被必填的"等于"固定)。
+// 这时"多行的结果"不可能出现,出口的这个覆盖条件不要求。(普通的表的主键要查约束,还没有处理。)
+func (e *diffEnv) atMostOneRow() bool {
+	if len(e.nkCols) == 0 {
+		return false
+	}
+	fixed := map[string]bool{}
+	for _, d := range e.api.Pipeline.Params {
+		f, ok := e.filter[d.Name]
+		if ok && d.Required && !d.List && f.Op == "eq" && len(f.Columns) == 0 {
+			fixed[f.Column] = true
+		}
+	}
+	for c := range e.nkCols {
+		if !fixed[c] {
+			return false
+		}
+	}
+	return true
+}
 
 // uniqueColumns: 需要唯一序号的列。单列的主键 / 唯一约束 → 这一列;
 // 复合的 → 最后一列(前面的列保持小值域,形成分组: 例如 (order_id, line_no) 每个订单有多行)。
@@ -1295,7 +1327,7 @@ func (e *diffEnv) planned(reqs []core.Params) bool {
 	if len(e.userParams()) == 0 {
 		ok = hits["1"]+hits["n"] > 0
 	}
-	if e.exit.DiffMulti {
+	if e.exit.DiffMulti && !e.atMostOneRow() {
 		ok = ok && hits["n"] > 0
 	}
 	if e.exit.DiffRowsNeed != nil { // 出口要的数据(分页: ≥5 行;前N条: 超过 N 行的请求 ≥3)

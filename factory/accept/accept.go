@@ -247,6 +247,7 @@ func runStep(url string, reqBody map[string]any, expect spec.Expect, out *ir.Mes
 // match 比对期待值与实际值,不一致时返回说明。fd 是该字段的 proto 描述符(未知时为 nil)。
 //
 //   - "$absent"   : 字段不在响应 JSON 里(未设置;非 optional 字段的零值也会被 protojson 省略)
+//   - null        : 没有值(有 presence 的字段 = 未设置;其他字段 = 零值)
 //   - "$nonempty" : 字段存在且非零值
 //   - map         : 只比对期待值里写出的键(部分一致)
 //   - 数组        : 长度相同,逐个元素比对
@@ -306,6 +307,15 @@ func match(path string, want, got any, fd *ir.Field) string {
 			if msg := match(fmt.Sprintf("%s[%d]", path, i), w[i], g[i], fd); msg != "" {
 				return msg
 			}
+		}
+		return ""
+	}
+	if want == nil { // 设计稿里写 null = "没有值": 有 presence 的字段 = 未设置;其他字段 = 零值(protojson 省略)
+		if presence && got != nil {
+			return fmt.Sprintf("%s: want unset (null), got %v", path, got)
+		}
+		if !presence && !isZero(got) {
+			return fmt.Sprintf("%s: want null / zero, got %v", path, got)
 		}
 		return ""
 	}
