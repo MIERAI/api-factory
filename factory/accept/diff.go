@@ -1320,10 +1320,18 @@ func (e *diffEnv) sensitivity(reqs []core.Params) (weak []string, total int) {
 		return b.String()
 	}
 	base := map[int]string{}
+	distinct := map[string]bool{}
 	for i, ps := range valid {
 		base[i] = eval(p, ps)
+		b, _ := json.Marshal(ps)
+		distinct[string(b)] = true
 	}
+	// 要求 ≥3 个请求;可能的请求本来就不到 3 种(例如没有输入的 API 只有 1 种)时,要求每一种
+	need := min(3, len(distinct))
 	for _, t := range targets {
+		if !refersColumn(t.node) { // 不引用任何列的条件(例如没有逻辑删除列时的恒真项)不会让结果变化
+			continue
+		}
 		mut := *p
 		mut.Steps = append([]core.Step(nil), p.Steps...)
 		mut.Steps[t.step].Pred = replaceExpr(p.Steps[t.step].Pred, t.node, core.Const(true, core.Type{Kind: core.Bool}))
@@ -1334,11 +1342,26 @@ func (e *diffEnv) sensitivity(reqs []core.Params) (weak []string, total int) {
 			}
 		}
 		total++
-		if n < 3 {
+		if n < need {
 			weak = append(weak, fmt.Sprintf("%s(%d 个请求)", t.desc, n))
 		}
 	}
 	return weak, total
+}
+
+func refersColumn(x *core.Expr) bool {
+	if x == nil {
+		return false
+	}
+	if x.Op == "col" || x.Op == "tuple_after" {
+		return true
+	}
+	for _, a := range x.Args {
+		if refersColumn(a) {
+			return true
+		}
+	}
+	return false
 }
 
 // replaceExpr: 复制表达式树,把节点 target 换成 with(按指针)。
