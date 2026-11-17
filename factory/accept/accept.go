@@ -34,7 +34,7 @@ type Result struct {
 
 // Run 对每份式样书灌入 fixture 并执行用例。baseURL 是被测服务器,fixturesDB 只用来灌数据。
 func Run(ctx context.Context, baseURL, fixturesDB string, plan *ir.Plan, specs []*spec.Spec) ([]Result, error) {
-	conn, err := pgx.Connect(ctx, fixturesDB)
+	conn, err := connect(ctx, fixturesDB)
 	if err != nil {
 		return nil, fmt.Errorf("connect db: %w", err)
 	}

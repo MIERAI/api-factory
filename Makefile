@@ -33,7 +33,7 @@ db-up:            ## 启动本地 Postgres 并应用 schema
 	@docker start $(PG_NAME) >/dev/null 2>&1 || docker run -d --name $(PG_NAME) \
 		-e POSTGRES_USER=factory -e POSTGRES_PASSWORD=factory -e POSTGRES_DB=factory \
 		-e POSTGRES_INITDB_ARGS="--locale-provider=icu --icu-locale=en-US" \
-		-p $(FACTORY_DB_PORT):5432 postgres:16-alpine >/dev/null
+		-p $(FACTORY_DB_PORT):5432 postgres:16-alpine -c max_connections=1000 >/dev/null
 	@until docker exec $(PG_NAME) psql -U factory -d factory -c "select 1" >/dev/null 2>&1; do sleep 0.5; done
 	@$(MAKE) --no-print-directory db-schema
 

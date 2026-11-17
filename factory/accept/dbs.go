@@ -6,8 +6,10 @@ package accept
 import (
 	"context"
 	"fmt"
+	neturl "net/url"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -43,7 +45,7 @@ func (d *dbs) conn(url string) (*pgx.Conn, error) {
 	if c, ok := d.conns[url]; ok {
 		return c, nil
 	}
-	c, err := pgx.Connect(d.ctx, url)
+	c, err := connect(d.ctx, url)
 	if err != nil {
 		return nil, fmt.Errorf("shard %s: %w", url, err)
 	}
@@ -102,4 +104,19 @@ func (d *dbs) targets(sh *ir.Shard) ([]*pgx.Conn, error) {
 		return []*pgx.Conn{d.main}, nil
 	}
 	return d.all()
+}
+
+// connect: 单个连接。URL 里给服务器连接池的参数(pool_max_conns 等)去掉,否则会被当成 Postgres 的运行参数。
+func connect(ctx context.Context, raw string) (*pgx.Conn, error) {
+	if u, err := neturl.Parse(raw); err == nil {
+		q := u.Query()
+		for k := range q {
+			if strings.HasPrefix(k, "pool_") {
+				q.Del(k)
+			}
+		}
+		u.RawQuery = q.Encode()
+		raw = u.String()
+	}
+	return pgx.Connect(ctx, raw)
 }

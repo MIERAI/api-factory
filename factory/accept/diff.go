@@ -976,31 +976,8 @@ func (e *diffEnv) sweep(seen map[string]bool) []core.Params {
 			}
 		}
 		sort.Strings(staleKeys)
-		// 取最新之后被来源的每一项条件(删除 / 逻辑删除 …)淘汰的键,每项各 3 个优先(条件的敏感度要 ≥3 个请求)
-		var first []string
-		picked := map[string]bool{}
-		for _, rows := range removed {
-			n := 0
-			for _, r := range rows {
-				k := core.Canonical(r[f.Column])
-				if _, ok := staleVal[k]; !ok || picked[k] {
-					continue
-				}
-				picked[k] = true
-				first = append(first, k)
-				if n++; n == 3 {
-					break
-				}
-			}
-		}
-		for _, k := range staleKeys {
-			if !picked[k] {
-				first = append(first, k)
-			}
-		}
-		staleKeys = first
-		if limit := max(8, len(picked)); len(staleKeys) > limit {
-			staleKeys = staleKeys[:limit]
+		if len(staleKeys) > 8 {
+			staleKeys = staleKeys[:8]
 		}
 		withRequired := func(anchor core.Row, ps core.Params) core.Params {
 			for _, o := range params {
@@ -1021,6 +998,24 @@ func (e *diffEnv) sweep(seen map[string]bool) []core.Params {
 				ps[o.Name] = v
 			}
 			return ps
+		}
+		// 取最新之后被来源的每一项条件(删除 / 逻辑删除 …)淘汰的行: 每项各 3 行,用那一行本身发请求
+		// (复合键时同一个值在别的组里可能还是现存的,所以不能只看"只在旧版本里出现的值")
+		for _, rows := range removed {
+			n := 0
+			for _, r := range rows {
+				v := r[f.Column]
+				if v == nil {
+					continue
+				}
+				if d.List {
+					v = []any{v}
+				}
+				add(withRequired(r, core.Params{d.Name: v}))
+				if n++; n == 3 {
+					break
+				}
+			}
 		}
 		if f.Op == "prefix" || f.Op == "前缀匹配" {
 			var anchor core.Row

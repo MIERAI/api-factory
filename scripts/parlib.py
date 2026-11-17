@@ -52,8 +52,9 @@ class Workers:
                     if r.returncode and "already exists" not in r.stderr:
                         raise SystemExit(f"✗ CREATE DATABASE {db}: {r.stderr}")
                 jobs.append((db, sql))
-            self.q.put((f"{BASE}/{names[0]}?sslmode=disable",
-                        f"1-2={BASE}/{names[1]}?sslmode=disable;*={BASE}/{names[2]}?sslmode=disable"))
+            # 测试服务器的连接池限制为 4(默认 = CPU 数;很多服务器同时跑时 Postgres 的连接会用光 → UNAVAILABLE)
+            q = "sslmode=disable&pool_max_conns=4"
+            self.q.put((f"{BASE}/{names[0]}?{q}", f"1-2={BASE}/{names[1]}?{q};*={BASE}/{names[2]}?{q}"))
         import concurrent.futures as cf
         with cf.ThreadPoolExecutor(max_workers=min(len(jobs), CPUS)) as ex:  # schema 也并行
             for (db, _), r in zip(jobs, ex.map(lambda j: _psql(j[0], j[1]), jobs)):
