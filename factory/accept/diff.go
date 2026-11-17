@@ -1655,6 +1655,19 @@ type sensTarget struct {
 	step int
 	node *core.Expr
 	desc string
+	// mutate: 对流水线的另一种改动(每组取一条的顺序反过来 / 可以为空的键去掉空值 …)。nil = 把 node 换成恒真
+	mutate func(p *core.Pipeline) *core.Pipeline
+}
+
+// mutated: 这个对象对应的"错误的实现"(覆盖条件要求 ≥3 个请求能把它和正确的结果区分开)。
+func (t sensTarget) mutated(p *core.Pipeline) *core.Pipeline {
+	if t.mutate != nil {
+		return t.mutate(p)
+	}
+	mut := *p
+	mut.Steps = append([]core.Step(nil), p.Steps...)
+	mut.Steps[t.step].Pred = replaceExpr(p.Steps[t.step].Pred, t.node, core.Const(true, core.Type{Kind: core.Bool}))
+	return &mut
 }
 
 func (e *diffEnv) sensTargets() []sensTarget {
@@ -1672,7 +1685,7 @@ func (e *diffEnv) sensTargets() []sensTarget {
 		if st.Pred.Op == "tuple_after" { // 分页的游标: 由出口用例测
 			continue
 		}
-		targets = append(targets, sensTarget{i, st.Pred, st.From})
+		targets = append(targets, sensTarget{step: i, node: st.Pred, desc: st.From})
 		var walk func(x *core.Expr)
 		walk = func(x *core.Expr) {
 			if x == nil {
@@ -1680,7 +1693,7 @@ func (e *diffEnv) sensTargets() []sensTarget {
 			}
 			if x.Op == "and" {
 				for j, a := range x.Args {
-					targets = append(targets, sensTarget{i, a, fmt.Sprintf("%s 的第 %d 项", st.From, j+1)})
+					targets = append(targets, sensTarget{step: i, node: a, desc: fmt.Sprintf("%s 的第 %d 项", st.From, j+1)})
 				}
 			}
 			for _, a := range x.Args {
@@ -1693,6 +1706,42 @@ func (e *diffEnv) sensTargets() []sensTarget {
 	for _, t := range targets {
 		if refersColumn(t.node) { // 不引用任何列的条件(没有逻辑删除列时的恒真项)不会让结果变化
 			out = append(out, t)
+		}
+	}
+	for i, st := range p.Steps {
+		if st.Kind != "pick_per_key" {
+			continue
+		}
+		source := strings.HasPrefix(st.From, "来源 ")
+		if !source { // 每组取一条: 组内的顺序反过来(取最大 ↔ 取最小)要看得出来 —— 只靠"淘汰了候选"不够,候选的输出可能都一样
+			i := i
+			out = append(out, sensTarget{desc: st.From + " 的顺序", mutate: func(p *core.Pipeline) *core.Pipeline {
+				mut := *p
+				mut.Steps = append([]core.Step(nil), p.Steps...)
+				order := append([]core.SortKey(nil), p.Steps[i].Order...)
+				for j := range order {
+					order[j].Desc = !order[j].Desc
+				}
+				mut.Steps[i].Order = order
+				return &mut
+			}})
+			continue
+		}
+		// 多版本来源的可以为空的键: 键为空的行要出现在结果里(丢掉它们的实现要看得出来)
+		before := &core.Pipeline{Steps: p.Steps[:i], Params: p.Params}
+		schema, err := core.Check(before)
+		if err != nil {
+			continue
+		}
+		for _, k := range st.Keys {
+			if t, ok := schema.Col(k); ok && t.Nullable {
+				i, k := i, k
+				out = append(out, sensTarget{desc: "可以为空的键 " + k, mutate: func(p *core.Pipeline) *core.Pipeline {
+					mut := *p
+					mut.Steps = append(append(append([]core.Step(nil), p.Steps[:i]...), core.Filter(core.Not(core.IsNull(core.Col(k))))), p.Steps[i:]...)
+					return &mut
+				}})
+			}
 		}
 	}
 	return out
@@ -1758,7 +1807,7 @@ func (e *diffEnv) directed(reqs []core.Params, seen map[string]bool) []core.Para
 	for _, t := range e.sensTargets() {
 		n := 0
 		for _, ps := range valid {
-			if e.sensitive(ps, t.step, t.node) {
+			if e.sensitiveTo(ps, t) {
 				if n++; n >= 3 {
 					break
 				}
@@ -1774,7 +1823,7 @@ func (e *diffEnv) directed(reqs []core.Params, seen map[string]bool) []core.Para
 				if seen[k] {
 					continue
 				}
-				if bad, err := e.invalid(e.request(ps)); err != nil || bad || !e.sensitive(ps, t.step, t.node) {
+				if bad, err := e.invalid(e.request(ps)); err != nil || bad || !e.sensitiveTo(ps, t) {
 					continue
 				}
 				seen[k] = true
@@ -1805,12 +1854,10 @@ func (e *diffEnv) sensCounts(reqs []core.Params) (descs []string, counts []int, 
 		seen[string(b)] = true
 	}
 	for _, t := range targets {
-		mut := *p
-		mut.Steps = append([]core.Step(nil), p.Steps...)
-		mut.Steps[t.step].Pred = replaceExpr(p.Steps[t.step].Pred, t.node, core.Const(true, core.Type{Kind: core.Bool}))
+		mut := t.mutated(p)
 		n := 0
 		for i, ps := range valid {
-			if e.evalCanon(&mut, ps) != base[i] {
+			if e.evalCanon(mut, ps) != base[i] {
 				n++
 			}
 		}
@@ -1873,11 +1920,12 @@ func (e *diffEnv) evalCanon(pl *core.Pipeline, ps core.Params) string {
 
 // sensitive: 把第 step 步条件里的 node 换成恒真后,这个请求的结果变不变。
 func (e *diffEnv) sensitive(ps core.Params, step int, node *core.Expr) bool {
-	p := e.api.Pipeline
-	mut := *p
-	mut.Steps = append([]core.Step(nil), p.Steps...)
-	mut.Steps[step].Pred = replaceExpr(p.Steps[step].Pred, node, core.Const(true, core.Type{Kind: core.Bool}))
-	return e.evalCanon(&mut, ps) != e.evalCanon(p, ps)
+	return e.sensitiveTo(ps, sensTarget{step: step, node: node})
+}
+
+// sensitiveTo: 这个请求能不能把正确的结果和 t 对应的错误实现区分开。
+func (e *diffEnv) sensitiveTo(ps core.Params, t sensTarget) bool {
+	return e.evalCanon(t.mutated(e.api.Pipeline), ps) != e.evalCanon(e.api.Pipeline, ps)
 }
 
 // replaceExpr: 复制表达式树,把节点 target 换成 with(按指针)。
