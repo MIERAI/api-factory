@@ -505,3 +505,6 @@ func FromPGText(s *string, k Kind) (any, error) {
 	}
 	return castText(*s, k)
 }
+
+// Compare: 两个值的顺序(和排序一样的规则;NULL 最大)。验收的数据生成用。
+func Compare(a, b any) int { return compareNullsLarge(a, b) }

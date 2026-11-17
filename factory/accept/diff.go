@@ -298,6 +298,11 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 				}
 				reqs = env.requests()
 			}
+			if len(reqs) > 0 && k%3 != 2 { // 定向造数据: 2/3 的数据让结果里的那一行的最新版本是删除 / 逻辑删除
+				if err := env.injectRemoval(reqs[0], k%3); err != nil {
+					return fail("数据(删除的版本): %v", err)
+				}
+			}
 			rs, cov := env.measure(url, reqs, inserted, rejected, fmt.Sprintf("数据 %d ", k+1))
 			results = append(results, rs...)
 			total.add(cov)
@@ -312,6 +317,134 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 		text += fmt.Sprintf(" / 数据生成 %d 次(覆盖条件不满足时换种子、数据加倍重来;最后 %d 倍)", attempts, env.scale)
 	}
 	return append(results, Result{Spec: api.ID, Suite: "diff", Case: "覆盖条件", Passed: ok, Detail: text})
+}
+
+// injectRemoval: 定向造数据(多版本的来源)。没有输入的 API 只有一种请求,删除 / 逻辑删除要看得出来,
+// 结果里的那一行的键就要有"最新的版本是删除"。在当前结果的第一行的键上追加一个更新的版本:
+// mode 0 = 操作列 = 删除值;mode 1 = 逻辑删除的键 = 逻辑删除值(没有逻辑删除时用 mode 0)。
+// 不处理删除的实现会把这一行返回出来 → 结果一定不同。
+func (e *diffEnv) injectRemoval(req core.Params, mode int) error {
+	st := e.plan.Storage(e.api.Table)
+	if st == nil || len(st.NaturalKey) == 0 {
+		return nil
+	}
+	res, err := core.Eval(e.api.Pipeline, map[string][]core.Row{e.table: e.rowsFor(req)}, req)
+	if err != nil || len(res.Rows) == 0 {
+		return err
+	}
+	top := res.Rows[0]
+	// 结果的一行 → 来源的逻辑行(输出的列全部相等;改名的输出按来源的列)
+	var anchor core.Row
+	for _, a := range e.anchors {
+		match, n := true, 0
+		for _, c := range res.Columns {
+			col := c.Name
+			if src, ok := e.api.Rename[col]; ok {
+				col = src
+			}
+			if v, ok := a[col]; ok {
+				n++
+				if core.Canonical(v) != core.Canonical(top[c.Name]) {
+					match = false
+					break
+				}
+			}
+		}
+		if match && n > 0 {
+			anchor = a
+			break
+		}
+	}
+	if anchor == nil {
+		return nil
+	}
+	keyOf := map[string]string{} // 逻辑列 → JSON 的键
+	for _, f := range st.Fields {
+		keyOf[f.Name] = f.Key
+	}
+	// 这个键最新的物理行(按登记顺序)当模板
+	best := -1
+	for i, r := range e.rows {
+		doc, _ := r[st.DataColumn].(map[string]any)
+		same := doc != nil
+		for _, k := range st.NaturalKey {
+			if !same {
+				break
+			}
+			same = core.Canonical(jsonScalar(doc[keyOf[k]])) == core.Canonical(jsonScalar(anchor[k]))
+		}
+		if same && (best < 0 || newer(r, e.rows[best], st.OrderBy)) {
+			best = i
+		}
+	}
+	if best < 0 {
+		return nil
+	}
+	row := core.Row{}
+	for k, v := range e.rows[best] {
+		row[k] = v
+	}
+	doc := map[string]any{}
+	for k, v := range e.rows[best][st.DataColumn].(map[string]any) {
+		doc[k] = v
+	}
+	if mode == 1 && st.LogicalDeleteKey != "" {
+		doc[st.LogicalDeleteKey] = st.LogicalDeleteValue
+	} else {
+		row[st.ActionColumn] = st.DeleteValue
+	}
+	b, _ := json.Marshal(doc)
+	row[st.DataColumn] = string(b)
+	for _, c := range st.OrderBy { // 比所有的行都新
+		var mx any
+		for _, r := range e.rows {
+			if mx == nil || core.Compare(r[c], mx) > 0 {
+				mx = r[c]
+			}
+		}
+		switch x := mx.(type) {
+		case int64:
+			row[c] = x + 1
+		case time.Time:
+			row[c] = x.Add(time.Second)
+		}
+	}
+	var names, holders []string
+	var args []any
+	for i, c := range e.cols {
+		names = append(names, pgx.Identifier{c.Name}.Sanitize())
+		holders = append(holders, fmt.Sprintf("$%d::%s", i+1, c.Type.Kind.SQLType()))
+		args = append(args, sqlValue(row[c.Name]))
+	}
+	conn := e.rowDB[best]
+	if _, err := conn.Exec(e.ctx, fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", pgx.Identifier{e.table}.Sanitize(),
+		strings.Join(names, ", "), strings.Join(holders, ", ")), args...); err != nil {
+		return err
+	}
+	row[st.DataColumn] = doc
+	e.rows = append(e.rows, row)
+	e.rowDB = append(e.rowDB, conn)
+	return e.loadAnchors()
+}
+
+// jsonScalar: JSON 里的数字(json.Number)→ 和逻辑行一样的值(比较用)。
+func jsonScalar(v any) any {
+	if n, ok := v.(json.Number); ok {
+		if i, err := n.Int64(); err == nil {
+			return i
+		}
+		return n.String()
+	}
+	return v
+}
+
+func newer(a, b core.Row, order []string) bool {
+	for _, c := range order {
+		if d := core.Compare(a[c], b[c]); d != 0 {
+			return d > 0
+		}
+	}
+	return false
 }
 
 // coverage: 一份(或累计的几份)数据上的覆盖。
