@@ -66,6 +66,12 @@ func ToSQL(p *Pipeline, opt Options) (*SQL, error) {
 	if err != nil {
 		return nil, err
 	}
+	if q := pushdown(p); q != p {
+		if _, err := Check(q); err != nil {
+			return nil, fmt.Errorf("筛选下推后的流水线不合法(工厂的 bug): %w", err)
+		}
+		p = q
+	}
 	g := &sqlGen{p: p, index: map[string]int{}, ref: opt.ParamRef}
 	var lv *sqlLevel
 	for _, st := range p.Steps {
@@ -160,11 +166,7 @@ func (g *sqlGen) render(lv *sqlLevel, textOutput bool) (string, error) {
 	var b strings.Builder
 	b.WriteString("SELECT ")
 	if lv.distinct != nil {
-		var ks []string
-		for _, k := range lv.distinct {
-			ks = append(ks, lv.alias+"."+quoteIdent(k))
-		}
-		fmt.Fprintf(&b, "DISTINCT ON (%s) ", strings.Join(ks, ", "))
+		fmt.Fprintf(&b, "DISTINCT ON (%s) ", strings.Join(g.distinctKeys(lv), ", "))
 	}
 	b.WriteString(strings.Join(sel, ", "))
 	b.WriteString("\nFROM " + lv.from)
@@ -173,9 +175,7 @@ func (g *sqlGen) render(lv *sqlLevel, textOutput bool) (string, error) {
 	}
 	var order []string
 	if lv.distinct != nil {
-		for _, k := range lv.distinct {
-			order = append(order, lv.alias+"."+quoteIdent(k))
-		}
+		order = append(order, g.distinctKeys(lv)...)
 		order = append(order, g.orderItems(lv, lv.dOrder)...)
 	}
 	order = append(order, g.orderItems(lv, lv.order)...)
@@ -186,6 +186,20 @@ func (g *sqlGen) render(lv *sqlLevel, textOutput bool) (string, error) {
 		b.WriteString("\nLIMIT " + lv.limit)
 	}
 	return b.String(), nil
+}
+
+// distinctKeys: 每组取一条的分组键。文本键也用 COLLATE "C"(分组不受影响: 确定性排序规则的相等就是按字节相等),
+// 这样组的顺序和后面按键排序(COLLATE "C")一致,配上表达式索引,数据库可以边读索引边输出,读够 LIMIT 就停。
+func (g *sqlGen) distinctKeys(lv *sqlLevel) []string {
+	var ks []string
+	for _, k := range lv.distinct {
+		e := lv.alias + "." + quoteIdent(k)
+		if t, _ := lv.in.Col(k); t.Kind == Text {
+			e += ` COLLATE "C"`
+		}
+		ks = append(ks, e)
+	}
+	return ks
 }
 
 func (g *sqlGen) orderItems(lv *sqlLevel, order []SortKey) []string {

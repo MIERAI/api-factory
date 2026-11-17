@@ -7,3 +7,6 @@ CREATE TABLE IF NOT EXISTS product_events (
     registered_by TEXT        NOT NULL DEFAULT 'factory',
     registered_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- 每个商品取最新版本: 按 (商品代码 字节序, 登记顺序 新→旧) 读索引,数据库可以边读边去重,读够条数就停
+CREATE INDEX IF NOT EXISTS product_events_code_latest_idx
+    ON product_events (((data ->> 'product_code') COLLATE "C"), registered_at DESC, id DESC);

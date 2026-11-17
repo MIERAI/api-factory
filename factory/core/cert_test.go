@@ -245,6 +245,20 @@ func TestCertification(t *testing.T) {
 		}
 		env.check(fmt.Sprintf("组合 p=%v", v), comp, ps)
 	}
+	// 11b. 筛选下推: 只引用分组键的条件移到 pick_per_key 之前(SQL 侧);参考求值器跑原样,两边必须一致。
+	// 文本键 t(大小写不同的值: 分组用 COLLATE "C" 也不能把 a 和 A 合并)、跨改名的 project、键/非键混合的 and。
+	push := &Pipeline{Params: []ParamDecl{{Name: "ts", Type: Type{Kind: Text}, List: true}, opt("pi", Int32), opt("pp", Text)}, Steps: all(
+		PickPerKey([]string{"t"}, SortKey{"k", true}),
+		Project(NamedExpr{"tt", Col("t")}, NamedExpr{"i", Col("i")}, NamedExpr{"k", Col("k")}),
+		Filter(And(Or(Absent("ts"), InList(Col("tt"), "ts")), Or(Absent("pi"), Cmp("=", Col("i"), Param("pi"))))),
+		Filter(Or(Absent("pp"), StartsWith(Col("tt"), "pp"))),
+		Sort(SortKey{Col: "tt"}), Limit(3))}
+	if q := pushdown(push); q.Steps[1].Kind != "filter" || q.Steps[2].Kind != "pick_per_key" || len(q.Steps) != len(push.Steps) {
+		t.Errorf("筛选下推的结果不对: %+v", q.Steps)
+	}
+	for _, ps := range []Params{{}, {"ts": []any{"a", "A"}}, {"ts": []any{"b"}, "pi": certDomain["i"][1]}, {"pp": "a"}, {"pp": "A", "pi": certDomain["i"][2]}, {"ts": []any{}}} {
+		env.check(fmt.Sprintf("下推 %v", ps), push, ps)
+	}
 	// 12. 格式错 → 两边都报错
 	env.insert(Row{"k": int64(1000), "g": int64(1), "t": "a", "j": `{"n": "abc", "d": "x", "b": "maybe", "dt": "2026/13/01"}`})
 	for _, f := range []struct {

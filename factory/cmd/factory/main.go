@@ -29,6 +29,7 @@ import (
 	"apifactory/factory/exits"
 	"apifactory/factory/guard"
 	"apifactory/factory/ir"
+	"apifactory/factory/perf"
 	"apifactory/factory/prompts"
 	"apifactory/factory/protoload"
 	"apifactory/factory/spec"
@@ -66,6 +67,8 @@ func main() {
 		err = cmdDesign(args)
 	case "answer":
 		err = cmdAnswer(args)
+	case "perf":
+		err = cmdPerf(args)
 	default:
 		usage()
 	}
@@ -594,5 +597,59 @@ func cmdAnswer(args []string) error {
 		fmt.Printf("✓ 写入 %s\n", t)
 	}
 	fmt.Printf("下一步: make check(重新编译)→ scripts/review.sh specs/%s/%s/spec.yaml(重新审查)\n", domain, strings.TrimPrefix(apiID, domain+"."))
+	return nil
+}
+
+// cmdPerf: 性能闸门(P4)。接近真实的数据量 + EXPLAIN ANALYZE。会清空 --db 里的表,只用专门的性能库。
+func cmdPerf(args []string) error {
+	fs := flag.NewFlagSet("perf", flag.ExitOnError)
+	db := fs.String("db", os.Getenv("PERF_DB_URL"), "性能测试专用的 DB(会被清空)")
+	rows := fs.Int("rows", 200000, "每张物理表的行数")
+	maxMs := fs.Float64("max-ms", 50, "执行时间的阈值(毫秒)")
+	_ = fs.Parse(args)
+	if *db == "" {
+		return fmt.Errorf("perf: --db (or PERF_DB_URL) is required")
+	}
+	plan, err := ir.Load(ir.DefaultPath)
+	if err != nil {
+		return fmt.Errorf("IR not found (run factory prepare first): %w", err)
+	}
+	reports, err := perf.Run(context.Background(), plan, perf.Options{DB: *db, Rows: *rows, MaxMs: *maxMs})
+	if err != nil {
+		return err
+	}
+	fails, warns, bounds := 0, 0, 0
+	for _, r := range reports {
+		if r.Disabled != "" {
+			fmt.Printf("–  %-40s 跳过: %s\n", r.API, r.Disabled)
+			continue
+		}
+		mark := "✓"
+		if len(r.Warn) > 0 || r.Boundary != "" {
+			mark = "⚠"
+			warns++
+		}
+		if r.Boundary != "" {
+			bounds++
+		}
+		if len(r.Fail) > 0 {
+			mark = "✗"
+			fails++
+		}
+		fmt.Printf("%s  %-40s %-6s %7.2fms %5d 行  %s\n", mark, r.API, r.Variant, r.Ms, r.Rows, r.Plan)
+		for _, m := range r.Fail {
+			fmt.Printf("     ✗ %s\n", m)
+		}
+		for _, m := range r.Warn {
+			fmt.Printf("     ⚠ %s\n", m)
+		}
+		if r.Boundary != "" {
+			fmt.Printf("     ⚠ %s\n", r.Boundary)
+		}
+	}
+	if fails > 0 {
+		return fmt.Errorf("perf: %d 个失败, %d 个警告 (每表 %d 行, 阈值 %.0fms)", fails, warns, *rows, *maxMs)
+	}
+	fmt.Printf("✓ perf passed (%d 个计划, 警告 %d 其中已知边界 %d, 每表 %d 行, 阈值 %.0fms)\n", len(reports), warns, bounds, *rows, *maxMs)
 	return nil
 }

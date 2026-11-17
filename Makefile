@@ -10,11 +10,18 @@ SPEC    ?= specs/jobs/get-job-status/spec.yaml
 MODEL   ?= claude
 ACCEPT_SPECS ?= specs
 
-.PHONY: hooks margin doctor db-up db-down db-schema design check prepare build test guard accept loop
+.PHONY: perf hooks margin doctor db-up db-down db-schema design check prepare build test guard accept loop
 
 # 排序规则用 ICU(en-US): Alpine 的 en_US.utf8 实际按字节排,和 C 一样,测不出"忘了 COLLATE C"(生产不是这样)
 hooks:            ## 安装 git 钩子(内容防护: 产品分支不能出现试用公司的内容)
 	@git config core.hooksPath scripts/hooks && echo "✓ hooks: scripts/hooks"
+
+PERF_DB_URL = $(SHARD_URL)/factory_perf?sslmode=disable
+perf:             ## 性能闸门: 每表 20 万行 + EXPLAIN ANALYZE(慢,不在 accept 里)
+	@docker exec $(PG_NAME) psql -q -U factory -d factory -tAc "SELECT 1 FROM pg_database WHERE datname='factory_perf'" | grep -q 1 || \
+		docker exec $(PG_NAME) psql -q -U factory -d factory -c "CREATE DATABASE factory_perf" >/dev/null
+	@cat db/schema/*.sql $(wildcard db/views/*.sql) | docker exec -i -e PGOPTIONS="-c client_min_messages=warning" $(PG_NAME) psql -q -U factory -d factory_perf -v ON_ERROR_STOP=1
+	@$(FACTORY) perf --db '$(PERF_DB_URL)' $(PERF_ARGS)
 
 margin:           ## 差分测试的余量: 换种子跑变异,每个变异 ≥3 个差分用例(慢)
 	@scripts/margin.sh

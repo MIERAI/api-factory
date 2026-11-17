@@ -61,7 +61,8 @@ J=gen/db/catalog.list-product-master.sql.go
 run "JSON版本: 取最旧的版本"            $J 's/t2\._o_registered_at DESC, t2\._o_id DESC/t2._o_registered_at ASC, t2._o_id ASC/'
 run "JSON版本: 不处理删除"              $J 's/\(t3\._action <> 1::int4\) AND //'
 run "JSON版本: 不处理逻辑删除"          $J "s/ AND \(\(t3\._logical_delete IS NULL\) OR \(t3\._logical_delete <> '1'::text\)\)//"
-run "JSON版本: 先筛选再取最新(公司引擎的问题)" $J 's/WHERE \(NOT \(t2\.product_code IS NULL\)\)/WHERE (NOT (t2.product_code IS NULL)) AND ((\$1::text IS NULL) OR (t2.category = \$1::text))/'
+run "JSON版本: 先筛选再取最新(公司引擎的问题)" $J 's/WHERE \(NOT \(t2\.product_code IS NULL\)\)/WHERE (NOT (t2.product_code IS NULL)) AND ((\$2::text IS NULL) OR (t2.category = \$2::text))/'
+run "下推: 丢掉了键上的条件(属于)"        $J 's/\n\s+AND \(\(coalesce\(cardinality\(\$1::text\[\]\), 0\) = 0\) OR \(t2\.product_code = ANY\(\$1::text\[\]\)\)\)//'
 SH=internal/handler/sales/list_prices_as_of_gen.go
 run "分库: 不选库(一直用主库)"           $SH 's/h\.at\(int64\(m\.GetStoreCode\(\)\)\)\./h.q./'
 run "分库: 选错库(店铺代码 +1)"          $SH 's/h\.at\(int64\(m\.GetStoreCode\(\)\)\)/h.at(int64(m.GetStoreCode())+1)/'

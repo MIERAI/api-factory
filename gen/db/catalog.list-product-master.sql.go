@@ -14,18 +14,18 @@ FROM (
     FROM (
         SELECT t3.product_code AS product_code, t3.name AS name, t3.category AS category, t3.price AS price, t3.launched_on AS launched_on, t3.maker_zip AS maker_zip
         FROM (
-            SELECT DISTINCT ON (t2.product_code) t2.product_code, t2.name, t2.category, t2.price, t2.launched_on, t2.maker_zip, t2._action, t2._o_registered_at, t2._o_id, t2._logical_delete
+            SELECT DISTINCT ON (t2.product_code COLLATE "C") t2.product_code, t2.name, t2.category, t2.price, t2.launched_on, t2.maker_zip, t2._action, t2._o_registered_at, t2._o_id, t2._logical_delete
             FROM (
                 SELECT ((t1.data ->> 'product_code')::text) AS product_code, ((t1.data ->> 'name')::text) AS name, ((t1.data ->> 'category')::text) AS category, ((t1.data ->> 'price')::numeric) AS price, ((t1.data ->> 'launched_on')::date) AS launched_on, ((t1.data ->> 'maker_zip')::text) AS maker_zip, t1.action_type AS _action, t1.registered_at AS _o_registered_at, t1.id AS _o_id, ((t1.data ->> 'deleted')::text) AS _logical_delete
                 FROM product_events AS t1
             ) AS t2
             WHERE (NOT (t2.product_code IS NULL))
-            ORDER BY t2.product_code, t2._o_registered_at DESC, t2._o_id DESC
+              AND ((coalesce(cardinality($1::text[]), 0) = 0) OR (t2.product_code = ANY($1::text[])))
+            ORDER BY t2.product_code COLLATE "C", t2._o_registered_at DESC, t2._o_id DESC
         ) AS t3
         WHERE ((t3._action <> 1::int4) AND ((t3._logical_delete IS NULL) OR (t3._logical_delete <> '1'::text)))
     ) AS t4
-    WHERE (($1::text IS NULL) OR (t4.category = $1::text))
-      AND ((coalesce(cardinality($2::text[]), 0) = 0) OR (t4.product_code = ANY($2::text[])))
+    WHERE (($2::text IS NULL) OR (t4.category = $2::text))
       AND (($3::text IS NULL) OR (t4.maker_zip = $3::text))
 ) AS t5
 ORDER BY t5.product_code COLLATE "C"
@@ -33,8 +33,8 @@ LIMIT 201
 `
 
 type ListProductMasterParams struct {
-	Category     *string
 	ProductCodes []string
+	Category     *string
 	MakerZip     *string
 }
 
@@ -48,7 +48,7 @@ type ListProductMasterRow struct {
 }
 
 func (q *Queries) ListProductMaster(ctx context.Context, arg ListProductMasterParams) ([]ListProductMasterRow, error) {
-	rows, err := q.db.Query(ctx, listProductMaster, arg.Category, arg.ProductCodes, arg.MakerZip)
+	rows, err := q.db.Query(ctx, listProductMaster, arg.ProductCodes, arg.Category, arg.MakerZip)
 	if err != nil {
 		return nil, err
 	}

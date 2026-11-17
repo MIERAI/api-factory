@@ -18,8 +18,8 @@ import (
 func (h *Handler) ListProductMaster(ctx context.Context, req *connect.Request[catalogv1.ListProductMasterRequest]) (*connect.Response[catalogv1.ListProductMasterResponse], error) {
 	m := req.Msg
 	rows, err := h.q.ListProductMaster(ctx, db.ListProductMasterParams{
-		Category:     m.Category,
 		ProductCodes: m.GetProductCodes(),
+		Category:     m.Category,
 		MakerZip:     m.MakerZip,
 	})
 	if err != nil {
