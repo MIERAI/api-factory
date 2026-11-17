@@ -22,7 +22,10 @@ func init() {
 			if err != nil {
 				d.Err("%v", err)
 			}
-			p.OrderBy, p.Direction = cols, direction(desc)
+			setOrder(p, cols, desc)
+			if p.Direction == "mixed" { // 游标按整组比较(行比较),方向必须一致
+				d.Err("一览: 排序的方向必须一致(分页的游标按整组比较);方向混在一起请用 多条 / 前N条")
+			}
 			pg := d.Node("分页")
 			if _, err := fmt.Sscan(nodeStr(pg, "默认每页"), &p.PageSize.Default); err != nil {
 				d.Err("一览: 分页.默认每页 必须是整数")

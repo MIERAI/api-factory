@@ -20,5 +20,5 @@ FROM (
     ) AS t4
     WHERE ((sqlc.narg(changed_since)::timestamptz IS NULL) OR (t4.updated_at >= sqlc.narg(changed_since)::timestamptz))
 ) AS t5
-ORDER BY t5.changed_at DESC, t5.label_code COLLATE "C" DESC
+ORDER BY t5.changed_at DESC, t5.label_code COLLATE "C"
 LIMIT 101;

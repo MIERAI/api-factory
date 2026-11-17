@@ -30,7 +30,7 @@ type Field struct {
 type Design interface {
 	Str(key string) string
 	Node(key string) *yaml.Node
-	Order(key string) (cols []string, desc bool, err error) // 排序: [a 小到大, b 小到大]
+	Order(key string) (cols []string, desc []bool, err error) // 排序: [a 小到大, b 大到小](每列一个方向)
 	Err(format string, args ...any)
 }
 
@@ -163,13 +163,52 @@ func ItemsField(api *ir.API, kind string) (string, error) {
 	return name, nil
 }
 
-// orderFrom: spec 的排序 → 核心的 SortKey。
+// orderFrom: spec 的排序 → 核心的 SortKey(方向混在一起时按 Directions 逐列)。
 func orderFrom(p spec.Pattern) []core.SortKey {
 	var out []core.SortKey
-	for _, c := range p.OrderBy {
-		out = append(out, core.SortKey{Col: c, Desc: p.Direction == "desc"})
+	for i, c := range p.OrderBy {
+		desc := p.Direction == "desc"
+		if p.Direction == "mixed" && i < len(p.Directions) {
+			desc = p.Directions[i] == "desc"
+		}
+		out = append(out, core.SortKey{Col: c, Desc: desc})
 	}
 	return out
+}
+
+// setOrder: 设计稿的排序 → spec。方向都一样: Direction = asc / desc;混在一起: Direction = mixed + Directions(逐列)。
+func setOrder(p *spec.Pattern, cols []string, desc []bool) {
+	p.OrderBy, p.Direction, p.Directions = cols, "", nil
+	if len(desc) == 0 {
+		return
+	}
+	p.Direction = direction(desc[0])
+	for _, d := range desc {
+		if d != desc[0] {
+			p.Direction = "mixed"
+		}
+	}
+	if p.Direction == "mixed" {
+		for _, d := range desc {
+			p.Directions = append(p.Directions, direction(d))
+		}
+	}
+}
+
+// checkDirection: 多条 / 前N条 的方向(可以混在一起)。
+func checkDirection(kind string, p spec.Pattern) []string {
+	switch {
+	case p.Direction == "asc" || p.Direction == "desc":
+		return nil
+	case p.Direction == "mixed" && len(p.Directions) == len(p.OrderBy):
+		for _, d := range p.Directions {
+			if d != "asc" && d != "desc" {
+				return []string{"pattern " + kind + ": directions must be asc or desc"}
+			}
+		}
+		return nil
+	}
+	return []string{"pattern " + kind + ": direction must be asc / desc, or mixed with one direction per order_by column"}
 }
 
 func direction(desc bool) string {

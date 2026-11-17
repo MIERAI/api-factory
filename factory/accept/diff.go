@@ -72,6 +72,7 @@ type diffEnv struct {
 	nkSeen    []map[string]any               // 已经生成的行的自然键(JSON 的键 → 值;自然键空间很大时沿用,造出版本)
 	groupCols map[string]bool                // API 部分"每组取一条"的分组列: 值域缩小到 2 个,组里才有多个候选
 	tuples    []tupleGroup                   // 组的列表(组属于): 每个字段是一个列表参数,请求 / 求值前按下标对齐(align)
+	keySets   [][]string                     // 唯一的列的组合(主键 / 唯一约束 / 多版本来源的自然键);nil = 还没查
 }
 
 // tupleGroup: 一个组的列表输入。members[i] = 第 i 个字段的参数名(ir.MemberParam),cols[i] = 它的列。
@@ -1872,6 +1873,27 @@ func (e *diffEnv) sensTargets() []sensTarget {
 			out = append(out, t)
 		}
 	}
+	// 排序的第 2 列以后: 只把这一列的方向反过来也要看得出来(前面的列相同的行之间的顺序)。
+	// 前面的列已经唯一(包含主键 / 自然键 / 每组取一条的键)时没有平局,反过来是等价的,不要求。
+	for i, st := range p.Steps {
+		if st.Kind != "sort" || len(st.Order) < 2 {
+			continue
+		}
+		for j := 1; j < len(st.Order); j++ {
+			if e.uniquePrefix(st.Order[:j]) {
+				break
+			}
+			i, j := i, j
+			out = append(out, sensTarget{desc: fmt.Sprintf("排序的第 %d 列(%s)的方向", j+1, st.Order[j].Col), mutate: func(p *core.Pipeline) *core.Pipeline {
+				mut := *p
+				mut.Steps = append([]core.Step(nil), p.Steps...)
+				order := append([]core.SortKey(nil), p.Steps[i].Order...)
+				order[j].Desc = !order[j].Desc
+				mut.Steps[i].Order = order
+				return &mut
+			}})
+		}
+	}
 	for i, st := range p.Steps {
 		if st.Kind != "pick_per_key" {
 			continue
@@ -1915,6 +1937,56 @@ func (e *diffEnv) sensTargets() []sensTarget {
 		}
 	}
 	return out
+}
+
+// uniquePrefix: 排序的这几列(输出的名字)能不能唯一地确定一行。
+func (e *diffEnv) uniquePrefix(order []core.SortKey) bool {
+	have := map[string]bool{}
+	for _, o := range order {
+		c := o.Col
+		if src, ok := e.api.Rename[c]; ok {
+			c = src
+		}
+		have[c] = true
+	}
+	covers := func(set []string) bool {
+		for _, c := range set {
+			if !have[c] {
+				return false
+			}
+		}
+		return len(set) > 0
+	}
+	if e.keySets == nil {
+		e.keySets = [][]string{}
+		rows, err := e.conn.Query(e.ctx, `
+			SELECT array_agg(kcu.column_name::text ORDER BY kcu.ordinal_position)
+			FROM information_schema.table_constraints tc
+			JOIN information_schema.key_column_usage kcu
+			  ON kcu.constraint_schema = tc.constraint_schema AND kcu.constraint_name = tc.constraint_name
+			WHERE tc.table_schema = current_schema() AND tc.table_name = $1 AND tc.constraint_type IN ('PRIMARY KEY', 'UNIQUE')
+			GROUP BY tc.constraint_name`, e.table)
+		if err == nil {
+			for rows.Next() {
+				var set []string
+				if rows.Scan(&set) == nil {
+					e.keySets = append(e.keySets, set)
+				}
+			}
+			rows.Close()
+		}
+		for _, st := range e.api.Pipeline.Steps { // 每组取一条(来源的取最新 / API 的每组取一条)之后,分组键唯一
+			if st.Kind == "pick_per_key" {
+				e.keySets = append(e.keySets, st.Keys)
+			}
+		}
+	}
+	for _, set := range e.keySets {
+		if covers(set) {
+			return true
+		}
+	}
+	return false
 }
 
 // narrowedOut: 来源的列 col 在最终的输出里(可能改了名)被收窄成不为空。

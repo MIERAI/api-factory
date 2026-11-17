@@ -20,7 +20,7 @@ func init() {
 			if err != nil {
 				d.Err("%v", err)
 			}
-			p.OrderBy, p.Direction = cols, direction(desc)
+			setOrder(p, cols, desc)
 			var n int
 			if _, err := fmt.Sscan(d.Str("条数"), &n); err != nil || n <= 0 {
 				d.Err("前N条: 条数 必须是正整数")
@@ -32,6 +32,7 @@ func init() {
 			if len(s.Pattern.OrderBy) == 0 {
 				errs = append(errs, "pattern top_n: order_by is required(前 N 条必须有确定的顺序)")
 			}
+			errs = append(errs, checkDirection("top_n", s.Pattern)...)
 			if topN(s.Pattern.Params) <= 0 {
 				errs = append(errs, "pattern top_n: params.n > 0 is required")
 			}

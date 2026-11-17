@@ -63,7 +63,8 @@ type Pattern struct {
 	Kind            string         `yaml:"kind"`
 	NotFoundMessage string         `yaml:"not_found_message"` // get_by_id: "job not found: {job_id}"
 	OrderBy         []string       `yaml:"order_by"`          // list_keyset: 游标列,最后一列必须唯一
-	Direction       string         `yaml:"direction"`         // list_keyset: desc / asc
+	Direction       string         `yaml:"direction"`         // desc / asc / mixed(每列的方向在 directions;分页不能 mixed)
+	Directions      []string       `yaml:"directions,omitempty"` // direction = mixed 时: 每列的方向(和 order_by 一一对应)
 	PageSize        PageSize       `yaml:"page_size"`
 	MaxRows         int32          `yaml:"max_rows,omitempty"`       // list_all: 最多返回的件数(超过时报错,不悄悄截断)
 	Params          map[string]any `yaml:"params,omitempty"`         // 出口自己的参数(新出口不用改 spec)

@@ -21,7 +21,7 @@ func init() {
 			if err != nil {
 				d.Err("%v", err)
 			}
-			p.OrderBy, p.Direction = cols, direction(desc)
+			setOrder(p, cols, desc)
 			if _, err := fmt.Sscan(d.Str("上限"), &p.MaxRows); err != nil || p.MaxRows <= 0 {
 				d.Err("多条: 上限 必须是正整数(超过上限时返回错误,不会悄悄截断)")
 			}
@@ -49,9 +49,7 @@ func init() {
 			if len(s.Pattern.OrderBy) == 0 {
 				errs = append(errs, "pattern list_all: order_by is required (results must have a stable order)")
 			}
-			if s.Pattern.Direction != "asc" && s.Pattern.Direction != "desc" {
-				errs = append(errs, "pattern list_all: direction must be asc or desc")
-			}
+			errs = append(errs, checkDirection("list_all", s.Pattern)...)
 			if s.Pattern.MaxRows <= 0 {
 				errs = append(errs, "pattern list_all: max_rows > 0 is required")
 			}

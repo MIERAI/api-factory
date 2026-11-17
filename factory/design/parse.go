@@ -498,28 +498,25 @@ func loadAPI(path string) (*API, error) {
 
 var orderWords = map[string]bool{"新到旧": true, "大到小": true, "降序": true, "旧到新": false, "小到大": false, "升序": false}
 
-func parseOrder(items []string) ([]string, bool, error) {
+func parseOrder(items []string) ([]string, []bool, error) {
 	if len(items) == 0 {
-		return nil, false, fmt.Errorf("一览: 缺少 排序(例如 [created_at 新到旧, id 大到小])")
+		return nil, nil, fmt.Errorf("一览: 缺少 排序(例如 [created_at 新到旧, id 大到小])")
 	}
 	var cols []string
-	var desc *bool
+	var desc []bool
 	for _, it := range items {
 		f := strings.Fields(it)
 		if len(f) != 2 {
-			return nil, false, fmt.Errorf("排序 %q: 写成 \"列 新到旧\" 的形式", it)
+			return nil, nil, fmt.Errorf("排序 %q: 写成 \"列 新到旧\" 的形式", it)
 		}
 		d, ok := orderWords[f[1]]
 		if !ok {
-			return nil, false, fmt.Errorf("排序 %q: 方向只能是 新到旧/旧到新/大到小/小到大/降序/升序", it)
+			return nil, nil, fmt.Errorf("排序 %q: 方向只能是 新到旧/旧到新/大到小/小到大/降序/升序", it)
 		}
-		if desc != nil && *desc != d {
-			return nil, false, fmt.Errorf("排序: 所有列的方向必须一致(现在混在一起)")
-		}
-		desc = &d
+		desc = append(desc, d)
 		cols = append(cols, f[0])
 	}
-	return cols, *desc, nil
+	return cols, desc, nil
 }
 
 // LoadDir: design/<领域>/ 下的 领域.yaml 和所有 API。
@@ -566,7 +563,7 @@ type designReader struct {
 
 func (r designReader) Str(key string) string      { return str(r.root, key) }
 func (r designReader) Node(key string) *yaml.Node { return get(r.root, key) }
-func (r designReader) Order(key string) ([]string, bool, error) {
+func (r designReader) Order(key string) ([]string, []bool, error) {
 	return parseOrder(strList(get(r.root, key)))
 }
 func (r designReader) Err(format string, args ...any) { r.e.add(r.root.Line, format, args...) }

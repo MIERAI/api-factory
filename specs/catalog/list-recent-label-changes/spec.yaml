@@ -12,7 +12,10 @@ pattern:
     order_by:
         - changed_at
         - label_code
-    direction: desc
+    direction: mixed
+    directions:
+        - desc
+        - asc
     page_size:
         default: 0
         max: 0

@@ -27,7 +27,7 @@ FROM (
     ) AS t4
     WHERE (($2::timestamptz IS NULL) OR (t4.updated_at >= $2::timestamptz))
 ) AS t5
-ORDER BY t5.changed_at DESC, t5.label_code COLLATE "C" DESC
+ORDER BY t5.changed_at DESC, t5.label_code COLLATE "C"
 LIMIT 101
 `
 

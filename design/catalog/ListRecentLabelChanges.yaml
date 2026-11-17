@@ -20,7 +20,7 @@ API: ListRecentLabelChanges
   text:       表示文言
   changed_at: { 来自: updated_at, 说明: 最後に変わった時刻 }
 
-排序: [changed_at 大到小, label_code 大到小]
+排序: [changed_at 大到小, label_code 小到大]   # 列ごとの方向(同時刻はラベルコード順)
 上限: 100
 
 例子:

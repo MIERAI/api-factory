@@ -73,6 +73,7 @@ EV=gen/db/catalog.list-recent-label-changes.sql.go
 run "外壳列: 从 JSON 里取(没有这个键)"          $EV 's/t1\.registered_at AS updated_at/((t1.data ->> \x27updated_at\x27)::timestamptz) AS updated_at/'
 run "外壳列: 取了最早的版本的时间"              $EV 's/t1\.registered_at AS updated_at/min(t1.registered_at) OVER (PARTITION BY t1.data ->> \x27product_code\x27, t1.data ->> \x27label_code\x27) AS updated_at/'
 run "外壳列: 筛选 >= 写成 >"                 $EV 's/t4\.updated_at >= \$2/t4.updated_at > \$2/'
+run "排序: 第二列的方向跟着第一列(以前的工厂)"   $EV 's/ORDER BY t5\.changed_at DESC, t5\.label_code COLLATE "C"/ORDER BY t5.changed_at DESC, t5.label_code COLLATE "C" DESC/'
 TP=gen/db/catalog.list-labels-by-pairs.sql.go
 run "组属于: 按列各自属于(交叉组合)"            $TP 's/EXISTS \(SELECT 1 FROM [^\n]*tup2\.n = tup1\.n\)/(t2.product_code = ANY(\$1::text[])) AND (t2.label_code = ANY(\$2::text[]))/'
 run "组属于: 没有按下标对齐"                    $TP 's/ AND tup2\.n = tup1\.n//'
