@@ -1873,15 +1873,37 @@ func (e *diffEnv) sensTargets() []sensTarget {
 			out = append(out, t)
 		}
 	}
-	// 排序的第 2 列以后: 只把这一列的方向反过来也要看得出来(前面的列相同的行之间的顺序)。
+	// 排序的次级列: 只把这一列的方向反过来也要看得出来(前面的列相同的行之间的顺序)。
+	// 要求的列 = 第 2 列 + 方向和前一列不同的列(错误的实现是"方向跟着前一列 / 第一列走";排序是逐列同样生成的,
+	// 方向相同的后续列不单独要求 —— 10 列的键要每一列都区分,需要前 9 列都平局的数据)。
 	// 前面的列已经唯一(包含主键 / 自然键 / 每组取一条的键)时没有平局,反过来是等价的,不要求。
 	for i, st := range p.Steps {
 		if st.Kind != "sort" || len(st.Order) < 2 {
 			continue
 		}
-		for j := 1; j < len(st.Order); j++ {
+		if e.atMostOneRow() {
+			continue
+		}
+		fixed := e.fixedCols()
+		prev := -1 // 前一个不是常量的列
+		for j := 0; j < len(st.Order); j++ {
+			if fixed[e.srcCol(st.Order[j].Col)] { // 请求固定了这一列(必填的等于): 常量,方向无所谓
+				continue
+			}
+			p0 := prev
+			prev = j
+			if p0 < 0 { // 第一列(的方向由别的覆盖条件和出口用例测)
+				continue
+			}
 			if e.uniquePrefix(st.Order[:j]) {
 				break
+			}
+			first := true
+			for k := 0; k < p0; k++ {
+				first = first && fixed[e.srcCol(st.Order[k].Col)]
+			}
+			if !first && st.Order[j].Desc == st.Order[p0].Desc { // 第一个次级列以外: 方向变化的地方才要求
+				continue
 			}
 			i, j := i, j
 			out = append(out, sensTarget{desc: fmt.Sprintf("排序的第 %d 列(%s)的方向", j+1, st.Order[j].Col), mutate: func(p *core.Pipeline) *core.Pipeline {
@@ -1942,12 +1964,11 @@ func (e *diffEnv) sensTargets() []sensTarget {
 // uniquePrefix: 排序的这几列(输出的名字)能不能唯一地确定一行。
 func (e *diffEnv) uniquePrefix(order []core.SortKey) bool {
 	have := map[string]bool{}
-	for _, o := range order {
-		c := o.Col
-		if src, ok := e.api.Rename[c]; ok {
-			c = src
-		}
+	for c := range e.fixedCols() { // 请求固定的列在结果里是常量,也算
 		have[c] = true
+	}
+	for _, o := range order {
+		have[e.srcCol(o.Col)] = true
 	}
 	covers := func(set []string) bool {
 		for _, c := range set {
@@ -1987,6 +2008,29 @@ func (e *diffEnv) uniquePrefix(order []core.SortKey) bool {
 		}
 	}
 	return false
+}
+
+// srcCol: 输出的名字 → 来源的列(输出改名)。
+func (e *diffEnv) srcCol(name string) string {
+	if src, ok := e.api.Rename[name]; ok {
+		return src
+	}
+	return name
+}
+
+// fixedCols: 必填的「等于」(单列、不是列表)固定的列 + 分库键: 一个请求的结果里是常量。
+func (e *diffEnv) fixedCols() map[string]bool {
+	out := map[string]bool{}
+	for _, d := range e.api.Pipeline.Params {
+		f, ok := e.filter[d.Name]
+		if ok && d.Required && !d.List && f.Op == "eq" && len(f.Columns) == 0 {
+			out[f.Column] = true
+		}
+	}
+	if sh := e.api.Shard; sh != nil {
+		out[sh.Column] = true
+	}
+	return out
 }
 
 // narrowedOut: 来源的列 col 在最终的输出里(可能改了名)被收窄成不为空。
