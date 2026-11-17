@@ -10,9 +10,15 @@ SPEC    ?= specs/jobs/get-job-status/spec.yaml
 MODEL   ?= claude
 ACCEPT_SPECS ?= specs
 
-.PHONY: db-up db-down db-schema design check prepare build test guard accept loop
+.PHONY: hooks doctor db-up db-down db-schema design check prepare build test guard accept loop
 
 # 排序规则用 ICU(en-US): Alpine 的 en_US.utf8 实际按字节排,和 C 一样,测不出"忘了 COLLATE C"(生产不是这样)
+hooks:            ## 安装 git 钩子(内容防护: 产品分支不能出现试用公司的内容)
+	@git config core.hooksPath scripts/hooks && echo "✓ hooks: scripts/hooks"
+
+doctor:           ## 环境检查(工具 / 数据库 / AI 命令行 / 钩子)
+	@scripts/doctor.sh
+
 db-up:            ## 启动本地 Postgres 并应用 schema
 	@docker start $(PG_NAME) >/dev/null 2>&1 || docker run -d --name $(PG_NAME) \
 		-e POSTGRES_USER=factory -e POSTGRES_PASSWORD=factory -e POSTGRES_DB=factory \
@@ -36,7 +42,8 @@ db-down:
 design:           ## 中文式样书(design/<领域>/)→ proto + specs(生成)
 	@$(FACTORY) design
 
-check: design     ## ① 式样书闸门
+check: design     ## ① 式样书闸门(+ 内容防护)
+	@scripts/content-guard.sh --tree
 	@$(FACTORY) check
 	@buf lint
 

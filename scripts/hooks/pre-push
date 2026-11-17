@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# 推送的每个提交(历史)都不能含禁止的内容
+root=$(git rev-parse --show-toplevel)
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [[ "$local_sha" =~ ^0+$ ]] && continue
+  case "$local_ref" in refs/heads/trial*) continue ;; esac
+  if [[ "$remote_sha" =~ ^0+$ ]]; then range="$local_sha"; else range="$remote_sha..$local_sha"; fi
+  "$root/scripts/content-guard.sh" --range "$range" || exit 1
+done
