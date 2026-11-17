@@ -66,7 +66,7 @@ func WithServer(ctx context.Context, serverBin, databaseURL, logPath string, cmd
 		return fmt.Errorf("start server: %w", err)
 	}
 	defer func() { _ = srv.Process.Kill(); _ = srv.Wait() }()
-	if err := waitHealthy(base, 15*time.Second); err != nil {
+	if err := waitHealthy(base, 60*time.Second); err != nil { // 并行跑时机器很忙,15 秒曾经不够
 		return fmt.Errorf("%w (see %s)", err, logPath)
 	}
 	c := exec.CommandContext(ctx, cmd[0], cmd[1:]...)

@@ -4,6 +4,7 @@ package compiler
 
 import (
 	"fmt"
+	"strings"
 
 	"apifactory/factory/cells"
 	"apifactory/factory/core"
@@ -20,7 +21,6 @@ func coreType(table string, c catColumn) (core.Type, error) {
 	}
 	return core.Type{Kind: k, Nullable: !c.NotNull}, nil
 }
-
 
 func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []resolvedFilter, cat *catalog) (*core.Pipeline, error) {
 	table := s.Datasource.Table
@@ -68,7 +68,55 @@ func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []re
 	if _, err := core.Check(p); err != nil {
 		return nil, fmt.Errorf("设计规则检查:\n%w", err)
 	}
+	if err := checkPickUnique(p); err != nil {
+		return nil, fmt.Errorf("设计规则检查:\n%w", err)
+	}
 	return p, nil
+}
+
+// checkPickUnique: 每组取一条(API 部分)的 分组键 + 组内的排序 必须覆盖一个唯一键,否则组内可能并列,
+// 取哪一行不确定(参考求值器在运行时报 ambiguous order;这里在设计稿编译时就报)。
+// 唯一键: 多版本的来源取最新之后 = 自然键。普通的表的主键编译器还不知道 → 不检查(运行时由参考求值器检查)。
+func checkPickUnique(p *core.Pipeline) error {
+	var unique []string
+	for _, st := range p.Steps {
+		if st.Kind != "pick_per_key" {
+			continue
+		}
+		if strings.HasPrefix(st.From, "来源 ") {
+			unique = st.Keys
+			continue
+		}
+		if unique == nil {
+			continue
+		}
+		have := map[string]bool{}
+		for _, k := range st.Keys {
+			have[k] = true
+		}
+		for _, o := range st.Order {
+			have[o.Col] = true
+		}
+		var miss []string
+		for _, u := range unique {
+			if !have[u] {
+				miss = append(miss, u)
+			}
+		}
+		if len(miss) > 0 {
+			return fmt.Errorf("%s: 每组取一条 按 %v 分组,组内的排序 %v 不能确定唯一的一行(同一组里可能有多行排序值相同)。"+
+				"排序里加上 %v(数据来源的主键)", st.From, st.Keys, orderCols(st.Order), miss)
+		}
+	}
+	return nil
+}
+
+func orderCols(o []core.SortKey) []string {
+	var out []string
+	for _, k := range o {
+		out = append(out, k.Col)
+	}
+	return out
 }
 
 func scanStep(table string, cat *catalog) (core.Step, error) {

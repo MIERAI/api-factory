@@ -68,6 +68,7 @@ type diffEnv struct {
 	nkCols    map[string]bool                // 多版本来源的自然键(值域扩大,逻辑行才多)
 	nkSpace   int                            // 自然键原来的组合数
 	scale     int                            // 数据量的倍数(覆盖不足时每次重试加倍: 条件严格的 API 需要更多的数据)
+	pickCols  map[string]bool                // API 部分的每组取一条的键
 	groupCols map[string]bool                // API 部分"每组取一条"的分组列: 值域缩小到 2 个,组里才有多个候选
 }
 
@@ -81,7 +82,7 @@ func (e *diffEnv) collect() {
 	e.json, e.consts = map[string][]jsonKey{}, map[core.Kind][]any{}
 	var walk func(x *core.Expr)
 	e.keyCol = map[string]string{}
-	e.constFor, e.nkCols, e.groupCols = map[string][]any{}, map[string]bool{}, map[string]bool{}
+	e.constFor, e.nkCols, e.groupCols, e.pickCols = map[string][]any{}, map[string]bool{}, map[string]bool{}, map[string]bool{}
 	rawOf := map[string]string{} // 投影成的列 → 物理列(col(x) 的投影)
 	for _, st := range e.api.Pipeline.Steps {
 		for _, x := range st.Project {
@@ -92,6 +93,7 @@ func (e *diffEnv) collect() {
 		if st.Kind == "pick_per_key" && !strings.HasPrefix(st.From, "来源 ") {
 			for _, k := range st.Keys {
 				e.groupCols[k] = true
+				e.pickCols[k] = true
 			}
 		}
 		if st.Kind == "pick_per_key" && strings.HasPrefix(st.From, "来源 ") {
@@ -447,6 +449,18 @@ func (e *diffEnv) value(c core.NamedType, i int, unique bool) any {
 // scalarFor: 某一列的值(这一列有范围值域时从里面取)。
 func (e *diffEnv) scalarFor(col string, kind core.Kind, unique bool, i int) any {
 	if e.groupCols[col] && !e.nkCols[col] && !unique { // 密集的列: 3 个值(多版本来源的自然键除外: 键要多样)
+		// 每组取一条的键: 约 1/4 的行用独有的值(组里只有一行)。只看"组存不存在"的 API(只输出键)里,
+		// 删除 / 逻辑删除只有在组里只剩这一行时才看得出来(试用: 按 code 去重的存在检查)
+		if e.pickCols[col] && e.rnd.Intn(4) == 0 {
+			if d, ok := e.domains[col]; ok && d.Expand != nil {
+				return d.Expand(1000 + i)
+			}
+			if _, constrained := e.domains[col]; !constrained {
+				if en := e.plan.Enum(e.table, col); en == nil {
+					return e.scalar(kind, true, i)
+				}
+			}
+		}
 		if d, ok := e.domains[col]; ok {
 			return d.Values[e.rnd.Intn(min(3, len(d.Values)))]
 		}
