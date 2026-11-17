@@ -489,6 +489,17 @@ func (e *diffEnv) scalarFor(col string, kind core.Kind, unique bool, i int) any 
 			}
 		}
 	}
+	// 自然键的一部分又是每组取一条的键(组比自然键粗: 一个组里有很多条版本链): 约 1/4 的行用独有的值,
+	// 这个组只有一条版本链,它的有效期 / 删除才看得出来(试用: 按 code 去重的存在检查,自然键 [code, 种别, 开始日])
+	if e.nkCols[col] && e.pickCols[col] && !unique && e.rnd.Intn(4) == 0 {
+		if d, ok := e.domains[col]; ok {
+			if d.Expand != nil {
+				return d.Expand(5000 + i)
+			}
+		} else if en := e.plan.Enum(e.table, col); en == nil {
+			return e.scalar(kind, true, i)
+		}
+	}
 	// 多版本来源的自然键: 键的数量 ≈ 数据行数 / 5(每个键约 5 个版本;数据加倍时键也加倍)
 	target := diffRows * 3 / 5 * max(e.scale, 1)
 	if e.nkCols[col] && e.nkSpace > 0 && e.nkSpace < target && !unique {
@@ -1434,7 +1445,7 @@ func (e *diffEnv) sensTargets() []sensTarget {
 }
 
 // directed: 按条件的敏感度定向补请求。起作用的请求不到 3 个的条件,从数据的行(现存 + 旧版本)构造候选请求
-// (每个参数取那一行的值;多列单元另外取结束日 / 结束日 + 1),用参考求值器验证"去掉这个条件结果会变",补到 3 个。
+// (每个参数取那一行的值;多列单元另外取结束日 / 结束日 + 1 / 开始日 − 1),用参考求值器验证"去掉这个条件结果会变",补到 3 个。
 // 只看"存不存在"的 API(只输出键)里,随机的请求很难碰到"某个键在这个日期一个有效版本都没有"这类情况。
 func (e *diffEnv) directed(reqs []core.Params, seen map[string]bool) []core.Params {
 	var out []core.Params
@@ -1457,7 +1468,7 @@ func (e *diffEnv) directed(reqs []core.Params, seen map[string]bool) []core.Para
 		for _, d := range params {
 			f := e.filter[d.Name]
 			col := f.Column
-			if len(f.Columns) > 1 && shift > 0 { // 多列单元: 结束日(+1)
+			if len(f.Columns) > 1 && (shift == 1 || shift == 2) { // 多列单元: 结束日(+1)
 				col = f.Columns[len(f.Columns)-1]
 			}
 			v := r[col]
@@ -1471,12 +1482,16 @@ func (e *diffEnv) directed(reqs []core.Params, seen map[string]bool) []core.Para
 					continue
 				}
 			}
-			if shift == 2 {
+			if shift >= 2 && len(f.Columns) > 1 { // 2: 结束日 + 1 / 3: 开始日 − 1(早于这个键所有版本的开始日 → 键在这一天不存在)
+				delta := 1
+				if shift == 3 {
+					delta = -1
+				}
 				switch x := v.(type) {
 				case int64:
-					v = x + 1
+					v = x + int64(delta)
 				case time.Time:
-					v = x.AddDate(0, 0, 1)
+					v = x.AddDate(0, 0, delta)
 				}
 			}
 			if d.List {
@@ -1499,7 +1514,7 @@ func (e *diffEnv) directed(reqs []core.Params, seen map[string]bool) []core.Para
 			if n >= 3 {
 				break
 			}
-			for shift := 0; shift <= 2 && n < 3; shift++ {
+			for shift := 0; shift <= 3 && n < 3; shift++ {
 				ps := fromRow(r, shift)
 				k := e.describe(ps)
 				if seen[k] {
