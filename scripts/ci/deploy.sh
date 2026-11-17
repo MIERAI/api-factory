@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # 阶段 4: 生成物合并到 main 之后。镜像 → 部署 → 部署后的检查。失败时旧版本继续服务。
+#   SIM_BREAK=1(只对 local): 新版本连不上库 → 检查失败 → 回滚(确认旧版本继续服务)
 #   TARGET=local    本地模拟 Cloud Run: docker 里起新版本 → 健康检查(版本号)→ 认证 → 对它跑验收 → 切换,停掉旧版本
 #                   (验收会清空 / 灌入测试数据: 只能对模拟用的库)
 #   TARGET=cloudrun Artifact Registry → gcloud run deploy(--no-traffic)→ 新版本的只读检查 → 切流量。DRY_RUN=1: 只打印命令
@@ -11,7 +12,8 @@ md "## 部署($TARGET,$VERSION)" "" "| 步骤 | 时间 |" "|---|---|"
 case $TARGET in
 local)
   NET=api-factory-sim; DB=api-factory-sim-db; IMAGE=api-factory:$VERSION
-  TOKEN=${API_TOKEN:-sim-token-$(date +%s)}
+  TOKEN=${API_TOKEN:-$(cat .factory/sim-token 2>/dev/null || echo sim-token-$(date +%s))}
+  echo "$TOKEN" > .factory/sim-token   # 本地模拟: 手动调用用(curl -H "Authorization: Bearer $(cat .factory/sim-token)")
   HASH=$(printf %s "$TOKEN" | shasum -a 256 | cut -d' ' -f1)
   DBURL=postgres://factory:factory@127.0.0.1:${SIM_DB_PORT:-55440}/factory?sslmode=disable
   simdb() { # 模拟用的库(和本地开发的库分开): 结构来自 db/schema
@@ -26,7 +28,7 @@ local)
   run_new() { # 新版本(旧版本还在服务)
     docker rm -f api-factory-sim-$VERSION >/dev/null 2>&1 || true
     docker run -d --name api-factory-sim-$VERSION --network $NET -p 0:8080 \
-      -e DATABASE_URL="postgres://factory:factory@$DB:5432/factory?sslmode=disable" \
+      -e DATABASE_URL="postgres://factory:factory@${SIM_BREAK:+broken-}$DB:5432/factory?sslmode=disable" \
       -e FACTORY_SHARDS="1-2=postgres://factory:factory@$DB:5432/shard_a?sslmode=disable;*=postgres://factory:factory@$DB:5432/shard_b?sslmode=disable" \
       -e AUTH_MODE=token -e AUTH_TOKEN_SHA256="$HASH" -e PAGE_TOKEN_KEY=sim-page-key "$IMAGE" >/dev/null
     PORT=$(docker port api-factory-sim-$VERSION 8080/tcp | head -1 | awk -F: '{print $NF}')
