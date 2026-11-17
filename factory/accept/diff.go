@@ -1047,15 +1047,17 @@ func (e *diffEnv) sweep(seen map[string]bool) []core.Params {
 		}
 		// 取最新之后被来源的每一项条件(删除 / 逻辑删除 …)淘汰的行: 每项各 3 行,用那一行本身发请求
 		// (复合键时同一个值在别的组里可能还是现存的,所以不能只看"只在旧版本里出现的值")
-		for _, rows := range removed {
-			n := 0
-			// 优先: 这个值在现存的行里已经没有了(删除让它消失 → 结果一定变;只看"存不存在"的 API 只有这种才看得出来)
-			rows := append([]core.Row(nil), rows...)
+		for _, set := range removed {
+			n, tried := 0, 0
+			// 优先: 这个值在现存的行里已经没有了(删除让它消失)
+			rows := append([]core.Row(nil), set.rows...)
 			sort.SliceStable(rows, func(i, j int) bool {
 				_, ci := byVal[core.Canonical(rows[i][f.Column])]
 				_, cj := byVal[core.Canonical(rows[j][f.Column])]
 				return !ci && cj
 			})
+			// 只留下这一项条件真的影响结果的请求(用参考求值器验证: 被淘汰的行还要满足 API 的其他条件,
+			// 例如有效期,否则不处理删除也看不出来)
 			for _, r := range rows {
 				v := r[f.Column]
 				if v == nil {
@@ -1064,7 +1066,14 @@ func (e *diffEnv) sweep(seen map[string]bool) []core.Params {
 				if d.List {
 					v = []any{v}
 				}
-				add(withRequired(r, core.Params{d.Name: v}))
+				rq := withRequired(r, core.Params{d.Name: v})
+				if tried++; tried > 60 {
+					break
+				}
+				if bad, err := e.invalid(e.request(rq)); err != nil || bad || !e.sensitive(rq, set.step, set.node) {
+					continue
+				}
+				add(rq)
 				if n++; n == 3 {
 					break
 				}
@@ -1226,7 +1235,13 @@ func (e *diffEnv) versionCounts() (versions, removed int, ok bool) {
 
 // removedRows: 多版本来源里,每个键的最新版本被"取最新之后"的每一项条件(删除 / 逻辑删除 …)淘汰的行。
 // 按条件分开(每一项各自要被请求碰到),行按规范文本排序(确定)。
-func (e *diffEnv) removedRows() [][]core.Row {
+type removedSet struct {
+	step int
+	node *core.Expr
+	rows []core.Row
+}
+
+func (e *diffEnv) removedRows() []removedSet {
 	var src []core.Step
 	pick := -1
 	for _, st := range e.api.Pipeline.Steps {
@@ -1241,8 +1256,8 @@ func (e *diffEnv) removedRows() [][]core.Row {
 	if pick < 0 {
 		return nil
 	}
-	var out [][]core.Row
-	for _, st := range src[pick+1:] {
+	var out []removedSet
+	for si, st := range src[pick+1:] {
 		if st.Kind != "filter" || st.Pred == nil {
 			continue
 		}
@@ -1261,7 +1276,7 @@ func (e *diffEnv) removedRows() [][]core.Row {
 			}
 			rows := res.Rows
 			sort.Slice(rows, func(i, j int) bool { return fmt.Sprint(rows[i]) < fmt.Sprint(rows[j]) })
-			out = append(out, rows)
+			out = append(out, removedSet{step: pick + 1 + si, node: c, rows: rows})
 		}
 	}
 	return out
@@ -1415,29 +1430,7 @@ func (e *diffEnv) sensitivity(reqs []core.Params) (weak []string, total int) {
 			valid = append(valid, ps)
 		}
 	}
-	eval := func(pl *core.Pipeline, ps core.Params) string {
-		params := core.Params{}
-		for k, v := range ps {
-			params[k] = v
-		}
-		if e.exit.DiffParams != nil {
-			for k, v := range e.exit.DiffParams(e.api) {
-				params[k] = v
-			}
-		}
-		res, err := core.Eval(pl, map[string][]core.Row{e.table: e.rowsFor(ps)}, params)
-		if err != nil {
-			return "error"
-		}
-		var b strings.Builder
-		for _, r := range res.Rows {
-			for _, c := range res.Columns {
-				b.WriteString(core.Canonical(r[c.Name]) + "|")
-			}
-			b.WriteString("\n")
-		}
-		return b.String()
-	}
+	eval := e.evalCanon
 	base := map[int]string{}
 	distinct := map[string]bool{}
 	for i, ps := range valid {
@@ -1460,6 +1453,9 @@ func (e *diffEnv) sensitivity(reqs []core.Params) (weak []string, total int) {
 				n++
 			}
 		}
+		if os.Getenv("FACTORY_DEBUG_SENS") != "" && len(valid) > 0 {
+			fmt.Fprintf(os.Stderr, "SENS %s %s: n=%d base0=%.200q mut0=%.200q\n", e.api.ID, t.desc, n, base[0], eval(&mut, valid[0]))
+		}
 		total++
 		if n < need {
 			weak = append(weak, fmt.Sprintf("%s(%d 个请求)", t.desc, n))
@@ -1481,6 +1477,40 @@ func refersColumn(x *core.Expr) bool {
 		}
 	}
 	return false
+}
+
+// evalCanon: 参考求值器的结果(规范文本,比较用)。出错 → "error"。
+func (e *diffEnv) evalCanon(pl *core.Pipeline, ps core.Params) string {
+	params := core.Params{}
+	for k, v := range ps {
+		params[k] = v
+	}
+	if e.exit.DiffParams != nil {
+		for k, v := range e.exit.DiffParams(e.api) {
+			params[k] = v
+		}
+	}
+	res, err := core.Eval(pl, map[string][]core.Row{e.table: e.rowsFor(ps)}, params)
+	if err != nil {
+		return "error"
+	}
+	var b strings.Builder
+	for _, r := range res.Rows {
+		for _, c := range res.Columns {
+			b.WriteString(core.Canonical(r[c.Name]) + "|")
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// sensitive: 把第 step 步条件里的 node 换成恒真后,这个请求的结果变不变。
+func (e *diffEnv) sensitive(ps core.Params, step int, node *core.Expr) bool {
+	p := e.api.Pipeline
+	mut := *p
+	mut.Steps = append([]core.Step(nil), p.Steps...)
+	mut.Steps[step].Pred = replaceExpr(p.Steps[step].Pred, node, core.Const(true, core.Type{Kind: core.Bool}))
+	return e.evalCanon(&mut, ps) != e.evalCanon(p, ps)
 }
 
 // replaceExpr: 复制表达式树,把节点 target 换成 with(按指针)。
