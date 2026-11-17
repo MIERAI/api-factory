@@ -25,7 +25,7 @@ PAIRS = [("等于", c, COLS[c][0]) for c in ["i32", "i64", "txt", "flag", "amt",
 PAIRS += [("不等于", c, COLS[c][0]) for c in ["i32", "txt", "amt", "day"]]
 PAIRS += [("大于等于", c, COLS[c][0]) for c in ["i32", "amt", "day", "at", "txt"]]
 PAIRS += [("小于", c, COLS[c][0]) for c in ["i64", "amt", "day", "at", "zip"]]
-PAIRS += [("前缀匹配", c, COLS[c][0]) for c in ["txt", "zip"]]
+PAIRS += [("前缀匹配", c, "文本") for c in ["txt", "zip"]]  # 前缀不是完整的值: 带格式的类型(邮编)的前缀用 文本
 PAIRS += [("属于", c, COLS[c][0] + "列表") for c in ["i32", "i64", "txt", "amt", "day"]]
 PAIRS += [("有效期包含", "vfrom~vto", "整数32")]
 

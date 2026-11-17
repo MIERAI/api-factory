@@ -51,6 +51,7 @@ type diffEnv struct {
 	cols   []core.NamedType
 	rnd    *rand.Rand
 	rows   []core.Row
+	rowDB  []*pgx.Conn          // 分库: 每一行在哪个库(期待值只用请求所在的库的行: 版本的选择在各个库里分别进行)
 	filter map[string]ir.Filter // 参数名 → 筛选
 	exit   *exits.Exit          // 出口(期待值的定义)
 	input  protoreflect.MessageDescriptor
@@ -526,7 +527,8 @@ func (e *diffEnv) load() (int, int, error) {
 	for _, c := range e.cols {
 		sel = append(sel, pgx.Identifier{c.Name}.Sanitize()+"::text")
 	}
-	for _, conn := range targets { // 读回: 所有的库合在一起
+	e.rowDB = nil
+	for _, conn := range targets { // 读回: 所有的库合在一起(记下每一行在哪个库)
 		rows, err := conn.Query(e.ctx, fmt.Sprintf("SELECT %s FROM %s", strings.Join(sel, ", "), ident))
 		if err != nil {
 			return 0, 0, err
@@ -551,6 +553,7 @@ func (e *diffEnv) load() (int, int, error) {
 				r[c.Name] = v
 			}
 			e.rows = append(e.rows, r)
+			e.rowDB = append(e.rowDB, conn)
 		}
 		rows.Close()
 		if err := rows.Err(); err != nil {
@@ -810,11 +813,30 @@ func (e *diffEnv) Eval(ps core.Params) ([]core.Row, error) {
 			evalParams[k] = v
 		}
 	}
-	res, err := core.Eval(e.api.Pipeline, map[string][]core.Row{e.table: e.rows}, evalParams)
+	res, err := core.Eval(e.api.Pipeline, map[string][]core.Row{e.table: e.rowsFor(ps)}, evalParams)
 	if err != nil {
 		return nil, err
 	}
 	return res.Rows, nil
+}
+
+// rowsFor: 请求能看到的行。分库的 API = 请求的分库键对应的那个库的行;否则全部。
+func (e *diffEnv) rowsFor(ps core.Params) []core.Row {
+	sh := e.api.Shard
+	if sh == nil {
+		return e.rows
+	}
+	conn, err := e.db.forKey(ps[sh.Field])
+	if err != nil {
+		return nil
+	}
+	var out []core.Row
+	for i, r := range e.rows {
+		if e.rowDB[i] == conn {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // loadAnchors: 只跑流水线的来源部分(编译器标记为 datasource.table / 来源 … 的步骤)。
@@ -830,7 +852,7 @@ func (e *diffEnv) loadAnchors() error {
 		e.anchors = e.rows
 		return nil
 	}
-	res, err := core.Eval(src, map[string][]core.Row{e.table: e.rows}, core.Params{})
+	res, err := e.evalPerDB(src)
 	if err != nil {
 		return err
 	}
@@ -1082,7 +1104,7 @@ func (e *diffEnv) versionCounts() (versions, removed int, ok bool) {
 		return 0, 0, false
 	}
 	count := func(steps []core.Step) int {
-		res, err := core.Eval(&core.Pipeline{Steps: steps, Params: e.api.Pipeline.Params}, map[string][]core.Row{e.table: e.rows}, core.Params{})
+		res, err := e.evalPerDB(&core.Pipeline{Steps: steps, Params: e.api.Pipeline.Params})
 		if err != nil {
 			return -1
 		}
@@ -1100,7 +1122,7 @@ func (e *diffEnv) staleRows() []core.Row {
 			break
 		}
 		if st.Kind == "pick_per_key" {
-			res, err := core.Eval(&core.Pipeline{Steps: src, Params: e.api.Pipeline.Params}, map[string][]core.Row{e.table: e.rows}, core.Params{})
+			res, err := e.evalPerDB(&core.Pipeline{Steps: src, Params: e.api.Pipeline.Params})
 			if err != nil {
 				return nil
 			}
@@ -1142,11 +1164,13 @@ func (e *diffEnv) domainSize(col string) int {
 // planned: 用参考求值器预估这批请求的覆盖条件(不需要服务器)。和 runDiff 最后的覆盖条件一致。
 func (e *diffEnv) planned(reqs []core.Params) bool {
 	hits := map[string]int{}
+	maxRows := 0
 	for _, ps := range reqs {
 		rows, err := e.Eval(ps)
 		if err != nil {
 			continue
 		}
+		maxRows = max(maxRows, len(rows))
 		if bad, err := e.invalid(e.request(ps)); err != nil || bad {
 			continue
 		}
@@ -1165,6 +1189,9 @@ func (e *diffEnv) planned(reqs []core.Params) bool {
 	}
 	if e.exit.DiffMulti {
 		ok = ok && hits["n"] > 0
+	}
+	if e.exit.DiffMinRows > 0 { // 出口用例要的行数
+		ok = ok && maxRows >= e.exit.DiffMinRows
 	}
 	if versions, removed, has := e.versionCounts(); has {
 		ok = ok && versions >= 3 && removed >= 3
@@ -1231,7 +1258,7 @@ func (e *diffEnv) sensitivity(reqs []core.Params) (weak []string, total int) {
 				params[k] = v
 			}
 		}
-		res, err := core.Eval(pl, map[string][]core.Row{e.table: e.rows}, params)
+		res, err := core.Eval(pl, map[string][]core.Row{e.table: e.rowsFor(ps)}, params)
 		if err != nil {
 			return "error"
 		}
@@ -1299,7 +1326,7 @@ func (e *diffEnv) pickReduced(reqs []core.Params) (int, bool) {
 		for k, v := range ps {
 			evalParams[k] = v
 		}
-		res, err := core.Eval(&core.Pipeline{Steps: steps[:upto], Params: e.api.Pipeline.Params}, map[string][]core.Row{e.table: e.rows}, evalParams)
+		res, err := core.Eval(&core.Pipeline{Steps: steps[:upto], Params: e.api.Pipeline.Params}, map[string][]core.Row{e.table: e.rowsFor(ps)}, evalParams)
 		if err != nil {
 			return -1
 		}
@@ -1315,4 +1342,30 @@ func (e *diffEnv) pickReduced(reqs []core.Params) (int, bool) {
 		}
 	}
 	return n, true
+}
+
+// evalPerDB: 不依赖请求的求值(来源部分): 分库时每个库分别算,结果合在一起(版本的选择在各个库里分别进行)。
+func (e *diffEnv) evalPerDB(p *core.Pipeline) (*core.Result, error) {
+	if e.api.Shard == nil {
+		return core.Eval(p, map[string][]core.Row{e.table: e.rows}, core.Params{})
+	}
+	parts := map[*pgx.Conn][]core.Row{}
+	var order []*pgx.Conn
+	for i, r := range e.rows {
+		c := e.rowDB[i]
+		if _, ok := parts[c]; !ok {
+			order = append(order, c)
+		}
+		parts[c] = append(parts[c], r)
+	}
+	out := &core.Result{}
+	for _, c := range order {
+		res, err := core.Eval(p, map[string][]core.Row{e.table: parts[c]}, core.Params{})
+		if err != nil {
+			return nil, err
+		}
+		out.Columns = res.Columns
+		out.Rows = append(out.Rows, res.Rows...)
+	}
+	return out, nil
 }

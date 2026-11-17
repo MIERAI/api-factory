@@ -350,6 +350,11 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 			if len(cols) > 1 {
 				sf.Columns = cols
 			}
+			if op == "prefix" || op == "前缀匹配" { // 前缀不是完整的值: 带格式的类型(邮编 …)的前缀永远通不过格式校验
+				if k, ok := kinds.ByName(strings.TrimSuffix(in.Type, "列表")); ok && k.Pattern != "" {
+					e.add(in.Line, "输入 %s: 前缀匹配的输入不能是带格式的类型 %s(前缀不是完整的%s,会被格式校验拒绝),请用 文本", in.Name, k.Name, k.Name)
+				}
+			}
 			filters[in.Name] = sf
 		}
 	}
