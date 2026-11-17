@@ -5,7 +5,8 @@ coverage:
     - 'validation: job_type(string 长度)'
     - 'validation: period_start(required)'
     - 'validation: period_end(required)'
-    - 'validation: 消息级 CEL 规则不自动生成(需要人写用例)'
+    - 'validation: 输入之间的规则 before/period_start/period_end'
+    - 'validation: 输入之间的规则 within/period_start/period_end/31'
 suites:
     - name: validation
       cases:
@@ -56,6 +57,51 @@ suites:
         - name: period_end 未指定(required)
           request:
             job_type: alpha
+            period_start: "2026-11-01T00:00:00Z"
+          expect:
+            code: INVALID_ARGUMENT
+            response: {}
+          steps: []
+        - name: '输入之间: period_start = period_end(早于的边界,违反)'
+          request:
+            job_type: alpha
+            period_end: "2026-11-08T00:00:00Z"
+            period_start: "2026-11-08T00:00:00Z"
+          expect:
+            code: INVALID_ARGUMENT
+            response: {}
+          steps: []
+        - name: '输入之间: period_start 晚于 period_end(违反)'
+          request:
+            job_type: alpha
+            period_end: "2026-11-08T00:00:00Z"
+            period_start: "2026-11-08T00:00:01Z"
+          expect:
+            code: INVALID_ARGUMENT
+            response: {}
+          steps: []
+        - name: '输入之间: period_start 比 period_end 早一点(早于的边界,合法)'
+          request:
+            job_type: alpha
+            period_end: "2026-11-08T00:00:00Z"
+            period_start: "2026-11-07T23:59:59Z"
+          expect:
+            code: '!INVALID_ARGUMENT'
+            response: {}
+          steps: []
+        - name: '输入之间: period_start 到 period_end 正好 31 天(合法)'
+          request:
+            job_type: alpha
+            period_end: "2026-12-02T00:00:00Z"
+            period_start: "2026-11-01T00:00:00Z"
+          expect:
+            code: '!INVALID_ARGUMENT'
+            response: {}
+          steps: []
+        - name: '输入之间: period_start 到 period_end 超过 31 天 1 秒(违反)'
+          request:
+            job_type: alpha
+            period_end: "2026-12-02T00:00:01Z"
             period_start: "2026-11-01T00:00:00Z"
           expect:
             code: INVALID_ARGUMENT

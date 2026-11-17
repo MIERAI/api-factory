@@ -18,6 +18,11 @@ func convMessage(md protoreflect.MessageDescriptor, depth int) ir.Message {
 	m := ir.Message{Name: string(md.Name())}
 	if opts, ok := md.Options().(*descriptorpb.MessageOptions); ok && opts != nil && proto.HasExtension(opts, validate.E_Message) {
 		m.HasRules = true
+		if r, _ := proto.GetExtension(opts, validate.E_Message).(*validate.MessageRules); r != nil {
+			for _, c := range r.GetCel() {
+				m.Relations = append(m.Relations, c.GetId())
+			}
+		}
 	}
 	for i := 0; i < md.Fields().Len(); i++ {
 		m.Fields = append(m.Fields, convField(md.Fields().Get(i), depth))

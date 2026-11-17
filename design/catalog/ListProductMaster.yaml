@@ -15,6 +15,9 @@ API: ListProductMaster
   product_codes: { 类型: 文本列表, 必填: 否, 格式: 数字, 说明: 商品コード, 筛选: product_code 属于 }
   maker_zip:     { 类型: 邮编,     必填: 否, 说明: メーカーの郵便番号, 筛选: maker_zip 等于 }
 
+输入之间的规则:
+  - category、product_codes 至少指定一个
+
 输出:
   product_code: 商品コード
   name:         商品名
@@ -38,8 +41,8 @@ API: ListProductMaster
       - { product_code: D, name: ぶどう,   category: veg,   price: 300, launched_on: null }   # D は最初 veg
       - { product_code: D, name: ぶどう,   category: fruit, price: 300, launched_on: null }   # → fruit に変更
   用例:
-    - 说明: 現在の値だけ。削除された B と論理削除された C は返さない(古い版に戻らない)
-      输入: {}
+    - 说明: 現在の値だけ。削除された B は返さない(古い版に戻らない)。論理削除された C は次の例(veg)で確認
+      输入: { category: fruit }
       结果: { product_master: [{ product_code: A, name: りんご2, price: "120", launched_on: "2026-01-01" }, { product_code: D, category: fruit }] }
     - 说明: 筛选は現在の値に対して行う。D の古い版は veg だが、今は fruit なので veg では返さない
       输入: { category: veg }

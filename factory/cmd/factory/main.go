@@ -27,6 +27,7 @@ import (
 	"apifactory/factory/ai"
 	"apifactory/factory/answer"
 	"apifactory/factory/compiler"
+	"apifactory/factory/constraints"
 	"apifactory/factory/design"
 	"apifactory/factory/exits"
 	"apifactory/factory/guard"
@@ -440,6 +441,7 @@ func cmdReviewPrompt(args []string) error {
 		return err
 	}
 	data["Round"], data["Previous"], data["AIWrites"] = len(cycle)+1, prev, s.AIWrites()
+	data["RelationForms"], data["ConstraintForms"] = constraints.RelationForms(), constraints.Forms()
 	if *out != "" {
 		b, _ := json.MarshalIndent(map[string]any{"round": len(cycle) + 1, "previous": prev}, "", "  ")
 		if err := os.WriteFile(filepath.Join(*out, "prev.json"), b, 0o644); err != nil {

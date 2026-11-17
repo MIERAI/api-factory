@@ -244,12 +244,13 @@ const file_factory_catalog_v1_catalog_proto_rawDesc = "" +
 	"\x06_priceB\x0e\n" +
 	"\f_launched_onB\f\n" +
 	"\n" +
-	"_maker_zip\"\xc9\x01\n" +
+	"_maker_zip\"\xe7\x02\n" +
 	"\x18ListProductMasterRequest\x12\x1f\n" +
 	"\bcategory\x18\x01 \x01(\tH\x00R\bcategory\x88\x01\x01\x129\n" +
 	"\rproduct_codes\x18\x02 \x03(\tB\x14\xbaH\x11\x92\x01\x0e\"\fr\n" +
 	"2\b^[0-9]+$R\fproductCodes\x126\n" +
-	"\tmaker_zip\x18\x03 \x01(\tB\x14\xbaH\x11r\x0f2\r^\\d{3}-\\d{4}$H\x01R\bmakerZip\x88\x01\x01B\v\n" +
+	"\tmaker_zip\x18\x03 \x01(\tB\x14\xbaH\x11r\x0f2\r^\\d{3}-\\d{4}$H\x01R\bmakerZip\x88\x01\x01:\x9b\x01\xbaH\x97\x01\x1a\x94\x01\n" +
+	"#at_least_one/category/product_codes\x129at least one of category, product_codes must be specified\x1a2has(this.category) || size(this.product_codes) > 0B\v\n" +
 	"\t_categoryB\f\n" +
 	"\n" +
 	"_maker_zip\"e\n" +

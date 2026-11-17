@@ -73,8 +73,9 @@ acceptance:
               price: "300"
               product_code: D
     cases:
-        - name: 現在の値だけ。削除された B と論理削除された C は返さない(古い版に戻らない)
-          request: {}
+        - name: 現在の値だけ。削除された B は返さない(古い版に戻らない)。論理削除された C は次の例(veg)で確認
+          request:
+            category: fruit
           expect:
             code: OK
             response:

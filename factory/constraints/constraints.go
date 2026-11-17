@@ -84,6 +84,35 @@ func Keys() []string {
 	return ks
 }
 
+// ValueOK: 这个键的值写法对不对(不知道输入的类型: 只要在某种类型上能编译就算对;类型不合由设计稿的编译报错)。
+func ValueOK(key, value string) bool {
+	c := byKey(key)
+	if c == nil {
+		return false
+	}
+	for _, ctx := range []Ctx{{ProtoType: "int32"}, {ProtoType: "int64"}, {ProtoType: "string"}, {ProtoType: "string", List: true}, {ProtoType: "int64", List: true}} {
+		if c.Level == List && !ctx.List {
+			continue
+		}
+		if c.Level == Elem {
+			ctx.List = false
+		}
+		if _, err := c.Compile(ctx, value); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// Forms: 设计语言里能写的约束: "键(例子)"。审查 prompt 用。
+func Forms() []string {
+	var out []string
+	for _, k := range Keys() {
+		out = append(out, fmt.Sprintf("%s(%s)", k, byKey(k).Example))
+	}
+	return out
+}
+
 // Compile: 一个输入的所有约束 → protovalidate 规则。values: 设计语言里写的 键 → 值。
 func Compile(c Ctx, values map[string]string) ([]string, []error) {
 	var rules []string

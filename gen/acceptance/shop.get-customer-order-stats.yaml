@@ -5,7 +5,7 @@ coverage:
     - 'validation: customer_id(int64 范围/in)'
     - 'validation: period_start(required)'
     - 'validation: period_end(required)'
-    - 'validation: 消息级 CEL 规则不自动生成(需要人写用例)'
+    - 'validation: 消息级 CEL 规则 1 条工厂不认识,不自动生成(需要人写用例)'
 suites:
     - name: validation
       cases:

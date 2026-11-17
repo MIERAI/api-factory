@@ -5,7 +5,7 @@ coverage:
     - 'validation: page_size(int32 范围/in)'
     - 'validation: status(enum defined_only/not_in)'
     - 'validation: job_type(string 长度)'
-    - 'validation: 消息级 CEL 规则不自动生成(需要人写用例)'
+    - 'validation: 输入之间的规则 before/created_after/created_before'
     - '差分测试(运行时): 随机数据 + 核心代数的参考求值器,覆盖筛选 / 排序 / 字段映射 / 一览的出口'
     - '差分测试(运行时): 不合法的随机请求(protovalidate)→ INVALID_ARGUMENT'
     - '差分测试(运行时): 一览出口自己的用例'
@@ -125,6 +125,37 @@ suites:
             created_after: "2026-11-02T00:00:00Z"
             created_before: "2026-11-05T00:00:00Z"
             job_type: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          expect:
+            code: '!INVALID_ARGUMENT'
+            response: {}
+          steps: []
+        - name: '输入之间: created_after = created_before(早于的边界,违反)'
+          request:
+            created_after: "2026-11-05T00:00:00Z"
+            created_before: "2026-11-05T00:00:00Z"
+          expect:
+            code: INVALID_ARGUMENT
+            response: {}
+          steps: []
+        - name: '输入之间: created_after 晚于 created_before(违反)'
+          request:
+            created_after: "2026-11-05T00:00:01Z"
+            created_before: "2026-11-05T00:00:00Z"
+          expect:
+            code: INVALID_ARGUMENT
+            response: {}
+          steps: []
+        - name: '输入之间: created_after 比 created_before 早一点(早于的边界,合法)'
+          request:
+            created_after: "2026-11-04T23:59:59Z"
+            created_before: "2026-11-05T00:00:00Z"
+          expect:
+            code: '!INVALID_ARGUMENT'
+            response: {}
+          steps: []
+        - name: '输入之间: 只指定 created_before(不检查,合法)'
+          request:
+            created_before: "2026-11-05T00:00:00Z"
           expect:
             code: '!INVALID_ARGUMENT'
             response: {}

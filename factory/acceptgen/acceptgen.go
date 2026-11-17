@@ -130,8 +130,30 @@ func (c *ctx) validationSuite() (spec.Suite, []string) {
 			})
 		}
 	}
-	if c.api.Request.HasRules {
-		cov = append(cov, "validation: 消息级 CEL 规则不自动生成(需要人写用例)")
+	// 输入之间的规则(关系的注册表): 一个请求改几个字段
+	rcs, labels, unknown := constraints.RelationCases(&c.api.Request, base)
+	for _, rc := range rcs {
+		req := map[string]any{}
+		for k, v := range base {
+			req[k] = v
+		}
+		for _, k := range rc.Unset {
+			delete(req, k)
+		}
+		for k, v := range rc.Set {
+			req[k] = v
+		}
+		code := "INVALID_ARGUMENT"
+		if rc.Valid {
+			code = "!INVALID_ARGUMENT"
+		}
+		suite.Cases = append(suite.Cases, spec.Case{Name: "输入之间: " + rc.Label, Request: req, Expect: spec.Expect{Code: code}})
+	}
+	for _, l := range labels {
+		cov = append(cov, "validation: 输入之间的规则 "+l)
+	}
+	if unknown > 0 {
+		cov = append(cov, fmt.Sprintf("validation: 消息级 CEL 规则 %d 条工厂不认识,不自动生成(需要人写用例)", unknown))
 	}
 	return suite, cov
 }

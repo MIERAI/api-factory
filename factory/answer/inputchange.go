@@ -7,9 +7,10 @@ package answer
 // 所以选项可以带结构化的 input_change,选中后工厂直接改设计稿里那一行输入。
 
 import (
+	"apifactory/factory/constraints"
 	"fmt"
 	"os"
-	"regexp"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -22,25 +23,18 @@ type InputChange struct {
 	Value string `json:"value"` // 是 / "> 0" / "1~64" / "1~1000"
 }
 
-var (
-	reRangeVal   = regexp.MustCompile(`^\s*((>=|<=|>|<)\s*-?\d+|-?\d+\s*~\s*-?\d+)\s*$`)
-	reBetweenVal = regexp.MustCompile(`^\s*\d+\s*~\s*\d+\s*$`)
-)
-
-// Valid: 只允许设计语言里有的键和写法(其他的修改要人改设计稿)。
+// Valid: 只允许 必填 和约束的注册表(factory/constraints)里的键和写法(其他的修改要人改设计稿)。
 func (c InputChange) Valid() error {
-	ok := false
-	switch c.Key {
-	case "必填":
-		ok = c.Value == "是" || c.Value == "否"
-	case "范围":
-		ok = reRangeVal.MatchString(c.Value)
-	case "长度", "个数":
-		ok = reBetweenVal.MatchString(c.Value)
-	default:
-		return fmt.Errorf("输入 %s: 不能自动修改的键 %q(只能是 必填 / 范围 / 长度 / 个数)", c.Input, c.Key)
+	if c.Key == "必填" {
+		if c.Value != "是" && c.Value != "否" {
+			return fmt.Errorf("输入 %s: 必填 只能是 是 / 否", c.Input)
+		}
+		return nil
 	}
-	if !ok {
+	if !slices.Contains(constraints.Keys(), c.Key) {
+		return fmt.Errorf("输入 %s: 不能自动修改的键 %q(只能是 必填 / %s)", c.Input, c.Key, strings.Join(constraints.Keys(), " / "))
+	}
+	if !constraints.ValueOK(c.Key, c.Value) {
 		return fmt.Errorf("输入 %s: %s 的值 %q 不对", c.Input, c.Key, c.Value)
 	}
 	return nil
@@ -141,4 +135,58 @@ func flowMap(n *yaml.Node) string {
 		parts = append(parts, n.Content[i].Value+": "+s)
 	}
 	return "{ " + strings.Join(parts, ", ") + " }"
+}
+
+// ApplyRuleAdditions: 往设计稿的"输入之间的规则"追加规则(没有这一节就加在 输入 的后面)。
+func ApplyRuleAdditions(designFile string, rules []string) error {
+	if len(rules) == 0 {
+		return nil
+	}
+	for _, r := range rules {
+		if !constraints.MatchRelation(r) {
+			return fmt.Errorf("输入之间的规则 %q: 不是工厂支持的写法(%s)", r, strings.Join(constraints.RelationForms(), " / "))
+		}
+	}
+	b, err := os.ReadFile(designFile)
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(string(b), "\n")
+	var add []string
+	for _, r := range rules {
+		add = append(add, "  - "+r)
+	}
+	at := -1
+	for i, l := range lines {
+		if strings.HasPrefix(l, "输入之间的规则:") {
+			at = i + 1
+			for at < len(lines) && strings.HasPrefix(lines[at], "  ") {
+				at++
+			}
+			break
+		}
+	}
+	if at < 0 { // 新加一节: 放在 输入 这一节的后面
+		for i, l := range lines {
+			if strings.HasPrefix(l, "输入:") {
+				at = i + 1
+				for at < len(lines) && (strings.HasPrefix(lines[at], "  ") || strings.TrimSpace(lines[at]) == "") {
+					at++
+				}
+				add = append(append([]string{"输入之间的规则:"}, add...), "")
+				break
+			}
+		}
+	}
+	if at < 0 {
+		return fmt.Errorf("%s: 没有 输入", designFile)
+	}
+	// 去掉要插入位置前面多余的空行(新的一节和上一节之间留一个空行)
+	out := append(append(append([]string{}, lines[:at]...), add...), lines[at:]...)
+	s := strings.Join(out, "\n")
+	var check yaml.Node
+	if err := yaml.Unmarshal([]byte(s), &check); err != nil {
+		return fmt.Errorf("修改后的设计稿不是合法的 YAML(没有写入): %w", err)
+	}
+	return os.WriteFile(designFile, []byte(s), 0o644)
 }

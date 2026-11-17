@@ -66,9 +66,10 @@ type API struct {
 }
 
 type Message struct {
-	Name     string  `json:"name"` // GetJobStatusRequest
-	Fields   []Field `json:"fields"`
-	HasRules bool    `json:"has_message_rules,omitempty"` // 消息级 CEL 规则(不自动生成用例)
+	Name      string   `json:"name"` // GetJobStatusRequest
+	Fields    []Field  `json:"fields"`
+	HasRules  bool     `json:"has_message_rules,omitempty"` // 有消息级 CEL 规则
+	Relations []string `json:"relations,omitempty"`         // 消息级 CEL 规则的 id(工厂生成的: 关系名/参数…,factory/constraints)
 }
 
 func (m *Message) Field(name string) *Field {

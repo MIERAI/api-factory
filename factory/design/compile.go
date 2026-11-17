@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -242,11 +241,6 @@ func (c *ctx) columnField(table, col string) (string, string, bool, error) {
 	return p[0], p[1], optional, nil
 }
 
-var (
-	reBefore = regexp.MustCompile(`^(\w+)\s*早于\s*(\w+)$`)
-	reWithin = regexp.MustCompile(`^(\w+)\s*到\s*(\w+)\s*不超过\s*(\d+)\s*天$`)
-)
-
 func (c *ctx) inputField(a *API, in *Input, e *errs) *field {
 	elemType, isList := strings.CutSuffix(in.Type, "列表")
 	pt, kind, ok := c.typeOf(elemType)
@@ -344,14 +338,27 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 			filters[in.Name] = sf
 		}
 	}
-	for i, r := range a.InputRules {
-		x, err := c.celRule(req, r)
+	// 输入之间的规则: 关系的注册表(factory/constraints/rel_*.go)。id = 关系名/参数…(验收从 IR 读回,自动生成边界用例)
+	for _, r := range a.InputRules {
+		id, x, err := constraints.CompileRelation(r, func(name string) (constraints.RelField, error) {
+			for _, f := range req.Fields {
+				if f.Name == name {
+					required := false
+					for _, in := range a.Inputs {
+						if in.Name == name {
+							required = in.Required
+						}
+					}
+					return constraints.RelField{Name: f.Name, Kind: f.kind, List: f.Repeated, Optional: f.Optional, Required: required}, nil
+				}
+			}
+			return constraints.RelField{}, fmt.Errorf("%s 不是输入", name)
+		})
 		if err != nil {
 			e.add(1, "输入之间的规则 %q: %v", r, err)
 			continue
 		}
-		x.ID = fmt.Sprintf("rule_%d", i+1)
-		req.CEL = append(req.CEL, x)
+		req.CEL = append(req.CEL, cel{ID: id, Message: x.Message, Expr: x.Expr})
 	}
 
 	// ---- 响应
@@ -475,61 +482,6 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 		return nil, "", err
 	}
 	return s, fmt.Sprintf("  // %s\n  rpc %s(%s) returns (%s);", oneLine(a.Desc), a.Name, req.Name, resp.Name), nil
-}
-
-func (c *ctx) celRule(req *message, r string) (cel, error) {
-	has := func(name string) (*field, error) {
-		for _, f := range req.Fields {
-			if f.Name == name {
-				return f, nil
-			}
-		}
-		return nil, fmt.Errorf("%s 不是输入", name)
-	}
-	guard := func(fs ...*field) string {
-		var g []string
-		for _, f := range fs {
-			required := false
-			for _, rule := range f.Rules {
-				if rule == "required = true" {
-					required = true
-				}
-			}
-			if !required && (f.kind == "time" || f.Optional) {
-				g = append(g, fmt.Sprintf("!has(this.%s)", f.Name))
-			}
-		}
-		if len(g) == 0 {
-			return ""
-		}
-		return strings.Join(g, " || ") + " || "
-	}
-	if m := reBefore.FindStringSubmatch(r); m != nil {
-		a, err := has(m[1])
-		if err != nil {
-			return cel{}, err
-		}
-		b, err := has(m[2])
-		if err != nil {
-			return cel{}, err
-		}
-		return cel{Message: fmt.Sprintf("%s must be earlier than %s", a.Name, b.Name), Expr: fmt.Sprintf("%sthis.%s < this.%s", guard(a, b), a.Name, b.Name)}, nil
-	}
-	if m := reWithin.FindStringSubmatch(r); m != nil {
-		a, err := has(m[1])
-		if err != nil {
-			return cel{}, err
-		}
-		b, err := has(m[2])
-		if err != nil {
-			return cel{}, err
-		}
-		var days int
-		fmt.Sscan(m[3], &days)
-		return cel{Message: fmt.Sprintf("%s to %s must be %d days or less", a.Name, b.Name, days),
-			Expr: fmt.Sprintf("%sthis.%s - this.%s <= duration('%dh')", guard(a, b), b.Name, a.Name, days*24)}, nil
-	}
-	return cel{}, fmt.Errorf("无法识别。目前支持: \"A 早于 B\" / \"A 到 B 不超过 N 天\"")
 }
 
 func (c *ctx) addMessage(m *message) {

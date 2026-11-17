@@ -59,3 +59,26 @@ func TestApplyInputChangesRejects(t *testing.T) {
 		t.Error("拒绝时不能改文件")
 	}
 }
+
+func TestApplyRuleAdditions(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "X.yaml")
+	_ = os.WriteFile(p, []byte(designSample), 0o644)
+	if err := ApplyRuleAdditions(p, []string{"division_code 等于 codes"}); err == nil {
+		t.Error("不支持的写法应该拒绝")
+	}
+	if err := ApplyRuleAdditions(p, []string{"division_code、codes 至少指定一个"}); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(p)
+	if !strings.Contains(string(b), "  codes:   { 类型: 文本列表, 必填: 否, 范围: \"> 0\", 说明: \"a: b\" }\n输入之间的规则:\n  - division_code、codes 至少指定一个\n\n输出:") {
+		t.Fatalf("新的一节的位置不对:\n%s", b)
+	}
+	if err := ApplyRuleAdditions(p, []string{"division_code 早于 codes"}); err != nil { // 已有这一节: 追加
+		t.Fatal(err)
+	}
+	b, _ = os.ReadFile(p)
+	if !strings.Contains(string(b), "  - division_code、codes 至少指定一个\n  - division_code 早于 codes\n\n输出:") {
+		t.Fatalf("追加的位置不对:\n%s", b)
+	}
+}
