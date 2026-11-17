@@ -56,9 +56,10 @@ type diffEnv struct {
 	// anchors: 请求参数取值的来源 = 来源部分(scan / 来源单元)的输出。
 	// 普通的表 = 物理行;JSON版本 = 展开后的逻辑行(筛选的列在物理表里不存在)
 	anchors []core.Row
-	consts  map[core.Kind][]any // 流水线里出现的常量(加进值域: 删除值、逻辑删除值等要能被随机数据碰到)
-	ranges  map[string][]int64  // 列 → 整数值域(筛选这一列的参数有范围校验时,从范围里取,否则请求都不合法)
-	keyCol  map[string]string   // JSON 的键 → 逻辑列名(json_field 投影成的列)
+	consts  map[core.Kind][]any    // 流水线里出现的常量(加进值域: 删除值、逻辑删除值等要能被随机数据碰到)
+	ranges  map[string][]int64     // 列 → 整数值域(筛选这一列的参数有范围校验时,从范围里取,否则请求都不合法)
+	formats map[string]*kinds.Type // 列 → 带格式的类型(参数有格式校验时,数据要符合格式)
+	keyCol  map[string]string      // JSON 的键 → 逻辑列名(json_field 投影成的列)
 }
 
 type jsonKey struct {
@@ -102,12 +103,19 @@ func (e *diffEnv) collect() {
 	}
 	// 整数参数的范围校验 → 被它筛选的列(多列单元的每一列)的值域
 	e.ranges = map[string][]int64{}
+	e.formats = map[string]*kinds.Type{}
 	for _, f := range e.api.Filters {
 		fd := e.api.Request.Field(f.Field)
 		if fd == nil || fd.Rules == nil {
 			continue
 		}
 		r := fd.Rules
+		if t, ok := kinds.ByPattern(r.Pattern); ok && len(t.Domain) > 0 { // 带格式的文本(邮编 …): 值域用这个类型的
+			for _, c := range append([]string{f.Column}, f.Columns...) {
+				e.formats[c] = t
+			}
+			continue
+		}
 		var lo int64
 		switch {
 		case r.Gte != nil:
@@ -305,6 +313,9 @@ func (e *diffEnv) value(c core.NamedType, i int, unique bool) any {
 
 // scalarFor: 某一列的值(这一列有范围值域时从里面取)。
 func (e *diffEnv) scalarFor(col string, kind core.Kind, unique bool, i int) any {
+	if t, ok := e.formats[col]; ok && !unique {
+		return t.Domain[e.rnd.Intn(len(t.Domain))]
+	}
 	if dom, ok := e.ranges[col]; ok && !unique && (kind == core.Int32 || kind == core.Int64) {
 		return dom[e.rnd.Intn(len(dom))]
 	}

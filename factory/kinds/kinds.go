@@ -21,6 +21,7 @@ type Boundary struct {
 
 type Type struct {
 	Name  string    // 设计稿里的中文名: 日期
+	Base  string    // 基于哪个类型(带格式的文本: 邮编 → 文本)。没写的字段从 Base 继承;SQL 类型名不继承(列的类型仍是 Base)
 	Core  core.Kind // 核心类型(没有 = 只能作为计算的输出,例如 小数)
 	SQL   []string  // SQL 的类型名(第一个是规范名,其余是别名: int4 / integer / serial)
 	Proto string    // proto 的类型: string / int32 / google.protobuf.Timestamp
@@ -45,17 +46,46 @@ var (
 
 // Register: 每个类型文件的 init 里调用。名字 / SQL 类型名重复 → panic(启动时就发现)。
 func Register(t *Type) {
+	if t.Base != "" {
+		b, ok := byName[t.Base]
+		if !ok {
+			panic("kinds: " + t.Name + ": base " + t.Base + " is not registered (register the base first)")
+		}
+		inherit(t, b)
+	}
 	if _, dup := byName[t.Name]; dup {
 		panic("kinds: duplicate name " + t.Name)
 	}
 	byName[t.Name] = t
 	for _, s := range t.SQL {
+		if t.Base != "" {
+			break // 派生类型不占用 SQL 类型名(text 列仍然是 文本)
+		}
 		if _, dup := bySQL[s]; dup {
 			panic("kinds: duplicate SQL type " + s)
 		}
 		bySQL[s] = t
 	}
 	all = append(all, t)
+}
+
+func inherit(t, b *Type) {
+	t.Core, t.SQL = b.Core, b.SQL
+	if t.Proto == "" {
+		t.Proto = b.Proto
+	}
+	if t.Value == "" {
+		t.Value = b.Value
+	}
+	if t.Go == "" {
+		t.Go = b.Go
+	}
+	if t.Parse == nil {
+		t.Parse = b.Parse
+	}
+	if t.Domain == nil {
+		t.Domain, t.Missing = b.Domain, b.Missing
+	}
 }
 
 // ByName: 中文名 → 类型。
@@ -67,7 +97,7 @@ func BySQL(sqlType string) (*Type, bool) { t, ok := bySQL[sqlType]; return t, ok
 // ByCore: 核心类型 → 类型(规范的那一个)。
 func ByCore(k core.Kind) (*Type, bool) {
 	for _, t := range all {
-		if t.Core == k && t.Core != "" {
+		if t.Core == k && t.Core != "" && t.Base == "" {
 			return t, true
 		}
 	}
@@ -105,7 +135,7 @@ func (t *Type) CanonicalSQL() string {
 // ByValue: 例子的值的种类 → 类型(第一个注册的;int32 / int64 共用 int 的解析)。
 func ByValue(v string) (*Type, bool) {
 	for _, t := range all {
-		if t.Value == v {
+		if t.Value == v && t.Base == "" {
 			return t, true
 		}
 	}
