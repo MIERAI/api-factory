@@ -148,6 +148,20 @@ func (e *diffEnv) collect() {
 			}
 		}
 	}
+	// 必填的等于 / 属于条件的列、分库键的列: 值域缩小(请求固定了这些列,数据要集中在少数几个值上才有多行的结果)
+	for _, d := range e.api.Pipeline.Params {
+		f, ok := e.filter[d.Name]
+		if !ok || !d.Required {
+			continue
+		}
+		switch f.Op {
+		case "eq", "等于", "属于", "in":
+			e.groupCols[f.Column] = true
+		}
+	}
+	if sh := e.api.Shard; sh != nil {
+		e.groupCols[sh.Column] = true
+	}
 	// 整数参数的范围校验 → 被它筛选的列(多列单元的每一列)的值域
 	e.ranges = map[string][]int64{}
 	e.formats = map[string]*kinds.Type{}
