@@ -59,7 +59,7 @@ func writeLogicExamples(g *genCtx) error {
 	}
 	b.WriteString("}\n")
 	if t.imports["time"] != "" || strings.Contains(b.String(), "mustTime(") {
-		b.WriteString("\nfunc mustTime(s string) time.Time {\n\tv, err := time.Parse(time.RFC3339Nano, s)\n\tif err != nil {\n\t\tpanic(err)\n\t}\n\treturn v\n}\n\nfunc ptrOf[T any](v T) *T { return &v }\n")
+		b.WriteString("\nfunc mustTime(s string) time.Time {\n\tif v, err := time.Parse(time.DateOnly, s); err == nil { // 日期 YYYY-MM-DD\n\t\treturn v\n\t}\n\tv, err := time.Parse(time.RFC3339Nano, s)\n\tif err != nil {\n\t\tpanic(err)\n\t}\n\treturn v\n}\n\nfunc ptrOf[T any](v T) *T { return &v }\n")
 		t.use("time", "")
 	}
 	src := t.header(b.String())
@@ -153,6 +153,8 @@ func (t *genCtx) rowLiteral(r map[string]any, row []goField) (string, int, error
 			lit = fmt.Sprintf("ptrOf(mustTime(%q))", timeString(v))
 		case f.Type == "string":
 			lit = fmt.Sprintf("%q", fmt.Sprint(v))
+		case f.Type == "*string": // 可空的文本 / 十进制(十进制在 Go 里是字符串)
+			lit = fmt.Sprintf("ptrOf(%q)", fmt.Sprint(v))
 		default:
 			lit = fmt.Sprintf("%s(%v)", strings.TrimPrefix(f.Type, "*"), v)
 			if strings.HasPrefix(f.Type, "*") {
