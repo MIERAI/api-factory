@@ -1,6 +1,6 @@
 """验收的并行执行: 按 API 拆开(每个 API 的差分种子 = API 名 + 种子,和顺序无关),每个 worker 一套数据库。
 
-usage: python3 scripts/accept-par.py [--server bin/server] [--workers N] [--seeds "" s1 s2] [式样书目录 ...]
+usage: python3 scripts/accept-par.py [--server bin/server] [--workers N] [--seeds ",s1,s2"] [式样书目录 ...]
        (默认: specs 下的每个 API;多个种子同时跑)
 输出: 失败的用例 + 和串行一样的总结行。
 """
@@ -16,9 +16,10 @@ import parlib  # noqa: E402
 ap = argparse.ArgumentParser()
 ap.add_argument("--server", default="bin/server")
 ap.add_argument("--workers", type=int, default=parlib.CPUS)
-ap.add_argument("--seeds", nargs="*", default=[""])
+ap.add_argument("--seeds", default="", help='逗号分隔,空 = 默认种子。例: ",s1,s2"')
 ap.add_argument("roots", nargs="*")
 args = ap.parse_args()
+args.seeds = args.seeds.split(",")
 t0 = time.time()
 roots = args.roots or ["specs"]
 groups = []

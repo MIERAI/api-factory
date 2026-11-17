@@ -975,8 +975,8 @@ func (e *diffEnv) sweep(seen map[string]bool) []core.Params {
 			}
 		}
 		sort.Strings(staleKeys)
-		if len(staleKeys) > 3 {
-			staleKeys = staleKeys[:3]
+		if len(staleKeys) > 8 { // 删除 / 逻辑删除 各自要 ≥3 个请求(条件的敏感度),合在一起取 8 个
+			staleKeys = staleKeys[:8]
 		}
 		withRequired := func(anchor core.Row, ps core.Params) core.Params {
 			for _, o := range params {

@@ -16,7 +16,7 @@ step "prepare" make prepare
 step "build" go build ./...
 step "server" go build -o bin/server ./cmd/server
 echo "━━ accept(3 个种子 × 每个 API 并行)"
-python3 scripts/accept-par.py --seeds "" s1 s2 specs/matrix 2>&1 | grep -E "^  ✗|acceptance|⏱" | head -60
+python3 scripts/accept-par.py --seeds ",s1,s2" specs/matrix 2>&1 | grep -E "^  ✗|acceptance|⏱" | head -60
 rc=${PIPESTATUS[0]}
 [[ "${1:-}" == "--keep" ]] || { cd "$root"; git worktree remove --force "$wt"; }
 exit $rc

@@ -70,12 +70,12 @@ guard:            ## ④ 路径闸门
 test:             ## 单元测试(含工厂生成的 enum / 逻辑样例测试)
 	@go test ./internal/... ./platform/...
 
-accept: build test  ## 验收(ACCEPT_SPECS 可限定为某个式样书目录;SEEDS="" s1 s2 多个种子同时跑;SERIAL=1 串行)
+accept: build test  ## 验收(ACCEPT_SPECS 可限定为某个式样书目录;SEEDS=",s1,s2" 多个种子同时跑;SERIAL=1 串行)
 ifdef SERIAL
 	@go build -o .factory/factory ./factory/cmd/factory
 	@.factory/factory serve-test --server bin/server --db '$(DB_URL)' -- .factory/factory accept --db '$(DB_URL)' $(ACCEPT_SPECS)
 else
-	@DB_URL='$(DB_URL)' PG_NAME=$(PG_NAME) python3 scripts/accept-par.py $(if $(SEEDS),--seeds $(SEEDS)) $(ACCEPT_SPECS)
+	@DB_URL='$(DB_URL)' PG_NAME=$(PG_NAME) python3 scripts/accept-par.py $(if $(SEEDS),--seeds '$(SEEDS)') $(ACCEPT_SPECS)
 endif
 
 loop:             ## 整条流水线: 闸门 → 审查 → 生成 → AI → 闸门 → 验收 (MODEL=claude|local)

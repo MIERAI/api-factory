@@ -61,8 +61,9 @@ func init() {
 				hi = *ir.lt - 1
 			}
 			d := &Domain{Values: []any{lo, lo + 1, lo + 2, hi}}
-			if ir.lte == nil && ir.lt == nil { // 没有上限: 可以无限扩大
+			if ir.lte == nil && ir.lt == nil { // 没有上限: 可以无限扩大;"不存在的值"放在扩大的区间之外
 				d.Expand = func(i int) any { return lo + int64(i) }
+				d.Missing = lo + 1_000_000
 			}
 			return d
 		},
