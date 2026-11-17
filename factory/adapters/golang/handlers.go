@@ -60,9 +60,13 @@ func goKind(f *ir.Field) (string, error) {
 // reqExpr: 请求字段 → 查询参数类型 的转换表达式。
 func (g *genCtx) reqExpr(f *ir.Field, paramType string) (string, error) {
 	goName := goCamelCase(f.Name)
-	if f.List { // 列表参数: []string / []int32 / []int64(枚举的列表还不支持)
+	if f.List { // 列表参数: []string / []int32 / []int64 / 日期的列表(枚举的列表还不支持)
 		if k, err := goKind(&ir.Field{Name: f.Name, Kind: f.Kind}); err == nil && paramType == "[]"+k {
 			return fmt.Sprintf("m.Get%s()", goName), nil
+		}
+		if f.Kind == "string" && paramType == "[]time.Time" { // 日期 "YYYY-MM-DD" 的列表
+			g.use("apifactory/platform/conv", "")
+			return fmt.Sprintf("conv.Dates(m.Get%s())", goName), nil
 		}
 		return "", fmt.Errorf("list request field %s (%s) cannot be mapped to query param type %s", f.Name, f.Kind, paramType)
 	}

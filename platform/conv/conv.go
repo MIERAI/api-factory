@@ -56,3 +56,12 @@ func DateStringPtr(t *time.Time) *string {
 	s := DateString(*t)
 	return &s
 }
+
+// Dates: 日期的列表(格式由 protovalidate 先检查过)。
+func Dates(ss []string) []time.Time {
+	out := make([]time.Time, len(ss))
+	for i, s := range ss {
+		out[i] = Date(s)
+	}
+	return out
+}
