@@ -204,6 +204,8 @@ type StorageField struct {
 	Name string `json:"name"`
 	Key  string `json:"key"`
 	Type string `json:"type"`
+	// Column: 外壳列(物理表的列,不在 JSON 里)
+	Column string `json:"column,omitempty"`
 }
 
 func (p *Plan) Storage(view string) *Storage {

@@ -24,6 +24,7 @@ import (
 //	  product_id: { 类型: 整数32, 说明: 商品ID }
 //	  valid_from: { 类型: 整数32, 键: from, 说明: 生效开始日 }   # 键 = JSON 里的名字(默认 = 列名)
 //	  line_code:  { 类型: 文本, 可以为空: 是, 说明: … }          # 主键的列也可以为空: 空值自己是一组(和原来的 DISTINCT ON 一样)
+//	  登记时间:   { 类型: 时间, 列: registered_at }               # 外壳列: 物理表的列(这个版本的值),不在 JSON 里
 func init() {
 	Register(&Source{
 		Name: "JSON版本", Kind: "json_versions",
@@ -56,7 +57,7 @@ func init() {
 }
 
 // FieldKeys: JSON版本 的表的一个字段可以写的键。
-var FieldKeys = []string{"类型", "键", "说明", "枚举", "可以为空"}
+var FieldKeys = []string{"类型", "键", "列", "说明", "枚举", "可以为空"}
 
 func parseJSONVersions(d Domain) *spec.Storage {
 	n, name := d.Node(), d.Name()
@@ -117,7 +118,11 @@ func parseJSONVersions(d Domain) *spec.Storage {
 			if !ok {
 				d.Err(key.Line, "表 %s 的字段 %s: 类型 %q 无法识别(%s)", name, key.Value, typ, kinds.Names())
 			}
-			st.Fields = append(st.Fields, spec.StorageField{Name: key.Value, Key: str(val, "键"), Type: sqlType, Nullable: nullable})
+			col := str(val, "列")
+			if col != "" && str(val, "键") != "" {
+				d.Err(key.Line, "表 %s 的字段 %s: 键(JSON 里的名字)和 列(物理表的列)只能写一个", name, key.Value)
+			}
+			st.Fields = append(st.Fields, spec.StorageField{Name: key.Value, Key: str(val, "键"), Type: sqlType, Nullable: nullable, Column: col})
 			d.Column(key.Value, str(val, "说明"), en)
 		}
 	}
@@ -157,7 +162,21 @@ func jsonVersionsSteps(st *spec.Storage, nk []string, scan core.Step, lib *cells
 		if !ok || k.Core == "" {
 			return nil, fmt.Errorf("存储字段 %s: 类型 %s 核心代数还不支持", f.Name, f.Type)
 		}
-		parts.Expand = append(parts.Expand, core.NamedExpr{Name: f.Name, Expr: core.JSONField(data, f.JSONKey(), core.Type{Kind: k.Core})})
+		if f.Column != "" && (contains(nk, f.Name) || f.Column == st.DataColumn || f.Column == st.ActionColumn) {
+			return nil, fmt.Errorf("存储字段 %s: 外壳列不能是自然键,也不能是 JSON 列/操作列", f.Name)
+		}
+		if f.Column != "" { // 外壳列: 物理表的列,类型要和声明的一致
+			t, ok := core.Schema(scan.Columns).Col(f.Column)
+			if !ok {
+				return nil, fmt.Errorf("存储字段 %s: 物理表 %s 没有列 %s", f.Name, st.Table, f.Column)
+			}
+			if t.Kind != k.Core {
+				return nil, fmt.Errorf("存储字段 %s: 物理表的列 %s 是 %s,声明的类型是 %s", f.Name, f.Column, t.Kind, k.Core)
+			}
+			parts.Expand = append(parts.Expand, core.NamedExpr{Name: f.Name, Expr: core.Col(f.Column)})
+		} else {
+			parts.Expand = append(parts.Expand, core.NamedExpr{Name: f.Name, Expr: core.JSONField(data, f.JSONKey(), core.Type{Kind: k.Core})})
+		}
 		parts.Logical = append(parts.Logical, core.NamedExpr{Name: f.Name, Expr: core.Col(f.Name)})
 	}
 	parts.Expand = append(parts.Expand, core.NamedExpr{Name: "_action", Expr: core.Col(st.ActionColumn)})
@@ -181,11 +200,15 @@ func jsonVersionsSteps(st *spec.Storage, nk []string, scan core.Step, lib *cells
 
 // jsonVersionsRow: 逻辑表的一行 → 物理表的一行(数据列的 JSON + 操作列)。登记顺序列由验收按行的顺序合成。
 func jsonVersionsRow(st *ir.Storage, row map[string]any, enumDB func(col string, v any) (any, error)) (Physical, error) {
-	keyOf := map[string]string{}
+	keyOf, colOf := map[string]string{}, map[string]string{}
 	for _, f := range st.Fields {
 		keyOf[f.Name] = f.Key
+		if f.Column != "" {
+			colOf[f.Name] = f.Column
+		}
 	}
 	data := map[string]any{}
+	phys := map[string]any{}
 	action := int64(0)
 	for col, v := range row {
 		if col == spec.FixtureAction {
@@ -207,13 +230,18 @@ func jsonVersionsRow(st *ir.Storage, row map[string]any, enumDB func(col string,
 		if err != nil {
 			return Physical{}, err
 		}
+		if c, ok := colOf[col]; ok {
+			phys[c] = x
+			continue
+		}
 		data[key] = x
 	}
 	b, err := json.Marshal(data)
 	if err != nil {
 		return Physical{}, err
 	}
-	return Physical{Values: map[string]any{st.DataColumn: string(b), st.ActionColumn: action}, Order: true}, nil
+	phys[st.DataColumn], phys[st.ActionColumn] = string(b), action
+	return Physical{Values: phys, Order: true}, nil
 }
 
 func get(n *yaml.Node, key string) *yaml.Node {

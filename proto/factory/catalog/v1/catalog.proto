@@ -6,6 +6,7 @@ syntax = "proto3";
 package factory.catalog.v1;
 
 import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "apifactory/gen/factory/catalog/v1;catalogv1";
 
@@ -16,6 +17,9 @@ service CatalogService {
 
   // カテゴリと商品コードを条件に、商品マスタの現在の値を返す
   rpc ListProductMaster(ListProductMasterRequest) returns (ListProductMasterResponse);
+
+  // 商品コードを指定して、その商品のラベルを最後に変わった順に返す(いつ変わったかも返す)
+  rpc ListRecentLabelChanges(ListRecentLabelChangesRequest) returns (ListRecentLabelChangesResponse);
 }
 
 // 商品の表示ラベル(商品 × ラベルコードごとに最新の版)。ラベルコードが空 = 既定のラベル
@@ -77,4 +81,28 @@ message ListProductMasterRequest {
 message ListProductMasterResponse {
   // 最多 200 件;超过时返回错误(不会截断)
   repeated ProductMaster product_master = 1;
+}
+
+// 商品の表示ラベル(商品 × ラベルコードごとに最新の版)。ラベルコードが空 = 既定のラベル
+message LabelChange {
+  // ラベルコード(既定のラベルは空)
+  optional string label_code = 1;
+  // 表示文言
+  optional string text = 2;
+  // 最後に変わった時刻
+  google.protobuf.Timestamp changed_at = 3;
+}
+
+// 商品コードを指定して、その商品のラベルを最後に変わった順に返す(いつ変わったかも返す)
+message ListRecentLabelChangesRequest {
+  // 商品コード
+  string product_code = 1 [(buf.validate.field).string.pattern = "^[0-9]+$", (buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 20];
+  // この時刻以降に変わったものだけ
+  google.protobuf.Timestamp changed_since = 2;
+}
+
+// 商品コードを指定して、その商品のラベルを最後に変わった順に返す(いつ変わったかも返す)
+message ListRecentLabelChangesResponse {
+  // 最多 100 件;超过时返回错误(不会截断)
+  repeated LabelChange product_label = 1;
 }

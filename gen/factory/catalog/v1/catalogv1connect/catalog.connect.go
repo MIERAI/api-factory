@@ -42,6 +42,9 @@ const (
 	// CatalogServiceListProductMasterProcedure is the fully-qualified name of the CatalogService's
 	// ListProductMaster RPC.
 	CatalogServiceListProductMasterProcedure = "/factory.catalog.v1.CatalogService/ListProductMaster"
+	// CatalogServiceListRecentLabelChangesProcedure is the fully-qualified name of the CatalogService's
+	// ListRecentLabelChanges RPC.
+	CatalogServiceListRecentLabelChangesProcedure = "/factory.catalog.v1.CatalogService/ListRecentLabelChanges"
 )
 
 // CatalogServiceClient is a client for the factory.catalog.v1.CatalogService service.
@@ -50,6 +53,8 @@ type CatalogServiceClient interface {
 	ListProductLabels(context.Context, *connect.Request[v1.ListProductLabelsRequest]) (*connect.Response[v1.ListProductLabelsResponse], error)
 	// カテゴリと商品コードを条件に、商品マスタの現在の値を返す
 	ListProductMaster(context.Context, *connect.Request[v1.ListProductMasterRequest]) (*connect.Response[v1.ListProductMasterResponse], error)
+	// 商品コードを指定して、その商品のラベルを最後に変わった順に返す(いつ変わったかも返す)
+	ListRecentLabelChanges(context.Context, *connect.Request[v1.ListRecentLabelChangesRequest]) (*connect.Response[v1.ListRecentLabelChangesResponse], error)
 }
 
 // NewCatalogServiceClient constructs a client for the factory.catalog.v1.CatalogService service. By
@@ -75,13 +80,20 @@ func NewCatalogServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(catalogServiceMethods.ByName("ListProductMaster")),
 			connect.WithClientOptions(opts...),
 		),
+		listRecentLabelChanges: connect.NewClient[v1.ListRecentLabelChangesRequest, v1.ListRecentLabelChangesResponse](
+			httpClient,
+			baseURL+CatalogServiceListRecentLabelChangesProcedure,
+			connect.WithSchema(catalogServiceMethods.ByName("ListRecentLabelChanges")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // catalogServiceClient implements CatalogServiceClient.
 type catalogServiceClient struct {
-	listProductLabels *connect.Client[v1.ListProductLabelsRequest, v1.ListProductLabelsResponse]
-	listProductMaster *connect.Client[v1.ListProductMasterRequest, v1.ListProductMasterResponse]
+	listProductLabels      *connect.Client[v1.ListProductLabelsRequest, v1.ListProductLabelsResponse]
+	listProductMaster      *connect.Client[v1.ListProductMasterRequest, v1.ListProductMasterResponse]
+	listRecentLabelChanges *connect.Client[v1.ListRecentLabelChangesRequest, v1.ListRecentLabelChangesResponse]
 }
 
 // ListProductLabels calls factory.catalog.v1.CatalogService.ListProductLabels.
@@ -94,12 +106,19 @@ func (c *catalogServiceClient) ListProductMaster(ctx context.Context, req *conne
 	return c.listProductMaster.CallUnary(ctx, req)
 }
 
+// ListRecentLabelChanges calls factory.catalog.v1.CatalogService.ListRecentLabelChanges.
+func (c *catalogServiceClient) ListRecentLabelChanges(ctx context.Context, req *connect.Request[v1.ListRecentLabelChangesRequest]) (*connect.Response[v1.ListRecentLabelChangesResponse], error) {
+	return c.listRecentLabelChanges.CallUnary(ctx, req)
+}
+
 // CatalogServiceHandler is an implementation of the factory.catalog.v1.CatalogService service.
 type CatalogServiceHandler interface {
 	// 商品コードを指定して、その商品のラベル(既定のラベルを含む)の現在の値を返す
 	ListProductLabels(context.Context, *connect.Request[v1.ListProductLabelsRequest]) (*connect.Response[v1.ListProductLabelsResponse], error)
 	// カテゴリと商品コードを条件に、商品マスタの現在の値を返す
 	ListProductMaster(context.Context, *connect.Request[v1.ListProductMasterRequest]) (*connect.Response[v1.ListProductMasterResponse], error)
+	// 商品コードを指定して、その商品のラベルを最後に変わった順に返す(いつ変わったかも返す)
+	ListRecentLabelChanges(context.Context, *connect.Request[v1.ListRecentLabelChangesRequest]) (*connect.Response[v1.ListRecentLabelChangesResponse], error)
 }
 
 // NewCatalogServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -121,12 +140,20 @@ func NewCatalogServiceHandler(svc CatalogServiceHandler, opts ...connect.Handler
 		connect.WithSchema(catalogServiceMethods.ByName("ListProductMaster")),
 		connect.WithHandlerOptions(opts...),
 	)
+	catalogServiceListRecentLabelChangesHandler := connect.NewUnaryHandler(
+		CatalogServiceListRecentLabelChangesProcedure,
+		svc.ListRecentLabelChanges,
+		connect.WithSchema(catalogServiceMethods.ByName("ListRecentLabelChanges")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/factory.catalog.v1.CatalogService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case CatalogServiceListProductLabelsProcedure:
 			catalogServiceListProductLabelsHandler.ServeHTTP(w, r)
 		case CatalogServiceListProductMasterProcedure:
 			catalogServiceListProductMasterHandler.ServeHTTP(w, r)
+		case CatalogServiceListRecentLabelChangesProcedure:
+			catalogServiceListRecentLabelChangesHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -142,4 +169,8 @@ func (UnimplementedCatalogServiceHandler) ListProductLabels(context.Context, *co
 
 func (UnimplementedCatalogServiceHandler) ListProductMaster(context.Context, *connect.Request[v1.ListProductMasterRequest]) (*connect.Response[v1.ListProductMasterResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.catalog.v1.CatalogService.ListProductMaster is not implemented"))
+}
+
+func (UnimplementedCatalogServiceHandler) ListRecentLabelChanges(context.Context, *connect.Request[v1.ListRecentLabelChangesRequest]) (*connect.Response[v1.ListRecentLabelChangesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.catalog.v1.CatalogService.ListRecentLabelChanges is not implemented"))
 }

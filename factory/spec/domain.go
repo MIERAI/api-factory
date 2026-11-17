@@ -59,6 +59,8 @@ type StorageField struct {
 	Type string `yaml:"type"`          // SQL 类型: int4 / int8 / text / numeric / date / timestamptz / bool
 	// Nullable: 自然键的列也可以为空(表定义里非必填的键列)。空值自己是一组;不声明时键列不为空(取数时去掉键为空的行)
 	Nullable bool `yaml:"nullable,omitempty"`
+	// Column: 外壳列 —— 不在 JSON 里,取物理表的这一列(registered_at 等)。逻辑行 = 最新的版本,值是这个版本的
+	Column string `yaml:"column,omitempty"`
 }
 
 func (f StorageField) JSONKey() string {

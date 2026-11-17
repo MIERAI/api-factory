@@ -360,7 +360,7 @@ func storageIR(view string, nk []string, st *spec.Storage) ir.Storage {
 		out.LogicalDeleteKey, out.LogicalDeleteValue = ld.Key, ld.Value
 	}
 	for _, f := range st.Fields {
-		out.Fields = append(out.Fields, ir.StorageField{Name: f.Name, Key: f.JSONKey(), Type: f.Type})
+		out.Fields = append(out.Fields, ir.StorageField{Name: f.Name, Key: f.JSONKey(), Type: f.Type, Column: f.Column})
 	}
 	return out
 }

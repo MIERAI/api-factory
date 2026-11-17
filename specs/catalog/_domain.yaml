@@ -24,6 +24,9 @@ entities:
                   nullable: true
                 - name: text
                   type: text
+                - name: updated_at
+                  type: timestamptz
+                  column: registered_at
         columns: {}
         invariants: []
     product_master:

@@ -69,6 +69,10 @@ NK=gen/db/catalog.list-product-labels.sql.go
 run "可以为空的键: 丢掉键为空的行(以前的工厂)"   $NK 's/WHERE \(NOT \(t2\.product_code IS NULL\)\)/WHERE (NOT (t2.product_code IS NULL)) AND (NOT (t2.label_code IS NULL))/'
 run "输出改名: 取错了来源的列"               $NK 's/t4\.text AS display_text/t4.label_code AS display_text/'
 run "可以为空的键: 空值和空字符串合成一组"       $NK 's/t2\.label_code COLLATE "C"/coalesce(t2.label_code, \x27\x27) COLLATE "C"/g'
+EV=gen/db/catalog.list-recent-label-changes.sql.go
+run "外壳列: 从 JSON 里取(没有这个键)"          $EV 's/t1\.registered_at AS updated_at/((t1.data ->> \x27updated_at\x27)::timestamptz) AS updated_at/'
+run "外壳列: 取了最早的版本的时间"              $EV 's/t1\.registered_at AS updated_at/min(t1.registered_at) OVER (PARTITION BY t1.data ->> \x27product_code\x27, t1.data ->> \x27label_code\x27) AS updated_at/'
+run "外壳列: 筛选 >= 写成 >"                 $EV 's/t4\.updated_at >= \$2/t4.updated_at > \$2/'
 SH=internal/handler/sales/list_prices_as_of_gen.go
 run "分库: 不选库(一直用主库)"           $SH 's/h\.at\(int64\(m\.GetStoreCode\(\)\)\)\./h.q./'
 run "分库: 选错库(店铺代码 +1)"          $SH 's/h\.at\(int64\(m\.GetStoreCode\(\)\)\)/h.at(int64(m.GetStoreCode())+1)/'

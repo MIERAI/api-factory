@@ -544,6 +544,9 @@ func loadStorageRows(ctx context.Context, d *dbs, plan *ir.Plan, st *ir.Storage,
 			if !ph.Order {
 				break
 			}
+			if _, given := ph.Values[c]; given { // 例子里写了(外壳列: 列: registered_at)→ 用例子的值
+				continue
+			}
 			var v any
 			switch orderTypes[c] {
 			case "timestamp with time zone", "timestamp without time zone":

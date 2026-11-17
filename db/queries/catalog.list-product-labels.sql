@@ -5,11 +5,11 @@ SELECT t5.product_code, t5.label, t5.display_text
 FROM (
     SELECT t4.product_code AS product_code, t4.label_code AS label, t4.text AS display_text
     FROM (
-        SELECT t3.product_code AS product_code, t3.label_code AS label_code, t3.text AS text
+        SELECT t3.product_code AS product_code, t3.label_code AS label_code, t3.text AS text, t3.updated_at AS updated_at
         FROM (
-            SELECT DISTINCT ON (t2.product_code COLLATE "C", t2.label_code COLLATE "C") t2.product_code, t2.label_code, t2.text, t2._action, t2._o_registered_at, t2._o_id
+            SELECT DISTINCT ON (t2.product_code COLLATE "C", t2.label_code COLLATE "C") t2.product_code, t2.label_code, t2.text, t2.updated_at, t2._action, t2._o_registered_at, t2._o_id
             FROM (
-                SELECT ((t1.data ->> 'product_code')::text) AS product_code, ((t1.data ->> 'label_code')::text) AS label_code, ((t1.data ->> 'text')::text) AS text, t1.action_type AS _action, t1.registered_at AS _o_registered_at, t1.id AS _o_id
+                SELECT ((t1.data ->> 'product_code')::text) AS product_code, ((t1.data ->> 'label_code')::text) AS label_code, ((t1.data ->> 'text')::text) AS text, t1.registered_at AS updated_at, t1.action_type AS _action, t1.registered_at AS _o_registered_at, t1.id AS _o_id
                 FROM product_label_events AS t1
             ) AS t2
             WHERE (NOT (t2.product_code IS NULL))

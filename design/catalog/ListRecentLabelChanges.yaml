@@ -1,0 +1,38 @@
+# ============================================================================
+# ListRecentLabelChanges: 最近変わったラベル(外壳列 = JSON の外の物理列 の例)
+# ============================================================================
+API: ListRecentLabelChanges
+说明: 商品コードを指定して、その商品のラベルを最後に変わった順に返す(いつ変わったかも返す)
+背景: 変更時刻は JSON の中になく、版の行そのものの登録時刻(registered_at)。最新の版の登録時刻 = 最後に変わった時刻
+负责人: catalog-team
+风险: 低
+
+种类: 多条
+输出行名: LabelChange
+数据来源: product_label
+
+输入:
+  product_code: { 类型: 文本, 必填: 是, 长度: 1~20, 格式: 数字, 说明: 商品コード, 筛选: product_code 等于 }
+  changed_since: { 类型: 时间, 必填: 否, 说明: この時刻以降に変わったものだけ, 筛选: updated_at 大于等于 }
+
+输出:
+  label_code: ラベルコード(既定のラベルは空)
+  text:       表示文言
+  changed_at: { 来自: updated_at, 说明: 最後に変わった時刻 }
+
+排序: [changed_at 大到小, label_code 大到小]
+上限: 100
+
+例子:
+  准备数据:
+    product_label:
+      - { product_code: "100", label_code: "A", text: 特売, updated_at: 2026-01-01 09:00 }
+      - { product_code: "100", label_code: "B", text: 新商品, updated_at: 2026-01-02 09:00 }
+      - { product_code: "100", label_code: "A", text: 特売2, updated_at: 2026-01-03 09:00 }   # A の新しい版
+  用例:
+    - 说明: 最後に変わった順(A は 1/3 に変わったので先)
+      输入: { product_code: "100" }
+      结果: { product_label: [{ label_code: "A", text: 特売2, changed_at: 2026-01-03 09:00 }, { label_code: "B", text: 新商品, changed_at: 2026-01-02 09:00 }] }
+    - 说明: 指定時刻以降に変わったものだけ(最新の版の時刻で判断する)
+      输入: { product_code: "100", changed_since: 2026-01-02 21:00 }
+      结果: { product_label: [{ label_code: "A", text: 特売2, changed_at: 2026-01-03 09:00 }] }
