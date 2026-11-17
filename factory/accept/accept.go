@@ -33,6 +33,26 @@ type Result struct {
 	Detail string
 }
 
+// LoadFixtures: 只灌入式样书例子的准备数据(不执行用例)。影子对比 / 手动调试用。
+func LoadFixtures(ctx context.Context, db string, plan *ir.Plan, specs []*spec.Spec) error {
+	conn, err := connect(ctx, db)
+	if err != nil {
+		return fmt.Errorf("connect db: %w", err)
+	}
+	defer conn.Close(ctx)
+	d, err := openDBs(ctx, conn)
+	if err != nil {
+		return err
+	}
+	defer d.close()
+	for _, s := range specs {
+		if err := loadFixtures(ctx, d, plan, s.Acceptance.Fixtures); err != nil {
+			return fmt.Errorf("%s fixtures: %w", s.ID(), err)
+		}
+	}
+	return nil
+}
+
 // Run 对每份式样书灌入 fixture 并执行用例。baseURL 是被测服务器,fixturesDB 只用来灌数据。
 func Run(ctx context.Context, baseURL, fixturesDB string, plan *ir.Plan, specs []*spec.Spec) ([]Result, error) {
 	conn, err := connect(ctx, fixturesDB)

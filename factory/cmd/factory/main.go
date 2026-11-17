@@ -57,6 +57,8 @@ func main() {
 		err = cmdGuard(args)
 	case "accept":
 		err = cmdAccept(args)
+	case "fixtures":
+		err = cmdFixtures(args)
 	case "ai-paths":
 		err = cmdAIPaths(args)
 	case "review-prompt":
@@ -89,7 +91,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: factory check|prepare|prompt|guard|accept ...")
+	fmt.Fprintln(os.Stderr, "usage: factory check|prepare|prompt|guard|accept|fixtures ...")
 	os.Exit(2)
 }
 
@@ -288,6 +290,28 @@ func cmdGuard(args []string) error {
 		return fmt.Errorf("guard failed: %d violation(s)", len(violations))
 	}
 	fmt.Printf("✓ guard passed (%d file(s) changed)\n", len(changed))
+	return nil
+}
+
+// cmdFixtures: 灌入式样书例子的准备数据(同一张表的多个式样书: 后面的覆盖前面的)。
+//
+//	factory fixtures --db URL specs/…/spec.yaml …
+func cmdFixtures(args []string) error {
+	fs := flag.NewFlagSet("fixtures", flag.ExitOnError)
+	db := fs.String("db", os.Getenv("DATABASE_URL"), "灌 fixture 的 DB(分库: FACTORY_SHARDS)")
+	_ = fs.Parse(args)
+	specs, err := loadChecked(specsDir(fs.Args()))
+	if err != nil {
+		return err
+	}
+	plan, err := ir.Load(ir.DefaultPath)
+	if err != nil {
+		return fmt.Errorf("IR not found (run factory prepare first): %w", err)
+	}
+	if err := accept.LoadFixtures(context.Background(), *db, plan, specs); err != nil {
+		return err
+	}
+	fmt.Printf("✓ fixtures loaded (%d spec(s))\n", len(specs))
 	return nil
 }
 
