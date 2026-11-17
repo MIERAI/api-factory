@@ -73,8 +73,7 @@ def accept(workers, server, seed="", specs=None):
     """在一个 worker 上跑验收,返回输出。specs: 式样书目录(None = 全部)。"""
     with workers.take() as (url, shards):
         env = {**os.environ, "FACTORY_DIFF_SEED": seed, "FACTORY_SHARDS": shards}
-        cmd = [os.path.join(ROOT, ".factory/factory"), "serve-test", "--server", server, "--db", url, "--",
-               os.path.join(ROOT, ".factory/factory"), "accept", "--db", url]
+        cmd = [FACTORY, "serve-test", "--server", server, "--db", url, "--", FACTORY, "accept", "--db", url]
         if specs:
             cmd.append(specs)
         r = sh(cmd, env=env, cwd=ROOT)
@@ -94,7 +93,13 @@ def counts(out):
     return (0,) + tuple(int(m.group(i)) for i in range(6, 10))
 
 
+# 这一次运行自己的工厂二进制: 同一个工作区里同时跑的验证(margin 和 accept …)不能共用会被重新编译的文件
+FACTORY = os.path.join(ROOT, ".factory", f"factory-{os.getpid()}")
+
+
 def build_factory():
-    r = sh(["go", "build", "-o", ".factory/factory", "./factory/cmd/factory"], cwd=ROOT)
+    import atexit
+    r = sh(["go", "build", "-o", FACTORY, "./factory/cmd/factory"], cwd=ROOT)
     if r.returncode:
         raise SystemExit("✗ 工厂编译失败\n" + r.stderr)
+    atexit.register(lambda: os.path.exists(FACTORY) and os.remove(FACTORY))

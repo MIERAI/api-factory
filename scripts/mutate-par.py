@@ -29,8 +29,10 @@ ap.add_argument("--min", type=int, default=int(os.environ.get("MIN", "3")))
 ap.add_argument("seeds", nargs="*")
 args = ap.parse_args()
 seeds = args.seeds or ["", "s1", "s2"]
-work = os.path.join(ROOT, ".factory", "mut")
+work = os.path.join(ROOT, ".factory", f"mut-{os.getpid()}")  # 这一次运行自己的(同时跑两个 margin 也不冲突)
 os.makedirs(work, exist_ok=True)
+import atexit, shutil  # noqa: E401,E402
+atexit.register(lambda: shutil.rmtree(work, ignore_errors=True))
 t0 = time.time()
 
 

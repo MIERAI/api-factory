@@ -36,7 +36,11 @@ if not groups:
 parlib.build_factory()
 jobs = [(s, g) for s in args.seeds for g in groups]
 workers = parlib.Workers("acc", min(args.workers, len(jobs)))
-server = os.path.join(parlib.ROOT, args.server)
+# 服务器复制一份(别的命令可能正在重新编译 bin/server)
+import atexit, shutil  # noqa: E401,E402
+server = os.path.join(parlib.ROOT, ".factory", f"server-{os.getpid()}")
+shutil.copy2(os.path.join(parlib.ROOT, args.server), server)
+atexit.register(lambda: os.path.exists(server) and os.remove(server))
 with cf.ThreadPoolExecutor(max_workers=min(args.workers, len(jobs))) as ex:
     outs = list(ex.map(lambda j: parlib.accept(workers, server, j[0], j[1]), jobs))
 

@@ -920,6 +920,7 @@ func (e *diffEnv) sweep(seen map[string]bool) []core.Params {
 	params := e.userParams()
 	add(e.widest(params))
 	stale := e.staleRows()
+	removed := e.removedRows()
 	for _, d := range params {
 		f := e.filter[d.Name]
 		// 这一列在来源里出现的值(规范文本排序,确定)
@@ -975,8 +976,31 @@ func (e *diffEnv) sweep(seen map[string]bool) []core.Params {
 			}
 		}
 		sort.Strings(staleKeys)
-		if len(staleKeys) > 8 { // 删除 / 逻辑删除 各自要 ≥3 个请求(条件的敏感度),合在一起取 8 个
-			staleKeys = staleKeys[:8]
+		// 取最新之后被来源的每一项条件(删除 / 逻辑删除 …)淘汰的键,每项各 3 个优先(条件的敏感度要 ≥3 个请求)
+		var first []string
+		picked := map[string]bool{}
+		for _, rows := range removed {
+			n := 0
+			for _, r := range rows {
+				k := core.Canonical(r[f.Column])
+				if _, ok := staleVal[k]; !ok || picked[k] {
+					continue
+				}
+				picked[k] = true
+				first = append(first, k)
+				if n++; n == 3 {
+					break
+				}
+			}
+		}
+		for _, k := range staleKeys {
+			if !picked[k] {
+				first = append(first, k)
+			}
+		}
+		staleKeys = first
+		if limit := max(8, len(picked)); len(staleKeys) > limit {
+			staleKeys = staleKeys[:limit]
 		}
 		withRequired := func(anchor core.Row, ps core.Params) core.Params {
 			for _, o := range params {
@@ -1146,6 +1170,49 @@ func (e *diffEnv) versionCounts() (versions, removed int, ok bool) {
 	}
 	before, keys, alive := count(src[:pick]), count(src[:pick+1]), count(src)
 	return before - keys, keys - alive, true
+}
+
+// removedRows: 多版本来源里,每个键的最新版本被"取最新之后"的每一项条件(删除 / 逻辑删除 …)淘汰的行。
+// 按条件分开(每一项各自要被请求碰到),行按规范文本排序(确定)。
+func (e *diffEnv) removedRows() [][]core.Row {
+	var src []core.Step
+	pick := -1
+	for _, st := range e.api.Pipeline.Steps {
+		if st.From != "datasource.table" && !strings.HasPrefix(st.From, "来源 ") {
+			break
+		}
+		if st.Kind == "pick_per_key" && pick < 0 {
+			pick = len(src)
+		}
+		src = append(src, st)
+	}
+	if pick < 0 {
+		return nil
+	}
+	var out [][]core.Row
+	for _, st := range src[pick+1:] {
+		if st.Kind != "filter" || st.Pred == nil {
+			continue
+		}
+		parts := []*core.Expr{st.Pred}
+		if st.Pred.Op == "and" {
+			parts = st.Pred.Args
+		}
+		for _, c := range parts {
+			if !refersColumn(c) {
+				continue
+			}
+			steps := append(append([]core.Step(nil), src[:pick+1]...), core.Filter(core.Not(c)))
+			res, err := e.evalPerDB(&core.Pipeline{Steps: steps, Params: e.api.Pipeline.Params})
+			if err != nil {
+				continue
+			}
+			rows := res.Rows
+			sort.Slice(rows, func(i, j int) bool { return fmt.Sprint(rows[i]) < fmt.Sprint(rows[j]) })
+			out = append(out, rows)
+		}
+	}
+	return out
 }
 
 // staleRows: 多版本来源里"每键取一条"之前的行(包括被淘汰的旧版本)。没有每键取一条 → nil。
