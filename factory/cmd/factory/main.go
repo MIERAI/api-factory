@@ -448,6 +448,11 @@ func cmdReviewPrompt(args []string) error {
 	}
 	data["Round"], data["Previous"], data["AIWrites"] = len(cycle)+1, prev, s.AIWrites()
 	data["RelationForms"], data["ConstraintForms"] = constraints.RelationForms(), constraints.Forms()
+	var exitKeys []string
+	if ex, ok := exits.ByKind(s.PatternKind()); ok {
+		exitKeys = ex.ScalarKeys
+	}
+	data["ExitKeys"] = exitKeys
 	if *out != "" {
 		b, _ := json.MarshalIndent(map[string]any{"round": len(cycle) + 1, "previous": prev}, "", "  ")
 		if err := os.WriteFile(filepath.Join(*out, "prev.json"), b, 0o644); err != nil {

@@ -36,6 +36,7 @@ type Option struct {
 	} `json:"rule"`
 	InputChange []InputChange `json:"input_change,omitempty"` // 选中后直接改设计稿的输入定义
 	AddRules    []string      `json:"add_rules,omitempty"`    // 选中后追加到设计稿的"输入之间的规则"
+	Set         []KeySet      `json:"set,omitempty"`          // 选中后改设计稿顶层的单值键(上限 / 条数 …)
 }
 
 // UnmarshalJSON: 旧格式的审查结果里选项是纯字符串
@@ -85,6 +86,7 @@ type Decision struct {
 	Domain  bool          // 写进 领域.审查.yaml
 	Changes []InputChange // 改设计稿的输入定义
 	Rules   []string      // 追加的输入之间的规则
+	Sets    []KeySet      // 改顶层的单值键
 }
 
 // Ask: 在终端里一题一题地问。
@@ -114,6 +116,9 @@ func Ask(in io.Reader, out io.Writer, fs []Finding, domain string) []Decision {
 			}
 			for _, r := range o.AddRules {
 				fmt.Fprintf(out, "       → 改设计: 输入之间的规则 + %s\n", r)
+			}
+			for _, k := range o.Set {
+				fmt.Fprintf(out, "       → 改设计: %s → %s\n", k.Key, k.Value)
 			}
 		}
 		fmt.Fprintf(out, "  0) 跳过    9) 自己写\n  选择 [%d]: ", f.Recommended+1)
@@ -175,7 +180,7 @@ func decide(f Finding, choice string, freeText func() string) (Decision, bool) {
 		return Decision{}, false
 	case err == nil && n >= 1 && n <= len(f.Options):
 		o := f.Options[n-1]
-		return Decision{Finding: f, Answer: o.Label, When: o.Rule.When, Then: o.Rule.Then, Changes: o.InputChange, Rules: o.AddRules}, true
+		return Decision{Finding: f, Answer: o.Label, When: o.Rule.When, Then: o.Rule.Then, Changes: o.InputChange, Rules: o.AddRules, Sets: o.Set}, true
 	case err == nil && n == 9:
 		text := freeText()
 		if text == "" {
@@ -199,10 +204,15 @@ func Write(designFile string, ds []Decision, reviewDir string) ([]string, error)
 		changes = append(changes, d.Changes...)
 	}
 	var rules []string
+	var sets []KeySet
 	for _, d := range ds {
 		rules = append(rules, d.Rules...)
+		sets = append(sets, d.Sets...)
 	}
-	if len(changes) > 0 || len(rules) > 0 { // 先改设计稿(失败时什么都不写)
+	if len(changes) > 0 || len(rules) > 0 || len(sets) > 0 { // 先改设计稿(失败时什么都不写)
+		if err := ApplyKeySets(designFile, sets); err != nil {
+			return nil, err
+		}
 		if err := ApplyInputChanges(designFile, changes); err != nil {
 			return nil, err
 		}
@@ -251,6 +261,9 @@ func entry(d Decision, src string) string {
 	}
 	for _, r := range d.Rules {
 		fmt.Fprintf(&b, "    改了设计: %s\n", q("输入之间的规则 + "+r))
+	}
+	for _, k := range d.Sets {
+		fmt.Fprintf(&b, "    改了设计: %s\n", q(k.Key+" → "+k.Value))
 	}
 	fmt.Fprintf(&b, "    来自: %s\n", q(src))
 	return b.String()

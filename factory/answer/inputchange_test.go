@@ -82,3 +82,33 @@ func TestApplyRuleAdditions(t *testing.T) {
 		t.Fatalf("追加的位置不对:\n%s", b)
 	}
 }
+
+func TestApplyKeySets(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "X.yaml")
+	src := "API: X\n种类: 多条\n上限: 5000   \n排序: [a 小到大]\n输入:\n  a: { 类型: 文本, 必填: 否 }\n"
+	_ = os.WriteFile(p, []byte(src), 0o644)
+	if err := ApplyKeySets(p, []KeySet{{"上限", "10000"}}); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(p)
+	if !strings.Contains(string(b), "\n上限: 10000\n排序: [a 小到大]") {
+		t.Fatalf("替换不对:\n%s", b)
+	}
+	if err := ApplyKeySets(p, []KeySet{{"条数", "3"}}); err != nil { // 没有这一行: 加在 种类 后面
+		t.Fatal(err)
+	}
+	b, _ = os.ReadFile(p)
+	if !strings.Contains(string(b), "种类: 多条\n条数: 3\n") {
+		t.Fatalf("新加的位置不对:\n%s", b)
+	}
+	for _, k := range []KeySet{{"API", "Y"}, {"上限", "很多"}, {"上限", "-1"}, {"排序", "x"}} {
+		before, _ := os.ReadFile(p)
+		if err := ApplyKeySets(p, []KeySet{k}); err == nil {
+			t.Errorf("%v: 应该拒绝", k)
+		}
+		after, _ := os.ReadFile(p)
+		if string(before) != string(after) {
+			t.Errorf("%v: 拒绝时不能改文件", k)
+		}
+	}
+}

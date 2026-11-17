@@ -8,9 +8,12 @@ package answer
 
 import (
 	"apifactory/factory/constraints"
+	"apifactory/factory/exits"
 	"fmt"
 	"os"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -189,4 +192,65 @@ func ApplyRuleAdditions(designFile string, rules []string) error {
 		return fmt.Errorf("修改后的设计稿不是合法的 YAML(没有写入): %w", err)
 	}
 	return os.WriteFile(designFile, []byte(s), 0o644)
+}
+
+// KeySet: 改设计稿顶层的一个单值键(这个种类自己的键: 上限 / 条数 / 找不到时 …)。
+type KeySet struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// ApplyKeySets: 只改单值的行(`键: 值`);没有这一行时加在 种类 的后面。
+// 只允许出口的注册表里登记过的键;上限 / 条数 是正整数。
+func ApplyKeySets(designFile string, sets []KeySet) error {
+	if len(sets) == 0 {
+		return nil
+	}
+	b, err := os.ReadFile(designFile)
+	if err != nil {
+		return err
+	}
+	text := string(b)
+	for _, k := range sets {
+		if !exitKey(k.Key) {
+			return fmt.Errorf("%s 不是种类的单值键,不能自动修改", k.Key)
+		}
+		if k.Key == "上限" || k.Key == "条数" {
+			if n, err := strconv.Atoi(k.Value); err != nil || n <= 0 {
+				return fmt.Errorf("%s 要是正整数: %q", k.Key, k.Value)
+			}
+		}
+		val := k.Value
+		if strings.ContainsAny(val, ":#{}[],") {
+			val = strconv.Quote(val)
+		}
+		re := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(k.Key) + `:[ \t]*[^\n{\[]*$`)
+		switch {
+		case re.MatchString(text):
+			text = re.ReplaceAllLiteralString(text, k.Key+": "+val)
+		case regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(k.Key) + `:`).MatchString(text):
+			return fmt.Errorf("%s 不是单值(请手动修改)", k.Key)
+		default:
+			kind := regexp.MustCompile(`(?m)^种类:.*$`)
+			loc := kind.FindStringIndex(text)
+			if loc == nil {
+				return fmt.Errorf("%s: 没有 种类", designFile)
+			}
+			text = text[:loc[1]] + "\n" + k.Key + ": " + val + text[loc[1]:]
+		}
+	}
+	var check yaml.Node
+	if err := yaml.Unmarshal([]byte(text), &check); err != nil {
+		return fmt.Errorf("修改后的设计稿不是合法的 YAML(没有写入): %w", err)
+	}
+	return os.WriteFile(designFile, []byte(text), 0o644)
+}
+
+func exitKey(k string) bool {
+	for _, e := range exits.All() {
+		if slices.Contains(e.ScalarKeys, k) {
+			return true
+		}
+	}
+	return false
 }

@@ -70,6 +70,7 @@ type Exit struct {
 	AI          bool   // AI 写的部分(计算 / 自定义)
 
 	DesignKeys []string                        // 这个种类在设计稿里可以写的键
+	ScalarKeys []string                        // 其中单值的键(数字 / 一句话): 审查的回答可以直接改(factory answer 的 set)
 	Parse      func(d Design, p *spec.Pattern) // 设计稿 → spec 的 pattern
 	Check      func(s *spec.Spec) []string     // 规格检查
 	Request    func(p spec.Pattern) []Field    // 工厂加到请求里的字段(不是筛选条件)

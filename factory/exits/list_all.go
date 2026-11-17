@@ -15,6 +15,7 @@ func init() {
 	Register(&Exit{
 		Kind: "list_all", Name: "多条", Cardinality: "many", Cell: "多条", Rows: true,
 		DesignKeys: []string{"排序", "上限", "每组取一条"},
+		ScalarKeys: []string{"上限"},
 		Parse: func(d Design, p *spec.Pattern) {
 			cols, desc, err := d.Order("排序")
 			if err != nil {

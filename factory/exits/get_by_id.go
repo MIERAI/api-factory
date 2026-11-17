@@ -13,6 +13,7 @@ func init() {
 	Register(&Exit{
 		Kind: "get_by_id", Name: "按键取一条", Cardinality: "one", Cell: "单条", FromTable: true,
 		DesignKeys: []string{"找不到时"},
+		ScalarKeys: []string{"找不到时"},
 		Parse: func(d Design, p *spec.Pattern) {
 			p.NotFoundMessage = d.Str("找不到时")
 			if p.NotFoundMessage == "" {
