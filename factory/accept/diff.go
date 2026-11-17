@@ -28,6 +28,7 @@ import (
 
 	"apifactory/factory/core"
 	"apifactory/factory/ir"
+	"apifactory/factory/kinds"
 	"apifactory/factory/protoload"
 	"apifactory/factory/spec"
 )
@@ -37,8 +38,6 @@ const (
 	diffRequests = 40
 	diffPageSize = 3
 )
-
-var diffBase = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
 type diffEnv struct {
 	ctx    context.Context
@@ -243,9 +242,6 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 // 数据
 // ---------------------------------------------------------------------------
 
-var textDomain = []string{"a", "b", "B", "a%", "a_", "ab", "abc", "é"}
-var intDomain = []int64{0, 1, 2, 3, 10}
-
 // uniqueColumns: 需要唯一序号的列。单列的主键 / 唯一约束 → 这一列;
 // 复合的 → 最后一列(前面的列保持小值域,形成分组: 例如 (order_id, line_no) 每个订单有多行)。
 func (e *diffEnv) uniqueColumns() (map[string]bool, error) {
@@ -319,28 +315,18 @@ func (e *diffEnv) scalar(kind core.Kind, unique bool, i int) any {
 	if cs := e.consts[kind]; len(cs) > 0 && !unique && e.rnd.Intn(8) == 0 {
 		return cs[e.rnd.Intn(len(cs))] // 流水线里的常量
 	}
-	switch kind {
-	case core.Int32, core.Int64:
-		if unique {
-			return int64(i + 1)
-		}
-		return intDomain[e.rnd.Intn(len(intDomain))]
-	case core.Text:
-		v := textDomain[e.rnd.Intn(len(textDomain))]
-		if unique {
-			v = fmt.Sprintf("%s-%02d", v, i)
-		}
-		return v
-	case core.Bool:
-		return e.rnd.Intn(2) == 0
-	case core.Timestamp:
-		return diffBase.Add(time.Duration(e.rnd.Intn(4)-1) * time.Hour)
-	case core.Date:
-		return diffBase.AddDate(0, 0, e.rnd.Intn(3)-1)
-	case core.Decimal:
-		return []*big.Rat{big.NewRat(3, 2), big.NewRat(9, 1), big.NewRat(10, 1)}[e.rnd.Intn(3)]
+	t, ok := kinds.ByCore(kind) // 值域来自类型的注册表(factory/kinds)
+	if !ok || len(t.Domain) == 0 {
+		return nil
 	}
-	return nil
+	if _, isInt := t.Domain[0].(int64); isInt && unique { // 唯一列: 序号
+		return int64(i + 1)
+	}
+	v := t.Domain[e.rnd.Intn(len(t.Domain))]
+	if s, isText := v.(string); isText && unique {
+		return fmt.Sprintf("%s-%02d", s, i)
+	}
+	return v
 }
 
 func sqlValue(v any) any {
@@ -470,19 +456,8 @@ func (e *diffEnv) userParams() []core.ParamDecl {
 }
 
 func missing(k core.Kind) any {
-	switch k {
-	case core.Int32, core.Int64:
-		return int64(999)
-	case core.Text:
-		return "zz-missing"
-	case core.Timestamp:
-		return diffBase.AddDate(5, 0, 0)
-	case core.Date:
-		return diffBase.AddDate(5, 0, 0)
-	case core.Decimal:
-		return big.NewRat(999, 1)
-	case core.Bool:
-		return true
+	if t, ok := kinds.ByCore(k); ok {
+		return t.Missing
 	}
 	return nil
 }

@@ -8,6 +8,7 @@ import (
 
 	"google.golang.org/protobuf/reflect/protoreflect"
 
+	"apifactory/factory/kinds"
 	"apifactory/factory/spec"
 )
 
@@ -118,16 +119,6 @@ func selectColumns(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalog)
 	return cols, check(cols, "pattern.order_by")
 }
 
-// keysetCast: 游标参数的类型转换(sqlc 在行比较里需要显式类型)。游标列必须 NOT NULL。
-var keysetCast = map[string]string{
-	"timestamptz": "timestamptz",
-	"int8":        "bigint",
-	"int4":        "int",
-	"text":        "text",
-	"bool":        "boolean",
-	"float8":      "float8",
-}
-
 // keysetSQL: 把基础查询包一层,追加游标条件 / ORDER BY / LIMIT。列的类型来自 sqlc 对基础查询的分析。
 func keysetSQL(s *spec.Spec, base string, cols []catColumn) (string, error) {
 	p := s.Pattern
@@ -146,7 +137,11 @@ func keysetSQL(s *spec.Spec, base string, cols []catColumn) (string, error) {
 		if col == nil {
 			return "", fmt.Errorf("%s: order_by column %q is not in the SELECT list", s.Path, c)
 		}
-		cast, ok := keysetCast[col.Type]
+		t, ok := kinds.BySQL(col.Type) // 游标参数的类型转换(sqlc 在行比较里需要显式类型)
+		cast := ""
+		if ok {
+			cast = t.CanonicalSQL()
+		}
 		if !ok || !col.NotNull {
 			return "", fmt.Errorf("%s: order_by column %q has type %s (not_null=%v): must be NOT NULL and one of time/int/text/bool/float", s.Path, c, col.Type, col.NotNull)
 		}

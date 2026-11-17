@@ -9,6 +9,6 @@ SELECT * FROM (
     AND ordered_at <= sqlc.arg(as_of)::timestamptz - make_interval(days => sqlc.arg(min_days)::int)
 ) AS base
 WHERE (sqlc.narg(cursor_ordered_at)::timestamptz IS NULL
-       OR (base.ordered_at, base.id) > (sqlc.narg(cursor_ordered_at)::timestamptz, sqlc.narg(cursor_id)::bigint))
+       OR (base.ordered_at, base.id) > (sqlc.narg(cursor_ordered_at)::timestamptz, sqlc.narg(cursor_id)::int8))
 ORDER BY base.ordered_at ASC, base.id ASC
 LIMIT sqlc.arg(row_limit)::int;

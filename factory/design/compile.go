@@ -18,6 +18,7 @@ import (
 	"apifactory/factory/adapter"
 	"apifactory/factory/cells"
 	"apifactory/factory/compiler"
+	"apifactory/factory/kinds"
 	"apifactory/factory/spec"
 )
 
@@ -190,26 +191,6 @@ func writeYAML(path, from string, v any) error {
 // API → message + spec
 // ---------------------------------------------------------------------------
 
-var inputTypes = map[string][2]string{ // 中文类型 → proto 类型, 值的种类
-	"整数32": {"int32", "int"}, "整数64": {"int64", "int"}, "文本": {"string", "string"},
-	"时间": {"google.protobuf.Timestamp", "time"}, "布尔": {"bool", "bool"}, "小数": {"double", "float"},
-	"日期": {"string", "date"}, "十进制": {"string", "decimal"}, // "YYYY-MM-DD" / 精确的十进制字符串(numeric 列用)
-}
-
-// proto 字符串里的写法(反斜杠要转义)
-const (
-	datePattern    = `^\\d{4}-\\d{2}-\\d{2}$`
-	decimalPattern = `^-?\\d+(\\.\\d+)?$`
-)
-
-var columnTypes = map[string][2]string{
-	"int2": {"int32", "int"}, "int4": {"int32", "int"}, "int8": {"int64", "int"},
-	"text": {"string", "string"}, "varchar": {"string", "string"}, "bpchar": {"string", "string"},
-	"bool": {"bool", "bool"}, "float8": {"double", "float"}, "float4": {"float", "float"},
-	"timestamptz": {"google.protobuf.Timestamp", "time"}, "timestamp": {"google.protobuf.Timestamp", "time"},
-	"date": {"string", "date"}, "numeric": {"string", "decimal"}, // "YYYY-MM-DD" / 十进制字符串(保持精度)
-}
-
 var filterOps = map[string]string{"等于": "eq", "大于": "gt", "大于等于": "gte", "小于": "lt", "小于等于": "lte", "前缀匹配": "prefix"}
 
 func (c *ctx) column(table, col string) (compiler.Column, bool) {
@@ -223,8 +204,8 @@ func (c *ctx) column(table, col string) (compiler.Column, bool) {
 
 // typeOf: 中文类型名(或枚举名)→ proto 类型 + 值的种类
 func (c *ctx) typeOf(t string) (string, string, bool) {
-	if p, ok := inputTypes[t]; ok {
-		return p[0], p[1], true
+	if k, ok := kinds.ByName(t); ok { // 类型的注册表(factory/kinds)
+		return k.Proto, k.Value, true
 	}
 	if c.d.Enum(t) != nil {
 		return t, "enum:" + t, true
@@ -243,7 +224,11 @@ func (c *ctx) columnField(table, col string) (string, string, bool, error) {
 			return en, "enum:" + en, false, nil
 		}
 	}
-	p, ok := columnTypes[cc.Type]
+	k, ok := kinds.BySQL(cc.Type)
+	p := [2]string{}
+	if ok {
+		p = [2]string{k.Proto, k.Value}
+	}
 	if !ok {
 		return "", "", false, fmt.Errorf("表 %s 的列 %s: 类型 %s 还不支持", table, col, cc.Type)
 	}
@@ -262,7 +247,7 @@ func (c *ctx) inputField(a *API, in *Input, e *errs) *field {
 	elemType, isList := strings.CutSuffix(in.Type, "列表")
 	pt, kind, ok := c.typeOf(elemType)
 	if !ok {
-		e.add(in.Line, "输入 %s: 类型 %q 无法识别(整数32 / 整数64 / 文本 / 时间 / 布尔 / 小数 / 领域里定义的枚举名,后面加「列表」表示多个)", in.Name, in.Type)
+		e.add(in.Line, "输入 %s: 类型 %q 无法识别(%s / 领域里定义的枚举名,后面加「列表」表示多个)", in.Name, in.Type, kinds.Names())
 		return nil
 	}
 	f := &field{Name: in.Name, Type: pt, Desc: in.Desc, kind: kind}
@@ -277,6 +262,7 @@ func (c *ctx) inputField(a *API, in *Input, e *errs) *field {
 		return f
 	}
 	scalarRule := map[string]string{"int32": "int32", "int64": "int64"}[pt]
+	typ, _ := kinds.ByName(elemType)
 	switch {
 	case strings.HasPrefix(kind, "enum:"):
 		f.Optional = !in.Required
@@ -285,13 +271,9 @@ func (c *ctx) inputField(a *API, in *Input, e *errs) *field {
 		if in.Required {
 			f.Rules = append(f.Rules, "required = true")
 		}
-	case kind == "date" || kind == "decimal":
+	case typ != nil && typ.Pattern != "": // 格式由 protovalidate 检查(日期 / 十进制 …)
 		f.Optional = !in.Required
-		pat := datePattern
-		if kind == "decimal" {
-			pat = decimalPattern
-		}
-		f.Rules = append(f.Rules, fmt.Sprintf("string.pattern = \"%s\"", pat))
+		f.Rules = append(f.Rules, fmt.Sprintf("string.pattern = \"%s\"", typ.ProtoPattern()))
 	default:
 		f.Optional = !in.Required
 	}

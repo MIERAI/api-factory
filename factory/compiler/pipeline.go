@@ -8,19 +8,12 @@ import (
 
 	"apifactory/factory/cells"
 	"apifactory/factory/core"
+	"apifactory/factory/kinds"
 	"apifactory/factory/spec"
 )
 
-// sqlKinds: schema 的列类型 → 核心类型
-var sqlKinds = map[string]core.Kind{
-	"int4": core.Int32, "integer": core.Int32, "int8": core.Int64, "bigint": core.Int64, "bigserial": core.Int64, "serial": core.Int32,
-	"text": core.Text, "varchar": core.Text, "bpchar": core.Text,
-	"bool": core.Bool, "boolean": core.Bool, "numeric": core.Decimal, "date": core.Date,
-	"timestamptz": core.Timestamp, "jsonb": core.JSON,
-}
-
 func coreType(table string, c catColumn) (core.Type, error) {
-	k, ok := sqlKinds[c.Type]
+	k, ok := sqlKind(c.Type)
 	if !ok {
 		return core.Type{}, fmt.Errorf("%s.%s: 列类型 %s 核心代数还不支持", table, c.Name, c.Type)
 	}
@@ -144,7 +137,7 @@ func sourceSteps(s *spec.Spec, lib *cells.Library, cat *catalog) ([]core.Step, e
 	var parts cells.SourceParts
 	parts.Scan, parts.Keys = scan, e.NaturalKey
 	for _, f := range st.Fields {
-		k, ok := sqlKinds[f.Type]
+		k, ok := sqlKind(f.Type)
 		if !ok {
 			return nil, fmt.Errorf("存储字段 %s: 类型 %s 核心代数还不支持", f.Name, f.Type)
 		}
@@ -168,4 +161,16 @@ func sourceSteps(s *spec.Spec, lib *cells.Library, cat *catalog) ([]core.Step, e
 		parts.Names["逻辑删除值"] = core.Const(ld.Value, core.Type{Kind: core.Text})
 	}
 	return lib.Source("JSON版本", parts)
+}
+
+// sqlKind: schema 的列类型 → 核心类型(类型的注册表;jsonb 只能作为 json_field 的输入)
+func sqlKind(sqlType string) (core.Kind, bool) {
+	if sqlType == "jsonb" || sqlType == "json" {
+		return core.JSON, true
+	}
+	t, ok := kinds.BySQL(sqlType)
+	if !ok || t.Core == "" {
+		return "", false
+	}
+	return t.Core, true
 }

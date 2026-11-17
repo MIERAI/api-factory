@@ -16,7 +16,7 @@ SELECT * FROM (
     AND ordered_at <= $1::timestamptz - make_interval(days => $2::int)
 ) AS base
 WHERE ($3::timestamptz IS NULL
-       OR (base.ordered_at, base.id) > ($3::timestamptz, $4::bigint))
+       OR (base.ordered_at, base.id) > ($3::timestamptz, $4::int8))
 ORDER BY base.ordered_at ASC, base.id ASC
 LIMIT $5::int
 `

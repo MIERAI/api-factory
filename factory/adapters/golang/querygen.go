@@ -25,6 +25,7 @@ import (
 
 	"apifactory/factory/core"
 	"apifactory/factory/ir"
+	"apifactory/factory/kinds"
 )
 
 const dbDir = "gen/db"
@@ -44,15 +45,21 @@ type goQuery struct {
 	usesTime bool
 }
 
-var kindGo = map[core.Kind]string{
-	core.Int32: "int32", core.Int64: "int64", core.Text: "string", core.Bool: "bool",
-	core.Decimal: "string", core.Date: "time.Time", core.Timestamp: "time.Time",
+// goOfKind / goOfSQL: Go 类型来自类型的注册表(factory/kinds)
+func goOfKind(k core.Kind) (string, bool) {
+	t, ok := kinds.ByCore(k)
+	if !ok {
+		return "", false
+	}
+	return t.Go, true
 }
 
-var sqlGo = map[string]string{
-	"int2": "int16", "int4": "int32", "integer": "int32", "int8": "int64", "bigint": "int64",
-	"text": "string", "varchar": "string", "bpchar": "string", "bool": "bool", "boolean": "bool",
-	"float8": "float64", "float4": "float32", "timestamptz": "time.Time", "timestamp": "time.Time", "date": "time.Time",
+func goOfSQL(sqlType string) (string, bool) {
+	t, ok := kinds.BySQL(sqlType)
+	if !ok {
+		return "", false
+	}
+	return t.Go, true
 }
 
 func ptr(t string, nullable bool) string {
@@ -72,7 +79,7 @@ func goQueryOf(api *ir.API) (*goQuery, error) {
 		}
 		q.SQL = s.Text
 		for _, d := range s.Params {
-			t := kindGo[d.Type.Kind]
+			t, _ := goOfKind(d.Type.Kind)
 			if d.List {
 				t = "[]" + t
 			} else {
@@ -81,7 +88,7 @@ func goQueryOf(api *ir.API) (*goQuery, error) {
 			q.Params = append(q.Params, goCol{dbName(d.Name), t})
 		}
 		for _, c := range s.Columns {
-			t, ok := kindGo[c.Type.Kind]
+			t, ok := goOfKind(c.Type.Kind)
 			if !ok {
 				return nil, fmt.Errorf("%s: 列 %s 的类型 %s 不能作为输出", api.ID, c.Name, c.Type.Kind)
 			}
@@ -94,14 +101,14 @@ func goQueryOf(api *ir.API) (*goQuery, error) {
 		}
 		q.SQL = sql
 		for _, p := range api.Query.Params {
-			t, ok := sqlGo[p.Type]
+			t, ok := goOfSQL(p.Type)
 			if !ok {
 				return nil, fmt.Errorf("%s: 参数 %s 的类型 %s 不支持", api.ID, p.Name, p.Type)
 			}
 			q.Params = append(q.Params, goCol{dbName(p.Name), ptr(t, !p.NotNull)})
 		}
 		for _, c := range api.Query.Columns {
-			t, ok := sqlGo[c.Type]
+			t, ok := goOfSQL(c.Type)
 			if !ok {
 				return nil, fmt.Errorf("%s: 列 %s 的类型 %s 不支持(numeric 请在 SQL 里 ::text)", api.ID, c.Name, c.Type)
 			}

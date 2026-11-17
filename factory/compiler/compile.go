@@ -19,6 +19,7 @@ import (
 	"apifactory/factory/cells"
 	"apifactory/factory/core"
 	"apifactory/factory/ir"
+	"apifactory/factory/kinds"
 	"apifactory/factory/protoload"
 	"apifactory/factory/spec"
 )
@@ -333,9 +334,7 @@ func resolveEnum(d *spec.Domain, table, column string, files *protoregistry.File
 	if !ok {
 		return nil, fmt.Errorf("domain enum %s.%s: column not in schema", table, column)
 	}
-	switch col.Type {
-	case "int2", "int4", "int8":
-	default:
+	if t, ok := kinds.BySQL(col.Type); !ok || (t.Core != core.Int32 && t.Core != core.Int64) {
 		return nil, fmt.Errorf("domain enum %s.%s: column type %s is not an integer type", table, column, col.Type)
 	}
 	e := &ir.Enum{Table: table, Column: column, ProtoEnum: meta.Enum.Proto, Name: string(ed.Name()), DBType: col.Type, OnUnknown: meta.OnUnknown}

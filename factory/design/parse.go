@@ -11,6 +11,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"apifactory/factory/kinds"
 	"apifactory/factory/spec"
 )
 
@@ -150,9 +151,6 @@ type Table struct {
 	Storage    *spec.Storage // 存储: JSON版本(逻辑表 → 物理表的映射)
 	ShardBy    string        // 分库: 分库键的列(按店铺分库等)
 }
-
-// storageTypes: 存储字段的中文类型 → SQL 类型
-var storageTypes = map[string]string{"整数32": "int4", "整数64": "int8", "文本": "text", "小数": "numeric", "十进制": "numeric", "日期": "date", "时间": "timestamptz", "布尔": "bool"}
 
 type Rule struct {
 	Text     string
@@ -318,7 +316,10 @@ func parseStorage(e *errs, name string, n *yaml.Node, t *Table) *spec.Storage {
 	for _, c := range pairs(get(n, "字段")) {
 		checkKeys(e, c.Val, "表 "+name+" 的字段 "+c.Key, "类型", "键", "说明", "枚举")
 		typ := str(c.Val, "类型")
-		sqlType, ok := storageTypes[typ]
+		sqlType, ok := "", false
+		if k, found := kinds.ByName(typ); found && len(k.SQL) > 0 {
+			sqlType, ok = k.CanonicalSQL(), true
+		}
 		if en := str(c.Val, "枚举"); en != "" {
 			t.ColEnum[c.Key] = en
 			if typ == "" {
@@ -326,7 +327,7 @@ func parseStorage(e *errs, name string, n *yaml.Node, t *Table) *spec.Storage {
 			}
 		}
 		if !ok {
-			e.add(c.Line, "表 %s 的字段 %s: 类型 %q 无法识别(整数32 / 整数64 / 文本 / 小数 / 日期 / 时间 / 布尔)", name, c.Key, typ)
+			e.add(c.Line, "表 %s 的字段 %s: 类型 %q 无法识别(%s)", name, c.Key, typ, kinds.Names())
 		}
 		st.Fields = append(st.Fields, spec.StorageField{Name: c.Key, Key: str(c.Val, "键"), Type: sqlType})
 		t.ColDesc[c.Key] = str(c.Val, "说明")
@@ -442,7 +443,7 @@ type Output struct {
 
 type Behavior struct{ When, Then string }
 
-var kinds = map[string]string{"按键取一条": "get_by_id", "一览": "list_keyset", "多条": "list_all", "计算": "compute", "自定义": "custom"}
+var apiKinds = map[string]string{"按键取一条": "get_by_id", "一览": "list_keyset", "多条": "list_all", "计算": "compute", "自定义": "custom"}
 var risks = map[string]string{"低": "low", "中": "medium", "高": "high"}
 
 func loadAPI(path string) (*API, error) {
@@ -472,7 +473,7 @@ func loadAPI(path string) (*API, error) {
 		e.add(root.Line, "缺少 负责人")
 	}
 	var ok bool
-	if a.Kind, ok = kinds[str(root, "种类")]; !ok {
+	if a.Kind, ok = apiKinds[str(root, "种类")]; !ok {
 		e.add(root.Line, "种类 只能是 按键取一条 / 一览 / 计算 / 自定义(现在是 %q)", str(root, "种类"))
 	}
 	if a.Risk, ok = risks[str(root, "风险")]; !ok {
