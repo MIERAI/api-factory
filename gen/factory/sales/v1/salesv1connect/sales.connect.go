@@ -45,6 +45,9 @@ const (
 	// SaleServiceListTopSalesProcedure is the fully-qualified name of the SaleService's ListTopSales
 	// RPC.
 	SaleServiceListTopSalesProcedure = "/factory.sales.v1.SaleService/ListTopSales"
+	// SaleServiceListTopStoresProcedure is the fully-qualified name of the SaleService's ListTopStores
+	// RPC.
+	SaleServiceListTopStoresProcedure = "/factory.sales.v1.SaleService/ListTopStores"
 )
 
 // SaleServiceClient is a client for the factory.sales.v1.SaleService service.
@@ -55,6 +58,8 @@ type SaleServiceClient interface {
 	ListStoreSales(context.Context, *connect.Request[v1.ListStoreSalesRequest]) (*connect.Response[v1.ListStoreSalesResponse], error)
 	// 売上金額の多い順に、日別・店別の売上を返す
 	ListTopSales(context.Context, *connect.Request[v1.ListTopSalesRequest]) (*connect.Response[v1.ListTopSalesResponse], error)
+	// 売上日を指定して、売上金額の上位 3 店を返す
+	ListTopStores(context.Context, *connect.Request[v1.ListTopStoresRequest]) (*connect.Response[v1.ListTopStoresResponse], error)
 }
 
 // NewSaleServiceClient constructs a client for the factory.sales.v1.SaleService service. By
@@ -86,6 +91,12 @@ func NewSaleServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(saleServiceMethods.ByName("ListTopSales")),
 			connect.WithClientOptions(opts...),
 		),
+		listTopStores: connect.NewClient[v1.ListTopStoresRequest, v1.ListTopStoresResponse](
+			httpClient,
+			baseURL+SaleServiceListTopStoresProcedure,
+			connect.WithSchema(saleServiceMethods.ByName("ListTopStores")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -94,6 +105,7 @@ type saleServiceClient struct {
 	listPricesAsOf *connect.Client[v1.ListPricesAsOfRequest, v1.ListPricesAsOfResponse]
 	listStoreSales *connect.Client[v1.ListStoreSalesRequest, v1.ListStoreSalesResponse]
 	listTopSales   *connect.Client[v1.ListTopSalesRequest, v1.ListTopSalesResponse]
+	listTopStores  *connect.Client[v1.ListTopStoresRequest, v1.ListTopStoresResponse]
 }
 
 // ListPricesAsOf calls factory.sales.v1.SaleService.ListPricesAsOf.
@@ -111,6 +123,11 @@ func (c *saleServiceClient) ListTopSales(ctx context.Context, req *connect.Reque
 	return c.listTopSales.CallUnary(ctx, req)
 }
 
+// ListTopStores calls factory.sales.v1.SaleService.ListTopStores.
+func (c *saleServiceClient) ListTopStores(ctx context.Context, req *connect.Request[v1.ListTopStoresRequest]) (*connect.Response[v1.ListTopStoresResponse], error) {
+	return c.listTopStores.CallUnary(ctx, req)
+}
+
 // SaleServiceHandler is an implementation of the factory.sales.v1.SaleService service.
 type SaleServiceHandler interface {
 	// 店舗の、基準日に有効な売価を返す
@@ -119,6 +136,8 @@ type SaleServiceHandler interface {
 	ListStoreSales(context.Context, *connect.Request[v1.ListStoreSalesRequest]) (*connect.Response[v1.ListStoreSalesResponse], error)
 	// 売上金額の多い順に、日別・店別の売上を返す
 	ListTopSales(context.Context, *connect.Request[v1.ListTopSalesRequest]) (*connect.Response[v1.ListTopSalesResponse], error)
+	// 売上日を指定して、売上金額の上位 3 店を返す
+	ListTopStores(context.Context, *connect.Request[v1.ListTopStoresRequest]) (*connect.Response[v1.ListTopStoresResponse], error)
 }
 
 // NewSaleServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -146,6 +165,12 @@ func NewSaleServiceHandler(svc SaleServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(saleServiceMethods.ByName("ListTopSales")),
 		connect.WithHandlerOptions(opts...),
 	)
+	saleServiceListTopStoresHandler := connect.NewUnaryHandler(
+		SaleServiceListTopStoresProcedure,
+		svc.ListTopStores,
+		connect.WithSchema(saleServiceMethods.ByName("ListTopStores")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/factory.sales.v1.SaleService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case SaleServiceListPricesAsOfProcedure:
@@ -154,6 +179,8 @@ func NewSaleServiceHandler(svc SaleServiceHandler, opts ...connect.HandlerOption
 			saleServiceListStoreSalesHandler.ServeHTTP(w, r)
 		case SaleServiceListTopSalesProcedure:
 			saleServiceListTopSalesHandler.ServeHTTP(w, r)
+		case SaleServiceListTopStoresProcedure:
+			saleServiceListTopStoresHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -173,4 +200,8 @@ func (UnimplementedSaleServiceHandler) ListStoreSales(context.Context, *connect.
 
 func (UnimplementedSaleServiceHandler) ListTopSales(context.Context, *connect.Request[v1.ListTopSalesRequest]) (*connect.Response[v1.ListTopSalesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.sales.v1.SaleService.ListTopSales is not implemented"))
+}
+
+func (UnimplementedSaleServiceHandler) ListTopStores(context.Context, *connect.Request[v1.ListTopStoresRequest]) (*connect.Response[v1.ListTopStoresResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.sales.v1.SaleService.ListTopStores is not implemented"))
 }

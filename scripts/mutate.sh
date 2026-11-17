@@ -65,4 +65,7 @@ run "JSON版本: 先筛选再取最新(公司引擎的问题)" $J 's/WHERE \(NOT
 SH=internal/handler/sales/list_prices_as_of_gen.go
 run "分库: 不选库(一直用主库)"           $SH 's/h\.at\(int64\(m\.GetStoreCode\(\)\)\)\./h.q./'
 run "分库: 选错库(店铺代码 +1)"          $SH 's/h\.at\(int64\(m\.GetStoreCode\(\)\)\)/h.at(int64(m.GetStoreCode())+1)/'
+T=gen/db/sales.list-top-stores.sql.go
+run "前N条: 取的条数不对(LIMIT 4)"        $T 's/LIMIT 3/LIMIT 4/'
+run "前N条: 排序方向反了"                $T 's/ORDER BY t2\.amount DESC, t2\.store_code DESC/ORDER BY t2.amount, t2.store_code/'
 go build -o bin/server ./cmd/server; git status --short

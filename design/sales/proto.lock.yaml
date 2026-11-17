@@ -26,6 +26,10 @@
     ListTopSalesResponse:
         daily_sales: 1
         next_page_token: 2
+    ListTopStoresRequest:
+        sales_date: 1
+    ListTopStoresResponse:
+        daily_sales: 1
     StorePrice:
         price: 4
         product_code: 1
@@ -34,4 +38,7 @@
     StoreSale:
         amount: 2
         discount: 3
+        store_code: 1
+    TopStore:
+        amount: 2
         store_code: 1

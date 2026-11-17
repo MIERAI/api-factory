@@ -1,0 +1,35 @@
+# ============================================================================
+# ListTopStores: 指定日の売上上位 N 店(前N条 の例)
+# ============================================================================
+API: ListTopStores
+说明: 売上日を指定して、売上金額の上位 3 店を返す
+背景: ダッシュボードのランキング表示。上位だけ見せればよい(4 位以下は返さない)
+负责人: sales-team
+风险: 低
+
+种类: 前N条
+数据来源: daily_sales
+
+输入:
+  sales_date: { 类型: 日期, 必填: 是, 说明: 売上日, 筛选: sales_date 等于 }
+
+输出:
+  store_code: 店舗コード
+  amount:     売上金額
+
+排序: [amount 大到小, store_code 大到小]
+条数: 3
+输出行名: TopStore
+
+例子:
+  准备数据:
+    daily_sales:
+      - { sales_date: 2026-11-01, store_code: 1, amount: 9,   discount: null, closed_on: null }
+      - { sales_date: 2026-11-01, store_code: 2, amount: 10,  discount: null, closed_on: null }
+      - { sales_date: 2026-11-01, store_code: 3, amount: 100, discount: null, closed_on: null }
+      - { sales_date: 2026-11-01, store_code: 4, amount: 50,  discount: null, closed_on: null }
+      - { sales_date: 2026-11-02, store_code: 1, amount: 999, discount: null, closed_on: null }
+  用例:
+    - 说明: 上位 3 店(金額は数値で比べる)。4 位以下は返さない(エラーにもしない)
+      输入: { sales_date: 2026-11-01 }
+      结果: { daily_sales: [3, 4, 2] }

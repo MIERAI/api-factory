@@ -56,9 +56,9 @@ type API struct {
 	GetByID *GetByID `json:"get_by_id,omitempty"`
 	Keyset  *Keyset  `json:"keyset,omitempty"`
 	ListAll *ListAll `json:"list_all,omitempty"`
-	Shard   *Shard   `json:"shard,omitempty"`
+	Shard   *Shard   `json:"shard,omitempty"` // 分库的表: 按请求字段 Field(= 列 Column 的等于条件)选库
 	// ExitParams: 出口自己的参数(新出口不用改 IR;例如 前N条 的 n)
-	ExitParams map[string]any `json:"exit_params,omitempty"` // 分库的表: 按请求字段 Field(= 列 Column 的等于条件)选库
+	ExitParams map[string]any `json:"exit_params,omitempty"`
 	Compute    *Compute       `json:"compute,omitempty"`
 
 	// BaseRequest: 第一个 code: OK 的人写用例的请求(自动生成校验边界用例时作为"其他字段都合法"的基础)
