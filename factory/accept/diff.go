@@ -278,6 +278,9 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 			return fail("数据: 只插入了 %d 行(拒绝 %d 行)", inserted, rejected)
 		}
 		if err := env.loadAnchors(); err != nil {
+			if attempt < 4 { // 来源部分没有行(数据都被删除了)→ 换种子重来
+				continue
+			}
 			return fail("来源: %v", err)
 		}
 		reqs = env.requests()
@@ -419,7 +422,7 @@ func (e *diffEnv) value(c core.NamedType, i int, unique bool) any {
 
 // scalarFor: 某一列的值(这一列有范围值域时从里面取)。
 func (e *diffEnv) scalarFor(col string, kind core.Kind, unique bool, i int) any {
-	if e.groupCols[col] && !unique { // 每组取一条的分组列: 2 个值(组要密)
+	if e.groupCols[col] && !e.nkCols[col] && !unique { // 密集的列: 2 个值(多版本来源的自然键除外: 键要多样)
 		if dom, ok := e.ranges[col]; ok {
 			return dom[e.rnd.Intn(2)]
 		}
@@ -899,6 +902,7 @@ func (e *diffEnv) sweep(seen map[string]bool) []core.Params {
 		}
 	}
 	params := e.userParams()
+	add(e.widest(params))
 	stale := e.staleRows()
 	for _, d := range params {
 		f := e.filter[d.Name]
@@ -1382,4 +1386,95 @@ func (e *diffEnv) evalPerDB(p *core.Pipeline) (*core.Result, error) {
 		out.Rows = append(out.Rows, res.Rows...)
 	}
 	return out, nil
+}
+
+// widest: 最宽的请求(可选的参数不传,必填的参数取限制最少的值): 小于 → 最大值,大于 → 最小值,
+// 等于 → 出现最多的值,属于 → 全部的值。只要数据里有多行的结果,这个请求就能找到(分页的出口用例要 ≥5 行)。
+func (e *diffEnv) widest(params []core.ParamDecl) core.Params {
+	ps := core.Params{}
+	for _, d := range params {
+		if !d.Required {
+			continue
+		}
+		f := e.filter[d.Name]
+		count := map[string]int{}
+		val := map[string]any{}
+		var keys []string
+		for _, r := range e.anchors {
+			v := r[f.Column]
+			if v == nil {
+				continue
+			}
+			k := core.Canonical(v)
+			if count[k] == 0 {
+				keys = append(keys, k)
+				val[k] = v
+			}
+			count[k]++
+		}
+		if len(keys) == 0 {
+			ps[d.Name] = e.missingFor(f.Column, d.Type.Kind)
+			continue
+		}
+		sort.Slice(keys, func(i, j int) bool { return compareAny(val[keys[i]], val[keys[j]]) < 0 })
+		switch f.Op {
+		case "lt", "lte", "小于", "小于等于":
+			ps[d.Name] = val[keys[len(keys)-1]]
+		case "gt", "gte", "大于", "大于等于":
+			ps[d.Name] = val[keys[0]]
+		case "in", "属于":
+			var all []any
+			for _, k := range keys {
+				all = append(all, val[k])
+			}
+			ps[d.Name] = all
+		default:
+			best := keys[0]
+			for _, k := range keys {
+				if count[k] > count[best] {
+					best = k
+				}
+			}
+			ps[d.Name] = val[best]
+		}
+		if d.List {
+			if _, isList := ps[d.Name].([]any); !isList {
+				ps[d.Name] = []any{ps[d.Name]}
+			}
+		}
+	}
+	return ps
+}
+
+// compareAny: 同种类的值比较大小(排序用;不同种类按规范文本)。
+func compareAny(a, b any) int {
+	switch x := a.(type) {
+	case int64:
+		if y, ok := b.(int64); ok {
+			return cmpOrdered(x, y)
+		}
+	case *big.Rat:
+		if y, ok := b.(*big.Rat); ok {
+			return x.Cmp(y)
+		}
+	case time.Time:
+		if y, ok := b.(time.Time); ok {
+			return x.Compare(y)
+		}
+	case string:
+		if y, ok := b.(string); ok {
+			return strings.Compare(x, y)
+		}
+	}
+	return strings.Compare(core.Canonical(a), core.Canonical(b))
+}
+
+func cmpOrdered[T int64 | float64](a, b T) int {
+	switch {
+	case a < b:
+		return -1
+	case a > b:
+		return 1
+	}
+	return 0
 }
