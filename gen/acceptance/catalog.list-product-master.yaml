@@ -2,12 +2,53 @@
 # 机制测试: 期待值来自声明本身,验证的是代码生成/平台,不是业务意图。
 spec: specs/catalog/list-product-master/spec.yaml
 coverage:
-    - 'validation: maker_zip(邮编格式, string 长度)'
+    - 'validation: product_codes(元素 格式 数字)'
+    - 'validation: maker_zip(邮编格式)'
     - '差分测试(运行时): 随机数据 + 核心代数的参考求值器,覆盖筛选 / 排序 / 字段映射 / 多条的出口'
     - '差分测试(运行时): 不合法的随机请求(protovalidate)→ INVALID_ARGUMENT'
 suites:
     - name: validation
       cases:
+        - name: product_codes 元素 = "0123"(格式 数字,合法)
+          request:
+            product_codes:
+                - "0123"
+          expect:
+            code: '!INVALID_ARGUMENT'
+            response: {}
+          steps: []
+        - name: product_codes 元素 = "12a"(格式 数字,违反)
+          request:
+            product_codes:
+                - 12a
+          expect:
+            code: INVALID_ARGUMENT
+            response: {}
+          steps: []
+        - name: product_codes 元素 = "１２"(格式 数字,违反)
+          request:
+            product_codes:
+                - １２
+          expect:
+            code: INVALID_ARGUMENT
+            response: {}
+          steps: []
+        - name: product_codes 元素 = "1 2"(格式 数字,违反)
+          request:
+            product_codes:
+                - 1 2
+          expect:
+            code: INVALID_ARGUMENT
+            response: {}
+          steps: []
+        - name: product_codes 元素 = "-1"(格式 数字,违反)
+          request:
+            product_codes:
+                - "-1"
+          expect:
+            code: INVALID_ARGUMENT
+            response: {}
+          steps: []
         - name: maker_zip 邮编格式不对(1234567,没有连字符)
           request:
             maker_zip: "1234567"

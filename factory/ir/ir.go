@@ -93,23 +93,12 @@ type Field struct {
 	Values   []EnumValue `json:"enum_values,omitempty"` // enum 字段: proto 定义的全部值
 }
 
-// Rules: buf.validate 规则里自动生成边界用例需要的部分。
+// Rules: 请求字段的 protovalidate 规则。边界值 / 值域由约束的注册表(factory/constraints)从 Raw 读取,
+// 加一种约束不用改这里。只有编译器自己要用的两项单独列出。
 type Rules struct {
-	Required bool    `json:"required,omitempty"`
-	Type     string  `json:"type,omitempty"` // int32 / int64 / enum / string
-	Gt       *int64  `json:"gt,omitempty"`
-	Gte      *int64  `json:"gte,omitempty"`
-	Lt       *int64  `json:"lt,omitempty"`
-	Lte      *int64  `json:"lte,omitempty"`
-	In       []int64 `json:"in,omitempty"`
-	NotIn    []int64 `json:"not_in,omitempty"`
-	MinLen   *uint64 `json:"min_len,omitempty"`
-	MaxLen   *uint64 `json:"max_len,omitempty"`
-	Defined  bool    `json:"defined_only,omitempty"`
-	MinItems *uint64 `json:"min_items,omitempty"` // repeated: 至少几个(1 = 列表不能为空)
-	MaxItems *uint64 `json:"max_items,omitempty"` // repeated: 最多几个
-	Items    *Rules  `json:"items,omitempty"`     // repeated: 每个元素的规则
-	Pattern  string  `json:"pattern,omitempty"`   // string: 正则(日期 YYYY-MM-DD / 十进制)
+	Required bool            `json:"required,omitempty"`
+	MinItems *uint64         `json:"min_items,omitempty"` // repeated: 至少几个(1 = 列表不能为空 → 参数不是可选的)
+	Raw      json.RawMessage `json:"raw,omitempty"`
 }
 
 type Column struct {

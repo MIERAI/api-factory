@@ -18,9 +18,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"apifactory/factory/constraints"
 	"apifactory/factory/exits"
 	"apifactory/factory/ir"
-	"apifactory/factory/kinds"
 	"apifactory/factory/spec"
 )
 
@@ -76,159 +76,16 @@ func writeAPI(plan *ir.Plan, api *ir.API) error {
 // validation: buf.validate 规则 → 边界值
 // ---------------------------------------------------------------------------
 
-type boundary struct {
-	label string
-	value any
-	valid bool
-	unset bool
-}
-
-func intBoundaries(gt, gte, lt, lte *int64, in []int64) []boundary {
-	var b []boundary
-	if gt != nil {
-		b = append(b, boundary{fmt.Sprintf("= %d(gt %d 的边界,违反)", *gt, *gt), *gt, false, false},
-			boundary{fmt.Sprintf("= %d(gt %d 的边界,合法)", *gt+1, *gt), *gt + 1, true, false})
-	}
-	if gte != nil {
-		b = append(b, boundary{fmt.Sprintf("= %d(gte %d 的边界,违反)", *gte-1, *gte), *gte - 1, false, false},
-			boundary{fmt.Sprintf("= %d(gte %d 的边界,合法)", *gte, *gte), *gte, true, false})
-	}
-	if lt != nil {
-		b = append(b, boundary{fmt.Sprintf("= %d(lt %d 的边界,违反)", *lt, *lt), *lt, false, false},
-			boundary{fmt.Sprintf("= %d(lt %d 的边界,合法)", *lt-1, *lt), *lt - 1, true, false})
-	}
-	if lte != nil {
-		b = append(b, boundary{fmt.Sprintf("= %d(lte %d 的边界,违反)", *lte+1, *lte), *lte + 1, false, false},
-			boundary{fmt.Sprintf("= %d(lte %d 的边界,合法)", *lte, *lte), *lte, true, false})
-	}
-	if len(in) > 0 {
-		mx, mn := in[0], in[0]
-		for _, v := range in {
-			mx, mn = max(mx, v), min(mn, v)
-		}
-		b = append(b, boundary{fmt.Sprintf("= %d(不在 in %v 内)", mx+1, in), mx + 1, false, false},
-			boundary{fmt.Sprintf("= %d(不在 in %v 内)", mn-1, in), mn - 1, false, false})
-		for _, v := range in {
-			b = append(b, boundary{fmt.Sprintf("= %d(in %v 内)", v, in), v, true, false})
-		}
-	}
-	return b
-}
-
-func boundariesFor(f *ir.Field, base map[string]any) ([]boundary, []string) {
-	r := f.Rules
-	var b []boundary
+// boundariesFor: 必填(proto 的结构)+ 约束的注册表(factory/constraints)给出的边界值。
+func boundariesFor(f *ir.Field, base map[string]any) ([]constraints.Boundary, []string) {
+	var b []constraints.Boundary
 	var rules []string
-	if r.Required {
-		b = append(b, boundary{"未指定(required)", nil, false, true})
+	if f.Rules.Required {
+		b = append(b, constraints.Boundary{Label: "未指定(required)", Unset: true})
 		rules = append(rules, "required")
 	}
-	switch r.Type {
-	case "repeated":
-		return listBoundaries(f, b, rules, base)
-	case "int32", "int64":
-		b = append(b, intBoundaries(r.Gt, r.Gte, r.Lt, r.Lte, r.In)...)
-		rules = append(rules, r.Type+" 范围/in")
-	case "enum":
-		bad := map[int64]bool{}
-		for _, v := range r.NotIn {
-			bad[v] = true
-			b = append(b, boundary{fmt.Sprintf("= %d(not_in)", v), v, false, false})
-		}
-		if r.Defined {
-			mx := int32(0)
-			for _, v := range f.Values {
-				mx = max(mx, v.Number)
-			}
-			b = append(b, boundary{fmt.Sprintf("= %d(未定义的值,defined_only)", mx+1), int64(mx + 1), false, false})
-		}
-		for _, v := range f.Values {
-			if !bad[int64(v.Number)] {
-				b = append(b, boundary{fmt.Sprintf("= %s", v.Name), v.Name, true, false})
-			}
-		}
-		rules = append(rules, "enum defined_only/not_in")
-	case "string":
-		if r.MinLen != nil && *r.MinLen > 0 {
-			n := int(*r.MinLen)
-			b = append(b, boundary{fmt.Sprintf("长度 %d(min_len %d 的边界,违反)", n-1, n), strings.Repeat("a", n-1), false, false},
-				boundary{fmt.Sprintf("长度 %d(min_len %d 的边界,合法)", n, n), strings.Repeat("a", n), true, false})
-		}
-		if r.MaxLen != nil {
-			n := int(*r.MaxLen)
-			b = append(b, boundary{fmt.Sprintf("长度 %d(max_len %d 的边界,违反)", n+1, n), strings.Repeat("a", n+1), false, false},
-				boundary{fmt.Sprintf("长度 %d(max_len %d 的边界,合法)", n, n), strings.Repeat("a", n), true, false})
-		}
-		if t, ok := kinds.ByPattern(r.Pattern); ok { // 格式的边界值来自类型的注册表(factory/kinds)
-			for _, x := range t.Boundaries {
-				b = append(b, boundary{x.Label, x.Value, x.Valid, false})
-			}
-			rules = append(rules, t.Name+"格式")
-		}
-		rules = append(rules, "string 长度")
-	}
-	return b, rules
-}
-
-// listBoundaries: 列表的个数(min_items / max_items)和每个元素的规则。
-// 元素的规则: 元素的边界值包成只有一个元素的列表。个数: 用一个合法的元素重复 n 次。
-func listBoundaries(f *ir.Field, b []boundary, rules []string, base map[string]any) ([]boundary, []string) {
-	r := f.Rules
-	var elem any
-	if xs, ok := base[f.Name].([]any); ok && len(xs) > 0 {
-		elem = xs[0]
-	}
-	if r.Items != nil {
-		ef := &ir.Field{Name: f.Name, Kind: f.Kind, Values: f.Values, Rules: r.Items}
-		ebs, erules := boundariesFor(ef, nil)
-		for _, x := range ebs {
-			if x.unset {
-				continue
-			}
-			b = append(b, boundary{"元素 " + x.label, []any{x.value}, x.valid, false})
-			if x.valid && elem == nil {
-				elem = x.value
-			}
-		}
-		for _, er := range erules {
-			rules = append(rules, "元素 "+er)
-		}
-	}
-	if elem == nil {
-		switch {
-		case len(f.Values) > 0:
-			for _, v := range f.Values {
-				if v.Number != 0 {
-					elem = v.Name
-					break
-				}
-			}
-		case strings.HasPrefix(f.Kind, "int"):
-			elem = int64(1)
-		case f.Kind == "string":
-			elem = "a"
-		}
-	}
-	rep := func(n uint64) []any {
-		out := make([]any, n)
-		for i := range out {
-			out[i] = elem
-		}
-		return out
-	}
-	if elem != nil && r.MinItems != nil && *r.MinItems > 0 {
-		n := *r.MinItems
-		b = append(b, boundary{fmt.Sprintf("%d 个(min_items %d 的边界,违反)", n-1, n), rep(n - 1), false, false},
-			boundary{fmt.Sprintf("%d 个(min_items %d 的边界,合法)", n, n), rep(n), true, false})
-		rules = append(rules, "min_items")
-	}
-	if elem != nil && r.MaxItems != nil {
-		n := *r.MaxItems
-		b = append(b, boundary{fmt.Sprintf("%d 个(max_items %d 的边界,违反)", n+1, n), rep(n + 1), false, false},
-			boundary{fmt.Sprintf("%d 个(max_items %d 的边界,合法)", n, n), rep(n), true, false})
-		rules = append(rules, "max_items")
-	}
-	return b, rules
+	cb, cr := constraints.Boundaries(f, base)
+	return append(b, cb...), append(rules, cr...)
 }
 
 func (c *ctx) validationSuite() (spec.Suite, []string) {
@@ -257,17 +114,17 @@ func (c *ctx) validationSuite() (spec.Suite, []string) {
 			for k, v := range base {
 				req[k] = v
 			}
-			if b.unset {
+			if b.Unset {
 				delete(req, f.Name)
 			} else {
-				req[f.Name] = b.value
+				req[f.Name] = b.Value
 			}
 			code := "INVALID_ARGUMENT"
-			if b.valid {
+			if b.Valid {
 				code = "!INVALID_ARGUMENT" // 合法输入: 可能是 OK 也可能是 NOT_FOUND,但不能被校验拒绝
 			}
 			suite.Cases = append(suite.Cases, spec.Case{
-				Name:    fmt.Sprintf("%s %s", f.Name, b.label),
+				Name:    fmt.Sprintf("%s %s", f.Name, b.Label),
 				Request: req,
 				Expect:  spec.Expect{Code: code},
 			})

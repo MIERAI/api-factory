@@ -27,6 +27,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/dynamicpb"
 
+	"apifactory/factory/constraints"
 	"apifactory/factory/core"
 	"apifactory/factory/exits"
 	"apifactory/factory/ir"
@@ -60,15 +61,14 @@ type diffEnv struct {
 	// anchors: 请求参数取值的来源 = 来源部分(scan / 来源单元)的输出。
 	// 普通的表 = 物理行;JSON版本 = 展开后的逻辑行(筛选的列在物理表里不存在)
 	anchors   []core.Row
-	consts    map[core.Kind][]any    // 流水线里出现的常量(加进值域: 删除值、逻辑删除值等要能被随机数据碰到)
-	ranges    map[string][]int64     // 列 → 整数值域(筛选这一列的参数有范围校验时,从范围里取,否则请求都不合法)
-	formats   map[string]*kinds.Type // 列 → 带格式的类型(参数有格式校验时,数据要符合格式)
-	keyCol    map[string]string      // JSON 的键 → 逻辑列名(json_field 投影成的列)
-	constFor  map[string][]any       // 列(物理列或 JSON 的键投影成的列)→ 来源里和它比较的常量(删除值 / 逻辑删除值)
-	nkCols    map[string]bool        // 多版本来源的自然键(值域扩大,逻辑行才多)
-	nkSpace   int                    // 自然键原来的组合数
-	scale     int                    // 数据量的倍数(覆盖不足时每次重试加倍: 条件严格的 API 需要更多的数据)
-	groupCols map[string]bool        // API 部分"每组取一条"的分组列: 值域缩小到 2 个,组里才有多个候选
+	consts    map[core.Kind][]any            // 流水线里出现的常量(加进值域: 删除值、逻辑删除值等要能被随机数据碰到)
+	domains   map[string]*constraints.Domain // 列 → 值域(筛选这一列的参数有约束时: 范围 / 格式 …,否则请求都不合法)
+	keyCol    map[string]string              // JSON 的键 → 逻辑列名(json_field 投影成的列)
+	constFor  map[string][]any               // 列(物理列或 JSON 的键投影成的列)→ 来源里和它比较的常量(删除值 / 逻辑删除值)
+	nkCols    map[string]bool                // 多版本来源的自然键(值域扩大,逻辑行才多)
+	nkSpace   int                            // 自然键原来的组合数
+	scale     int                            // 数据量的倍数(覆盖不足时每次重试加倍: 条件严格的 API 需要更多的数据)
+	groupCols map[string]bool                // API 部分"每组取一条"的分组列: 值域缩小到 2 个,组里才有多个候选
 }
 
 type jsonKey struct {
@@ -163,43 +163,19 @@ func (e *diffEnv) collect() {
 	if sh := e.api.Shard; sh != nil {
 		e.groupCols[sh.Column] = true
 	}
-	// 整数参数的范围校验 → 被它筛选的列(多列单元的每一列)的值域
-	e.ranges = map[string][]int64{}
-	e.formats = map[string]*kinds.Type{}
+	// 参数的约束(范围 / 格式 …,factory/constraints)→ 被它筛选的列(多列单元的每一列)的值域
+	e.domains = map[string]*constraints.Domain{}
 	for _, f := range e.api.Filters {
-		fd := e.api.Request.Field(f.Field)
-		if fd == nil || fd.Rules == nil {
+		d := constraints.DomainOf(e.api.Request.Field(f.Field))
+		if d == nil {
 			continue
 		}
-		r := fd.Rules
-		if t, ok := kinds.ByPattern(r.Pattern); ok && len(t.Domain) > 0 { // 带格式的文本(邮编 …): 值域用这个类型的
-			for _, c := range append([]string{f.Column}, f.Columns...) {
-				e.formats[c] = t
-			}
-			continue
-		}
-		var lo int64
-		switch {
-		case r.Gte != nil:
-			lo = *r.Gte
-		case r.Gt != nil:
-			lo = *r.Gt + 1
-		default:
-			continue
-		}
-		hi := lo + 10
-		if r.Lte != nil {
-			hi = *r.Lte
-		} else if r.Lt != nil {
-			hi = *r.Lt - 1
-		}
-		dom := []int64{lo, lo + 1, lo + 2, hi}
 		cols := f.Columns
 		if len(cols) == 0 {
 			cols = []string{f.Column}
 		}
 		for _, c := range cols {
-			e.ranges[c] = dom
+			e.domains[c] = d
 		}
 	}
 	// 自然键的组合数 < 数据行数 / 5 时才扩大(目标: 每个键平均约 5 个版本;复合键本来组合就多,不扩大)
@@ -439,11 +415,11 @@ func (e *diffEnv) value(c core.NamedType, i int, unique bool) any {
 // scalarFor: 某一列的值(这一列有范围值域时从里面取)。
 func (e *diffEnv) scalarFor(col string, kind core.Kind, unique bool, i int) any {
 	if e.groupCols[col] && !e.nkCols[col] && !unique { // 密集的列: 3 个值(多版本来源的自然键除外: 键要多样)
-		if dom, ok := e.ranges[col]; ok {
-			return dom[e.rnd.Intn(min(3, len(dom)))]
+		if d, ok := e.domains[col]; ok {
+			return d.Values[e.rnd.Intn(min(3, len(d.Values)))]
 		}
 		if t, ok := kinds.ByCore(kind); ok && len(t.Domain) >= 2 {
-			return t.Domain[e.rnd.Intn(min(3, len(t.Domain)))] // 带范围校验的整数列走上面的 ranges
+			return t.Domain[e.rnd.Intn(min(3, len(t.Domain)))] // 有约束的列走上面的 domains
 		}
 	}
 	if cs := e.constFor[col]; len(cs) > 0 && !unique {
@@ -471,24 +447,22 @@ func (e *diffEnv) scalarFor(col string, kind core.Kind, unique bool, i int) any 
 	target := diffRows * 3 / 5 * max(e.scale, 1)
 	if e.nkCols[col] && e.nkSpace > 0 && e.nkSpace < target && !unique {
 		times := (target + e.nkSpace - 1) / e.nkSpace
-		if _, ranged := e.ranges[col]; !ranged {
-			if _, formatted := e.formats[col]; !formatted {
-				switch v := e.scalar(kind, false, i).(type) { // 多版本来源的自然键: 值域扩大
-				case int64:
-					return v + int64(100*e.rnd.Intn(times))
-				case string:
-					return fmt.Sprintf("%s%d", v, e.rnd.Intn(times))
-				default:
-					return v
-				}
+		if d, ok := e.domains[col]; ok && d.Expand != nil { // 有约束的列: 在约束里扩大
+			return d.Expand(e.rnd.Intn(target))
+		}
+		if _, constrained := e.domains[col]; !constrained {
+			switch v := e.scalar(kind, false, i).(type) { // 多版本来源的自然键: 值域扩大
+			case int64:
+				return v + int64(100*e.rnd.Intn(times))
+			case string:
+				return fmt.Sprintf("%s%d", v, e.rnd.Intn(times))
+			default:
+				return v
 			}
 		}
 	}
-	if t, ok := e.formats[col]; ok && !unique {
-		return t.Domain[e.rnd.Intn(len(t.Domain))]
-	}
-	if dom, ok := e.ranges[col]; ok && !unique && (kind == core.Int32 || kind == core.Int64) {
-		return dom[e.rnd.Intn(len(dom))]
+	if d, ok := e.domains[col]; ok && !unique {
+		return d.Values[e.rnd.Intn(len(d.Values))]
 	}
 	return e.scalar(kind, unique, i)
 }
@@ -924,8 +898,8 @@ func (e *diffEnv) loadAnchors() error {
 
 // missingFor: 数据里不存在的值(带格式的列用这个类型的,否则请求会被格式校验拒绝)。
 func (e *diffEnv) missingFor(col string, k core.Kind) any {
-	if t, ok := e.formats[col]; ok {
-		return t.Missing
+	if d, ok := e.domains[col]; ok && d.Missing != nil {
+		return d.Missing
 	}
 	return missing(k)
 }
@@ -1132,7 +1106,7 @@ func (e *diffEnv) Missing(param string, i int) any {
 	if i == 0 {
 		return base
 	}
-	if _, formatted := e.formats[col]; formatted {
+	if d, ok := e.domains[col]; ok && d.Missing != nil { // 有专门的"不存在的值"(格式)时,只有这一个
 		return nil
 	}
 	switch v := base.(type) {
@@ -1195,11 +1169,8 @@ func (e *diffEnv) staleRows() []core.Row {
 
 // domainSize: 这一列的值域大小(范围 / 格式 / 枚举 / 类型的值域)。
 func (e *diffEnv) domainSize(col string) int {
-	if d, ok := e.ranges[col]; ok {
-		return len(d)
-	}
-	if t, ok := e.formats[col]; ok {
-		return len(t.Domain)
+	if d, ok := e.domains[col]; ok {
+		return len(d.Values)
 	}
 	if en := e.plan.Enum(e.api.Table, col); en != nil {
 		return len(en.Values)
@@ -1287,8 +1258,13 @@ func (e *diffEnv) sensitivity(reqs []core.Params) (weak []string, total int) {
 		desc string
 	}
 	var targets []target
+	picked := false // 来源里取最新版本之后的筛选(删除 / 逻辑删除)也要测到;之前的(键非空)不算
 	for i, st := range p.Steps {
-		if st.Kind != "filter" || st.From == "datasource.table" || strings.HasPrefix(st.From, "来源 ") || st.Pred == nil {
+		source := st.From == "datasource.table" || strings.HasPrefix(st.From, "来源 ")
+		if st.Kind == "pick_per_key" && source {
+			picked = true
+		}
+		if st.Kind != "filter" || (source && !picked) || st.Pred == nil {
 			continue
 		}
 		if st.Pred.Op == "tuple_after" { // 分页的游标: 由出口用例测

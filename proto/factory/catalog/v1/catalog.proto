@@ -36,7 +36,7 @@ message ListProductMasterRequest {
   // カテゴリ
   optional string category = 1;
   // 商品コード(空列表 = 不按这个条件筛选)
-  repeated string product_codes = 2;
+  repeated string product_codes = 2 [(buf.validate.field).repeated.items.string.pattern = "^[0-9]+$"];
   // メーカーの郵便番号
   optional string maker_zip = 3 [(buf.validate.field).string.pattern = "^\\d{3}-\\d{4}$"];
 }

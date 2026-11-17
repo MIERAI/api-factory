@@ -10,6 +10,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
 
+	"apifactory/factory/constraints"
 	"apifactory/factory/ir"
 )
 
@@ -83,78 +84,16 @@ func convRules(fd protoreflect.FieldDescriptor) *ir.Rules {
 	if r == nil {
 		return nil
 	}
-	return fieldRules(r, fd)
+	out := fieldRules(r, fd)
+	out.Raw = constraints.Raw(r)
+	return out
 }
 
-// fieldRules: buf.validate 的规则 → IR(列表元素的规则递归)。
-func fieldRules(r *validate.FieldRules, fd protoreflect.FieldDescriptor) *ir.Rules {
+// fieldRules: buf.validate 的规则 → IR(其余的规则由 factory/constraints 从 Raw 读取)。
+func fieldRules(r *validate.FieldRules, _ protoreflect.FieldDescriptor) *ir.Rules {
 	out := &ir.Rules{Required: r.GetRequired()}
-	switch {
-	case r.HasInt32():
-		x := r.GetInt32()
-		out.Type = "int32"
-		if x.HasGt() {
-			out.Gt = ptr(int64(x.GetGt()))
-		}
-		if x.HasGte() {
-			out.Gte = ptr(int64(x.GetGte()))
-		}
-		if x.HasLt() {
-			out.Lt = ptr(int64(x.GetLt()))
-		}
-		if x.HasLte() {
-			out.Lte = ptr(int64(x.GetLte()))
-		}
-		for _, v := range x.GetIn() {
-			out.In = append(out.In, int64(v))
-		}
-	case r.HasRepeated():
-		x := r.GetRepeated()
-		out.Type = "repeated"
-		if x.HasMinItems() {
-			out.MinItems = ptr(x.GetMinItems())
-		}
-		if x.HasMaxItems() {
-			out.MaxItems = ptr(x.GetMaxItems())
-		}
-		if x.HasItems() {
-			out.Items = fieldRules(x.GetItems(), fd)
-		}
-	case r.HasInt64():
-		x := r.GetInt64()
-		out.Type = "int64"
-		if x.HasGt() {
-			out.Gt = ptr(x.GetGt())
-		}
-		if x.HasGte() {
-			out.Gte = ptr(x.GetGte())
-		}
-		if x.HasLt() {
-			out.Lt = ptr(x.GetLt())
-		}
-		if x.HasLte() {
-			out.Lte = ptr(x.GetLte())
-		}
-		out.In = append(out.In, x.GetIn()...)
-	case r.HasEnum() && fd.Enum() != nil:
-		x := r.GetEnum()
-		out.Type = "enum"
-		out.Defined = x.GetDefinedOnly()
-		for _, v := range x.GetNotIn() {
-			out.NotIn = append(out.NotIn, int64(v))
-		}
-	case r.HasString():
-		x := r.GetString()
-		out.Type = "string"
-		if x.HasMinLen() {
-			out.MinLen = ptr(x.GetMinLen())
-		}
-		if x.HasMaxLen() {
-			out.MaxLen = ptr(x.GetMaxLen())
-		}
-		if x.HasPattern() {
-			out.Pattern = x.GetPattern()
-		}
+	if x := r.GetRepeated(); r.HasRepeated() && x.HasMinItems() {
+		out.MinItems = ptr(x.GetMinItems())
 	}
 	return out
 }

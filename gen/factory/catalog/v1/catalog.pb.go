@@ -244,10 +244,11 @@ const file_factory_catalog_v1_catalog_proto_rawDesc = "" +
 	"\x06_priceB\x0e\n" +
 	"\f_launched_onB\f\n" +
 	"\n" +
-	"_maker_zip\"\xb3\x01\n" +
+	"_maker_zip\"\xc9\x01\n" +
 	"\x18ListProductMasterRequest\x12\x1f\n" +
-	"\bcategory\x18\x01 \x01(\tH\x00R\bcategory\x88\x01\x01\x12#\n" +
-	"\rproduct_codes\x18\x02 \x03(\tR\fproductCodes\x126\n" +
+	"\bcategory\x18\x01 \x01(\tH\x00R\bcategory\x88\x01\x01\x129\n" +
+	"\rproduct_codes\x18\x02 \x03(\tB\x14\xbaH\x11\x92\x01\x0e\"\fr\n" +
+	"2\b^[0-9]+$R\fproductCodes\x126\n" +
 	"\tmaker_zip\x18\x03 \x01(\tB\x14\xbaH\x11r\x0f2\r^\\d{3}-\\d{4}$H\x01R\bmakerZip\x88\x01\x01B\v\n" +
 	"\t_categoryB\f\n" +
 	"\n" +

@@ -3,6 +3,7 @@ package design
 // 中文式样书的读取。YAML 里的书写顺序有意义(输入/输出/枚举值的顺序决定字段编号),所以用 yaml.Node 保留顺序。
 
 import (
+	"apifactory/factory/constraints"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -341,15 +342,13 @@ type API struct {
 }
 
 type Input struct {
-	Name     string
-	Type     string // 整数32 / 整数64 / 文本 / 时间 / 布尔 / 小数 / <枚举名>
-	Required bool
-	Range    string
-	Length   string
-	Count    string // 列表: 个数 "1~1000"
-	Desc     string
-	Filter   string // "created_at 大于等于"
-	Line     int
+	Name        string
+	Type        string // 整数32 / 整数64 / 文本 / 时间 / 布尔 / 小数 / <枚举名>
+	Required    bool
+	Constraints map[string]string // 约束(factory/constraints): 范围 / 长度 / 个数 …
+	Desc        string
+	Filter      string // "created_at 大于等于"
+	Line        int
 }
 
 type Output struct {
@@ -404,9 +403,14 @@ func loadAPI(path string) (*API, error) {
 		e.add(root.Line, "风险 只能是 低 / 中 / 高")
 	}
 	for _, p := range pairs(get(root, "输入")) {
-		checkKeys(e, p.Val, "输入 "+p.Key, "类型", "必填", "范围", "长度", "个数", "说明", "筛选")
-		in := &Input{Name: p.Key, Type: str(p.Val, "类型"), Required: str(p.Val, "必填") == "是", Range: str(p.Val, "范围"),
-			Length: str(p.Val, "长度"), Count: str(p.Val, "个数"), Desc: str(p.Val, "说明"), Filter: str(p.Val, "筛选"), Line: p.Line}
+		checkKeys(e, p.Val, "输入 "+p.Key, append([]string{"类型", "必填", "说明", "筛选"}, constraints.Keys()...)...)
+		in := &Input{Name: p.Key, Type: str(p.Val, "类型"), Required: str(p.Val, "必填") == "是",
+			Desc: str(p.Val, "说明"), Filter: str(p.Val, "筛选"), Line: p.Line, Constraints: map[string]string{}}
+		for _, k := range constraints.Keys() {
+			if v := str(p.Val, k); v != "" {
+				in.Constraints[k] = v
+			}
+		}
 		if in.Type == "" {
 			e.add(p.Line, "输入 %s: 缺少 类型", p.Key)
 		}

@@ -18,6 +18,7 @@ import (
 	"apifactory/factory/adapter"
 	"apifactory/factory/cells"
 	"apifactory/factory/compiler"
+	"apifactory/factory/constraints"
 	"apifactory/factory/kinds"
 	"apifactory/factory/sources"
 	"apifactory/factory/spec"
@@ -242,23 +243,9 @@ func (c *ctx) columnField(table, col string) (string, string, bool, error) {
 }
 
 var (
-	reRange   = regexp.MustCompile(`^\s*(>=|<=|>|<)\s*(-?\d+)\s*$`)
-	reBetween = regexp.MustCompile(`^\s*(-?\d+)\s*~\s*(-?\d+)\s*$`)
-	reBefore  = regexp.MustCompile(`^(\w+)\s*早于\s*(\w+)$`)
-	reWithin  = regexp.MustCompile(`^(\w+)\s*到\s*(\w+)\s*不超过\s*(\d+)\s*天$`)
+	reBefore = regexp.MustCompile(`^(\w+)\s*早于\s*(\w+)$`)
+	reWithin = regexp.MustCompile(`^(\w+)\s*到\s*(\w+)\s*不超过\s*(\d+)\s*天$`)
 )
-
-// rangeRule: 范围("> 0" / "0~100")→ protovalidate 的规则。
-func rangeRule(typ, rng string) (string, bool) {
-	if m := reRange.FindStringSubmatch(rng); m != nil {
-		op := map[string]string{">": "gt", ">=": "gte", "<": "lt", "<=": "lte"}[m[1]]
-		return fmt.Sprintf("%s.%s = %s", typ, op, m[2]), true
-	}
-	if m := reBetween.FindStringSubmatch(rng); m != nil {
-		return fmt.Sprintf("%s = {gte: %s, lte: %s}", typ, m[1], m[2]), true
-	}
-	return "", false
-}
 
 func (c *ctx) inputField(a *API, in *Input, e *errs) *field {
 	elemType, isList := strings.CutSuffix(in.Type, "列表")
@@ -268,58 +255,25 @@ func (c *ctx) inputField(a *API, in *Input, e *errs) *field {
 		return nil
 	}
 	f := &field{Name: in.Name, Type: pt, Desc: in.Desc, kind: kind}
+	typ, _ := kinds.ByName(elemType)
+	// 约束(范围 / 长度 / 个数 …)由注册表编译(factory/constraints;列表时元素级的约束用于每个元素)
+	rules, cerrs := constraints.Compile(constraints.Ctx{
+		ProtoType: pt, List: isList, Required: in.Required, HasPattern: typ != nil && typ.Pattern != "",
+	}, in.Constraints)
+	for _, err := range cerrs {
+		e.add(in.Line, "输入 %s: %v", in.Name, err)
+	}
 	if isList {
 		f.Repeated = true
-		minItems, maxItems := "", ""
-		if in.Required {
-			minItems = "1"
+		if in.Required && !constraints.Has(in.Constraints, "个数") { // 个数 会接管 min_items
+			f.Rules = append(f.Rules, "repeated.min_items = 1")
 		}
-		if in.Count != "" {
-			if m := reBetween.FindStringSubmatch(in.Count); m != nil {
-				if m[1] != "0" {
-					minItems = m[1]
-				}
-				maxItems = m[2]
-			} else {
-				e.add(in.Line, "输入 %s: 个数 %q 无法识别(例: \"1~1000\")", in.Name, in.Count)
-			}
-		}
-		if minItems != "" {
-			f.Rules = append(f.Rules, "repeated.min_items = "+minItems)
-		}
-		if maxItems != "" {
-			f.Rules = append(f.Rules, "repeated.max_items = "+maxItems)
-		}
-		// 范围 / 长度: 用于每个元素
-		elemRule := map[string]string{"int32": "int32", "int64": "int64"}[pt]
-		if in.Range != "" {
-			if elemRule == "" {
-				e.add(in.Line, "输入 %s: 范围 只能用于整数", in.Name)
-			} else if r, ok := rangeRule(elemRule, in.Range); ok {
-				f.Rules = append(f.Rules, "repeated.items."+r)
-			} else {
-				e.add(in.Line, "输入 %s: 范围 %q 无法识别(例: \"> 0\", \"0~100\")", in.Name, in.Range)
-			}
-		}
-		if in.Length != "" {
-			if pt != "string" {
-				e.add(in.Line, "输入 %s: 长度 只能用于文本", in.Name)
-			} else if m := reBetween.FindStringSubmatch(in.Length); m != nil {
-				f.Rules = append(f.Rules, fmt.Sprintf("repeated.items.string = {min_len: %s, max_len: %s}", m[1], m[2]))
-			} else {
-				e.add(in.Line, "输入 %s: 长度 %q 无法识别(例: \"1~64\")", in.Name, in.Length)
-			}
-		}
+		f.Rules = append(f.Rules, rules...)
 		if in.Desc != "" && !in.Required {
 			f.Desc = in.Desc + "(空列表 = 不按这个条件筛选)"
 		}
 		return f
 	}
-	if in.Count != "" {
-		e.add(in.Line, "输入 %s: 个数 只能用于列表", in.Name)
-	}
-	scalarRule := map[string]string{"int32": "int32", "int64": "int64"}[pt]
-	typ, _ := kinds.ByName(elemType)
 	switch {
 	case strings.HasPrefix(kind, "enum:"):
 		f.Optional = !in.Required
@@ -334,24 +288,7 @@ func (c *ctx) inputField(a *API, in *Input, e *errs) *field {
 	default:
 		f.Optional = !in.Required
 	}
-	if in.Range != "" {
-		if scalarRule == "" {
-			e.add(in.Line, "输入 %s: 范围 只能用于整数", in.Name)
-		} else if r, ok := rangeRule(scalarRule, in.Range); ok {
-			f.Rules = append(f.Rules, r)
-		} else {
-			e.add(in.Line, "输入 %s: 范围 %q 无法识别(例: \"> 0\", \"0~100\")", in.Name, in.Range)
-		}
-	}
-	if in.Length != "" {
-		if pt != "string" {
-			e.add(in.Line, "输入 %s: 长度 只能用于文本", in.Name)
-		} else if m := reBetween.FindStringSubmatch(in.Length); m != nil {
-			f.Rules = append(f.Rules, fmt.Sprintf("string = {min_len: %s, max_len: %s}", m[1], m[2]))
-		} else {
-			e.add(in.Line, "输入 %s: 长度 %q 无法识别(例: \"1~64\")", in.Name, in.Length)
-		}
-	}
+	f.Rules = append(f.Rules, rules...)
 	return f
 }
 
