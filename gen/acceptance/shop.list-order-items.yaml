@@ -4,9 +4,9 @@ spec: specs/shop/list-order-items/spec.yaml
 coverage:
     - 'validation: order_id(int64 范围/in)'
     - 'validation: page_size(int32 范围/in)'
-    - '差分测试(运行时): 随机数据 + 核心代数的参考求值器,覆盖筛选 / 排序 / 字段映射 / 翻页'
+    - '差分测试(运行时): 随机数据 + 核心代数的参考求值器,覆盖筛选 / 排序 / 字段映射 / 一览的出口'
     - '差分测试(运行时): 不合法的随机请求(protovalidate)→ INVALID_ARGUMENT'
-    - '差分测试(运行时): 分页出口(途中改 page_size / 途中改筛选条件 / 非法 token / 默认 page_size)'
+    - '差分测试(运行时): 一览出口自己的用例'
 suites:
     - name: validation
       cases:

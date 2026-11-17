@@ -4,10 +4,10 @@ package compiler
 
 import (
 	"fmt"
-	"strings"
 
 	"apifactory/factory/cells"
 	"apifactory/factory/core"
+	"apifactory/factory/exits"
 	"apifactory/factory/kinds"
 	"apifactory/factory/spec"
 )
@@ -19,9 +19,6 @@ func coreType(table string, c catColumn) (core.Type, error) {
 	}
 	return core.Type{Kind: k, Nullable: !c.NotNull}, nil
 }
-
-// patternCells: 式样书的模式 → 单元库里的模式(套装)
-var patternCells = map[string]string{"get_by_id": "单条", "list_keyset": "分页", "compute": "计算", "list_all": "多条"}
 
 // filterCells: 式样书的筛选运算 → 单元库里的筛选单元
 var filterCells = map[string]string{"eq": "等于", "gt": "大于", "gte": "大于等于", "lt": "小于", "lte": "小于等于", "prefix": "前缀匹配"}
@@ -57,43 +54,16 @@ func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []re
 	for _, c := range cols {
 		parts.Output = append(parts.Output, core.NamedExpr{Name: c, Expr: core.Col(c)})
 	}
-	if s.PatternKind() == "list_keyset" {
-		var params []string
-		for _, c := range s.Pattern.OrderBy {
-			col, ok := cat.column(table, c)
-			if !ok {
-				return nil, fmt.Errorf("order_by: 列 %s 不在 %s 里", c, table)
-			}
-			t, err := coreType(table, col)
-			if err != nil {
-				return nil, err
-			}
-			p.Params = append(p.Params, core.ParamDecl{Name: "cursor_" + c, Type: core.Type{Kind: t.Kind}})
-			params = append(params, "cursor_"+c)
-			parts.Order = append(parts.Order, core.SortKey{Col: c, Desc: s.Pattern.Direction != "asc"})
-		}
-		parts.Cursor = core.TupleAfter(s.Pattern.OrderBy, params, s.Pattern.Direction != "asc")
-		parts.Rows = "row_limit"
-		p.Params = append(p.Params, core.ParamDecl{Name: "row_limit", Type: core.Type{Kind: core.Int32}, Required: true})
-	}
-	if s.PatternKind() == "list_all" {
-		for _, c := range s.Pattern.OrderBy {
-			parts.Order = append(parts.Order, core.SortKey{Col: c, Desc: s.Pattern.Direction == "desc"})
-		}
-		parts.Limit = int(s.Pattern.MaxRows) + 1
-		if g := s.Pattern.PickPerGroup; g != nil {
-			st := core.Step{Kind: "pick_per_key", Keys: g.By}
-			for _, o := range g.Order {
-				col, dir, _ := strings.Cut(o, " ")
-				st.Order = append(st.Order, core.SortKey{Col: col, Desc: dir == "desc"})
-			}
-			parts.Group = &st
-		}
-	}
-	name, ok := patternCells[s.PatternKind()]
-	if !ok {
+	ex, ok := exits.ByKind(s.PatternKind()) // 出口的注册表(factory/exits)
+	if !ok || ex.Cell == "" {
 		return nil, fmt.Errorf("模式 %s 没有对应的套装", s.PatternKind())
 	}
+	if ex.Parts != nil {
+		if err := ex.Parts(s, partsCtx{table, cat}, &parts, p); err != nil {
+			return nil, err
+		}
+	}
+	name := ex.Cell
 	steps, err := lib.Pattern(name, parts)
 	if err != nil {
 		return nil, err
@@ -173,4 +143,19 @@ func sqlKind(sqlType string) (core.Kind, bool) {
 		return "", false
 	}
 	return t.Core, true
+}
+
+// partsCtx: 出口生成流水线部件时用(exits.PartsCtx)。
+type partsCtx struct {
+	table string
+	cat   *catalog
+}
+
+func (x partsCtx) ColumnKind(col string) (core.Kind, error) {
+	c, ok := x.cat.column(x.table, col)
+	if !ok {
+		return "", fmt.Errorf("列 %s 不在 %s 里", col, x.table)
+	}
+	t, err := coreType(x.table, c)
+	return t.Kind, err
 }

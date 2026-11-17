@@ -26,6 +26,7 @@ import (
 	"apifactory/factory/answer"
 	"apifactory/factory/compiler"
 	"apifactory/factory/design"
+	"apifactory/factory/exits"
 	"apifactory/factory/guard"
 	"apifactory/factory/ir"
 	"apifactory/factory/prompts"
@@ -434,8 +435,8 @@ func cmdStats(args []string) error {
 		}
 	}
 	fmt.Printf("APIs: %d\n", len(specs))
-	for _, k := range []string{"get_by_id", "list_keyset", "compute", "custom"} {
-		fmt.Printf("  %-12s %d\n", k, byPattern[k])
+	for _, ex := range exits.All() { // 出口的注册表
+		fmt.Printf("  %-12s %-6s %d\n", ex.Kind, ex.Name, byPattern[ex.Kind])
 	}
 	if len(specs) > 0 {
 		fmt.Printf("逃生率: handler(custom) %d/%d = %.0f%%  查询(datasource.sql) %d/%d = %.0f%%\n",

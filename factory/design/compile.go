@@ -312,11 +312,10 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 
 	// ---- 请求
 	req := &message{Name: a.Name + "Request", Desc: a.Desc}
-	if a.Kind == "list_keyset" {
-		req.Fields = append(req.Fields,
-			&field{Name: "page_size", Type: "int32", kind: "int", Desc: fmt.Sprintf("每页件数。0 = 默认 %d,最多 %d", a.PageDefault, a.PageMax),
-				Rules: []string{fmt.Sprintf("int32 = {gte: 0, lte: %d}", a.PageMax)}},
-			&field{Name: "page_token", Type: "string", kind: "string", Desc: "上一页返回的 next_page_token(不透明的字符串)"})
+	if a.Exit.Request != nil { // 出口加到请求里的字段(分页: page_size / page_token)
+		for _, x := range a.Exit.Request(a.Pattern) {
+			req.Fields = append(req.Fields, &field{Name: x.Name, Type: x.Type, kind: x.Kind, Desc: x.Desc, Rules: x.Rules})
+		}
 	}
 	filters := map[string]spec.Filter{}
 	for _, in := range a.Inputs {
@@ -411,8 +410,8 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 		return out
 	}
 	itemKey := ""
-	switch a.Kind {
-	case "list_keyset", "list_all":
+	switch {
+	case a.Exit.Rows: // 响应 = 行的列表(+ 出口另外的字段)
 		itemName := a.ItemName
 		if itemName == "" {
 			itemName = pascal(singular(table))
@@ -433,15 +432,18 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 			c.addMessage(item)
 		}
 		resp.Fields = []*field{{Name: listField, Type: item.Name, Repeated: true, kind: "message:" + item.Name}}
-		if a.Kind == "list_keyset" {
-			resp.Fields = append(resp.Fields, &field{Name: "next_page_token", Type: "string", kind: "string", Desc: "还有下一页时不为空"})
-		} else {
-			resp.Fields[0].Desc = fmt.Sprintf("最多 %d 件;超过时返回错误(不会截断)", a.MaxRows)
+		if a.Exit.RowsDesc != nil {
+			resp.Fields[0].Desc = a.Exit.RowsDesc(a.Pattern)
 		}
-		itemKey = a.OrderBy[len(a.OrderBy)-1]
-	case "get_by_id":
+		for _, x := range a.Exit.Extra {
+			resp.Fields = append(resp.Fields, &field{Name: x.Name, Type: x.Type, kind: x.Kind, Desc: x.Desc, Rules: x.Rules})
+		}
+		if a.Exit.ItemKey != nil {
+			itemKey = a.Exit.ItemKey(a.Pattern)
+		}
+	case a.Exit.FromTable: // 响应的字段 = 数据来源的列
 		resp.Fields = outFields(table)
-	default:
+	default: // 响应的字段 = 设计稿的 输出(计算)
 		resp.Fields = outFields("")
 	}
 	if err := e.err(); err != nil {
@@ -453,24 +455,10 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 	// ---- 机器用的式样书
 	s := &spec.Spec{SpecVersion: spec.Version}
 	s.API = spec.API{RPC: c.pkg + "." + c.service + "/" + a.Name, Owner: a.Owner, RiskLevel: a.Risk, Description: a.Background}
-	s.Pattern = spec.Pattern{Kind: a.Kind, NotFoundMessage: a.NotFound}
-	if a.Kind == "list_keyset" || a.Kind == "list_all" {
-		dir := "asc"
-		if a.Desc_ {
-			dir = "desc"
-		}
-		s.Pattern.OrderBy, s.Pattern.Direction = a.OrderBy, dir
-		if a.Kind == "list_keyset" {
-			s.Pattern.PageSize = spec.PageSize{Default: a.PageDefault, Max: a.PageMax}
-		} else {
-			s.Pattern.MaxRows = a.MaxRows
-			if len(a.GroupBy) > 0 {
-				s.Pattern.PickPerGroup = &spec.PickPerGroup{By: a.GroupBy, Order: a.GroupOrder}
-			}
-		}
-	}
+	s.Pattern = a.Pattern
+	s.Pattern.Kind = a.Kind
 	s.Datasource = spec.Datasource{Table: table, Filters: filters}
-	if a.Kind == "compute" {
+	if len(a.UseColumns) > 0 { // 计算: 使用的列
 		s.Datasource.Columns = a.UseColumns
 	}
 	for _, r := range a.Rules {

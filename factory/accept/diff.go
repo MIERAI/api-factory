@@ -27,6 +27,7 @@ import (
 	"google.golang.org/protobuf/types/dynamicpb"
 
 	"apifactory/factory/core"
+	"apifactory/factory/exits"
 	"apifactory/factory/ir"
 	"apifactory/factory/kinds"
 	"apifactory/factory/protoload"
@@ -36,7 +37,6 @@ import (
 const (
 	diffRows     = 40
 	diffRequests = 40
-	diffPageSize = 3
 )
 
 type diffEnv struct {
@@ -50,6 +50,7 @@ type diffEnv struct {
 	rnd    *rand.Rand
 	rows   []core.Row
 	filter map[string]ir.Filter // 参数名 → 筛选
+	exit   *exits.Exit          // 出口(期待值的定义)
 	input  protoreflect.MessageDescriptor
 	json   map[string][]jsonKey // JSON 列 → 流水线里读到的键(json_field)
 	out    core.Schema          // 流水线最后的列(响应的值按这里的类型表示)
@@ -164,7 +165,8 @@ func (e *diffEnv) invalid(req map[string]any) (bool, error) {
 func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API) []Result {
 	conn := d.main
 	p := api.Pipeline
-	if p == nil || (api.Pattern != "get_by_id" && api.Pattern != "list_keyset" && api.Pattern != "list_all") {
+	ex, ok := exits.ByKind(api.Pattern) // 出口的注册表: 期待值 / 出口用例 / 覆盖条件由出口自己定义
+	if p == nil || !ok || ex.DiffCase == nil {
 		return nil
 	}
 	fail := func(format string, args ...any) []Result {
@@ -173,7 +175,7 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 	h := fnv.New64a()
 	h.Write([]byte(api.ID))
 	env := &diffEnv{ctx: ctx, conn: conn, db: d, plan: plan, api: api, table: p.Steps[0].Table, cols: p.Steps[0].Columns,
-		rnd: rand.New(rand.NewSource(int64(h.Sum64()))), filter: map[string]ir.Filter{}}
+		rnd: rand.New(rand.NewSource(int64(h.Sum64()))), filter: map[string]ir.Filter{}, exit: ex}
 	for _, f := range api.Filters {
 		env.filter[f.Field] = f
 	}
@@ -205,12 +207,12 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 	}
 
 	var results []Result
-	hits := map[string]int{} // 覆盖: 0 行 / 1 行 / 多行
+	hits := map[string]int{} // 覆盖: 0 行 / 1 行 / 多行 / 出口的标签
 	for i, params := range env.requests() {
 		name := fmt.Sprintf("#%02d %s", i+1, env.describe(params))
-		ok, detail, n := env.runOne(url, params)
-		if api.ListAll != nil && n > int(api.ListAll.MaxRows) {
-			hits["over"]++
+		ok, detail, n, tag := env.runOne(url, params)
+		if tag != "" {
+			hits[tag]++
 		}
 		switch {
 		case n < 0:
@@ -224,23 +226,27 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 		}
 		results = append(results, Result{Spec: api.ID, Suite: "diff", Case: name, Passed: ok, Detail: detail})
 	}
-	if api.Pattern == "list_keyset" {
-		results = append(results, env.pageExitCases(url)...)
+	if ex.DiffExtra != nil { // 出口自己的用例(分页: 途中改条件 / 非法 token …)
+		for _, c := range ex.DiffExtra(env) {
+			if c.Fail != "" {
+				results = append(results, Result{Spec: api.ID, Suite: "diff", Case: c.Name, Passed: false, Detail: c.Fail})
+				continue
+			}
+			ok, detail := runCase(url, c.Case, &api.Response)
+			results = append(results, Result{Spec: api.ID, Suite: "diff", Case: c.Name, Passed: ok, Detail: detail})
+		}
 	}
-	// 覆盖条件: 单条 → 找到和找不到都出现;分页 → 出现多行(要翻页)和 0 行
+	// 覆盖条件: 找到 / 找不到都出现;出口要求多行时(分页 / 多条)还要出现多行
 	cover := fmt.Sprintf("数据 %d 行(拒绝 %d,来源 %d 行)/ 结果 0 行 %d 次、1 行 %d 次、多行 %d 次、不合法 %d 次", inserted, rejected, len(env.anchors), hits["0"], hits["1"], hits["n"], hits["invalid"])
 	okCover := hits["0"] > 0 && hits["1"]+hits["n"] > 0
 	if len(env.userParams()) == 0 { // 没有输入: 只有一种请求,"0 行"的情况不存在
 		okCover = hits["1"]+hits["n"] > 0
 	}
-	if api.Pattern == "list_keyset" || api.Pattern == "list_all" {
+	if ex.DiffMulti {
 		okCover = okCover && hits["n"] > 0
 	}
-	if api.ListAll != nil {
-		cover += fmt.Sprintf("、超过上限 %d 次", hits["over"])
-		if hits["over"] == 0 {
-			cover += fmt.Sprintf("(上限 %d ≥ 测试数据量,超限的出口行为没有测到)", api.ListAll.MaxRows)
-		}
+	if ex.DiffCover != nil {
+		cover += ex.DiffCover(api, hits)
 	}
 	results = append(results, Result{Spec: api.ID, Suite: "diff", Case: "覆盖条件", Passed: okCover, Detail: cover})
 	return results
@@ -649,180 +655,64 @@ func (e *diffEnv) item(r core.Row, msg *ir.Message) map[string]any {
 }
 
 // runOne: 一个请求。返回 (通过, 说明, 参考求值器的结果行数)。
-func (e *diffEnv) runOne(url string, ps core.Params) (bool, string, int) {
+func (e *diffEnv) runOne(url string, ps core.Params) (bool, string, int, string) {
+	rows, err := e.Eval(ps)
+	if errors.Is(err, core.ErrAmbiguous) {
+		return false, "参考求值器: " + err.Error() + "(排序 / 键不唯一,设计的问题)", 0, ""
+	}
+	if err != nil {
+		return false, "参考求值器: " + err.Error(), 0, ""
+	}
+	n := len(rows)
+	req := e.request(ps)
+	bad, err := e.invalid(req)
+	if err != nil {
+		return false, "请求校验: " + err.Error(), n, ""
+	}
+	if bad { // 不合法的请求: 期待 INVALID_ARGUMENT(不计入覆盖)
+		ok, detail := runCase(url, spec.Case{Request: req, Expect: spec.Expect{Code: "INVALID_ARGUMENT"}}, &e.api.Response)
+		return ok, "不合法的请求: " + detail, -1, ""
+	}
+	c, note, tag := e.exit.DiffCase(e, rows, req) // 期待值由出口决定
+	if tag == "error" {
+		return false, note, n, ""
+	}
+	ok, detail := runCase(url, c, &e.api.Response)
+	if note != "" {
+		detail = note + ": " + detail
+	}
+	return ok, detail, n, tag
+}
+
+// ---- exits.DiffCtx(出口定义期待值时用)
+
+func (e *diffEnv) API() *ir.API                                    { return e.api }
+func (e *diffEnv) Rand() *rand.Rand                                { return e.rnd }
+func (e *diffEnv) Item(r core.Row, msg *ir.Message) map[string]any { return e.item(r, msg) }
+func (e *diffEnv) Request(ps core.Params) map[string]any           { return e.request(ps) }
+func (e *diffEnv) Requests() []core.Params                         { return e.requests() }
+func (e *diffEnv) Invalid(req map[string]any) (bool, error)        { return e.invalid(req) }
+func (e *diffEnv) UserParams() []core.ParamDecl                    { return e.userParams() }
+func (e *diffEnv) Column(param string) string                      { return e.filter[param].Column }
+func (e *diffEnv) Anchors() []core.Row                             { return e.anchors }
+func (e *diffEnv) Present(column string, v any) any                { return e.present(column, v) }
+
+// Eval: 参考求值器(参数 + 出口另外的参数,例如分页的 row_limit)。
+func (e *diffEnv) Eval(ps core.Params) ([]core.Row, error) {
 	evalParams := core.Params{}
 	for k, v := range ps {
 		evalParams[k] = v
 	}
-	if e.api.Pattern == "list_keyset" {
-		evalParams["row_limit"] = int64(1 << 30) // 完整的有序结果,再按页切
-	}
-	res, err := core.Eval(e.api.Pipeline, map[string][]core.Row{e.table: e.rows}, evalParams)
-	if errors.Is(err, core.ErrAmbiguous) {
-		return false, "参考求值器: " + err.Error() + "(排序 / 键不唯一,设计的问题)", 0
-	}
-	if err != nil {
-		return false, "参考求值器: " + err.Error(), 0
-	}
-	n := len(res.Rows)
-	req := e.request(ps)
-	probe := map[string]any{}
-	for k, v := range req {
-		probe[k] = v
-	}
-	if e.api.Pattern == "list_keyset" {
-		probe["page_size"] = diffPageSize
-	}
-	bad, err := e.invalid(probe)
-	if err != nil {
-		return false, "请求校验: " + err.Error(), n
-	}
-	if bad { // 不合法的请求: 期待 INVALID_ARGUMENT(不计入覆盖)
-		ok, detail := runCase(url, spec.Case{Request: probe, Expect: spec.Expect{Code: "INVALID_ARGUMENT"}}, &e.api.Response)
-		return ok, "不合法的请求: " + detail, -1
-	}
-	switch e.api.Pattern {
-	case "get_by_id":
-		var c spec.Case
-		switch {
-		case n == 0:
-			c = spec.Case{Request: req, Expect: spec.Expect{Code: "NOT_FOUND"}}
-		case n == 1:
-			c = spec.Case{Request: req, Expect: spec.Expect{Code: "OK", Response: e.item(res.Rows[0], &e.api.Response)}}
-		default:
-			return false, fmt.Sprintf("单条: 按键筛选得到 %d 行(键不唯一,设计规则的问题)", n), n
-		}
-		ok, detail := runCase(url, c, &e.api.Response)
-		return ok, detail, n
-	case "list_all":
-		la := e.api.ListAll
-		if n > int(la.MaxRows) { // 多取的那一行: 超过上限 → 报错,不截断
-			ok, detail := runCase(url, spec.Case{Request: req, Expect: spec.Expect{Code: "FAILED_PRECONDITION", MessageContains: "too many"}}, &e.api.Response)
-			return ok, fmt.Sprintf("超过上限(%d 行以上): %s", n, detail), n
-		}
-		msg := e.api.Response.Field(la.ItemsField).Message
-		list := []any{}
-		for _, r := range res.Rows {
-			list = append(list, e.item(r, msg))
-		}
-		ok, detail := runCase(url, spec.Case{Request: req, Expect: spec.Expect{Code: "OK", Response: map[string]any{la.ItemsField: list}}}, &e.api.Response)
-		return ok, fmt.Sprintf("%d 行: %s", n, detail), n
-	case "list_keyset":
-		items := e.api.Keyset.ItemsField
-		msg := e.api.Response.Field(items).Message
-		var steps []spec.Step
-		size := []int{1, diffPageSize, diffPageSize}[e.rnd.Intn(3)] // 1: 并列行跨页
-		omitSize := e.rnd.Intn(4) == 0                              // 有时不传 page_size: 用式样书的默认值
-		if omitSize {
-			size = int(e.api.Keyset.DefaultSize)
-		}
-		for start := 0; start == 0 || start < n; start += size {
-			end := min(start+size, n)
-			list := []any{}
-			for _, r := range res.Rows[start:end] {
-				list = append(list, e.item(r, msg))
-			}
-			stepReq := map[string]any{"page_size": size}
-			for k, v := range req {
-				stepReq[k] = v
-			}
-			if omitSize {
-				delete(stepReq, "page_size")
-			}
-			if start > 0 {
-				stepReq["page_token"] = "$prev.next_page_token"
-			}
-			token := any("$absent")
-			if end < n {
-				token = "$nonempty"
-			}
-			steps = append(steps, spec.Step{Request: stepReq, Expect: spec.Expect{Code: "OK", Response: map[string]any{items: list, "next_page_token": token}}})
-		}
-		ok, detail := runCase(url, spec.Case{Steps: steps}, &e.api.Response)
-		return ok, fmt.Sprintf("%d 行 / %d 页: %s", n, len(steps), detail), n
-	}
-	return false, "不支持的模式", n
-}
-
-// pageExitCases: 分页出口自己的行为(不在 SQL 流水线里): 途中改 page_size / 途中改筛选条件 / 非法 token。
-// 期待值同样来自参考求值器。
-func (e *diffEnv) pageExitCases(url string) []Result {
-	items := e.api.Keyset.ItemsField
-	msg := e.api.Response.Field(items).Message
-	res := func(name string, c spec.Case) Result {
-		ok, detail := runCase(url, c, &e.api.Response)
-		return Result{Spec: e.api.ID, Suite: "diff", Case: "分页出口: " + name, Passed: ok, Detail: detail}
-	}
-	// 找一个合法、结果 ≥ 5 行的请求做基础
-	var base core.Params
-	var rows []core.Row
-	for _, ps := range e.requests() {
-		req := e.request(ps)
-		req["page_size"] = 1
-		if bad, err := e.invalid(req); err != nil || bad {
-			continue
-		}
-		evalParams := core.Params{"row_limit": int64(1 << 30)}
-		for k, v := range ps {
+	if e.exit.DiffParams != nil {
+		for k, v := range e.exit.DiffParams(e.api) {
 			evalParams[k] = v
 		}
-		r, err := core.Eval(e.api.Pipeline, map[string][]core.Row{e.table: e.rows}, evalParams)
-		if err == nil && len(r.Rows) >= 5 {
-			base, rows = ps, r.Rows
-			break
-		}
 	}
-	if base == nil {
-		return []Result{{Spec: e.api.ID, Suite: "diff", Case: "分页出口", Passed: false, Detail: "找不到结果 ≥ 5 行的请求(覆盖不足)"}}
+	res, err := core.Eval(e.api.Pipeline, map[string][]core.Row{e.table: e.rows}, evalParams)
+	if err != nil {
+		return nil, err
 	}
-	list := func(rs []core.Row) []any {
-		out := []any{}
-		for _, r := range rs {
-			out = append(out, e.item(r, msg))
-		}
-		return out
-	}
-	with := func(extra map[string]any) map[string]any {
-		req := e.request(base)
-		for k, v := range extra {
-			req[k] = v
-		}
-		return req
-	}
-	out := []Result{
-		res("途中改 page_size 是允许的", spec.Case{Steps: []spec.Step{
-			{Request: with(map[string]any{"page_size": 2}), Expect: spec.Expect{Code: "OK", Response: map[string]any{items: list(rows[:2]), "next_page_token": "$nonempty"}}},
-			{Request: with(map[string]any{"page_size": 3, "page_token": "$prev.next_page_token"}), Expect: spec.Expect{Code: "OK", Response: map[string]any{items: list(rows[2:5])}}},
-		}}),
-		res("非法 page_token → INVALID_ARGUMENT", spec.Case{Request: with(map[string]any{"page_token": "not-a-valid-token"}),
-			Expect: spec.Expect{Code: "INVALID_ARGUMENT", MessageContains: "page_token"}}),
-	}
-	// 途中改筛选条件 → 旧 token 失效: 改一个筛选参数的值(或者加上一个),改了之后的请求本身必须合法
-	for _, d := range e.userParams() {
-		f := e.filter[d.Name]
-		for _, r := range e.rows {
-			v := r[f.Column]
-			if v == nil || core.Canonical(v) == core.Canonical(base[d.Name]) {
-				continue
-			}
-			nv := e.present(f.Column, v)
-			if d.List {
-				nv = []any{nv}
-			}
-			changed := with(map[string]any{d.Name: nv, "page_size": 1, "page_token": "$prev.next_page_token"})
-			probe := with(map[string]any{d.Name: nv, "page_size": 1})
-			if bad, err := e.invalid(probe); err != nil || bad {
-				continue
-			}
-			out = append(out, res(fmt.Sprintf("途中改筛选条件(%s)→ INVALID_ARGUMENT", d.Name), spec.Case{Steps: []spec.Step{
-				{Request: with(map[string]any{"page_size": 1}), Expect: spec.Expect{Code: "OK", Response: map[string]any{"next_page_token": "$nonempty"}}},
-				{Request: changed, Expect: spec.Expect{Code: "INVALID_ARGUMENT", MessageContains: "page_token"}},
-			}}))
-			return out
-		}
-	}
-	return append(out, Result{Spec: e.api.ID, Suite: "diff", Case: "分页出口: 途中改筛选条件", Passed: len(e.userParams()) == 0,
-		Detail: "没有可以改的筛选参数"})
+	return res.Rows, nil
 }
 
 // loadAnchors: 只跑流水线的来源部分(编译器标记为 datasource.table / 来源 … 的步骤)。

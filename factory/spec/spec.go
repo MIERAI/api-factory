@@ -180,13 +180,25 @@ func (s *Spec) QueryName() string {
 	return p.Method
 }
 
-// Cardinality: 由模式决定。
+// Cardinality: 由出口决定(factory/exits 登记)。
 func (s *Spec) Cardinality() string {
-	if s.PatternKind() == "get_by_id" {
-		return "one"
+	if c, ok := patternCardinality[s.PatternKind()]; ok {
+		return c
 	}
 	return "many"
 }
+
+// 出口的登记(factory/exits 的 init 调用;spec 不依赖 exits,避免循环)
+var (
+	patternChecks      = map[string]func(*Spec) []string{}
+	patternCardinality = map[string]string{}
+)
+
+// RegisterPattern: 出口登记自己的规格检查。
+func RegisterPattern(kind string, check func(*Spec) []string) { patternChecks[kind] = check }
+
+// RegisterCardinality: 出口登记查询返回一行(one)还是多行(many)。
+func RegisterCardinality(kind, c string) { patternCardinality[kind] = c }
 
 // RPCParts 是 rpc 字段拆解后的结果。
 type RPCParts struct {
@@ -365,40 +377,13 @@ func (s *Spec) Check() []string {
 		}
 	}
 
-	switch s.PatternKind() {
-	case "custom", "compute":
-	case "get_by_id":
-		if s.Pattern.NotFoundMessage == "" {
-			add("pattern get_by_id: not_found_message is required")
+	// 每个出口的检查由出口自己登记(factory/exits)
+	if check, ok := patternChecks[s.PatternKind()]; ok {
+		for _, m := range check(s) {
+			add("%s", m)
 		}
-	case "list_keyset":
-		if len(s.Pattern.OrderBy) == 0 {
-			add("pattern list_keyset: order_by is required (last column must be unique, e.g. id)")
-		}
-		if s.Pattern.Direction != "asc" && s.Pattern.Direction != "desc" {
-			add("pattern list_keyset: direction must be asc or desc")
-		}
-		if ps := s.Pattern.PageSize; ps.Default <= 0 || ps.Max < ps.Default {
-			add("pattern list_keyset: page_size.default > 0 and max >= default are required")
-		}
-		if regexp.MustCompile(`(?i)\b(order\s+by|limit|offset)\b`).MatchString(ds.SQL) {
-			add("pattern list_keyset: sql must not contain ORDER BY / LIMIT / OFFSET (the factory adds them)")
-		}
-	case "list_all":
-		if len(s.Pattern.OrderBy) == 0 {
-			add("pattern list_all: order_by is required (results must have a stable order)")
-		}
-		if s.Pattern.Direction != "asc" && s.Pattern.Direction != "desc" {
-			add("pattern list_all: direction must be asc or desc")
-		}
-		if s.Pattern.MaxRows <= 0 {
-			add("pattern list_all: max_rows > 0 is required")
-		}
-		if ds.SQL != "" {
-			add("pattern list_all: 只支持声明式(不能用 datasource.sql)")
-		}
-	default:
-		add("pattern.kind must be custom / compute / get_by_id / list_keyset / list_all")
+	} else {
+		add("pattern.kind %q 不存在(出口的注册表里没有;factory/exits)", s.PatternKind())
 	}
 	return errs
 }

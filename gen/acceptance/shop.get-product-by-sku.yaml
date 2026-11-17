@@ -3,7 +3,7 @@
 spec: specs/shop/get-product-by-sku/spec.yaml
 coverage:
     - 'validation: sku(string 长度)'
-    - '差分测试(运行时): 随机数据 + 核心代数的参考求值器,覆盖筛选 / 排序 / 字段映射 / 翻页'
+    - '差分测试(运行时): 随机数据 + 核心代数的参考求值器,覆盖筛选 / 排序 / 字段映射 / 按键取一条的出口'
     - '差分测试(运行时): 不合法的随机请求(protovalidate)→ INVALID_ARGUMENT'
 suites:
     - name: validation

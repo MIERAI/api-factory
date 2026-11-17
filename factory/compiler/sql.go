@@ -8,12 +8,10 @@ import (
 
 	"google.golang.org/protobuf/reflect/protoreflect"
 
+	"apifactory/factory/exits"
 	"apifactory/factory/kinds"
 	"apifactory/factory/spec"
 )
-
-// paginationFields 是 list_keyset 模式自己处理的请求字段,不是筛选条件。
-var paginationFields = map[string]bool{"page_size": true, "page_token": true}
 
 type resolvedFilter struct {
 	Field    protoreflect.FieldDescriptor
@@ -35,7 +33,7 @@ func resolveFilters(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalog
 	for i := 0; i < in.Fields().Len(); i++ {
 		fd := in.Fields().Get(i)
 		name := string(fd.Name())
-		if s.PatternKind() == "list_keyset" && paginationFields[name] {
+		if ex, ok := exits.ByKind(s.PatternKind()); ok && ex.RequestNames(s.Pattern)[name] { // 出口加的字段(page_size …)不是筛选条件
 			continue
 		}
 		f, ok := ds.Filters[name]
@@ -87,10 +85,11 @@ func selectColumns(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalog)
 		return cols, check(cols, "datasource.columns")
 	}
 	var msg protoreflect.MessageDescriptor
-	switch s.PatternKind() {
-	case "get_by_id":
+	ex, _ := exits.ByKind(s.PatternKind())
+	switch {
+	case ex != nil && ex.FromTable:
 		msg = md.Output()
-	case "list_keyset", "list_all":
+	case ex != nil && ex.Rows:
 		out := md.Output()
 		for i := 0; i < out.Fields().Len(); i++ {
 			if fd := out.Fields().Get(i); fd.IsList() && fd.Kind() == protoreflect.MessageKind {

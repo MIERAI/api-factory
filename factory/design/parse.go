@@ -11,6 +11,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"apifactory/factory/exits"
 	"apifactory/factory/kinds"
 	"apifactory/factory/spec"
 )
@@ -391,33 +392,27 @@ func seqOrOne(n *yaml.Node) []*yaml.Node {
 // ---------------------------------------------------------------------------
 
 type API struct {
-	Path        string
-	Name        string // ListJobs
-	Desc        string
-	Background  string
-	Owner       string
-	Risk        string // low / medium / high
-	Kind        string // get_by_id / list_keyset / compute / custom
-	Source      string // 表
-	UseColumns  []string
-	Inputs      []*Input
-	InputRules  []string
-	Outputs     []*Output
-	NotFound    string
-	OrderBy     []string
-	Desc_       bool // 排序方向
-	PageDefault int32
-	MaxRows     int32    // 多条: 上限
-	GroupBy     []string // 多条: 每组取一条 的分组列
-	GroupOrder  []string // 多条: 组内的顺序("valid_from desc")
-	PageMax     int32
-	ItemName    string // 一览的行 message 名(默认: 表名的单数形)
-	ListField   string // 一览的列表字段名(默认: 表名)
-	Rules       []Behavior
-	Fixtures    *yaml.Node
-	Cases       []*yaml.Node
-	LogicCases  []*yaml.Node
-	Reviewed    []QA // X.审查.yaml
+	Path       string
+	Name       string // ListJobs
+	Desc       string
+	Background string
+	Owner      string
+	Risk       string // low / medium / high
+	Kind       string // get_by_id / list_keyset / compute / custom
+	Source     string // 表
+	UseColumns []string
+	Inputs     []*Input
+	InputRules []string
+	Outputs    []*Output
+	Exit       *exits.Exit  // 种类(出口)
+	Pattern    spec.Pattern // 出口自己解析的设计稿(排序 / 分页 / 上限 / 找不到时 …)
+	ItemName   string       // 一览的行 message 名(默认: 表名的单数形)
+	ListField  string       // 一览的列表字段名(默认: 表名)
+	Rules      []Behavior
+	Fixtures   *yaml.Node
+	Cases      []*yaml.Node
+	LogicCases []*yaml.Node
+	Reviewed   []QA // X.审查.yaml
 }
 
 type Input struct {
@@ -443,7 +438,6 @@ type Output struct {
 
 type Behavior struct{ When, Then string }
 
-var apiKinds = map[string]string{"按键取一条": "get_by_id", "一览": "list_keyset", "多条": "list_all", "计算": "compute", "自定义": "custom"}
 var risks = map[string]string{"低": "low", "中": "medium", "高": "high"}
 
 func loadAPI(path string) (*API, error) {
@@ -452,15 +446,15 @@ func loadAPI(path string) (*API, error) {
 		return nil, err
 	}
 	e := &errs{file: path}
-	checkKeys(e, root, "API", "API", "说明", "背景", "负责人", "风险", "种类", "数据来源", "使用的列", "输入", "输入之间的规则",
-		"输出", "找不到时", "排序", "分页", "上限", "每组取一条", "输出行名", "输出列表名", "业务规则", "例子", "计算例子")
+	baseKeys := []string{"API", "说明", "背景", "负责人", "风险", "种类", "数据来源", "输入", "输入之间的规则",
+		"输出", "输出行名", "输出列表名", "业务规则", "例子", "计算例子"}
 	checkKeys(e, get(root, "例子"), "例子", "准备数据", "用例")
 	checkKeys(e, get(root, "分页"), "分页", "默认每页", "每页最多")
 	a := &API{
 		Path: path, Name: str(root, "API"), Desc: str(root, "说明"), Background: str(root, "背景"),
 		Owner: str(root, "负责人"), Source: str(root, "数据来源"), UseColumns: strList(get(root, "使用的列")),
-		InputRules: strList(get(root, "输入之间的规则")), NotFound: str(root, "找不到时"),
-		ItemName: str(root, "输出行名"), ListField: str(root, "输出列表名"),
+		InputRules: strList(get(root, "输入之间的规则")),
+		ItemName:   str(root, "输出行名"), ListField: str(root, "输出列表名"),
 		Fixtures: get(get(root, "例子"), "准备数据"),
 	}
 	if a.Name == "" {
@@ -473,8 +467,12 @@ func loadAPI(path string) (*API, error) {
 		e.add(root.Line, "缺少 负责人")
 	}
 	var ok bool
-	if a.Kind, ok = apiKinds[str(root, "种类")]; !ok {
-		e.add(root.Line, "种类 只能是 按键取一条 / 一览 / 计算 / 自定义(现在是 %q)", str(root, "种类"))
+	if a.Exit, ok = exits.ByName(str(root, "种类")); ok { // 出口的注册表(factory/exits)
+		a.Kind = a.Exit.Kind
+		checkKeys(e, root, "API", append(baseKeys, a.Exit.DesignKeys...)...)
+	} else {
+		e.add(root.Line, "种类 只能是 %s(现在是 %q)", exits.Names(), str(root, "种类"))
+		checkKeys(e, root, "API", baseKeys...)
 	}
 	if a.Risk, ok = risks[str(root, "风险")]; !ok {
 		e.add(root.Line, "风险 只能是 低 / 中 / 高")
@@ -515,49 +513,8 @@ func loadAPI(path string) (*API, error) {
 	if len(a.Outputs) == 0 {
 		e.add(root.Line, "缺少 输出")
 	}
-	if a.Kind == "list_keyset" {
-		a.OrderBy, a.Desc_, err = parseOrder(strList(get(root, "排序")))
-		if err != nil {
-			e.add(root.Line, "%v", err)
-		}
-		pg := get(root, "分页")
-		if _, err := fmt.Sscan(str(pg, "默认每页"), &a.PageDefault); err != nil {
-			e.add(root.Line, "一览: 分页.默认每页 必须是整数")
-		}
-		if _, err := fmt.Sscan(str(pg, "每页最多"), &a.PageMax); err != nil {
-			e.add(root.Line, "一览: 分页.每页最多 必须是整数")
-		}
-	}
-	if a.Kind == "list_all" {
-		a.OrderBy, a.Desc_, err = parseOrder(strList(get(root, "排序")))
-		if err != nil {
-			e.add(root.Line, "%v", err)
-		}
-		if _, err := fmt.Sscan(str(root, "上限"), &a.MaxRows); err != nil || a.MaxRows <= 0 {
-			e.add(root.Line, "多条: 上限 必须是正整数(超过上限时返回错误,不会悄悄截断)")
-		}
-		if g := get(root, "每组取一条"); g != nil { // { 按: [a, b], 取: c 最大 }
-			checkKeys(e, g, "每组取一条", "按", "取")
-			a.GroupBy = strList(get(g, "按"))
-			for _, t := range strings.Split(str(g, "取"), "、") {
-				f := strings.Fields(t)
-				if len(f) != 2 || (f[1] != "最大" && f[1] != "最小") {
-					e.add(g.Line, "每组取一条.取: 写成「列 最大」或「列 最小」(多个用、隔开),现在是 %q", t)
-					continue
-				}
-				dir := "asc"
-				if f[1] == "最大" {
-					dir = "desc"
-				}
-				a.GroupOrder = append(a.GroupOrder, f[0]+" "+dir)
-			}
-			if len(a.GroupBy) == 0 || len(a.GroupOrder) == 0 {
-				e.add(g.Line, "每组取一条: 需要 按 和 取")
-			}
-		}
-	}
-	if a.Kind == "get_by_id" && a.NotFound == "" {
-		e.add(root.Line, "按键取一条: 缺少 找不到时(找不到时返回的消息)")
+	if a.Exit != nil && a.Exit.Parse != nil { // 种类自己的键
+		a.Exit.Parse(designReader{e, root}, &a.Pattern)
 	}
 	if rs := get(root, "业务规则"); rs != nil {
 		for _, r := range rs.Content {
@@ -653,3 +610,16 @@ func yamlHint(msg string) string {
 	}
 	return ""
 }
+
+// designReader: 出口读设计稿用(exits.Design)。
+type designReader struct {
+	e    *errs
+	root *yaml.Node
+}
+
+func (r designReader) Str(key string) string      { return str(r.root, key) }
+func (r designReader) Node(key string) *yaml.Node { return get(r.root, key) }
+func (r designReader) Order(key string) ([]string, bool, error) {
+	return parseOrder(strList(get(r.root, key)))
+}
+func (r designReader) Err(format string, args ...any) { r.e.add(r.root.Line, format, args...) }

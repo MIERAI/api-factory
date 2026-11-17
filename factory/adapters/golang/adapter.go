@@ -51,7 +51,7 @@ func Run(plan *ir.Plan) error {
 	enumsBySvc := map[string]map[string]*enumMapping{}
 	for i := range plan.APIs {
 		api := &plan.APIs[i]
-		if api.Pattern == "custom" {
+		if api.Pattern == "custom" { // 自定义: AI 写整个 handler
 			continue
 		}
 		g, svc, err := newGenCtx(plan, api, services, dbp)
@@ -64,28 +64,11 @@ func Run(plan *ir.Plan) error {
 		for _, m := range g.enums {
 			enumsBySvc[svc.HandlerPath][m.Helper] = m
 		}
-		var src string
-		switch api.Pattern {
-		case "get_by_id":
-			src, err = genGetByID(g)
-		case "list_keyset":
-			src, err = genListKeyset(g)
-		case "list_all":
-			src, err = genListAll(g)
-		case "compute":
-			src, err = genCompute(g)
-			if err == nil {
-				err = writeLogicExamples(g)
-			}
-			if err == nil {
-				stub := LogicFile(api)
-				if _, statErr := os.Stat(stub); os.IsNotExist(statErr) {
-					if err := writeGo(stub, []byte(genLogicStub(g))); err != nil {
-						return err
-					}
-				}
-			}
+		gen, ok := handlerGens[api.Pattern] // 每个出口一个文件(exit_*.go)登记自己的 handler 生成器
+		if !ok {
+			return fmt.Errorf("%s: Go 适配器没有出口 %s 的 handler 生成器(adapters/golang/exit_*.go)", api.SpecPath, api.Pattern)
 		}
+		src, err := gen(g)
 		if err != nil {
 			return fmt.Errorf("%s: %w", api.SpecPath, err)
 		}
@@ -281,3 +264,6 @@ func run(name string, args ...string) error {
 	}
 	return nil
 }
+
+// handlerGens: 出口 → handler 生成器(每个出口一个 exit_*.go 文件在 init 里登记)。
+var handlerGens = map[string]func(*genCtx) (string, error){}

@@ -18,6 +18,7 @@ import (
 
 	"apifactory/factory/cells"
 	"apifactory/factory/core"
+	"apifactory/factory/exits"
 	"apifactory/factory/ir"
 	"apifactory/factory/kinds"
 	"apifactory/factory/protoload"
@@ -237,48 +238,14 @@ func apiSkeleton(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalog) (
 			Name: s.QueryName(), Cardinality: s.Cardinality(), Escape: s.Datasource.SQL != "",
 		},
 	}
-	switch s.PatternKind() {
-	case "get_by_id":
-		api.GetByID = &ir.GetByID{NotFoundMessage: s.Pattern.NotFoundMessage}
-	case "list_all":
-		la := &ir.ListAll{OrderBy: s.Pattern.OrderBy, Desc: s.Pattern.Direction == "desc", MaxRows: s.Pattern.MaxRows}
-		for _, f := range api.Response.Fields {
-			if f.List && f.Kind == "message" {
-				la.ItemsField = f.Name
-			}
+	ex, ok := exits.ByKind(s.PatternKind()) // 出口的注册表(factory/exits)
+	if !ok {
+		return api, fmt.Errorf("pattern %s 不存在", s.PatternKind())
+	}
+	if ex.IR != nil {
+		if err := ex.IR(s, &api); err != nil {
+			return api, err
 		}
-		if la.ItemsField == "" {
-			return api, fmt.Errorf("pattern list_all: %s has no repeated message field", api.Response.Name)
-		}
-		api.ListAll = la
-	case "list_keyset":
-		k := &ir.Keyset{OrderBy: s.Pattern.OrderBy, Desc: s.Pattern.Direction == "desc", DefaultSize: s.Pattern.PageSize.Default, MaxSize: s.Pattern.PageSize.Max}
-		for _, f := range api.Response.Fields {
-			if f.List && f.Kind == "message" {
-				if k.ItemsField != "" {
-					return api, fmt.Errorf("pattern list_keyset: %s must have exactly one repeated message field", api.Response.Name)
-				}
-				k.ItemsField = f.Name
-			}
-		}
-		for _, name := range []string{"page_size", "page_token"} {
-			if api.Request.Field(name) == nil {
-				return api, fmt.Errorf("pattern list_keyset: %s must have field %s", api.Request.Name, name)
-			}
-		}
-		if api.Response.Field("next_page_token") == nil {
-			return api, fmt.Errorf("pattern list_keyset: %s must have field next_page_token", api.Response.Name)
-		}
-		if k.ItemsField == "" {
-			return api, fmt.Errorf("pattern list_keyset: %s has no repeated message field", api.Response.Name)
-		}
-		api.Keyset = k
-	case "compute":
-		c := &ir.Compute{LogicFunction: lowerFirst(p.Method) + "Logic"}
-		for _, e := range s.LogicExamples {
-			c.Examples = append(c.Examples, ir.Example{Name: e.Name, Request: e.Request, Rows: e.Rows, Expect: e.Expect})
-		}
-		api.Compute = c
 	}
 	api.BaseRequest = baseRequest(s)
 	return api, nil

@@ -18,6 +18,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"apifactory/factory/exits"
 	"apifactory/factory/ir"
 	"apifactory/factory/kinds"
 	"apifactory/factory/spec"
@@ -47,12 +48,13 @@ func writeAPI(plan *ir.Plan, api *ir.API) error {
 		a.Suites = append(a.Suites, suite)
 		a.Coverage = append(a.Coverage, cov...)
 	}
+	ex, _ := exits.ByKind(api.Pattern)
 	switch {
-	case api.Pipeline != nil && (api.Pattern == "get_by_id" || api.Pattern == "list_keyset"):
-		a.Coverage = append(a.Coverage, "差分测试(运行时): 随机数据 + 核心代数的参考求值器,覆盖筛选 / 排序 / 字段映射 / 翻页",
+	case api.Pipeline != nil && ex != nil && ex.DiffCase != nil:
+		a.Coverage = append(a.Coverage, "差分测试(运行时): 随机数据 + 核心代数的参考求值器,覆盖筛选 / 排序 / 字段映射 / "+ex.Name+"的出口",
 			"差分测试(运行时): 不合法的随机请求(protovalidate)→ INVALID_ARGUMENT")
-		if api.Pattern == "list_keyset" {
-			a.Coverage = append(a.Coverage, "差分测试(运行时): 分页出口(途中改 page_size / 途中改筛选条件 / 非法 token / 默认 page_size)")
+		if ex.DiffExtra != nil {
+			a.Coverage = append(a.Coverage, "差分测试(运行时): "+ex.Name+"出口自己的用例")
 		}
 	case api.Query.Escape:
 		a.Coverage = append(a.Coverage, "逃生口 SQL: 没有差分测试(只有人写的用例)")
@@ -170,7 +172,7 @@ func (c *ctx) validationSuite() (spec.Suite, []string) {
 	suite := spec.Suite{Name: "validation"}
 	base := c.api.BaseRequest
 	if base == nil {
-		if c.api.Pattern == "list_keyset" {
+		if ex, ok := exits.ByKind(c.api.Pattern); ok && ex.EmptyRequest { // 空请求可以作为基础请求(分页)
 			base = map[string]any{}
 		} else {
 			return suite, []string{"validation: 未生成(没有 code: OK 的人写用例可作为基础请求)"}
