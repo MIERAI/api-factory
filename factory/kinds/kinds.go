@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
 	"apifactory/factory/core"
 )
@@ -39,20 +40,38 @@ type Type struct {
 }
 
 var (
-	byName = map[string]*Type{}
-	bySQL  = map[string]*Type{}
-	all    []*Type
+	byName  = map[string]*Type{}
+	bySQL   = map[string]*Type{}
+	all     []*Type
+	pending []*Type
+	once    sync.Once
 )
 
-// Register: 每个类型文件的 init 里调用。名字 / SQL 类型名重复 → panic(启动时就发现)。
-func Register(t *Type) {
-	if t.Base != "" {
-		b, ok := byName[t.Base]
-		if !ok {
-			panic("kinds: " + t.Name + ": base " + t.Base + " is not registered (register the base first)")
+// Register: 每个类型文件的 init 里调用。只登记;继承和索引在第一次查询时统一处理(不依赖文件的初始化顺序)。
+func Register(t *Type) { pending = append(pending, t) }
+
+// resolve: 先登记基本类型,再登记派生类型(继承 Base)。名字 / SQL 类型名重复 → panic(启动时就发现)。
+func resolve() {
+	once.Do(func() {
+		for _, t := range pending {
+			if t.Base == "" {
+				index(t)
+			}
 		}
-		inherit(t, b)
-	}
+		for _, t := range pending {
+			if t.Base != "" {
+				b, ok := byName[t.Base]
+				if !ok {
+					panic("kinds: " + t.Name + ": base " + t.Base + " is not registered")
+				}
+				inherit(t, b)
+				index(t)
+			}
+		}
+	})
+}
+
+func index(t *Type) {
 	if _, dup := byName[t.Name]; dup {
 		panic("kinds: duplicate name " + t.Name)
 	}
@@ -89,13 +108,17 @@ func inherit(t, b *Type) {
 }
 
 // ByName: 中文名 → 类型。
-func ByName(name string) (*Type, bool) { t, ok := byName[name]; return t, ok }
 
 // BySQL: SQL 类型名(含别名)→ 类型。
-func BySQL(sqlType string) (*Type, bool) { t, ok := bySQL[sqlType]; return t, ok }
+func BySQL(sqlType string) (*Type, bool) {
+	resolve()
+	t, ok := bySQL[sqlType]
+	return t, ok
+}
 
 // ByCore: 核心类型 → 类型(规范的那一个)。
 func ByCore(k core.Kind) (*Type, bool) {
+	resolve()
 	for _, t := range all {
 		if t.Core == k && t.Core != "" && t.Base == "" {
 			return t, true
@@ -106,6 +129,7 @@ func ByCore(k core.Kind) (*Type, bool) {
 
 // ByPattern: proto 的 string.pattern → 类型(validation 套件用)。
 func ByPattern(p string) (*Type, bool) {
+	resolve()
 	for _, t := range all {
 		if t.Pattern != "" && t.Pattern == p {
 			return t, true
@@ -116,6 +140,7 @@ func ByPattern(p string) (*Type, bool) {
 
 // Names: 全部中文名(报错时列出)。
 func Names() string {
+	resolve()
 	var out []string
 	for _, t := range all {
 		out = append(out, t.Name)
@@ -134,6 +159,7 @@ func (t *Type) CanonicalSQL() string {
 
 // ByValue: 例子的值的种类 → 类型(第一个注册的;int32 / int64 共用 int 的解析)。
 func ByValue(v string) (*Type, bool) {
+	resolve()
 	for _, t := range all {
 		if t.Value == v && t.Base == "" {
 			return t, true
@@ -144,3 +170,10 @@ func ByValue(v string) (*Type, bool) {
 
 // ProtoPattern: proto 源码里 string.pattern 的写法(反斜杠转义)。
 func (t *Type) ProtoPattern() string { return strings.ReplaceAll(t.Pattern, `\`, `\\`) }
+
+// ByName: 中文名 → 类型。
+func ByName(name string) (*Type, bool) {
+	resolve()
+	t, ok := byName[name]
+	return t, ok
+}

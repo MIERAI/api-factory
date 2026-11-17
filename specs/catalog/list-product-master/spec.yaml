@@ -22,6 +22,9 @@ datasource:
         category:
             column: category
             op: eq
+        maker_zip:
+            column: maker_zip
+            op: eq
         product_codes:
             column: product_code
             op: 属于

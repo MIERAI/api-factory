@@ -498,9 +498,9 @@ func (e *diffEnv) requests() []core.Params {
 					case j == 0 && e.rnd.Intn(4) > 0: // 1/4 的机会不放锚的值(可能 0 行)
 						v = anchor[f.Column]
 					case j == 0:
-						v = missing(d.Type.Kind)
+						v = e.missingFor(f.Column, d.Type.Kind)
 					case e.rnd.Intn(3) == 0:
-						v = missing(d.Type.Kind)
+						v = e.missingFor(f.Column, d.Type.Kind)
 					default:
 						v = e.anchors[e.rnd.Intn(len(e.anchors))][f.Column]
 					}
@@ -509,7 +509,7 @@ func (e *diffEnv) requests() []core.Params {
 					}
 				}
 				if d.Required && len(l) == 0 {
-					l = append(l, missing(d.Type.Kind))
+					l = append(l, e.missingFor(f.Column, d.Type.Kind))
 				}
 				ps[d.Name] = l
 				continue
@@ -531,14 +531,14 @@ func (e *diffEnv) requests() []core.Params {
 				if e.plan.Enum(e.api.Table, f.Column) != nil {
 					v = other[f.Column] // 枚举: 只用定义过的值(未定义的值被请求校验拒绝)
 				} else {
-					v = missing(d.Type.Kind)
+					v = e.missingFor(f.Column, d.Type.Kind)
 				}
 			case 3:
 				continue
 			}
 			if v == nil {
 				if d.Required {
-					v = missing(d.Type.Kind)
+					v = e.missingFor(f.Column, d.Type.Kind)
 				} else {
 					continue
 				}
@@ -847,4 +847,12 @@ func (e *diffEnv) loadAnchors() error {
 		return fmt.Errorf("来源部分没有行(数据都被删除了?)")
 	}
 	return nil
+}
+
+// missingFor: 数据里不存在的值(带格式的列用这个类型的,否则请求会被格式校验拒绝)。
+func (e *diffEnv) missingFor(col string, k core.Kind) any {
+	if t, ok := e.formats[col]; ok {
+		return t.Missing
+	}
+	return missing(k)
 }

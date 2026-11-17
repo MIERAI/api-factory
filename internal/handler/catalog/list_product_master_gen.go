@@ -20,6 +20,7 @@ func (h *Handler) ListProductMaster(ctx context.Context, req *connect.Request[ca
 	rows, err := h.q.ListProductMaster(ctx, db.ListProductMasterParams{
 		Category:     m.Category,
 		ProductCodes: m.GetProductCodes(),
+		MakerZip:     m.MakerZip,
 	})
 	if err != nil {
 		return nil, err
@@ -35,6 +36,7 @@ func (h *Handler) ListProductMaster(ctx context.Context, req *connect.Request[ca
 			Category:    r.Category,
 			Price:       r.Price,
 			LaunchedOn:  conv.DateStringPtr(r.LaunchedOn),
+			MakerZip:    r.MakerZip,
 		})
 	}
 	return connect.NewResponse(res), nil

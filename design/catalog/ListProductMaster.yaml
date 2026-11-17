@@ -13,6 +13,7 @@ API: ListProductMaster
 输入:
   category:      { 类型: 文本,     必填: 否, 说明: カテゴリ, 筛选: category 等于 }
   product_codes: { 类型: 文本列表, 必填: 否, 说明: 商品コード, 筛选: product_code 属于 }
+  maker_zip:     { 类型: 邮编,     必填: 否, 说明: メーカーの郵便番号, 筛选: maker_zip 等于 }
 
 输出:
   product_code: 商品コード
@@ -20,6 +21,7 @@ API: ListProductMaster
   category:     カテゴリ
   price:        標準売価
   launched_on:  発売日
+  maker_zip:    メーカーの郵便番号
 
 排序: [product_code 小到大]
 上限: 200

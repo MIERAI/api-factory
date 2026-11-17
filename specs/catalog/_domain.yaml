@@ -29,6 +29,8 @@ entities:
                   type: numeric
                 - name: launched_on
                   type: date
+                - name: maker_zip
+                  type: text
         columns: {}
         invariants: []
 review_decisions: []

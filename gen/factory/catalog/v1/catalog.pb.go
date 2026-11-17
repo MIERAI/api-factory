@@ -10,6 +10,7 @@
 package catalogv1
 
 import (
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -36,7 +37,9 @@ type ProductMaster struct {
 	// 標準売価
 	Price *string `protobuf:"bytes,4,opt,name=price,proto3,oneof" json:"price,omitempty"`
 	// 発売日
-	LaunchedOn    *string `protobuf:"bytes,5,opt,name=launched_on,json=launchedOn,proto3,oneof" json:"launched_on,omitempty"`
+	LaunchedOn *string `protobuf:"bytes,5,opt,name=launched_on,json=launchedOn,proto3,oneof" json:"launched_on,omitempty"`
+	// メーカーの郵便番号
+	MakerZip      *string `protobuf:"bytes,6,opt,name=maker_zip,json=makerZip,proto3,oneof" json:"maker_zip,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -106,13 +109,22 @@ func (x *ProductMaster) GetLaunchedOn() string {
 	return ""
 }
 
+func (x *ProductMaster) GetMakerZip() string {
+	if x != nil && x.MakerZip != nil {
+		return *x.MakerZip
+	}
+	return ""
+}
+
 // カテゴリと商品コードを条件に、商品マスタの現在の値を返す
 type ListProductMasterRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// カテゴリ
 	Category *string `protobuf:"bytes,1,opt,name=category,proto3,oneof" json:"category,omitempty"`
 	// 商品コード(空列表 = 不按这个条件筛选)
-	ProductCodes  []string `protobuf:"bytes,2,rep,name=product_codes,json=productCodes,proto3" json:"product_codes,omitempty"`
+	ProductCodes []string `protobuf:"bytes,2,rep,name=product_codes,json=productCodes,proto3" json:"product_codes,omitempty"`
+	// メーカーの郵便番号
+	MakerZip      *string `protobuf:"bytes,3,opt,name=maker_zip,json=makerZip,proto3,oneof" json:"maker_zip,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -159,6 +171,13 @@ func (x *ListProductMasterRequest) GetProductCodes() []string {
 		return x.ProductCodes
 	}
 	return nil
+}
+
+func (x *ListProductMasterRequest) GetMakerZip() string {
+	if x != nil && x.MakerZip != nil {
+		return *x.MakerZip
+	}
+	return ""
 }
 
 // カテゴリと商品コードを条件に、商品マスタの現在の値を返す
@@ -211,22 +230,28 @@ var File_factory_catalog_v1_catalog_proto protoreflect.FileDescriptor
 
 const file_factory_catalog_v1_catalog_proto_rawDesc = "" +
 	"\n" +
-	" factory/catalog/v1/catalog.proto\x12\x12factory.catalog.v1\"\xdd\x01\n" +
+	" factory/catalog/v1/catalog.proto\x12\x12factory.catalog.v1\x1a\x1bbuf/validate/validate.proto\"\x8d\x02\n" +
 	"\rProductMaster\x12!\n" +
 	"\fproduct_code\x18\x01 \x01(\tR\vproductCode\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\x1f\n" +
 	"\bcategory\x18\x03 \x01(\tH\x01R\bcategory\x88\x01\x01\x12\x19\n" +
 	"\x05price\x18\x04 \x01(\tH\x02R\x05price\x88\x01\x01\x12$\n" +
 	"\vlaunched_on\x18\x05 \x01(\tH\x03R\n" +
-	"launchedOn\x88\x01\x01B\a\n" +
+	"launchedOn\x88\x01\x01\x12 \n" +
+	"\tmaker_zip\x18\x06 \x01(\tH\x04R\bmakerZip\x88\x01\x01B\a\n" +
 	"\x05_nameB\v\n" +
 	"\t_categoryB\b\n" +
 	"\x06_priceB\x0e\n" +
-	"\f_launched_on\"m\n" +
+	"\f_launched_onB\f\n" +
+	"\n" +
+	"_maker_zip\"\xb3\x01\n" +
 	"\x18ListProductMasterRequest\x12\x1f\n" +
 	"\bcategory\x18\x01 \x01(\tH\x00R\bcategory\x88\x01\x01\x12#\n" +
-	"\rproduct_codes\x18\x02 \x03(\tR\fproductCodesB\v\n" +
-	"\t_category\"e\n" +
+	"\rproduct_codes\x18\x02 \x03(\tR\fproductCodes\x126\n" +
+	"\tmaker_zip\x18\x03 \x01(\tB\x14\xbaH\x11r\x0f2\r^\\d{3}-\\d{4}$H\x01R\bmakerZip\x88\x01\x01B\v\n" +
+	"\t_categoryB\f\n" +
+	"\n" +
+	"_maker_zip\"e\n" +
 	"\x19ListProductMasterResponse\x12H\n" +
 	"\x0eproduct_master\x18\x01 \x03(\v2!.factory.catalog.v1.ProductMasterR\rproductMaster2\x82\x01\n" +
 	"\x0eCatalogService\x12p\n" +

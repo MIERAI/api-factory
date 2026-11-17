@@ -2,12 +2,14 @@
 字段编号:
     ListProductMasterRequest:
         category: 1
+        maker_zip: 3
         product_codes: 2
     ListProductMasterResponse:
         product_master: 1
     ProductMaster:
         category: 3
         launched_on: 5
+        maker_zip: 6
         name: 2
         price: 4
         product_code: 1
