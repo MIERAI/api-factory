@@ -65,3 +65,6 @@ func Dates(ss []string) []time.Time {
 	}
 	return out
 }
+
+// Ptr: 值 → 指针(查询的列不为空、响应的字段是可选的时候)。
+func Ptr[T any](v T) *T { return &v }

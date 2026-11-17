@@ -143,6 +143,9 @@ func (g *genCtx) resExpr(src, srcType string, f *ir.Field) (string, error) {
 		return "", err
 	}
 	switch {
+	case kind == "string" && srcType == "time.Time" && f.Optional && !f.List: // 列不为空,响应字段可选
+		g.use("apifactory/platform/conv", "")
+		return fmt.Sprintf("conv.Ptr(conv.DateString(%s))", src), nil
 	case kind == "string" && srcType == "time.Time": // date 列 → "YYYY-MM-DD"
 		g.use("apifactory/platform/conv", "")
 		return fmt.Sprintf("conv.DateString(%s)", src), nil
@@ -155,6 +158,9 @@ func (g *genCtx) resExpr(src, srcType string, f *ir.Field) (string, error) {
 	case kind == "ts" && srcType == "*time.Time":
 		g.use("apifactory/platform/conv", "")
 		return fmt.Sprintf("conv.TSPtr(%s)", src), nil
+	case srcType == kind && f.Optional && !f.List: // 列不为空(类型收窄),响应字段是可选的(可空性来自表定义)
+		g.use("apifactory/platform/conv", "")
+		return fmt.Sprintf("conv.Ptr(%s)", src), nil
 	case srcType == kind:
 		return src, nil
 	case f.Optional && srcType == "*"+kind:
