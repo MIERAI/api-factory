@@ -34,7 +34,7 @@ message ProductMaster {
 // カテゴリと商品コードを条件に、商品マスタの現在の値を返す
 message ListProductMasterRequest {
   option (buf.validate.message).cel = {
-    id: "at_least_one/category/product_codes"
+    id: "at_least_one.category.product_codes"
     message: "at least one of category, product_codes must be specified"
     expression: "has(this.category) || size(this.product_codes) > 0"
   };

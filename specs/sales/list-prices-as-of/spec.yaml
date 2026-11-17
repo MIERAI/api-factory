@@ -25,7 +25,7 @@ datasource:
             columns:
                 - valid_from
                 - valid_to
-            op: 有效期包含
+            op: valid_at
         store_code:
             column: store_code
             op: eq

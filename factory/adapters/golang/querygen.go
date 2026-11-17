@@ -45,13 +45,35 @@ type goQuery struct {
 	usesTime bool
 }
 
-// goOfKind / goOfSQL: Go 类型来自类型的注册表(factory/kinds)
+// goTypes: 每种类型(factory/kinds 的 ID)在 gen/db 里的 Go 类型。Go 的知识只在这个适配器里。
+// 派生的类型(邮编 …)按列的基本类型查(kinds.BySQL / ByCore 返回基本类型)。
+var goTypes = map[string]string{
+	"int32": "int32", "int64": "int64", "text": "string", "bool": "bool",
+	"decimal": "string", // 十进制: 保持登记时的写法
+	"date":    "time.Time", "timestamp": "time.Time", "float": "float64",
+}
+
+// goOfKind / goOfSQL: 类型来自注册表(factory/kinds),Go 类型来自 goTypes
 func goOfKind(k core.Kind) (string, bool) {
 	t, ok := kinds.ByCore(k)
 	if !ok {
 		return "", false
 	}
-	return t.Go, true
+	return goOf(t)
+}
+
+// goOf: 派生的类型用基本类型的 Go 类型。
+func goOf(t *kinds.Type) (string, bool) {
+	for t != nil {
+		if g, ok := goTypes[t.ID]; ok {
+			return g, true
+		}
+		if t.Base == "" {
+			break
+		}
+		t, _ = kinds.ByName(t.Base)
+	}
+	return "", false
 }
 
 func goOfSQL(sqlType string) (string, bool) {
@@ -59,7 +81,7 @@ func goOfSQL(sqlType string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	return t.Go, true
+	return goOf(t)
 }
 
 func ptr(t string, nullable bool) string {

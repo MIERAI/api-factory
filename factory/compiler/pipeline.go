@@ -21,8 +21,6 @@ func coreType(table string, c catColumn) (core.Type, error) {
 	return core.Type{Kind: k, Nullable: !c.NotNull}, nil
 }
 
-// filterCells: 式样书的筛选运算 → 单元库里的筛选单元
-var filterCells = map[string]string{"eq": "等于", "gt": "大于", "gte": "大于等于", "lt": "小于", "lte": "小于等于", "prefix": "前缀匹配"}
 
 func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []resolvedFilter, cat *catalog) (*core.Pipeline, error) {
 	table := s.Datasource.Table
@@ -38,10 +36,7 @@ func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []re
 			return nil, err
 		}
 		p.Params = append(p.Params, core.ParamDecl{Name: f.Name, Type: core.Type{Kind: t.Kind}, Required: !f.Presence, List: f.List})
-		cell, ok := filterCells[f.Op]
-		if !ok {
-			cell = f.Op // 直接写单元名(属于 / 有效期包含 …)
-		}
+		cell := f.Op // 单元的内部名(eq / in / valid_at …);单元库按内部名或名字都能找到
 		cols := f.Columns
 		if len(cols) == 0 {
 			cols = []string{f.Column.Name}

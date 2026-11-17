@@ -30,11 +30,11 @@ func lookup(n string) (RelField, error) {
 
 func TestCompileRelation(t *testing.T) {
 	for _, c := range []struct{ text, id, expr string }{
-		{"from 早于 to", "before/from/to", "!has(this.from) || !has(this.to) || this.from < this.to"},
-		{"start 早于 end", "before/start/end", "this.start < this.end"}, // 都必填: 不需要放行
-		{"from 到 to 不超过 7 天", "within/from/to/7", "!has(this.from) || !has(this.to) || this.to - this.from <= duration('168h')"},
-		{"cat、codes 至少指定一个", "at_least_one/cat/codes", "has(this.cat) || size(this.codes) > 0"},
-		{"cat 和 codes 和 amount 至少指定一个", "at_least_one/cat/codes/amount", "has(this.cat) || size(this.codes) > 0 || has(this.amount)"},
+		{"from 早于 to", "before.from.to", "!has(this.from) || !has(this.to) || this.from < this.to"},
+		{"start 早于 end", "before.start.end", "this.start < this.end"}, // 都必填: 不需要放行
+		{"from 到 to 不超过 7 天", "within.from.to.7", "!has(this.from) || !has(this.to) || this.to - this.from <= duration('168h')"},
+		{"cat、codes 至少指定一个", "at_least_one.cat.codes", "has(this.cat) || size(this.codes) > 0"},
+		{"cat 和 codes 和 amount 至少指定一个", "at_least_one.cat.codes.amount", "has(this.cat) || size(this.codes) > 0 || has(this.amount)"},
 	} {
 		id, x, err := CompileRelation(c.text, lookup)
 		if err != nil || id != c.id || x.Expr != c.expr {
@@ -59,7 +59,7 @@ func TestRelationCasesSkipsRequired(t *testing.T) {
 	raw, _ := json.Marshal(map[string]any{"required": true})
 	m := &ir.Message{
 		Fields:    []ir.Field{{Name: "start", Kind: "timestamp", Rules: &ir.Rules{Required: true, Raw: raw}}, {Name: "end", Kind: "timestamp", Rules: &ir.Rules{Required: true, Raw: raw}}},
-		Relations: []string{"before/start/end", "rule_1"},
+		Relations: []string{"before.start.end", "rule_1"},
 	}
 	cases, labels, unknown := RelationCases(m, map[string]any{"start": "2026-01-01T00:00:00Z", "end": "2026-01-02T00:00:00Z"})
 	if unknown != 1 || len(labels) != 1 {

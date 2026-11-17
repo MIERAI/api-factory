@@ -23,6 +23,8 @@ const ProjectDir = "cells"
 
 type Library struct {
 	Filters  map[string]string              // 筛选单元: 名字 → 定义
+	ids      map[string]string              // 筛选单元: 名字 → 内部名
+	byID     map[string]string              // 筛选单元: 内部名 → 名字
 	Patterns map[string][]map[string]string // 模式: 名字 → [{元件: 部件}]
 	Sources  map[string]SourceCell          // 来源单元
 }
@@ -32,15 +34,30 @@ type SourceCell struct {
 	Valid string              `yaml:"有效"`
 }
 
+// filterCell: { id: eq, 定义: "…" }。只写定义(字符串)时 id = 名字(项目自己的单元)。
+type filterCell struct {
+	ID  string `yaml:"id"`
+	Def string `yaml:"定义"`
+}
+
+func (c *filterCell) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind == yaml.ScalarNode {
+		c.Def = n.Value
+		return nil
+	}
+	type plain filterCell
+	return n.Decode((*plain)(c))
+}
+
 type file struct {
-	Filters  map[string]string              `yaml:"筛选"`
+	Filters  map[string]filterCell          `yaml:"筛选"`
 	Patterns map[string][]map[string]string `yaml:"模式"`
 	Sources  map[string]SourceCell          `yaml:"来源"`
 }
 
 // Load: 标准单元 + 项目单元。同名 → 报错(不允许悄悄覆盖)。
 func Load() (*Library, error) {
-	lib := &Library{Filters: map[string]string{}, Patterns: map[string][]map[string]string{}, Sources: map[string]SourceCell{}}
+	lib := &Library{Filters: map[string]string{}, ids: map[string]string{}, byID: map[string]string{}, Patterns: map[string][]map[string]string{}, Sources: map[string]SourceCell{}}
 	if err := lib.add("standard.yaml", standard); err != nil {
 		return nil, err
 	}
@@ -69,7 +86,14 @@ func (l *Library) add(name string, b []byte) error {
 		if _, dup := l.Filters[k]; dup {
 			return fmt.Errorf("%s: 筛选单元 %s 重复定义", name, k)
 		}
-		l.Filters[k] = v
+		id := v.ID
+		if id == "" {
+			id = k
+		}
+		if other, dup := l.byID[id]; dup {
+			return fmt.Errorf("%s: 筛选单元 %s 的 id %q 和 %s 重复", name, k, id, other)
+		}
+		l.Filters[k], l.ids[k], l.byID[id] = v.Def, id, k
 	}
 	for k, v := range f.Sources {
 		if _, dup := l.Sources[k]; dup {
@@ -88,6 +112,9 @@ func (l *Library) add(name string, b []byte) error {
 
 // Filter: 筛选单元 → 表达式。columns = 列名(列 = 列1 = 第一列,列2 = 第二列 …),param = 请求参数名。
 func (l *Library) Filter(name string, columns []string, param string) (*core.Expr, error) {
+	if n, ok := l.byID[name]; ok { // 内部名也可以
+		name = n
+	}
 	def, ok := l.Filters[name]
 	if !ok {
 		return nil, fmt.Errorf("筛选单元 %q 不存在(单元库里有: %s)", name, strings.Join(l.names(), " / "))
@@ -114,6 +141,25 @@ func (l *Library) Filter(name string, columns []string, param string) (*core.Exp
 		return nil, fmt.Errorf("筛选单元 %s 用 %d 列,给了 %d 列", name, used, len(columns))
 	}
 	return e, nil
+}
+
+// FilterID: 筛选单元的名字(或内部名)→ 内部名。spec / IR 里只用内部名。
+func (l *Library) FilterID(name string) (string, bool) {
+	if id, ok := l.ids[name]; ok {
+		return id, true
+	}
+	if _, ok := l.byID[name]; ok {
+		return name, true
+	}
+	return "", false
+}
+
+// FilterName: 内部名 → 设计语言里的名字。
+func (l *Library) FilterName(id string) string {
+	if n, ok := l.byID[id]; ok {
+		return n
+	}
+	return id
 }
 
 // HasFilter: 有没有这个筛选单元。

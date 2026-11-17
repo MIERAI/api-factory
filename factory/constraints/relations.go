@@ -4,7 +4,7 @@ package constraints
 //
 // 每种关系提供:
 //   - 设计语言: 写法(正则)和例子,例如 "A 早于 B"
-//   - proto: 消息级的 CEL 规则。id 写成 "关系名/参数/…",编译器从 proto 读回 IR(ir.Message.Relations)
+//   - proto: 消息级的 CEL 规则。id 写成 "关系名.参数.…(buf 只允许 a-z 0-9 . _ -)",编译器从 proto 读回 IR(ir.Message.Relations)
 //   - 验收: 边界用例(一个请求改几个字段: 违反 / 合法)
 //
 // 手写的 proto 里 id 不是这种写法的 CEL 规则,工厂不认识 → 仍然需要人写用例。
@@ -67,7 +67,7 @@ func Guard(fs ...RelField) string {
 
 // CEL: 编译结果。
 type CEL struct {
-	Args    []string // 写进 id: 关系名/参数…
+	Args    []string // 写进 id: 关系名.参数…
 	Message string
 	Expr    string
 }
@@ -94,7 +94,7 @@ var relations []*Relation
 
 func registerRelation(r *Relation) { relations = append(relations, r) }
 
-// CompileRelation: 设计语言的一条规则 → CEL(id = 关系名/参数…)。
+// CompileRelation: 设计语言的一条规则 → CEL(id = 关系名.参数…)。
 func CompileRelation(text string, field func(string) (RelField, error)) (id string, c CEL, err error) {
 	for _, r := range relations {
 		m := r.Pattern.FindStringSubmatch(strings.TrimSpace(text))
@@ -105,7 +105,7 @@ func CompileRelation(text string, field func(string) (RelField, error)) (id stri
 		if err != nil {
 			return "", CEL{}, err
 		}
-		return strings.Join(append([]string{r.Name}, c.Args...), "/"), c, nil
+		return strings.Join(append([]string{r.Name}, c.Args...), "."), c, nil
 	}
 	var ex []string
 	for _, r := range relations {
@@ -135,7 +135,7 @@ func MatchRelation(text string) bool {
 
 // RelationOf: proto 里 CEL 规则的 id → 关系和参数(不认识 → nil)。
 func RelationOf(id string) (*Relation, []string) {
-	parts := strings.Split(id, "/")
+	parts := strings.Split(id, ".")
 	for _, r := range relations {
 		if r.Name == parts[0] && len(parts) > 1 {
 			return r, parts[1:]

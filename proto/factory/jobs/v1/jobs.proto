@@ -51,12 +51,12 @@ message GetJobStatusResponse {
 // 按任务类型和期间,汇总任务的处理情况
 message GetJobSummaryRequest {
   option (buf.validate.message).cel = {
-    id: "before/period_start/period_end"
+    id: "before.period_start.period_end"
     message: "period_start must be earlier than period_end"
     expression: "this.period_start < this.period_end"
   };
   option (buf.validate.message).cel = {
-    id: "within/period_start/period_end/31"
+    id: "within.period_start.period_end.31"
     message: "period_start to period_end must be 31 days or less"
     expression: "this.period_end - this.period_start <= duration('744h')"
   };
@@ -103,7 +103,7 @@ message Job {
 // 按条件列出任务,新的在前,分页
 message ListJobsRequest {
   option (buf.validate.message).cel = {
-    id: "before/created_after/created_before"
+    id: "before.created_after.created_before"
     message: "created_after must be earlier than created_before"
     expression: "!has(this.created_after) || !has(this.created_before) || this.created_after < this.created_before"
   };

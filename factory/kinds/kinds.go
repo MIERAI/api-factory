@@ -21,6 +21,7 @@ type Boundary struct {
 }
 
 type Type struct {
+	ID    string    // 内部的名字(和设计语言的自然语言无关;适配器 / 方言按它查自己的映射): date
 	Name  string    // 设计稿里的中文名: 日期
 	Base  string    // 基于哪个类型(带格式的文本: 邮编 → 文本)。没写的字段从 Base 继承;SQL 类型名不继承(列的类型仍是 Base)
 	Core  core.Kind // 核心类型(没有 = 只能作为计算的输出,例如 小数)
@@ -30,8 +31,6 @@ type Type struct {
 	// Pattern: proto 的 string.pattern(格式由 protovalidate 检查),和它的边界值
 	Pattern    string
 	Boundaries []Boundary
-	// Go: gen/db 里的 Go 类型
-	Go string
 	// Parse: 设计稿例子里的写法 → 值(nil = 原样)
 	Parse func(s string) (any, error)
 	// Domain: 差分测试的值域(故意包含陷阱值);Missing: 数据里不存在的值
@@ -95,9 +94,6 @@ func inherit(t, b *Type) {
 	}
 	if t.Value == "" {
 		t.Value = b.Value
-	}
-	if t.Go == "" {
-		t.Go = b.Go
 	}
 	if t.Parse == nil {
 		t.Parse = b.Parse
@@ -172,6 +168,12 @@ func ByValue(v string) (*Type, bool) {
 func (t *Type) ProtoPattern() string { return strings.ReplaceAll(t.Pattern, `\`, `\\`) }
 
 // ByName: 中文名 → 类型。
+// All: 全部类型(登记的顺序)。
+func All() []*Type {
+	resolve()
+	return append([]*Type(nil), all...)
+}
+
 func ByName(name string) (*Type, bool) {
 	resolve()
 	t, ok := byName[name]

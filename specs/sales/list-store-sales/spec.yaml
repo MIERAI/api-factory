@@ -24,7 +24,7 @@ datasource:
             op: eq
         store_codes:
             column: store_code
-            op: 属于
+            op: in
     columns: []
     sql: ""
 behavior: []

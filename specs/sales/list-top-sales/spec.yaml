@@ -25,7 +25,7 @@ datasource:
             op: gte
         exclude_store:
             column: store_code
-            op: 不等于
+            op: ne
         min_amount:
             column: amount
             op: gte

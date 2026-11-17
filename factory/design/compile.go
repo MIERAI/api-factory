@@ -196,7 +196,6 @@ func writeYAML(path, from string, v any) error {
 // API → message + spec
 // ---------------------------------------------------------------------------
 
-var filterOps = map[string]string{"等于": "eq", "大于": "gt", "大于等于": "gte", "小于": "lt", "小于等于": "lte", "前缀匹配": "prefix"}
 
 func (c *ctx) column(table, col string) (compiler.Column, bool) {
 	for _, x := range c.cat[table] {
@@ -310,11 +309,8 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 		if in.Filter != "" {
 			parts := strings.Fields(in.Filter)
 			op, ok := "", false
-			if len(parts) == 2 {
-				op, ok = filterOps[parts[1]]
-				if !ok && c.lib.HasFilter(parts[1]) { // 单元库里的筛选单元: 直接用单元名
-					op, ok = parts[1], true
-				}
+			if len(parts) == 2 { // spec / IR 里用单元的内部名(factory/cells: 等于 → eq)
+				op, ok = c.lib.FilterID(parts[1])
 			}
 			if !ok {
 				e.add(in.Line, "输入 %s: 筛选 %q 无法识别。写成 \"列 <筛选单元>\",单元库里有: %s", in.Name, in.Filter, strings.Join(c.lib.FilterNames(), " / "))
@@ -330,7 +326,7 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 			if len(cols) > 1 {
 				sf.Columns = cols
 			}
-			if op == "prefix" || op == "前缀匹配" { // 前缀不是完整的值: 带格式的类型(邮编 …)的前缀永远通不过格式校验
+			if op == "prefix" { // 前缀不是完整的值: 带格式的类型(邮编 …)的前缀永远通不过格式校验
 				if k, ok := kinds.ByName(strings.TrimSuffix(in.Type, "列表")); ok && k.Pattern != "" {
 					e.add(in.Line, "输入 %s: 前缀匹配的输入不能是带格式的类型 %s(前缀不是完整的%s,会被格式校验拒绝),请用 文本", in.Name, k.Name, k.Name)
 				}
@@ -338,7 +334,7 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 			filters[in.Name] = sf
 		}
 	}
-	// 输入之间的规则: 关系的注册表(factory/constraints/rel_*.go)。id = 关系名/参数…(验收从 IR 读回,自动生成边界用例)
+	// 输入之间的规则: 关系的注册表(factory/constraints/rel_*.go)。id = 关系名.参数…(验收从 IR 读回,自动生成边界用例)
 	for _, r := range a.InputRules {
 		id, x, err := constraints.CompileRelation(r, func(name string) (constraints.RelField, error) {
 			for _, f := range req.Fields {

@@ -374,7 +374,7 @@ func shardOf(s *spec.Spec, filters []resolvedFilter) (*ir.Shard, error) {
 		return nil, nil
 	}
 	for _, f := range filters {
-		if f.Column.Name == e.ShardBy && (f.Op == "eq" || f.Op == "等于") && !f.Presence && !f.List {
+		if f.Column.Name == e.ShardBy && f.Op == "eq" && !f.Presence && !f.List {
 			return &ir.Shard{Table: s.Datasource.Table, Column: e.ShardBy, Field: f.Name}, nil
 		}
 	}

@@ -23,7 +23,7 @@ import (
 	"apifactory/factory/accept"
 	"apifactory/factory/acceptgen"
 	"apifactory/factory/adapter"
-	"apifactory/factory/adapters/golang"
+	_ "apifactory/factory/adapters/golang" // 适配器: 在 init 里登记(adapter.Register)
 	"apifactory/factory/ai"
 	"apifactory/factory/answer"
 	"apifactory/factory/compiler"
@@ -77,6 +77,8 @@ func main() {
 		err = cmdAnswer(args)
 	case "perf":
 		err = cmdPerf(args)
+	case "doc":
+		err = cmdDoc(args)
 	default:
 		usage()
 	}
@@ -179,8 +181,12 @@ func cmdPrepare(args []string) error {
 	if err := acceptgen.Write(plan); err != nil {
 		return err
 	}
-	// ③ Go 适配器: IR → Go 代码
-	if err := golang.Run(plan); err != nil {
+	// ③ 适配器: IR → 这种语言的代码(factory.yaml 选的适配器;各适配器在 init 里登记)
+	m, err := adapter.Load()
+	if err != nil {
+		return err
+	}
+	if err := m.Generate(plan); err != nil {
 		return err
 	}
 	fmt.Printf("✓ prepared %d spec(s)\n", len(specs))
@@ -852,5 +858,30 @@ func cmdReviewStats(args []string) error {
 		}
 		fmt.Println()
 	}
+	return nil
+}
+
+// cmdDoc: 设计语言的参考(docs/design-language.md)从注册表生成。--check: 不写,只确认是最新的。
+func cmdDoc(args []string) error {
+	fs := flag.NewFlagSet("doc", flag.ExitOnError)
+	check := fs.Bool("check", false, "只检查文档是不是最新的")
+	_ = fs.Parse(args)
+	const path = "docs/design-language.md"
+	ref, err := design.Reference()
+	if err != nil {
+		return err
+	}
+	old, _ := os.ReadFile(path)
+	if *check {
+		if string(old) != ref {
+			return fmt.Errorf("%s 不是最新的(注册表改了): 运行 factory doc", path)
+		}
+		fmt.Printf("✓ %s 是最新的\n", path)
+		return nil
+	}
+	if err := os.WriteFile(path, []byte(ref), 0o644); err != nil {
+		return err
+	}
+	fmt.Printf("✓ 写入 %s\n", path)
 	return nil
 }

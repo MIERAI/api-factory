@@ -19,10 +19,13 @@ import (
 	"strings"
 	"text/template"
 
+	"apifactory/factory/adapter"
 	"apifactory/factory/ir"
 )
 
 const modulePath = "apifactory"
+
+func init() { adapter.Register("go", Run) }
 
 func Run(plan *ir.Plan) error {
 	clearGenerated()

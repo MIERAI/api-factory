@@ -7,7 +7,7 @@ import (
 )
 
 func init() {
-	Register(&Type{Name: "布尔", Core: core.Bool, SQL: []string{"bool", "boolean"}, Proto: "bool", Value: "bool", Go: "bool",
+	Register(&Type{ID: "bool", Name: "布尔", Core: core.Bool, SQL: []string{"bool", "boolean"}, Proto: "bool", Value: "bool",
 		Parse: func(s string) (any, error) {
 			switch s {
 			case "true", "是":

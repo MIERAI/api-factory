@@ -396,9 +396,9 @@ func sample(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, api *ir.API, col
 // quantile: 筛选的种类 → 取样的分位。
 func quantile(op string) float64 {
 	switch op {
-	case "gt", "gte", "大于", "大于等于":
+	case "gt", "gte":
 		return 0.4
-	case "lt", "lte", "小于", "小于等于":
+	case "lt", "lte":
 		return 0.6
 	}
 	return 0.5
@@ -500,7 +500,7 @@ func explain(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, api *ir.API, va
 			if err != nil {
 				return r, fmt.Errorf("参数 %s: %w", d.Name, err)
 			}
-			if s, isText := x.(string); isText && (f.Op == "prefix" || f.Op == "前缀匹配") {
+			if s, isText := x.(string); isText && f.Op == "prefix" {
 				x = string([]rune(s)[:min(2, len([]rune(s)))])
 			}
 			v = x

@@ -156,7 +156,7 @@ func (e *diffEnv) collect() {
 			continue
 		}
 		switch f.Op {
-		case "eq", "等于", "属于", "in":
+		case "eq", "in":
 			e.groupCols[f.Column] = true
 		}
 	}
@@ -1017,7 +1017,7 @@ func (e *diffEnv) sweep(seen map[string]bool) []core.Params {
 				}
 			}
 		}
-		if f.Op == "prefix" || f.Op == "前缀匹配" {
+		if f.Op == "prefix" {
 			var anchor core.Row
 			if len(keys) > 0 {
 				anchor = byVal[keys[0]]
@@ -1038,7 +1038,7 @@ func (e *diffEnv) sweep(seen map[string]bool) []core.Params {
 			all := core.Params{}
 			for _, o := range params {
 				ov := r[e.filter[o.Name].Column]
-				if ov == nil || e.filter[o.Name].Op == "prefix" || e.filter[o.Name].Op == "前缀匹配" {
+				if ov == nil || e.filter[o.Name].Op == "prefix" {
 					continue
 				}
 				if o.List {
@@ -1537,11 +1537,11 @@ func (e *diffEnv) widest(params []core.ParamDecl) core.Params {
 		}
 		sort.Slice(keys, func(i, j int) bool { return compareAny(val[keys[i]], val[keys[j]]) < 0 })
 		switch f.Op {
-		case "lt", "lte", "小于", "小于等于":
+		case "lt", "lte":
 			ps[d.Name] = val[keys[len(keys)-1]]
-		case "gt", "gte", "大于", "大于等于":
+		case "gt", "gte":
 			ps[d.Name] = val[keys[0]]
-		case "in", "属于":
+		case "in":
 			var all []any
 			for _, k := range keys {
 				all = append(all, val[k])

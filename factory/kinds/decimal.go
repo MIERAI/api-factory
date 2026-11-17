@@ -10,7 +10,7 @@ import (
 func init() {
 	// 十进制: 精确的十进制(numeric)。API 里是十进制字符串(保持登记时的位数),比较 / 排序按数值
 	// 值域的陷阱: "10" 和 "9"(按文本比较 / 排序会颠倒)
-	Register(&Type{Name: "十进制", Core: core.Decimal, SQL: []string{"numeric", "decimal"}, Proto: "string", Value: "decimal", Go: "string",
+	Register(&Type{ID: "decimal", Name: "十进制", Core: core.Decimal, SQL: []string{"numeric", "decimal"}, Proto: "string", Value: "decimal",
 		Pattern: `^-?\d+(\.\d+)?$`,
 		Boundaries: []Boundary{
 			{"十进制格式不对(1e3)", "1e3", false},

@@ -11,7 +11,7 @@ var diffBase = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
 func init() {
 	// 日期: API 里 "YYYY-MM-DD"
-	Register(&Type{Name: "日期", Core: core.Date, SQL: []string{"date"}, Proto: "string", Value: "date", Go: "time.Time",
+	Register(&Type{ID: "date", Name: "日期", Core: core.Date, SQL: []string{"date"}, Proto: "string", Value: "date",
 		Pattern: `^\d{4}-\d{2}-\d{2}$`,
 		Boundaries: []Boundary{
 			{"日期格式不对(2026/01/01)", "2026/01/01", false},
@@ -26,7 +26,7 @@ func init() {
 		Domain:  []any{diffBase.AddDate(0, 0, -1), diffBase, diffBase.AddDate(0, 0, 1)},
 		Missing: diffBase.AddDate(5, 0, 0)})
 	// 时间: 时刻(timestamptz),API 里 google.protobuf.Timestamp。例子的写法按领域的时区解释(设计编译器处理)
-	Register(&Type{Name: "时间", Core: core.Timestamp, SQL: []string{"timestamptz", "timestamp"}, Proto: "google.protobuf.Timestamp", Value: "time", Go: "time.Time",
+	Register(&Type{ID: "timestamp", Name: "时间", Core: core.Timestamp, SQL: []string{"timestamptz", "timestamp"}, Proto: "google.protobuf.Timestamp", Value: "time",
 		Domain:  []any{diffBase.Add(-time.Hour), diffBase, diffBase.Add(time.Hour), diffBase.Add(2 * time.Hour)},
 		Missing: diffBase.AddDate(5, 0, 0)})
 }

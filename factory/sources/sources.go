@@ -67,6 +67,16 @@ func ByName(n string) (*Source, bool) { s, ok := byName[n]; return s, ok }
 func ByKind(k string) (*Source, bool) { s, ok := byKind[k]; return s, ok }
 
 // Names: 领域里 存储 可以写的值。
+// All: 全部来源(名字的顺序)。
+func All() []*Source {
+	var out []*Source
+	for _, s := range byName {
+		out = append(out, s)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
 func Names() string {
 	var out []string
 	for n := range byName {

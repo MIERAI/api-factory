@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"apifactory/factory/ir"
 )
 
 type Manifest struct {
@@ -128,4 +130,25 @@ func snake(s string) string {
 		b.WriteRune(r)
 	}
 	return b.String()
+}
+
+// Generator: 适配器的代码生成(IR → 这种语言的代码)。每个适配器在 init 里 Register,
+// 核心按清单的 name 选择(factory.yaml 的 adapter → manifest.yaml 的 name),不直接引用任何一个适配器。
+type Generator func(plan *ir.Plan) error
+
+var generators = map[string]Generator{}
+
+func Register(name string, g Generator) { generators[name] = g }
+
+// Generate: 用清单指定的适配器生成代码。
+func (m *Manifest) Generate(plan *ir.Plan) error {
+	g, ok := generators[m.Name]
+	if !ok {
+		var names []string
+		for n := range generators {
+			names = append(names, n)
+		}
+		return fmt.Errorf("适配器 %q 没有登记代码生成(已登记: %v;适配器的包要在 factory/cmd/factory 里 import)", m.Name, names)
+	}
+	return g(plan)
 }

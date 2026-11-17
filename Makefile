@@ -55,6 +55,7 @@ design:           ## 中文式样书(design/<领域>/)→ proto + specs(生成)
 check: design     ## ① 式样书闸门(+ 内容防护)
 	@scripts/content-guard.sh --tree
 	@$(FACTORY) check
+	@$(FACTORY) doc --check
 	@buf lint
 
 prepare:          ## ② 确定性生成

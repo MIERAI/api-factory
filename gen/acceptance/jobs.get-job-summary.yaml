@@ -5,8 +5,8 @@ coverage:
     - 'validation: job_type(string 长度)'
     - 'validation: period_start(required)'
     - 'validation: period_end(required)'
-    - 'validation: 输入之间的规则 before/period_start/period_end'
-    - 'validation: 输入之间的规则 within/period_start/period_end/31'
+    - 'validation: 输入之间的规则 before.period_start.period_end'
+    - 'validation: 输入之间的规则 within.period_start.period_end.31'
 suites:
     - name: validation
       cases:

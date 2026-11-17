@@ -21,10 +21,10 @@ datasource:
     filters:
         job_ids:
             column: id
-            op: 属于
+            op: in
         job_types:
             column: job_type
-            op: 属于
+            op: in
     columns: []
     sql: ""
 behavior: []

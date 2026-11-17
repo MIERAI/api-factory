@@ -371,8 +371,7 @@ func loadAPI(path string) (*API, error) {
 		return nil, err
 	}
 	e := &errs{file: path}
-	baseKeys := []string{"API", "说明", "背景", "负责人", "风险", "种类", "数据来源", "输入", "输入之间的规则",
-		"输出", "输出行名", "输出列表名", "业务规则", "例子", "计算例子"}
+	baseKeys := TopKeys()
 	checkKeys(e, get(root, "例子"), "例子", "准备数据", "用例")
 	checkKeys(e, get(root, "分页"), "分页", "默认每页", "每页最多")
 	a := &API{
@@ -403,7 +402,7 @@ func loadAPI(path string) (*API, error) {
 		e.add(root.Line, "风险 只能是 低 / 中 / 高")
 	}
 	for _, p := range pairs(get(root, "输入")) {
-		checkKeys(e, p.Val, "输入 "+p.Key, append([]string{"类型", "必填", "说明", "筛选"}, constraints.Keys()...)...)
+		checkKeys(e, p.Val, "输入 "+p.Key, append(InputKeys(), constraints.Keys()...)...)
 		in := &Input{Name: p.Key, Type: str(p.Val, "类型"), Required: str(p.Val, "必填") == "是",
 			Desc: str(p.Val, "说明"), Filter: str(p.Val, "筛选"), Line: p.Line, Constraints: map[string]string{}}
 		for _, k := range constraints.Keys() {
@@ -424,7 +423,7 @@ func loadAPI(path string) (*API, error) {
 		if p.Val.Kind == yaml.ScalarNode {
 			o.Desc = p.Val.Value
 		} else {
-			checkKeys(e, p.Val, "输出 "+p.Key, "类型", "说明", "来自", "可以不设置", "每行")
+			checkKeys(e, p.Val, "输出 "+p.Key, OutputKeys()...)
 			o.Type, o.Desc, o.From = str(p.Val, "类型"), str(p.Val, "说明"), str(p.Val, "来自")
 			o.Optional = str(p.Val, "可以不设置") == "是"
 			if o.Type == "列表" { // 计算的输出: 行的列表(每行 = 每一行的字段)
@@ -575,3 +574,15 @@ func (r tableReader) Column(name, desc, enum string) {
 		r.t.ColEnum[name] = enum
 	}
 }
+
+// TopKeys: 设计稿顶层的键(所有种类共用;各种类另外的键在出口的注册表里)。
+func TopKeys() []string {
+	return []string{"API", "说明", "背景", "负责人", "风险", "种类", "数据来源", "输入", "输入之间的规则",
+		"输出", "输出行名", "输出列表名", "业务规则", "例子", "计算例子"}
+}
+
+// OutputKeys: 输出的一列可以写的键。
+func OutputKeys() []string { return []string{"类型", "说明", "来自", "可以不设置", "每行"} }
+
+// InputKeys: 输入可以写的键(约束的键另外由 factory/constraints 决定)。
+func InputKeys() []string { return []string{"类型", "必填", "说明", "筛选"} }

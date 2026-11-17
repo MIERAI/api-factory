@@ -706,8 +706,8 @@ const file_factory_jobs_v1_jobs_proto_rawDesc = "" +
 	"\fperiod_start\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampB\x06\xbaH\x03\xc8\x01\x01R\vperiodStart\x12A\n" +
 	"\n" +
 	"period_end\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampB\x06\xbaH\x03\xc8\x01\x01R\tperiodEnd:\x8c\x02\xbaH\x88\x02\x1as\n" +
-	"\x1ebefore/period_start/period_end\x12,period_start must be earlier than period_end\x1a#this.period_start < this.period_end\x1a\x90\x01\n" +
-	"!within/period_start/period_end/31\x122period_start to period_end must be 31 days or less\x1a7this.period_end - this.period_start <= duration('744h')\"\xc1\x02\n" +
+	"\x1ebefore.period_start.period_end\x12,period_start must be earlier than period_end\x1a#this.period_start < this.period_end\x1a\x90\x01\n" +
+	"!within.period_start.period_end.31\x122period_start to period_end must be 31 days or less\x1a7this.period_end - this.period_start <= duration('744h')\"\xc1\x02\n" +
 	"\x15GetJobSummaryResponse\x12\x14\n" +
 	"\x05total\x18\x01 \x01(\x03R\x05total\x12\x1c\n" +
 	"\tsucceeded\x18\x02 \x01(\x03R\tsucceeded\x12\x16\n" +
@@ -734,7 +734,7 @@ const file_factory_jobs_v1_jobs_proto_rawDesc = "" +
 	"\bjob_type\x18\x04 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18@H\x01R\ajobType\x88\x01\x01\x12?\n" +
 	"\rcreated_after\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\fcreatedAfter\x12A\n" +
 	"\x0ecreated_before\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\rcreatedBefore:\xc2\x01\xbaH\xbe\x01\x1a\xbb\x01\n" +
-	"#before/created_after/created_before\x121created_after must be earlier than created_before\x1aa!has(this.created_after) || !has(this.created_before) || this.created_after < this.created_beforeB\t\n" +
+	"#before.created_after.created_before\x121created_after must be earlier than created_before\x1aa!has(this.created_after) || !has(this.created_before) || this.created_after < this.created_beforeB\t\n" +
 	"\a_statusB\v\n" +
 	"\t_job_type\"d\n" +
 	"\x10ListJobsResponse\x12(\n" +

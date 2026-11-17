@@ -4,7 +4,7 @@ spec: specs/catalog/list-product-master/spec.yaml
 coverage:
     - 'validation: product_codes(元素 格式 数字)'
     - 'validation: maker_zip(邮编格式)'
-    - 'validation: 输入之间的规则 at_least_one/category/product_codes'
+    - 'validation: 输入之间的规则 at_least_one.category.product_codes'
     - '差分测试(运行时): 随机数据 + 核心代数的参考求值器,覆盖筛选 / 排序 / 字段映射 / 多条的出口'
     - '差分测试(运行时): 不合法的随机请求(protovalidate)→ INVALID_ARGUMENT'
 suites:
