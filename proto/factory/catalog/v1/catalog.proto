@@ -12,6 +12,9 @@ option go_package = "apifactory/gen/factory/catalog/v1;catalogv1";
 
 // 商品マスタ。変更のたびに 1 行追加される(上書きしない)
 service CatalogService {
+  // 商品コードとラベルコードを指定して、ラベルの現在の文言を返す。なければ found = false
+  rpc GetProductLabel(GetProductLabelRequest) returns (GetProductLabelResponse);
+
   // (商品コード, ラベルコード) の組のリストを受け取り、組ごとのラベルの現在の文言を返す
   rpc ListLabelsByPairs(ListLabelsByPairsRequest) returns (ListLabelsByPairsResponse);
 
@@ -23,6 +26,22 @@ service CatalogService {
 
   // 商品コードを指定して、その商品のラベルを最後に変わった順に返す(いつ変わったかも返す)
   rpc ListRecentLabelChanges(ListRecentLabelChangesRequest) returns (ListRecentLabelChangesResponse);
+}
+
+// 商品コードとラベルコードを指定して、ラベルの現在の文言を返す。なければ found = false
+message GetProductLabelRequest {
+  // 商品コード
+  string product_code = 1 [(buf.validate.field).string.pattern = "^[0-9]+$", (buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 20];
+  // ラベルコード
+  string label_code = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 10];
+}
+
+// 商品コードとラベルコードを指定して、ラベルの現在の文言を返す。なければ found = false
+message GetProductLabelResponse {
+  // 表示文言
+  optional string text = 1;
+  // 找到了: true。找不到时 false(其他字段都不设置)
+  bool found = 2;
 }
 
 // 引きたい (商品コード, ラベルコード) の組

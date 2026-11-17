@@ -36,6 +36,9 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// CatalogServiceGetProductLabelProcedure is the fully-qualified name of the CatalogService's
+	// GetProductLabel RPC.
+	CatalogServiceGetProductLabelProcedure = "/factory.catalog.v1.CatalogService/GetProductLabel"
 	// CatalogServiceListLabelsByPairsProcedure is the fully-qualified name of the CatalogService's
 	// ListLabelsByPairs RPC.
 	CatalogServiceListLabelsByPairsProcedure = "/factory.catalog.v1.CatalogService/ListLabelsByPairs"
@@ -52,6 +55,8 @@ const (
 
 // CatalogServiceClient is a client for the factory.catalog.v1.CatalogService service.
 type CatalogServiceClient interface {
+	// 商品コードとラベルコードを指定して、ラベルの現在の文言を返す。なければ found = false
+	GetProductLabel(context.Context, *connect.Request[v1.GetProductLabelRequest]) (*connect.Response[v1.GetProductLabelResponse], error)
 	// (商品コード, ラベルコード) の組のリストを受け取り、組ごとのラベルの現在の文言を返す
 	ListLabelsByPairs(context.Context, *connect.Request[v1.ListLabelsByPairsRequest]) (*connect.Response[v1.ListLabelsByPairsResponse], error)
 	// 商品コードを指定して、その商品のラベル(既定のラベルを含む)の現在の値を返す
@@ -73,6 +78,12 @@ func NewCatalogServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 	baseURL = strings.TrimRight(baseURL, "/")
 	catalogServiceMethods := v1.File_factory_catalog_v1_catalog_proto.Services().ByName("CatalogService").Methods()
 	return &catalogServiceClient{
+		getProductLabel: connect.NewClient[v1.GetProductLabelRequest, v1.GetProductLabelResponse](
+			httpClient,
+			baseURL+CatalogServiceGetProductLabelProcedure,
+			connect.WithSchema(catalogServiceMethods.ByName("GetProductLabel")),
+			connect.WithClientOptions(opts...),
+		),
 		listLabelsByPairs: connect.NewClient[v1.ListLabelsByPairsRequest, v1.ListLabelsByPairsResponse](
 			httpClient,
 			baseURL+CatalogServiceListLabelsByPairsProcedure,
@@ -102,10 +113,16 @@ func NewCatalogServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 
 // catalogServiceClient implements CatalogServiceClient.
 type catalogServiceClient struct {
+	getProductLabel        *connect.Client[v1.GetProductLabelRequest, v1.GetProductLabelResponse]
 	listLabelsByPairs      *connect.Client[v1.ListLabelsByPairsRequest, v1.ListLabelsByPairsResponse]
 	listProductLabels      *connect.Client[v1.ListProductLabelsRequest, v1.ListProductLabelsResponse]
 	listProductMaster      *connect.Client[v1.ListProductMasterRequest, v1.ListProductMasterResponse]
 	listRecentLabelChanges *connect.Client[v1.ListRecentLabelChangesRequest, v1.ListRecentLabelChangesResponse]
+}
+
+// GetProductLabel calls factory.catalog.v1.CatalogService.GetProductLabel.
+func (c *catalogServiceClient) GetProductLabel(ctx context.Context, req *connect.Request[v1.GetProductLabelRequest]) (*connect.Response[v1.GetProductLabelResponse], error) {
+	return c.getProductLabel.CallUnary(ctx, req)
 }
 
 // ListLabelsByPairs calls factory.catalog.v1.CatalogService.ListLabelsByPairs.
@@ -130,6 +147,8 @@ func (c *catalogServiceClient) ListRecentLabelChanges(ctx context.Context, req *
 
 // CatalogServiceHandler is an implementation of the factory.catalog.v1.CatalogService service.
 type CatalogServiceHandler interface {
+	// 商品コードとラベルコードを指定して、ラベルの現在の文言を返す。なければ found = false
+	GetProductLabel(context.Context, *connect.Request[v1.GetProductLabelRequest]) (*connect.Response[v1.GetProductLabelResponse], error)
 	// (商品コード, ラベルコード) の組のリストを受け取り、組ごとのラベルの現在の文言を返す
 	ListLabelsByPairs(context.Context, *connect.Request[v1.ListLabelsByPairsRequest]) (*connect.Response[v1.ListLabelsByPairsResponse], error)
 	// 商品コードを指定して、その商品のラベル(既定のラベルを含む)の現在の値を返す
@@ -147,6 +166,12 @@ type CatalogServiceHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewCatalogServiceHandler(svc CatalogServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
 	catalogServiceMethods := v1.File_factory_catalog_v1_catalog_proto.Services().ByName("CatalogService").Methods()
+	catalogServiceGetProductLabelHandler := connect.NewUnaryHandler(
+		CatalogServiceGetProductLabelProcedure,
+		svc.GetProductLabel,
+		connect.WithSchema(catalogServiceMethods.ByName("GetProductLabel")),
+		connect.WithHandlerOptions(opts...),
+	)
 	catalogServiceListLabelsByPairsHandler := connect.NewUnaryHandler(
 		CatalogServiceListLabelsByPairsProcedure,
 		svc.ListLabelsByPairs,
@@ -173,6 +198,8 @@ func NewCatalogServiceHandler(svc CatalogServiceHandler, opts ...connect.Handler
 	)
 	return "/factory.catalog.v1.CatalogService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case CatalogServiceGetProductLabelProcedure:
+			catalogServiceGetProductLabelHandler.ServeHTTP(w, r)
 		case CatalogServiceListLabelsByPairsProcedure:
 			catalogServiceListLabelsByPairsHandler.ServeHTTP(w, r)
 		case CatalogServiceListProductLabelsProcedure:
@@ -189,6 +216,10 @@ func NewCatalogServiceHandler(svc CatalogServiceHandler, opts ...connect.Handler
 
 // UnimplementedCatalogServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedCatalogServiceHandler struct{}
+
+func (UnimplementedCatalogServiceHandler) GetProductLabel(context.Context, *connect.Request[v1.GetProductLabelRequest]) (*connect.Response[v1.GetProductLabelResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.catalog.v1.CatalogService.GetProductLabel is not implemented"))
+}
 
 func (UnimplementedCatalogServiceHandler) ListLabelsByPairs(context.Context, *connect.Request[v1.ListLabelsByPairsRequest]) (*connect.Response[v1.ListLabelsByPairsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.catalog.v1.CatalogService.ListLabelsByPairs is not implemented"))

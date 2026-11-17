@@ -1,0 +1,38 @@
+# ============================================================================
+# GetProductLabel: 商品 × ラベルの現在の文言(找不到时: 返回空 の例)
+# ============================================================================
+API: GetProductLabel
+说明: 商品コードとラベルコードを指定して、ラベルの現在の文言を返す。なければ found = false
+背景: 画面は「ラベルがなければ何も表示しない」。なくてもエラーにしない(元の API は null を返していた)
+负责人: catalog-team
+风险: 低
+
+种类: 按键取一条
+数据来源: product_label
+
+输入:
+  product_code: { 类型: 文本, 必填: 是, 长度: 1~20, 格式: 数字, 说明: 商品コード, 筛选: product_code 等于 }
+  label_code:   { 类型: 文本, 必填: 是, 长度: 1~10, 说明: ラベルコード, 筛选: label_code 等于 }
+
+输出:
+  text: 表示文言
+
+找不到时: 返回空
+
+例子:
+  准备数据:
+    product_label:
+      - { product_code: "100", label_code: "A", text: 特売 }
+      - { product_code: "100", label_code: "A", text: 特売2 }     # 新しい版
+      - { product_code: "100", label_code: "B", text: 旧 }
+      - { product_code: "100", label_code: "B", 操作: 删除 }       # B は削除された
+  用例:
+    - 说明: 最新の版の文言(found = true)
+      输入: { product_code: "100", label_code: "A" }
+      结果: { text: 特売2, found: true }
+    - 说明: 削除されたラベルは「ない」(エラーではなく found = false)
+      输入: { product_code: "100", label_code: "B" }
+      结果: { found: false }
+    - 说明: 登録のないラベルも found = false
+      输入: { product_code: "999", label_code: "A" }
+      结果: { found: false }

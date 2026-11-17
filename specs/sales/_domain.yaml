@@ -9,6 +9,14 @@ entities:
         policy: mutable
         columns: {}
         invariants: []
+    price_changes:
+        natural_key:
+            - store_code
+            - product_code
+            - proc_date
+        policy: mutable
+        columns: {}
+        invariants: []
     store_prices:
         natural_key:
             - store_code

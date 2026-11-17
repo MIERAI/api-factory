@@ -77,6 +77,7 @@ type Exit struct {
 	Rows       bool                            // 响应 = 行的列表(+ ResponseExtra);否则响应的字段 = 列
 	RowsDesc   func(p spec.Pattern) string     // 行的列表字段的说明
 	Extra      []Field                         // 响应里另外的字段(next_page_token)
+	ExtraFor   func(p spec.Pattern) []Field    // 响应里另外的字段,取决于设计稿(按键取一条 找不到时: 返回空 → found)
 	ItemKey    func(p spec.Pattern) string     // 例子的简写 [4, 3, 2] 用的列
 	FromTable  bool                            // 响应的字段来自数据来源的列(单条);否则来自设计稿的 输出(计算)
 	IR         func(s *spec.Spec, api *ir.API) error

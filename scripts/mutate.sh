@@ -78,6 +78,14 @@ CP=gen/db/sales.list-current-prices.sql.go
 run "一览+每组取一条: 取了最早的"              $CP 's/t1\.valid_from DESC\n/t1.valid_from\n/'
 run "一览+每组取一条: 没有每组取一条"          $CP 's/SELECT DISTINCT ON \(t1\.store_code, t1\.product_code COLLATE "C"\) /SELECT /'
 run "一览+每组取一条: 游标 > 写成 >="          $CP 's/\(t1\.product_code COLLATE "C"\) > \(\$3::text\)/(t1.product_code COLLATE "C") >= (\$3::text)/'
+FX=gen/db/sales.list-effective-price-changes.sql.go
+run "固定条件: 空值也算变了(IS DISTINCT FROM)"     $FX 's/\(t1\.new_price <> t1\.old_price\)/(t1.new_price IS DISTINCT FROM t1.old_price)/'
+run "固定条件: 空值的行留下(coalesce TRUE)"      $FX 's/\(\(t1\.new_price <> t1\.old_price\) OR \(t1\.deal_id = 99999999::int8\)\)/coalesce(((t1.new_price <> t1.old_price) OR (t1.deal_id = 99999999::int8)), TRUE)/'
+run "固定条件: 忘了强制送信"                       $FX 's/ OR \(t1\.deal_id = 99999999::int8\)//'
+run "固定条件: 常量写错"                           $FX 's/99999999::int8/99999998::int8/'
+GP=internal/handler/catalog/get_product_label_gen.go
+run "找不到时返回空: 变成 NOT_FOUND"              $GP 's/return connect\.NewResponse\(&catalogv1\.GetProductLabelResponse\{\}\), nil/return nil, apierr.NotFound("x")/'
+run "找不到时返回空: 找到了没设 found"             $GP 's/\n\s+Found: true,//'
 TP=gen/db/catalog.list-labels-by-pairs.sql.go
 run "组属于: 按列各自属于(交叉组合)"            $TP 's/EXISTS \(SELECT 1 FROM [^\n]*tup2\.n = tup1\.n\)/(t2.product_code = ANY(\$1::text[])) AND (t2.label_code = ANY(\$2::text[]))/'
 run "组属于: 没有按下标对齐"                    $TP 's/ AND tup2\.n = tup1\.n//'

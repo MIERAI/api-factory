@@ -39,6 +39,9 @@ const (
 	// SaleServiceListCurrentPricesProcedure is the fully-qualified name of the SaleService's
 	// ListCurrentPrices RPC.
 	SaleServiceListCurrentPricesProcedure = "/factory.sales.v1.SaleService/ListCurrentPrices"
+	// SaleServiceListEffectivePriceChangesProcedure is the fully-qualified name of the SaleService's
+	// ListEffectivePriceChanges RPC.
+	SaleServiceListEffectivePriceChangesProcedure = "/factory.sales.v1.SaleService/ListEffectivePriceChanges"
 	// SaleServiceListPricesAsOfProcedure is the fully-qualified name of the SaleService's
 	// ListPricesAsOf RPC.
 	SaleServiceListPricesAsOfProcedure = "/factory.sales.v1.SaleService/ListPricesAsOf"
@@ -57,6 +60,8 @@ const (
 type SaleServiceClient interface {
 	// 店舗の全商品について、基準日までに始まった売価のうち最新の 1 件をページごとに返す
 	ListCurrentPrices(context.Context, *connect.Request[v1.ListCurrentPricesRequest]) (*connect.Response[v1.ListCurrentPricesResponse], error)
+	// 店舗と指示日を指定して、売価が実際に変わる売価変更の指示を返す
+	ListEffectivePriceChanges(context.Context, *connect.Request[v1.ListEffectivePriceChangesRequest]) (*connect.Response[v1.ListEffectivePriceChangesResponse], error)
 	// 店舗の、基準日に有効な売価を返す
 	ListPricesAsOf(context.Context, *connect.Request[v1.ListPricesAsOfRequest]) (*connect.Response[v1.ListPricesAsOfResponse], error)
 	// 指定した売上日の、店舗別の売上を返す(分页なし)
@@ -82,6 +87,12 @@ func NewSaleServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			httpClient,
 			baseURL+SaleServiceListCurrentPricesProcedure,
 			connect.WithSchema(saleServiceMethods.ByName("ListCurrentPrices")),
+			connect.WithClientOptions(opts...),
+		),
+		listEffectivePriceChanges: connect.NewClient[v1.ListEffectivePriceChangesRequest, v1.ListEffectivePriceChangesResponse](
+			httpClient,
+			baseURL+SaleServiceListEffectivePriceChangesProcedure,
+			connect.WithSchema(saleServiceMethods.ByName("ListEffectivePriceChanges")),
 			connect.WithClientOptions(opts...),
 		),
 		listPricesAsOf: connect.NewClient[v1.ListPricesAsOfRequest, v1.ListPricesAsOfResponse](
@@ -113,16 +124,22 @@ func NewSaleServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 
 // saleServiceClient implements SaleServiceClient.
 type saleServiceClient struct {
-	listCurrentPrices *connect.Client[v1.ListCurrentPricesRequest, v1.ListCurrentPricesResponse]
-	listPricesAsOf    *connect.Client[v1.ListPricesAsOfRequest, v1.ListPricesAsOfResponse]
-	listStoreSales    *connect.Client[v1.ListStoreSalesRequest, v1.ListStoreSalesResponse]
-	listTopSales      *connect.Client[v1.ListTopSalesRequest, v1.ListTopSalesResponse]
-	listTopStores     *connect.Client[v1.ListTopStoresRequest, v1.ListTopStoresResponse]
+	listCurrentPrices         *connect.Client[v1.ListCurrentPricesRequest, v1.ListCurrentPricesResponse]
+	listEffectivePriceChanges *connect.Client[v1.ListEffectivePriceChangesRequest, v1.ListEffectivePriceChangesResponse]
+	listPricesAsOf            *connect.Client[v1.ListPricesAsOfRequest, v1.ListPricesAsOfResponse]
+	listStoreSales            *connect.Client[v1.ListStoreSalesRequest, v1.ListStoreSalesResponse]
+	listTopSales              *connect.Client[v1.ListTopSalesRequest, v1.ListTopSalesResponse]
+	listTopStores             *connect.Client[v1.ListTopStoresRequest, v1.ListTopStoresResponse]
 }
 
 // ListCurrentPrices calls factory.sales.v1.SaleService.ListCurrentPrices.
 func (c *saleServiceClient) ListCurrentPrices(ctx context.Context, req *connect.Request[v1.ListCurrentPricesRequest]) (*connect.Response[v1.ListCurrentPricesResponse], error) {
 	return c.listCurrentPrices.CallUnary(ctx, req)
+}
+
+// ListEffectivePriceChanges calls factory.sales.v1.SaleService.ListEffectivePriceChanges.
+func (c *saleServiceClient) ListEffectivePriceChanges(ctx context.Context, req *connect.Request[v1.ListEffectivePriceChangesRequest]) (*connect.Response[v1.ListEffectivePriceChangesResponse], error) {
+	return c.listEffectivePriceChanges.CallUnary(ctx, req)
 }
 
 // ListPricesAsOf calls factory.sales.v1.SaleService.ListPricesAsOf.
@@ -149,6 +166,8 @@ func (c *saleServiceClient) ListTopStores(ctx context.Context, req *connect.Requ
 type SaleServiceHandler interface {
 	// 店舗の全商品について、基準日までに始まった売価のうち最新の 1 件をページごとに返す
 	ListCurrentPrices(context.Context, *connect.Request[v1.ListCurrentPricesRequest]) (*connect.Response[v1.ListCurrentPricesResponse], error)
+	// 店舗と指示日を指定して、売価が実際に変わる売価変更の指示を返す
+	ListEffectivePriceChanges(context.Context, *connect.Request[v1.ListEffectivePriceChangesRequest]) (*connect.Response[v1.ListEffectivePriceChangesResponse], error)
 	// 店舗の、基準日に有効な売価を返す
 	ListPricesAsOf(context.Context, *connect.Request[v1.ListPricesAsOfRequest]) (*connect.Response[v1.ListPricesAsOfResponse], error)
 	// 指定した売上日の、店舗別の売上を返す(分页なし)
@@ -170,6 +189,12 @@ func NewSaleServiceHandler(svc SaleServiceHandler, opts ...connect.HandlerOption
 		SaleServiceListCurrentPricesProcedure,
 		svc.ListCurrentPrices,
 		connect.WithSchema(saleServiceMethods.ByName("ListCurrentPrices")),
+		connect.WithHandlerOptions(opts...),
+	)
+	saleServiceListEffectivePriceChangesHandler := connect.NewUnaryHandler(
+		SaleServiceListEffectivePriceChangesProcedure,
+		svc.ListEffectivePriceChanges,
+		connect.WithSchema(saleServiceMethods.ByName("ListEffectivePriceChanges")),
 		connect.WithHandlerOptions(opts...),
 	)
 	saleServiceListPricesAsOfHandler := connect.NewUnaryHandler(
@@ -200,6 +225,8 @@ func NewSaleServiceHandler(svc SaleServiceHandler, opts ...connect.HandlerOption
 		switch r.URL.Path {
 		case SaleServiceListCurrentPricesProcedure:
 			saleServiceListCurrentPricesHandler.ServeHTTP(w, r)
+		case SaleServiceListEffectivePriceChangesProcedure:
+			saleServiceListEffectivePriceChangesHandler.ServeHTTP(w, r)
 		case SaleServiceListPricesAsOfProcedure:
 			saleServiceListPricesAsOfHandler.ServeHTTP(w, r)
 		case SaleServiceListStoreSalesProcedure:
@@ -219,6 +246,10 @@ type UnimplementedSaleServiceHandler struct{}
 
 func (UnimplementedSaleServiceHandler) ListCurrentPrices(context.Context, *connect.Request[v1.ListCurrentPricesRequest]) (*connect.Response[v1.ListCurrentPricesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.sales.v1.SaleService.ListCurrentPrices is not implemented"))
+}
+
+func (UnimplementedSaleServiceHandler) ListEffectivePriceChanges(context.Context, *connect.Request[v1.ListEffectivePriceChangesRequest]) (*connect.Response[v1.ListEffectivePriceChangesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.sales.v1.SaleService.ListEffectivePriceChanges is not implemented"))
 }
 
 func (UnimplementedSaleServiceHandler) ListPricesAsOf(context.Context, *connect.Request[v1.ListPricesAsOfRequest]) (*connect.Response[v1.ListPricesAsOfResponse], error) {

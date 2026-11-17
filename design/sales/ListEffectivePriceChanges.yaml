@@ -1,0 +1,44 @@
+# ============================================================================
+# ListEffectivePriceChanges: 実際に売価が変わる指示だけ(固定条件 の例)
+# ============================================================================
+API: ListEffectivePriceChanges
+说明: 店舗と指示日を指定して、売価が実際に変わる売価変更の指示を返す
+背景: |
+  新売価が旧売価と同じ指示は店舗に送らない(何も変わらない)。ただし 取引ID 99999999(強制送信)は同じでも送る。
+  新売価・旧売価が空の指示は比較できない → 送らない(空は「変わる」とも「変わらない」とも言えない)
+负责人: sales-team
+风险: 中
+
+种类: 多条
+输出行名: EffectivePriceChange
+数据来源: price_changes
+
+输入:
+  store_code: { 类型: 整数32, 必填: 是, 范围: "> 0", 说明: 店舗コード, 筛选: store_code 等于 }
+  proc_date:  { 类型: 日期,   必填: 是, 说明: 指示日, 筛选: proc_date 等于 }
+
+固定条件:
+  - new_price <> old_price 或者 deal_id = 99999999
+
+输出:
+  product_code: 商品コード
+  new_price:    新売価
+  old_price:    旧売価
+  deal_id:      取引ID
+
+排序: [product_code 小到大]
+上限: 1000
+
+例子:
+  准备数据:
+    price_changes:
+      - { store_code: 1, product_code: A, proc_date: 2026-11-20, new_price: 100, old_price: 120, deal_id: null }
+      - { store_code: 1, product_code: B, proc_date: 2026-11-20, new_price: 100, old_price: 100, deal_id: null }       # 変わらない → 送らない
+      - { store_code: 1, product_code: C, proc_date: 2026-11-20, new_price: 100, old_price: 100, deal_id: 99999999 }   # 強制送信 → 送る
+      - { store_code: 1, product_code: D, proc_date: 2026-11-20, new_price: 100, old_price: null, deal_id: null }      # 旧売価が空 → 比較できない
+      - { store_code: 1, product_code: E, proc_date: 2026-11-20, new_price: null, old_price: 100, deal_id: 99999999 }  # 空でも強制送信は送る
+      - { store_code: 1, product_code: F, proc_date: 2026-11-20, new_price: 90, old_price: 100, deal_id: 5 }
+  用例:
+    - 说明: 売価が変わるもの + 強制送信。変わらないもの(B)と比較できないもの(D)は返さない
+      输入: { store_code: 1, proc_date: 2026-11-20 }
+      结果: { price_changes: [{ product_code: A }, { product_code: C }, { product_code: E }, { product_code: F }] }

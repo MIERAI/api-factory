@@ -119,9 +119,17 @@ func selectColumns(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalog)
 	default:
 		return nil, fmt.Errorf("datasource.columns is required for pattern %s", s.PatternKind())
 	}
+	extra := map[string]bool{} // 出口加的响应字段(found 等)不是列
+	if ex != nil && ex.FromTable && ex.ExtraFor != nil {
+		for _, f := range ex.ExtraFor(s.Pattern) {
+			extra[f.Name] = true
+		}
+	}
 	var cols []string
 	for i := 0; i < msg.Fields().Len(); i++ {
-		cols = append(cols, string(msg.Fields().Get(i).Name()))
+		if n := string(msg.Fields().Get(i).Name()); !extra[n] {
+			cols = append(cols, n)
+		}
 	}
 	if err := check(cols, "response "+string(msg.Name())); err != nil {
 		return nil, err

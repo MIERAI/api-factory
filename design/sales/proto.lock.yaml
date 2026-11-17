@@ -11,6 +11,11 @@
         discount: 4
         sales_date: 1
         store_code: 2
+    EffectivePriceChange:
+        deal_id: 4
+        new_price: 2
+        old_price: 3
+        product_code: 1
     ListCurrentPricesRequest:
         as_of: 4
         page_size: 1
@@ -19,6 +24,11 @@
     ListCurrentPricesResponse:
         next_page_token: 2
         store_prices: 1
+    ListEffectivePriceChangesRequest:
+        proc_date: 2
+        store_code: 1
+    ListEffectivePriceChangesResponse:
+        price_changes: 1
     ListPricesAsOfRequest:
         as_of: 2
         store_code: 1

@@ -13,6 +13,7 @@ import (
 	"apifactory/factory/kinds"
 	"apifactory/factory/sources"
 	"apifactory/factory/spec"
+	"apifactory/factory/where"
 )
 
 func coreType(table string, c catColumn) (core.Type, error) {
@@ -21,6 +22,19 @@ func coreType(table string, c catColumn) (core.Type, error) {
 		return core.Type{}, fmt.Errorf("%s.%s: 列类型 %s 核心代数还不支持", table, c.Name, c.Type)
 	}
 	return core.Type{Kind: k, Nullable: !c.NotNull}, nil
+}
+
+// WhereTypes: 固定条件(factory/where)用的列的类型(表的逻辑列;设计编译器也用它检查)。
+func WhereTypes(cols []Column) func(string) (core.Type, bool) {
+	return func(name string) (core.Type, bool) {
+		for _, c := range cols {
+			if c.Name == name {
+				k, ok := sqlKind(c.Type)
+				return core.Type{Kind: k, Nullable: !c.NotNull}, ok && k != core.JSON
+			}
+		}
+		return core.Type{}, false
+	}
 }
 
 func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []resolvedFilter, cat *catalog) (*core.Pipeline, error) {
@@ -59,6 +73,13 @@ func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []re
 		e, err := lib.Filter(cell, cols, f.Name, members...)
 		if err != nil {
 			return nil, fmt.Errorf("筛选 %s: %w", f.Name, err)
+		}
+		parts.Filters = append(parts.Filters, e)
+	}
+	for _, w := range s.Datasource.Where { // 固定条件: 和筛选一样作用在来源的列上
+		e, err := where.Parse(w, WhereTypes(cat.tables[table]))
+		if err != nil {
+			return nil, err
 		}
 		parts.Filters = append(parts.Filters, e)
 	}

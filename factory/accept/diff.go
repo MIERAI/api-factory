@@ -73,6 +73,7 @@ type diffEnv struct {
 	groupCols map[string]bool                // API 部分"每组取一条"的分组列: 值域缩小到 2 个,组里才有多个候选
 	tuples    []tupleGroup                   // 组的列表(组属于): 每个字段是一个列表参数,请求 / 求值前按下标对齐(align)
 	keySets   [][]string                     // 唯一的列的组合(主键 / 唯一约束 / 多版本来源的自然键);nil = 还没查
+	ties      [][2]string                    // 条件里互相比较的两列(固定条件: 税込 = 旧税込): 数据里要经常相等
 }
 
 // tupleGroup: 一个组的列表输入。members[i] = 第 i 个字段的参数名(ir.MemberParam),cols[i] = 它的列。
@@ -111,19 +112,31 @@ func (e *diffEnv) collect() {
 				e.nkCols[k] = true
 			}
 		}
-		// 来源部分的条件: cmp(列, 常量) → 这一列的数据要能碰到这个常量
-		if st.Kind == "filter" && strings.HasPrefix(st.From, "来源 ") {
+		// 条件里的 cmp(列, 常量) → 这一列的数据要能碰到这个常量(来源的删除值 / 固定条件的常量);
+		// cmp(列, 列) → 两列要经常相等(否则 "=" 和 "<>" 的分支总是一样)
+		if st.Kind == "filter" {
 			var find func(x *core.Expr)
+			name := func(c *core.Expr) string {
+				if raw, ok := rawOf[c.Name]; ok && strings.HasPrefix(st.From, "来源 ") {
+					return raw
+				}
+				return c.Name
+			}
 			find = func(x *core.Expr) {
 				if x == nil {
 					return
 				}
-				if x.Op == "cmp" && len(x.Args) == 2 && x.Args[0].Op == "col" && x.Args[1].Op == "const" && x.Args[1].Value != nil {
-					name := x.Args[0].Name
-					if raw, ok := rawOf[name]; ok {
-						name = raw
+				if x.Op == "cmp" && len(x.Args) == 2 {
+					a, b := x.Args[0], x.Args[1]
+					if a.Op == "const" && b.Op == "col" {
+						a, b = b, a
 					}
-					e.constFor[name] = append(e.constFor[name], x.Args[1].Value)
+					switch {
+					case a.Op == "col" && b.Op == "const" && b.Value != nil:
+						e.constFor[name(a)] = append(e.constFor[name(a)], b.Value)
+					case a.Op == "col" && b.Op == "col":
+						e.ties = append(e.ties, [2]string{name(a), name(b)})
+					}
 				}
 				for _, a := range x.Args {
 					find(a)
@@ -697,6 +710,14 @@ func (e *diffEnv) value(c core.NamedType, i int, unique bool) any {
 			}
 			obj[k.key] = v
 		}
+		for _, t := range e.ties { // 互相比较的两列: 约 1/3 的行相等
+			ka, kb := e.jsonKeyOf(c.Name, t[0]), e.jsonKeyOf(c.Name, t[1])
+			if ka != "" && kb != "" && e.rnd.Intn(3) == 0 {
+				if v, ok := obj[ka]; ok {
+					obj[kb] = v
+				}
+			}
+		}
 		// 自然键的组合空间很大(自然键的列多,随机的值几乎不会重复)→ 版本链只有一条,版本的机制测不到。
 		// 约 1/3 的行沿用之前某一行的整组自然键(同一个键的新版本)
 		if e.nkSpace >= diffRows*3/5*max(e.scale, 1) && len(e.nkSeen) > 0 && e.rnd.Intn(3) == 0 {
@@ -717,6 +738,16 @@ func (e *diffEnv) value(c core.NamedType, i int, unique bool) any {
 		return string(b)
 	}
 	return e.scalarFor(c.Name, c.Type.Kind, unique, i)
+}
+
+// jsonKeyOf: JSON 列里,投影成逻辑列 col 的键(没有 → "")。
+func (e *diffEnv) jsonKeyOf(jsonCol, col string) string {
+	for _, k := range e.json[jsonCol] {
+		if e.keyCol[k.key] == col {
+			return k.key
+		}
+	}
+	return ""
 }
 
 // scalarFor: 某一列的值(这一列有范围值域时从里面取)。
@@ -870,9 +901,17 @@ func (e *diffEnv) load() (int, int, error) {
 		conn := e.conn
 		physical := map[string]any{}
 		for _, c := range e.cols {
-			v := e.value(c, i, unique[c.Name])
-			physical[c.Name] = v
-			args = append(args, sqlValue(v))
+			physical[c.Name] = e.value(c, i, unique[c.Name])
+		}
+		for _, t := range e.ties { // 普通的表: 互相比较的两列约 1/3 的行相等
+			_, okA := physical[t[0]]
+			_, okB := physical[t[1]]
+			if okA && okB && !unique[t[1]] && e.rnd.Intn(3) == 0 {
+				physical[t[1]] = physical[t[0]]
+			}
+		}
+		for _, c := range e.cols {
+			args = append(args, sqlValue(physical[c.Name]))
 		}
 		if sh != nil { // 分库: 写进分库键对应的库
 			key := physical[sh.Column]
@@ -1784,6 +1823,8 @@ type sensTarget struct {
 	desc string
 	// mutate: 对流水线的另一种改动(每组取一条的顺序反过来 / 可以为空的键去掉空值 …)。nil = 把 node 换成恒真
 	mutate func(p *core.Pipeline) *core.Pipeline
+	// falseNode: 把 node 换成恒假(「或者」的一个分支)
+	falseNode bool
 }
 
 // onlyKeysOut: 第 i 步(每组取一条)之后的投影只输出分组键。
@@ -1817,7 +1858,7 @@ func (t sensTarget) mutated(p *core.Pipeline) *core.Pipeline {
 	}
 	mut := *p
 	mut.Steps = append([]core.Step(nil), p.Steps...)
-	mut.Steps[t.step].Pred = replaceExpr(p.Steps[t.step].Pred, t.node, core.Const(true, core.Type{Kind: core.Bool}))
+	mut.Steps[t.step].Pred = replaceExpr(p.Steps[t.step].Pred, t.node, core.Const(!t.falseNode, core.Type{Kind: core.Bool}))
 	return &mut
 }
 
@@ -1837,6 +1878,20 @@ func (e *diffEnv) sensTargets() []sensTarget {
 			continue
 		}
 		targets = append(targets, sensTarget{step: i, node: st.Pred, desc: st.From})
+		// API 的固定条件(没有请求参数)可能是 UNKNOWN(列为空)时: 把 UNKNOWN 当成 TRUE(空值的行留下)的实现要看得出来
+		if !source && !refersParam(st.Pred) && refersColumn(st.Pred) {
+			if schema, err := core.Check(&core.Pipeline{Steps: p.Steps[:i], Params: p.Params}); err == nil {
+				if t, err := p.TypeOf(st.Pred, schema); err == nil && t.Nullable {
+					i, pred := i, st.Pred
+					targets = append(targets, sensTarget{node: pred, desc: st.From + " 的空值(不确定当成成立)", mutate: func(p *core.Pipeline) *core.Pipeline {
+						mut := *p
+						mut.Steps = append([]core.Step(nil), p.Steps...)
+						mut.Steps[i].Pred = core.Or(pred, core.IsNull(pred))
+						return &mut
+					}})
+				}
+			}
+		}
 		var walk func(x *core.Expr)
 		walk = func(x *core.Expr) {
 			if x == nil {
@@ -1845,6 +1900,11 @@ func (e *diffEnv) sensTargets() []sensTarget {
 			if x.Op == "and" {
 				for j, a := range x.Args {
 					targets = append(targets, sensTarget{step: i, node: a, desc: fmt.Sprintf("%s 的第 %d 项", st.From, j+1)})
+				}
+			}
+			if x.Op == "or" && !refersParam(x) { // 固定条件的「或者」: 每个分支换成 FALSE(漏掉这个分支)也要看得出来
+				for j, a := range x.Args {
+					targets = append(targets, sensTarget{step: i, node: a, desc: fmt.Sprintf("%s 的「或者」第 %d 项", st.From, j+1), falseNode: true})
 				}
 			}
 			if x.Op == "in_tuples" { // 组属于: 按列各自"属于"(组的交叉组合也算命中)的实现要看得出来
@@ -1945,7 +2005,7 @@ func (e *diffEnv) sensTargets() []sensTarget {
 			continue
 		}
 		for _, k := range st.Keys {
-			if e.narrowedOut(k) { // API 的必填条件拒绝空值(类型收窄后输出里这一列不为空): 空键的组本来就进不了结果,去掉它们是等价的
+			if e.narrowedOut(k) || e.fixedCols()[k] { // 必填的等于固定了这一列: 空值的行不会通过 // API 的必填条件拒绝空值(类型收窄后输出里这一列不为空): 空键的组本来就进不了结果,去掉它们是等价的
 				continue
 			}
 			if t, ok := schema.Col(k); ok && t.Nullable {
@@ -1959,6 +2019,23 @@ func (e *diffEnv) sensTargets() []sensTarget {
 		}
 	}
 	return out
+}
+
+// refersParam: 表达式里有没有请求参数(param / absent / 列表参数的元件)。
+func refersParam(x *core.Expr) bool {
+	if x == nil {
+		return false
+	}
+	switch x.Op {
+	case "param", "absent", "in_list", "starts_with", "tuple_after", "in_tuples":
+		return true
+	}
+	for _, a := range x.Args {
+		if refersParam(a) {
+			return true
+		}
+	}
+	return false
 }
 
 // uniquePrefix: 排序的这几列(输出的名字)能不能唯一地确定一行。

@@ -1,5 +1,11 @@
 # 由设计编译器维护,不要手改。proto 的字段编号对外发布后不能变: 只追加,删掉的字段编号保留(reserved)
 字段编号:
+    GetProductLabelRequest:
+        label_code: 2
+        product_code: 1
+    GetProductLabelResponse:
+        found: 2
+        text: 1
     LabelChange:
         changed_at: 3
         label_code: 1

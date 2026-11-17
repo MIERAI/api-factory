@@ -62,6 +62,7 @@ type ReviewDecision struct {
 type Pattern struct {
 	Kind            string         `yaml:"kind"`
 	NotFoundMessage string         `yaml:"not_found_message"` // get_by_id: "job not found: {job_id}"
+	NotFoundEmpty   bool           `yaml:"not_found_empty,omitempty"` // get_by_id: 找不到时返回 OK + found = false(不是 NOT_FOUND)
 	OrderBy         []string       `yaml:"order_by"`          // list_keyset: 游标列,最后一列必须唯一
 	Direction       string         `yaml:"direction"`         // desc / asc / mixed(每列的方向在 directions;分页不能 mixed)
 	Directions      []string       `yaml:"directions,omitempty"` // direction = mixed 时: 每列的方向(和 order_by 一一对应)
@@ -94,6 +95,8 @@ type Datasource struct {
 	Columns []string `yaml:"columns"`
 	// Rename: 响应字段 → 来源的列(字段名和列名不同时)。筛选 / 每组取一条 用列名,排序 用响应字段名(投影之后)
 	Rename map[string]string `yaml:"rename,omitempty"`
+	// Where: 固定条件(不来自请求;factory/where 的写法,列名是来源的列),和筛选一起作用
+	Where []string `yaml:"where,omitempty"`
 	// SQL: 逃生口(JOIN / 聚合 / 复杂条件)。写了 sql 就不写 filters/columns;
 	// table 可以写,表示结果列来自哪张表(用于查领域层的 enum 映射)
 	SQL string `yaml:"sql"`

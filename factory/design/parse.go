@@ -318,6 +318,7 @@ func seqOrOne(n *yaml.Node) []*yaml.Node {
 // ---------------------------------------------------------------------------
 
 type API struct {
+	Where      []string // 固定条件(factory/where)
 	Path       string
 	Name       string // ListJobs
 	Desc       string
@@ -378,7 +379,7 @@ func loadAPI(path string) (*API, error) {
 	a := &API{
 		Path: path, Name: str(root, "API"), Desc: str(root, "说明"), Background: str(root, "背景"),
 		Owner: str(root, "负责人"), Source: str(root, "数据来源"), UseColumns: strList(get(root, "使用的列")),
-		InputRules: strList(get(root, "输入之间的规则")),
+		InputRules: strList(get(root, "输入之间的规则")), Where: strList(get(root, "固定条件")),
 		ItemName:   str(root, "输出行名"), ListField: str(root, "输出列表名"),
 		Fixtures: get(get(root, "例子"), "准备数据"),
 	}
@@ -592,7 +593,7 @@ func (r tableReader) Column(name, desc, enum string) {
 
 // TopKeys: 设计稿顶层的键(所有种类共用;各种类另外的键在出口的注册表里)。
 func TopKeys() []string {
-	return []string{"API", "说明", "背景", "负责人", "风险", "种类", "数据来源", "输入", "输入之间的规则",
+	return []string{"API", "说明", "背景", "负责人", "风险", "种类", "数据来源", "输入", "输入之间的规则", "固定条件",
 		"输出", "输出行名", "输出列表名", "业务规则", "例子", "计算例子"}
 }
 

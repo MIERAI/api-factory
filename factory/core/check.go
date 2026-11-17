@@ -211,6 +211,9 @@ func checkOrder(cur Schema, order []SortKey, at string, add func(string, ...any)
 	}
 }
 
+// TypeOf: 表达式在 schema 上的类型(差分测试判断条件能不能是 UNKNOWN 用)。
+func (p *Pipeline) TypeOf(e *Expr, cur Schema) (Type, error) { return p.typeOf(e, cur) }
+
 func (p *Pipeline) typeOf(e *Expr, cur Schema) (Type, error) {
 	boolT := func(nullable bool) Type { return Type{Kind: Bool, Nullable: nullable} }
 	switch e.Op {

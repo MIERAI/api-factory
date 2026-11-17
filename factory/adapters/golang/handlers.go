@@ -377,6 +377,10 @@ func genGetByID(g *genCtx) (string, error) {
 	if len(nfArgs) > 0 {
 		nf += ", " + strings.Join(nfArgs, ", ")
 	}
+	notFound := fmt.Sprintf("return nil, apierr.NotFound(%s)", nf)
+	if g.api.GetByID.NotFoundEmpty { // 找不到时: 返回空(found = false,其他字段不设置)
+		notFound = fmt.Sprintf("return connect.NewResponse(&%s{}), nil", g.pbType(out))
+	}
 
 	// 响应
 	row, _ := g.db.rowFields(g.query)
@@ -394,6 +398,10 @@ func genGetByID(g *genCtx) (string, error) {
 	} else {
 		for i := range out.Fields {
 			f := &out.Fields[i]
+			if g.api.GetByID.NotFoundEmpty && f.Name == "found" { // 找不到时: 返回空
+				resLines = append(resLines, "Found: true,")
+				continue
+			}
 			col, ok := fieldByNorm(row, f.Name)
 			if !ok {
 				return "", fmt.Errorf("response field %s has no matching query column", f.Name)
@@ -412,7 +420,7 @@ func (h *Handler) %s(ctx context.Context, req *connect.Request[%s]) (*connect.Re
 	row, err := %s
 	if err != nil {
 		if apierr.IsNoRows(err) {
-			return nil, apierr.NotFound(%s)
+			%s
 		}
 		return nil, err
 	}
@@ -420,7 +428,7 @@ func (h *Handler) %s(ctx context.Context, req *connect.Request[%s]) (*connect.Re
 		%s
 	}), nil
 }
-`, g.api.Method, g.api.Summary, g.api.Method, g.pbType(in), g.pbType(out), call, nf, g.pbType(out), strings.Join(resLines, "\n"))
+`, g.api.Method, g.api.Summary, g.api.Method, g.pbType(in), g.pbType(out), call, notFound, g.pbType(out), strings.Join(resLines, "\n"))
 	return g.header(body), nil
 }
 

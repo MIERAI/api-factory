@@ -21,6 +21,7 @@ import (
 	"apifactory/factory/kinds"
 	"apifactory/factory/sources"
 	"apifactory/factory/spec"
+	"apifactory/factory/where"
 )
 
 type Config struct {
@@ -532,6 +533,16 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 		}
 	case a.Exit.FromTable: // 响应的字段 = 数据来源的列
 		resp.Fields = outFields(table)
+		if a.Exit.ExtraFor != nil {
+			for _, x := range a.Exit.ExtraFor(a.Pattern) {
+				for _, f := range resp.Fields {
+					if f.Name == x.Name {
+						e.add(1, "输出 %s 和出口加的字段重名(%s)", x.Name, a.Exit.Name)
+					}
+				}
+				resp.Fields = append(resp.Fields, &field{Name: x.Name, Type: x.Type, kind: x.Kind, Desc: x.Desc, Rules: x.Rules})
+			}
+		}
 	default: // 响应的字段 = 设计稿的 输出(计算)
 		resp.Fields = outFields("")
 	}
@@ -546,7 +557,15 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 	s.API = spec.API{RPC: c.pkg + "." + c.service + "/" + a.Name, Owner: a.Owner, RiskLevel: a.Risk, Description: a.Background}
 	s.Pattern = a.Pattern
 	s.Pattern.Kind = a.Kind
-	s.Datasource = spec.Datasource{Table: table, Filters: filters}
+	s.Datasource = spec.Datasource{Table: table, Filters: filters, Where: a.Where}
+	for _, w := range a.Where { // 固定条件: 写法 / 列名 / 常量的类型在这里就检查
+		if _, err := where.Parse(w, compiler.WhereTypes(c.cat[table])); err != nil {
+			e.add(1, "%v", err)
+		}
+	}
+	if err := e.err(); err != nil {
+		return nil, "", err
+	}
 	if len(rename) > 0 {
 		s.Datasource.Rename = rename
 	}

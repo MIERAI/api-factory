@@ -28,3 +28,14 @@
       valid_from:   適用開始日(含)
       valid_to:     適用終了日(含;空 = 期限なし)
       price:        売価
+  price_changes:
+    说明: 売価変更の指示(店舗 × 商品 × 指示日)
+    主键: [store_code, product_code, proc_date]
+    更新方式: 可以更新
+    列:
+      store_code:   店舗コード
+      product_code: 商品コード
+      proc_date:    指示日
+      new_price:    新売価(未定は空)
+      old_price:    旧売価(新規は空)
+      deal_id:      取引ID(空 = 通常の売変。99999999 = 強制送信)

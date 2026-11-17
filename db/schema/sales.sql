@@ -21,3 +21,14 @@ CREATE TABLE IF NOT EXISTS store_prices (
     price        NUMERIC NOT NULL CHECK (price >= 0),
     PRIMARY KEY (store_code, product_code, valid_from)
 );
+
+-- 売価変更の指示(新売価・旧売価・取引ID。取引ID が空 = 通常の売変)。固定条件(列どうしの比較・定数)の例
+CREATE TABLE IF NOT EXISTS price_changes (
+    store_code   INTEGER NOT NULL CHECK (store_code > 0),
+    product_code TEXT    NOT NULL,
+    proc_date    DATE    NOT NULL,
+    new_price    INTEGER,
+    old_price    INTEGER,
+    deal_id      BIGINT,
+    PRIMARY KEY (store_code, product_code, proc_date)
+);
