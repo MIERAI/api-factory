@@ -281,10 +281,86 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 		}
 	}
 
+	// 没有输入的 API: 只有一种请求,能变的只有数据 → 跑好几份数据,覆盖条件累计起来判定
+	// (例: 前N条 取最新的 1 行,"最新的那一行被删除"在一份数据里很难碰到)
+	if len(env.userParams()) == 0 {
+		var results []Result
+		var total coverage
+		for k := 0; k < 6; k++ {
+			if k > 0 {
+				env.rnd = rand.New(rand.NewSource(seed0 + int64(100+k)*7919))
+				env.rows, env.anchors = nil, nil
+				if inserted, rejected, err = env.load(); err != nil {
+					return fail("数据: %v", err)
+				}
+				if err := env.loadAnchors(); err != nil {
+					continue
+				}
+				reqs = env.requests()
+			}
+			rs, cov := env.measure(url, reqs, inserted, rejected, fmt.Sprintf("数据 %d ", k+1))
+			results = append(results, rs...)
+			total.add(cov)
+		}
+		ok, text := total.verdict(env)
+		text += " / 没有输入: 6 份数据累计"
+		return append(results, Result{Spec: api.ID, Suite: "diff", Case: "覆盖条件", Passed: ok, Detail: text})
+	}
+	results, cov := env.measure(url, reqs, inserted, rejected, "")
+	ok, text := cov.verdict(env)
+	if attempts > 1 {
+		text += fmt.Sprintf(" / 数据生成 %d 次(覆盖条件不满足时换种子、数据加倍重来;最后 %d 倍)", attempts, env.scale)
+	}
+	return append(results, Result{Spec: api.ID, Suite: "diff", Case: "覆盖条件", Passed: ok, Detail: text})
+}
+
+// coverage: 一份(或累计的几份)数据上的覆盖。
+type coverage struct {
+	inserted, rejected, anchors int
+	hits                        map[string]int // 0 行 / 1 行 / 多行 / 不合法 / 出口的标签
+	hasVersions                 bool
+	versions, removed           int
+	hasPick                     bool
+	pick                        int
+	hasRows                     bool
+	rowsMin, rowsNeed, rowsGot  int
+	sensDesc                    []string
+	sensN                       []int
+	distinct                    int
+}
+
+func (c *coverage) add(o coverage) {
+	c.inserted, c.rejected, c.anchors = c.inserted+o.inserted, c.rejected+o.rejected, c.anchors+o.anchors
+	if c.hits == nil {
+		c.hits = map[string]int{}
+	}
+	for k, v := range o.hits {
+		c.hits[k] += v
+	}
+	c.hasVersions, c.versions, c.removed = c.hasVersions || o.hasVersions, c.versions+o.versions, c.removed+o.removed
+	c.hasPick, c.pick = c.hasPick || o.hasPick, c.pick+o.pick
+	c.hasRows, c.rowsGot = c.hasRows || o.hasRows, c.rowsGot+o.rowsGot
+	if o.hasRows {
+		c.rowsMin, c.rowsNeed = o.rowsMin, o.rowsNeed
+	}
+	if c.sensDesc == nil {
+		c.sensDesc, c.sensN = o.sensDesc, make([]int, len(o.sensN))
+	}
+	for i := range o.sensN {
+		if i < len(c.sensN) {
+			c.sensN[i] += o.sensN[i]
+		}
+	}
+	c.distinct += o.distinct
+}
+
+// measure: 在当前的数据上跑请求和出口的用例,并统计覆盖。prefix: 用例名的前缀(几份数据时区分)。
+func (env *diffEnv) measure(url string, reqs []core.Params, inserted, rejected int, prefix string) ([]Result, coverage) {
+	api, ex := env.api, env.exit
 	var results []Result
-	hits := map[string]int{} // 覆盖: 0 行 / 1 行 / 多行 / 出口的标签
+	hits := map[string]int{}
 	for i, params := range reqs {
-		name := fmt.Sprintf("#%02d %s", i+1, env.describe(params))
+		name := fmt.Sprintf("%s#%02d %s", prefix, i+1, env.describe(params))
 		ok, detail, n, tag := env.runOne(url, params)
 		if tag != "" {
 			hits[tag]++
@@ -304,61 +380,75 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 	if ex.DiffExtra != nil { // 出口自己的用例(分页: 途中改条件 / 非法 token …)
 		for _, c := range ex.DiffExtra(env) {
 			if c.Fail != "" {
-				results = append(results, Result{Spec: api.ID, Suite: "diff", Case: c.Name, Passed: false, Detail: c.Fail})
+				results = append(results, Result{Spec: api.ID, Suite: "diff", Case: prefix + c.Name, Passed: false, Detail: c.Fail})
 				continue
 			}
 			ok, detail := runCase(url, c.Case, &api.Response)
-			results = append(results, Result{Spec: api.ID, Suite: "diff", Case: c.Name, Passed: ok, Detail: detail})
+			results = append(results, Result{Spec: api.ID, Suite: "diff", Case: prefix + c.Name, Passed: ok, Detail: detail})
 		}
 	}
-	// 覆盖条件: 找到 / 找不到都出现;出口要求多行时(分页 / 多条)还要出现多行
-	cover := fmt.Sprintf("数据 %d 行(拒绝 %d,来源 %d 行)/ 结果 0 行 %d 次、1 行 %d 次、多行 %d 次、不合法 %d 次", inserted, rejected, len(env.anchors), hits["0"], hits["1"], hits["n"], hits["invalid"])
-	okCover := hits["0"] > 0 && hits["1"]+hits["n"] > 0
-	if len(env.userParams()) == 0 { // 没有输入: 只有一种请求,"0 行"的情况不存在
-		okCover = hits["1"]+hits["n"] > 0
-	}
-	if ex.DiffMulti && !env.atMostOneRow() {
-		okCover = okCover && hits["n"] > 0
-	}
-	if ex.DiffCover != nil {
-		cover += ex.DiffCover(api, hits)
-	}
-	// 多版本的来源(每键取一条): 多版本的键 / 被删除的键 都要 ≥ 3,否则版本的机制没有被测到
-	if versions, removed, ok := env.versionCounts(); ok {
-		cover += fmt.Sprintf(" / 来源: 多出来的旧版本 %d 行、最新是删除或逻辑删除的键 %d 个", versions, removed)
-		okCover = okCover && versions >= 3 && removed >= 3
-	}
-	// 每组取一条(API 部分): 组里有 ≥2 个候选、真的淘汰掉了行的请求要 ≥ 3,否则"取最大还是最小"没有被测到
-	if n, ok := env.pickReduced(reqs); ok {
-		cover += fmt.Sprintf(" / 每组取一条淘汰了候选的请求 %d 个", n)
-		okCover = okCover && n >= 3
-	}
-	if ex.DiffRowsNeed != nil { // 出口要的数据(分页: ≥5 行;前N条: 超过 N 行的请求 ≥3)
-		minRows, need := ex.DiffRowsNeed(api)
-		got := 0
+	cov := coverage{inserted: inserted, rejected: rejected, anchors: len(env.anchors), hits: hits}
+	cov.versions, cov.removed, cov.hasVersions = env.versionCounts()
+	cov.pick, cov.hasPick = env.pickReduced(reqs)
+	if ex.DiffRowsNeed != nil {
+		cov.hasRows = true
+		cov.rowsMin, cov.rowsNeed = ex.DiffRowsNeed(api)
 		for _, ps := range reqs {
 			if bad, err := env.invalid(env.request(ps)); err != nil || bad {
 				continue
 			}
-			if n, err := env.rowsBeforeLimit(ps); err == nil && n >= minRows {
-				got++
+			if n, err := env.rowsBeforeLimit(ps); err == nil && n >= cov.rowsMin {
+				cov.rowsGot++
 			}
 		}
-		cover += fmt.Sprintf(" / 结果 ≥%d 行的请求 %d 个(出口要 %d 个)", minRows, got, need)
-		okCover = okCover && got >= need
 	}
-	if weak, total := env.sensitivity(reqs); total > 0 {
-		cover += fmt.Sprintf(" / 起作用的条件 %d/%d", total-len(weak), total)
+	cov.sensDesc, cov.sensN, cov.distinct = env.sensCounts(reqs)
+	return results, cov
+}
+
+// verdict: 覆盖条件。找到 / 找不到都出现;出口要求多行时(分页 / 多条)还要出现多行 …
+func (c coverage) verdict(env *diffEnv) (bool, string) {
+	hits := c.hits
+	text := fmt.Sprintf("数据 %d 行(拒绝 %d,来源 %d 行)/ 结果 0 行 %d 次、1 行 %d 次、多行 %d 次、不合法 %d 次", c.inserted, c.rejected, c.anchors, hits["0"], hits["1"], hits["n"], hits["invalid"])
+	ok := hits["0"] > 0 && hits["1"]+hits["n"] > 0
+	if len(env.userParams()) == 0 { // 没有输入: "0 行"不要求
+		ok = hits["1"]+hits["n"] > 0
+	}
+	if env.exit.DiffMulti && !env.atMostOneRow() {
+		ok = ok && hits["n"] > 0
+	}
+	if env.exit.DiffCover != nil {
+		text += env.exit.DiffCover(env.api, hits)
+	}
+	// 多版本的来源(每键取一条): 多版本的键 / 被删除的键 都要 ≥ 3,否则版本的机制没有被测到
+	if c.hasVersions {
+		text += fmt.Sprintf(" / 来源: 多出来的旧版本 %d 行、最新是删除或逻辑删除的键 %d 个", c.versions, c.removed)
+		ok = ok && c.versions >= 3 && c.removed >= 3
+	}
+	// 每组取一条(API 部分): 组里有 ≥2 个候选、真的淘汰掉了行的请求要 ≥ 3
+	if c.hasPick {
+		text += fmt.Sprintf(" / 每组取一条淘汰了候选的请求 %d 个", c.pick)
+		ok = ok && c.pick >= 3
+	}
+	if c.hasRows { // 出口要的数据(分页: ≥5 行;前N条: 超过 N 行的请求 ≥3)
+		text += fmt.Sprintf(" / 结果 ≥%d 行的请求 %d 个(出口要 %d 个)", c.rowsMin, c.rowsGot, c.rowsNeed)
+		ok = ok && c.rowsGot >= c.rowsNeed
+	}
+	if len(c.sensDesc) > 0 {
+		need := min(3, c.distinct)
+		var weak []string
+		for i, d := range c.sensDesc {
+			if c.sensN[i] < need {
+				weak = append(weak, fmt.Sprintf("%s(%d 个请求)", d, c.sensN[i]))
+			}
+		}
+		text += fmt.Sprintf(" / 起作用的条件 %d/%d", len(c.sensDesc)-len(weak), len(c.sensDesc))
 		if len(weak) > 0 {
-			cover += fmt.Sprintf("(不足 3 个请求: %s)", strings.Join(weak, "、"))
-			okCover = false
+			text += fmt.Sprintf("(不足 3 个请求: %s)", strings.Join(weak, "、"))
+			ok = false
 		}
 	}
-	if attempts > 1 {
-		cover += fmt.Sprintf(" / 数据生成 %d 次(覆盖条件不满足时换种子、数据加倍重来;最后 %d 倍)", attempts, env.scale)
-	}
-	results = append(results, Result{Spec: api.ID, Suite: "diff", Case: "覆盖条件", Passed: okCover, Detail: cover})
-	return results
+	return ok, text
 }
 
 // ---------------------------------------------------------------------------
@@ -1564,50 +1654,48 @@ func (e *diffEnv) directed(reqs []core.Params, seen map[string]bool) []core.Para
 	return out
 }
 
-func (e *diffEnv) sensitivity(reqs []core.Params) (weak []string, total int) {
+// sensCounts: 每个条件(sensTargets)起作用的请求数,和合法请求的种类数。
+func (e *diffEnv) sensCounts(reqs []core.Params) (descs []string, counts []int, distinct int) {
 	p := e.api.Pipeline
 	targets := e.sensTargets()
-	if len(targets) == 0 {
-		return nil, 0
-	}
 	valid := []core.Params{}
 	for _, ps := range reqs {
 		if bad, err := e.invalid(e.request(ps)); err == nil && !bad {
 			valid = append(valid, ps)
 		}
 	}
-	eval := e.evalCanon
 	base := map[int]string{}
-	distinct := map[string]bool{}
+	seen := map[string]bool{}
 	for i, ps := range valid {
-		base[i] = eval(p, ps)
+		base[i] = e.evalCanon(p, ps)
 		b, _ := json.Marshal(ps)
-		distinct[string(b)] = true
+		seen[string(b)] = true
 	}
-	// 要求 ≥3 个请求;可能的请求本来就不到 3 种(例如没有输入的 API 只有 1 种)时,要求每一种
-	need := min(3, len(distinct))
 	for _, t := range targets {
-		if !refersColumn(t.node) { // 不引用任何列的条件(例如没有逻辑删除列时的恒真项)不会让结果变化
-			continue
-		}
 		mut := *p
 		mut.Steps = append([]core.Step(nil), p.Steps...)
 		mut.Steps[t.step].Pred = replaceExpr(p.Steps[t.step].Pred, t.node, core.Const(true, core.Type{Kind: core.Bool}))
 		n := 0
 		for i, ps := range valid {
-			if eval(&mut, ps) != base[i] {
+			if e.evalCanon(&mut, ps) != base[i] {
 				n++
 			}
 		}
-		if os.Getenv("FACTORY_DEBUG_SENS") != "" && len(valid) > 0 {
-			fmt.Fprintf(os.Stderr, "SENS %s %s: n=%d base0=%.200q mut0=%.200q\n", e.api.ID, t.desc, n, base[0], eval(&mut, valid[0]))
-		}
-		total++
-		if n < need {
-			weak = append(weak, fmt.Sprintf("%s(%d 个请求)", t.desc, n))
+		descs, counts = append(descs, t.desc), append(counts, n)
+	}
+	return descs, counts, len(seen)
+}
+
+// sensitivity: 起作用的请求不足的条件。要求 ≥3 个请求;可能的请求本来就不到 3 种时,要求每一种。
+func (e *diffEnv) sensitivity(reqs []core.Params) (weak []string, total int) {
+	descs, counts, distinct := e.sensCounts(reqs)
+	need := min(3, distinct)
+	for i, d := range descs {
+		if counts[i] < need {
+			weak = append(weak, fmt.Sprintf("%s(%d 个请求)", d, counts[i]))
 		}
 	}
-	return weak, total
+	return weak, len(descs)
 }
 
 func refersColumn(x *core.Expr) bool {

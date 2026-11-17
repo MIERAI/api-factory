@@ -140,7 +140,8 @@ func run(log *slog.Logger, build Builder) error {
 			http.Error(w, "db unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		_, _ = w.Write([]byte("ok"))
+		// INSTANCE_ID(测试用): 回答健康检查的是不是这个进程(并行测试时端口可能被别的服务器占着)
+		_, _ = w.Write([]byte("ok " + os.Getenv("INSTANCE_ID")))
 	})
 
 	protocols := new(http.Protocols)
