@@ -47,7 +47,7 @@ func Check(p *Pipeline) (Schema, error) {
 			} else if t.Kind != Bool {
 				add("%s: 条件必须是 bool,实际是 %s", at, t.Kind)
 			}
-			cur = narrow(cur, st.Pred)
+			cur = narrow(cur, st.Pred, p)
 		case "project":
 			var next Schema
 			seen := map[string]bool{}
@@ -121,27 +121,78 @@ func Check(p *Pipeline) (Schema, error) {
 	return cur, nil
 }
 
-// narrow: 类型收窄。条件(的 and 的每一项)是 not(is_null(col)) → 之后这一列 NOT NULL。
+// narrow: 类型收窄。条件在某一列为 NULL 时一定不是 TRUE(这一列"拒绝 NULL")→ 之后这一列 NOT NULL。
 // 只影响类型(输出的可空性、pick_per_key 的键),不影响语义。
-func narrow(cur Schema, pred *Expr) Schema {
-	var conj []*Expr
-	if pred.Op == "and" {
-		conj = pred.Args
-	} else {
-		conj = []*Expr{pred}
-	}
+// 例: not(is_null(c))、cmp(=, c, p)、in_list(c, p)、必填参数的 or(absent(p), cmp(=, c, p))(absent 恒为 FALSE)。
+func narrow(cur Schema, pred *Expr, p *Pipeline) Schema {
+	rej, all := nullRejects(pred, p)
 	out := append(Schema(nil), cur...)
-	for _, c := range conj {
-		if c.Op == "not" && c.Args[0].Op == "is_null" && c.Args[0].Args[0].Op == "col" {
-			name := c.Args[0].Args[0].Name
-			for i := range out {
-				if out[i].Name == name {
-					out[i].Type.Nullable = false
-				}
-			}
+	for i := range out {
+		if all || rej[out[i].Name] {
+			out[i].Type.Nullable = false
 		}
 	}
 	return out
+}
+
+// nullRejects: 哪些列为 NULL 时这个条件一定不是 TRUE。all = 条件恒不为 TRUE(例: 必填参数的 absent)。保守: 不确定 → 不算。
+func nullRejects(e *Expr, p *Pipeline) (cols map[string]bool, all bool) {
+	cols = map[string]bool{}
+	col := func(x *Expr) {
+		if x != nil && x.Op == "col" {
+			cols[x.Name] = true
+		}
+	}
+	switch e.Op {
+	case "cmp": // 任一边 NULL → UNKNOWN
+		col(e.Args[0])
+		col(e.Args[1])
+	case "in_list", "starts_with": // 第一个参数 NULL → UNKNOWN
+		col(e.Args[0])
+	case "not":
+		if a := e.Args[0]; a.Op == "is_null" {
+			col(a.Args[0])
+		}
+	case "absent": // 必填参数: 恒为 FALSE
+		if d := p.Param(e.Name); d != nil && d.Required {
+			return cols, true
+		}
+	case "const":
+		if b, ok := e.Value.(bool); ok && !b {
+			return cols, true
+		}
+	case "and": // 任何一项拒绝 → 整体拒绝
+		for _, a := range e.Args {
+			c, al := nullRejects(a, p)
+			if al {
+				return cols, true
+			}
+			for k := range c {
+				cols[k] = true
+			}
+		}
+	case "or": // 每一项都拒绝 → 整体拒绝
+		first := true
+		for _, a := range e.Args {
+			c, al := nullRejects(a, p)
+			if al {
+				continue
+			}
+			if first {
+				cols, first = c, false
+				continue
+			}
+			for k := range cols {
+				if !c[k] {
+					delete(cols, k)
+				}
+			}
+		}
+		if first { // 每一项都恒不为 TRUE
+			return cols, true
+		}
+	}
+	return cols, false
 }
 
 func checkOrder(cur Schema, order []SortKey, at string, add func(string, ...any)) {
