@@ -46,6 +46,24 @@ func TestGateLaterRounds(t *testing.T) {
 	}
 }
 
+// 之前挡流水线、没回答的问题,审查员这一轮没再提 → 仍然挡,并且带进这一轮(才能回答)。
+func TestGateCarriesUnanswered(t *testing.T) {
+	prev := []Prev{
+		{Ref: "R1-F1", Blocking: true, Answered: false, Full: f("F1", "major", "矛盾", "", "")},
+		{Ref: "R1-F2", Blocking: true, Answered: true},
+		{Ref: "R1-F3", Blocking: false, Answered: false},
+	}
+	v := Gate(2, nil, prev)
+	if v.Passed || !reflect.DeepEqual(v.Blocking, []string{"R1-F1"}) || len(v.Carried) != 1 || v.Carried[0].ID != "R1-F1" {
+		t.Fatalf("%+v", v)
+	}
+	v = Gate(2, []Finding{f("F1", "major", "矛盾", "R1-F1", "existing")}, prev) // 审查员又提了: 不重复计
+	want := Verdict{Round: 2, Blocking: []string{"F1"}}
+	if !reflect.DeepEqual(v, want) {
+		t.Fatalf("got  %+v\nwant %+v", v, want)
+	}
+}
+
 func TestCycle(t *testing.T) {
 	root := t.TempDir()
 	write := func(name, verdict string) {

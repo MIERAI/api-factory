@@ -15,10 +15,17 @@ import (
 )
 
 func Load() (*protoregistry.Files, error) {
-	out := ".factory/image.binpb"
 	if err := os.MkdirAll(".factory", 0o755); err != nil {
 		return nil, err
 	}
+	// 每个进程用自己的输出文件: 审查并行跑时,共用一个文件会读到别人写了一半的内容(实测: "proto: not found")
+	f, err := os.CreateTemp(".factory", "image-*.binpb")
+	if err != nil {
+		return nil, err
+	}
+	out := f.Name()
+	f.Close()
+	defer os.Remove(out)
 	cmd := exec.Command("buf", "build", "-o", out)
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {

@@ -734,6 +734,7 @@ func cmdReviewResult(args []string) error {
 	review.Resolve(fs, pj.Round)
 	v := review.Gate(pj.Round, fs, pj.Previous)
 	v.Seconds = sec
+	fs = append(fs, v.Carried...)
 	for _, x := range []struct {
 		name string
 		v    any
@@ -752,6 +753,9 @@ func cmdReviewResult(args []string) error {
 	}
 	for _, id := range v.Repeated {
 		tag[id] = "重复"
+	}
+	for _, c := range v.Carried {
+		tag[c.ID] = "挡(之前的轮次问过,还没回答)"
 	}
 	order := map[string]int{"blocker": 0, "major": 1, "minor": 2}
 	sort.SliceStable(fs, func(i, j int) bool { return order[fs[i].Severity] < order[fs[j].Severity] })

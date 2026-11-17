@@ -36,23 +36,25 @@ type Finding struct {
 
 // Prev: 上一轮的问题(给审查员看,也给收敛规则用)。
 type Prev struct {
-	Ref      string `json:"ref"` // R1-F3
-	Severity string `json:"severity"`
-	Category string `json:"category"`
-	Question string `json:"question"`
-	Blocking bool   `json:"blocking"`
-	Answered bool   `json:"answered"`
+	Ref      string  `json:"ref"` // R1-F3
+	Severity string  `json:"severity"`
+	Category string  `json:"category"`
+	Question string  `json:"question"`
+	Blocking bool    `json:"blocking"`
+	Answered bool    `json:"answered"`
+	Full     Finding `json:"full"` // 原来的问题(没回答的挡流水线的问题要原样带到这一轮)
 }
 
 // Verdict: 一轮审查的结论(写进审查目录的 verdict.json)。
 type Verdict struct {
-	Round    int      `json:"round"`
-	Passed   bool     `json:"passed"`
-	Blocking []string `json:"blocking"` // 挡流水线的问题 id
-	Advisory []string `json:"advisory"` // 覆盖建议 / minor
-	Late     []string `json:"late"`     // 迟到的问题(第 2 轮以后的新 major,上一轮就能问)
-	Repeated []string `json:"repeated"` // 重复提问(已经回答过),丢弃
-	Seconds  int      `json:"seconds"`
+	Round    int       `json:"round"`
+	Passed   bool      `json:"passed"`
+	Blocking []string  `json:"blocking"` // 挡流水线的问题 id
+	Advisory []string  `json:"advisory"` // 覆盖建议 / minor
+	Late     []string  `json:"late"`     // 迟到的问题(第 2 轮以后的新 major,上一轮就能问)
+	Repeated []string  `json:"repeated"` // 重复提问(已经回答过),丢弃
+	Carried  []Finding `json:"-"`        // 带过来的问题(写进这一轮的 findings.json)
+	Seconds  int       `json:"seconds"`
 }
 
 // Gate: 收敛规则(纯函数)。
@@ -84,6 +86,20 @@ func Gate(round int, fs []Finding, prev []Prev) Verdict {
 			v.Blocking = append(v.Blocking, f.ID)
 		} else {
 			v.Advisory = append(v.Advisory, f.ID)
+		}
+	}
+	// 之前挡流水线、还没回答的问题: 审查员这一轮没再提,也继续挡(实测: 审查员看到"之前问过"的列表就不再提,
+	// 问题没回答就消失了)。带进这一轮的问题列表,factory answer 才能回答它。
+	raised := map[string]bool{}
+	for _, f := range fs {
+		raised[f.SameAs] = true
+	}
+	for _, p := range prev {
+		if p.Blocking && !p.Answered && !raised[p.Ref] {
+			c := p.Full
+			c.ID, c.SameAs = p.Ref, ""
+			v.Carried = append(v.Carried, c)
+			v.Blocking = append(v.Blocking, p.Ref)
 		}
 	}
 	v.Passed = len(v.Blocking) == 0
@@ -152,6 +168,7 @@ func Previous(cycle []string, answers ...string) ([]Prev, error) {
 		text.Write(b)
 	}
 	var out []Prev
+	seen := map[string]bool{}
 	for r, dir := range cycle {
 		fs, err := ReadFindings(dir)
 		if err != nil {
@@ -163,8 +180,16 @@ func Previous(cycle []string, answers ...string) ([]Prev, error) {
 			blocking[id] = true
 		}
 		for _, f := range fs {
+			ref := fmt.Sprintf("R%d-%s", r+1, f.ID)
+			if strings.HasPrefix(f.ID, "R") { // 带过来的问题保留原来的编号
+				ref = f.ID
+			}
+			if seen[ref] {
+				continue
+			}
+			seen[ref] = true
 			out = append(out, Prev{
-				Ref: fmt.Sprintf("R%d-%s", r+1, f.ID), Severity: f.Severity, Category: f.Category, Question: f.Question,
+				Ref: ref, Severity: f.Severity, Category: f.Category, Question: f.Question, Full: f,
 				Blocking: blocking[f.ID], Answered: strings.Contains(text.String(), strconv.Quote(f.Question)),
 			})
 		}
