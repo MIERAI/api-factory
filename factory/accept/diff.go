@@ -69,6 +69,7 @@ type diffEnv struct {
 	nkSpace   int                            // 自然键原来的组合数
 	scale     int                            // 数据量的倍数(覆盖不足时每次重试加倍: 条件严格的 API 需要更多的数据)
 	pickCols  map[string]bool                // API 部分的每组取一条的键
+	nkSeen    []map[string]any               // 已经生成的行的自然键(JSON 的键 → 值;自然键空间很大时沿用,造出版本)
 	groupCols map[string]bool                // API 部分"每组取一条"的分组列: 值域缩小到 2 个,组里才有多个候选
 }
 
@@ -364,9 +365,14 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 // 数据
 // ---------------------------------------------------------------------------
 
-// atMostOneRow: 每个合法的请求最多返回 1 行(多版本来源的自然键全部被必填的"等于"固定)。
+// atMostOneRow: 每个合法的请求最多返回 1 行(取 1 条;或者多版本来源的自然键全部被必填的"等于"固定)。
 // 这时"多行的结果"不可能出现,出口的这个覆盖条件不要求。(普通的表的主键要查约束,还没有处理。)
 func (e *diffEnv) atMostOneRow() bool {
+	for _, st := range e.api.Pipeline.Steps { // 前N条 的 条数 1
+		if st.Kind == "limit" && st.Param == "" && st.N == 1 {
+			return true
+		}
+	}
 	if len(e.nkCols) == 0 {
 		return false
 	}
@@ -439,6 +445,22 @@ func (e *diffEnv) value(c core.NamedType, i int, unique bool) any {
 				}
 			}
 			obj[k.key] = v
+		}
+		// 自然键的组合空间很大(自然键的列多,随机的值几乎不会重复)→ 版本链只有一条,版本的机制测不到。
+		// 约 1/3 的行沿用之前某一行的整组自然键(同一个键的新版本)
+		if e.nkSpace >= diffRows*3/5*max(e.scale, 1) && len(e.nkSeen) > 0 && e.rnd.Intn(3) == 0 {
+			prev := e.nkSeen[e.rnd.Intn(len(e.nkSeen))]
+			for k, v := range prev {
+				obj[k] = v
+			}
+		} else if len(e.nkCols) > 0 {
+			key := map[string]any{}
+			for _, k := range e.json[c.Name] {
+				if e.nkCols[e.keyCol[k.key]] {
+					key[k.key] = obj[k.key]
+				}
+			}
+			e.nkSeen = append(e.nkSeen, key)
 		}
 		b, _ := json.Marshal(obj)
 		return string(b)
@@ -558,6 +580,7 @@ func sqlValue(v any) any {
 
 // load: 生成 → 逐行插入(违反约束的行被拒绝)→ 读回实际的数据。
 func (e *diffEnv) load() (int, int, error) {
+	e.nkSeen = nil // 每次生成数据都重新开始
 	unique, err := e.uniqueColumns()
 	if err != nil {
 		return 0, 0, err

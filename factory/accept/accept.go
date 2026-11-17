@@ -235,7 +235,7 @@ func runStep(url string, reqBody map[string]any, expect spec.Expect, out *ir.Mes
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return false, fmt.Sprintf("bad json: %s", raw), nil
 	}
-	got, _ := snakeKeys(decoded).(map[string]any)
+	got, _ := protoKeys(decoded, out).(map[string]any)
 	for k, want := range expect.Response {
 		if msg := match("response."+k, want, got[k], out.Field(k)); msg != "" {
 			return false, fmt.Sprintf("%s (body %s)", msg, truncate(raw, 300)), got
@@ -326,6 +326,56 @@ func match(path string, want, got any, fd *ir.Field) string {
 		return fmt.Sprintf("%s: want %v, got %v", path, want, got)
 	}
 	return ""
+}
+
+// protoKeys: protojson 的键(lowerCamelCase)→ proto 的字段名,按消息的字段定义对照(protoc 的 JSON 名规则)。
+// 只靠蛇形转换有歧义: l_column_1 的 JSON 名是 lColumn1,转回来是 l_column1(试用的探针里发现)。
+// 不在定义里的键退回 snakeKeys。
+func protoKeys(v any, md *ir.Message) any {
+	switch x := v.(type) {
+	case map[string]any:
+		if md == nil {
+			return snakeKeys(x)
+		}
+		byJSON := map[string]*ir.Field{}
+		for i := range md.Fields {
+			byJSON[jsonName(md.Fields[i].Name)] = &md.Fields[i]
+		}
+		out := make(map[string]any, len(x))
+		for k, val := range x {
+			if f, ok := byJSON[k]; ok {
+				out[f.Name] = protoKeys(val, f.Message)
+			} else {
+				out[toSnake(k)] = snakeKeys(val)
+			}
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, val := range x {
+			out[i] = protoKeys(val, md)
+		}
+		return out
+	}
+	return v
+}
+
+// jsonName: protoc 的 JSON 名(去掉 _,后面的小写字母变大写;数字不变)。
+func jsonName(name string) string {
+	var b strings.Builder
+	up := false
+	for _, r := range name {
+		if r == '_' {
+			up = true
+			continue
+		}
+		if up && r >= 'a' && r <= 'z' {
+			r -= 'a' - 'A'
+		}
+		up = false
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // snakeKeys 把 protojson 输出的 lowerCamelCase 键(nextPageToken)转回 proto 字段名(next_page_token),
