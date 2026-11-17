@@ -64,6 +64,20 @@ func (g *genCtx) reqExpr(f *ir.Field, paramType string) (string, error) {
 		if k, err := goKind(&ir.Field{Name: f.Name, Kind: f.Kind}); err == nil && paramType == "[]"+k {
 			return fmt.Sprintf("m.Get%s()", goName), nil
 		}
+		if f.Kind == "enum" { // 枚举的列表: 每个值 proto → DB
+			column := f.Name
+			if c, ok := g.filterCol[norm(column)]; ok {
+				column = c
+			}
+			m, err := g.enumFor(column)
+			if err != nil {
+				return "", err
+			}
+			if paramType != "[]"+m.DBGoType {
+				return "", fmt.Errorf("enum list request field %s cannot be mapped to query param type %s", f.Name, paramType)
+			}
+			return fmt.Sprintf("func() []%[1]s {\n\t\tout := make([]%[1]s, 0, len(m.Get%[2]s()))\n\t\tfor _, v := range m.Get%[2]s() {\n\t\t\tout = append(out, %[3]sToDB(v))\n\t\t}\n\t\treturn out\n\t}()", m.DBGoType, goName, m.Helper), nil
+		}
 		if f.Kind == "string" && paramType == "[]time.Time" { // 日期 "YYYY-MM-DD" 的列表
 			g.use("apifactory/platform/conv", "")
 			return fmt.Sprintf("conv.Dates(m.Get%s())", goName), nil
