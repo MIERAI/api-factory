@@ -8,7 +8,7 @@ permissions:
   pull-requests: write
 jobs:
   review:
-    if: ${{ !startsWith(github.head_ref, 'factory/gen-') }}
+    if: ${{ !startsWith(github.head_ref, 'factory/gen-') && vars.FACTORY_GENERATE == 'on' }}   # AI 的凭证准备好之后
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

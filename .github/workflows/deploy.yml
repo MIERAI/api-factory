@@ -11,6 +11,7 @@ permissions:
   id-token: write
 jobs:
   deploy:
+    if: ${{ vars.GCP_PROJECT != '' }}   # GCP 的设定(仓库的 variables)还没有 → 跳过
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: dev
