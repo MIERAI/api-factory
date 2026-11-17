@@ -582,7 +582,9 @@ func TopKeys() []string {
 }
 
 // OutputKeys: 输出的一列可以写的键。
-func OutputKeys() []string { return []string{"类型", "说明", "来自", "可以不设置", "每行"} }
+func OutputKeys() []string {
+	return []string{"类型", "说明", "来自", "可以不设置", "每行"}
+}
 
 // InputKeys: 输入可以写的键(约束的键另外由 factory/constraints 决定)。
 func InputKeys() []string { return []string{"类型", "必填", "说明", "筛选"} }

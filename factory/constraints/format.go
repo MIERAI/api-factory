@@ -6,6 +6,7 @@ package constraints
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 
@@ -60,7 +61,16 @@ func init() {
 				return nil, ""
 			}
 			var b []Boundary
+			x := r.GetString()
 			for _, v := range f.valid {
+				// 合法的例子也要满足同一字段的长度: 补齐 / 截断(用例子的第一个字符)
+				n := len([]rune(v))
+				if x.HasMinLen() && uint64(n) < x.GetMinLen() {
+					v += strings.Repeat(string([]rune(v)[0]), int(x.GetMinLen())-n)
+				}
+				if x.HasMaxLen() && uint64(len([]rune(v))) > x.GetMaxLen() {
+					v = string([]rune(v)[:x.GetMaxLen()])
+				}
 				b = append(b, Boundary{fmt.Sprintf("= %q(格式 %s,合法)", v, f.name), v, true, false})
 			}
 			for _, v := range f.invalid {

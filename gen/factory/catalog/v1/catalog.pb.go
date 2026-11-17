@@ -392,9 +392,9 @@ const file_factory_catalog_v1_catalog_proto_rawDesc = "" +
 	"\x05label\x18\x04 \x01(\tH\x00R\x05label\x88\x01\x01\x12&\n" +
 	"\fdisplay_text\x18\x05 \x01(\tH\x01R\vdisplayText\x88\x01\x01B\b\n" +
 	"\x06_labelB\x0f\n" +
-	"\r_display_textJ\x04\b\x02\x10\x03J\x04\b\x03\x10\x04\"H\n" +
-	"\x18ListProductLabelsRequest\x12,\n" +
-	"\fproduct_code\x18\x01 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18\x14R\vproductCode\"b\n" +
+	"\r_display_textJ\x04\b\x02\x10\x03J\x04\b\x03\x10\x04\"R\n" +
+	"\x18ListProductLabelsRequest\x126\n" +
+	"\fproduct_code\x18\x01 \x01(\tB\x13\xbaH\x10r\x0e\x10\x01\x18\x142\b^[0-9]+$R\vproductCode\"b\n" +
 	"\x19ListProductLabelsResponse\x12E\n" +
 	"\rproduct_label\x18\x01 \x03(\v2 .factory.catalog.v1.ProductLabelR\fproductLabel\"\x8d\x02\n" +
 	"\rProductMaster\x12!\n" +

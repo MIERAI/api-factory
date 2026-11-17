@@ -29,7 +29,7 @@ func init() {
 				return []string{fmt.Sprintf("%s.%s = %s", c.ProtoType, op, m[2])}, nil
 			}
 			if m := reBetween.FindStringSubmatch(v); m != nil {
-				return []string{fmt.Sprintf("%s = {gte: %s, lte: %s}", c.ProtoType, m[1], m[2])}, nil
+				return []string{fmt.Sprintf("%s.gte = %s", c.ProtoType, m[1]), fmt.Sprintf("%s.lte = %s", c.ProtoType, m[2])}, nil // 逐个字段写(可以和别的规则组合)
 			}
 			return nil, errors.New("无法识别")
 		},

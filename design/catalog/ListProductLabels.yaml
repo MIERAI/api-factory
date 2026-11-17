@@ -11,7 +11,7 @@ API: ListProductLabels
 数据来源: product_label
 
 输入:
-  product_code: { 类型: 文本, 必填: 是, 长度: 1~20, 说明: 商品コード, 筛选: product_code 等于 }
+  product_code: { 类型: 文本, 必填: 是, 长度: 1~20, 格式: 数字, 说明: 商品コード, 筛选: product_code 等于 }   # 格式 + 长度 の組み合わせ(proto の規則が重複しないこと)
 
 输出:                                 # 来自: API の名前とデータの列名が違うとき(改名)
   product_code: 商品コード

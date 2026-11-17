@@ -61,7 +61,7 @@ message GetJobSummaryRequest {
     expression: "this.period_end - this.period_start <= duration('744h')"
   };
   // 任务类型
-  string job_type = 1 [(buf.validate.field).string = {min_len: 1, max_len: 64}];
+  string job_type = 1 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 64];
   // 期间的开始(含)
   google.protobuf.Timestamp period_start = 2 [(buf.validate.field).required = true];
   // 期间的结束(不含)
@@ -114,7 +114,7 @@ message ListJobsRequest {
   // 处理状态
   optional JobStatus status = 3 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
   // 任务类型
-  optional string job_type = 4 [(buf.validate.field).string = {min_len: 1, max_len: 64}];
+  optional string job_type = 4 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 64];
   // 创建时间的下限(含)
   google.protobuf.Timestamp created_after = 5;
   // 创建时间的上限(不含)
@@ -135,7 +135,7 @@ message ListJobsByTypesRequest {
   // 上一页返回的 next_page_token(不透明的字符串)
   string page_token = 2;
   // 任务类型(任意一个)(空列表 = 不按这个条件筛选)
-  repeated string job_types = 3 [(buf.validate.field).repeated.max_items = 50, (buf.validate.field).repeated.items.string = {min_len: 1, max_len: 64}];
+  repeated string job_types = 3 [(buf.validate.field).repeated.max_items = 50, (buf.validate.field).repeated.items.string.min_len = 1, (buf.validate.field).repeated.items.string.max_len = 64];
   // 任务 id(任意一个)(空列表 = 不按这个条件筛选)
   repeated int64 job_ids = 4 [(buf.validate.field).repeated.max_items = 100, (buf.validate.field).repeated.items.int64.gt = 0];
 }

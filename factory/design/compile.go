@@ -196,7 +196,6 @@ func writeYAML(path, from string, v any) error {
 // API → message + spec
 // ---------------------------------------------------------------------------
 
-
 func (c *ctx) column(table, col string) (compiler.Column, bool) {
 	for _, x := range c.cat[table] {
 		if x.Name == col {
