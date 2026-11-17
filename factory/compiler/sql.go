@@ -75,6 +75,9 @@ func selectColumns(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalog)
 	table := s.Datasource.Table
 	check := func(names []string, origin string) error {
 		for _, n := range names {
+			if src, ok := s.Datasource.Rename[n]; ok { // 改名的响应字段: 查来源的列
+				n = src
+			}
 			if _, ok := cat.column(table, n); !ok {
 				return fmt.Errorf("%s: column %q is not in table %s (declare datasource.columns or use datasource.sql)", origin, n, table)
 			}

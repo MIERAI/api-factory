@@ -13,12 +13,12 @@ API: ListProductLabels
 输入:
   product_code: { 类型: 文本, 必填: 是, 长度: 1~20, 说明: 商品コード, 筛选: product_code 等于 }
 
-输出:
+输出:                                 # 来自: API の名前とデータの列名が違うとき(改名)
   product_code: 商品コード
-  label_code:   ラベルコード(既定のラベルは空)
-  text:         表示文言
+  label:        { 来自: label_code, 说明: ラベルコード(既定のラベルは空) }
+  display_text: { 来自: text, 说明: 表示文言 }
 
-排序: [label_code 小到大]
+排序: [label 小到大]                    # 排序は API の名前で書く(筛选・每组取一条 はデータの列名)
 上限: 100
 
 例子:
@@ -33,7 +33,7 @@ API: ListProductLabels
   用例:
     - 说明: 既定のラベル(ラベルコードが空)も 1 件として、新しい版を返す。空は最後に並ぶ
       输入: { product_code: "100" }
-      结果: { product_label: [{ label_code: "A", text: 特売 }, { label_code: null, text: 既定2 }] }
+      结果: { product_label: [{ label: "A", display_text: 特売 }, { label: null, display_text: 既定2 }] }
     - 说明: 既定のラベルが削除された商品は、残りのラベルだけ
       输入: { product_code: "200" }
-      结果: { product_label: [{ label_code: "B", text: 新商品 }] }
+      结果: { product_label: [{ label: "B", display_text: 新商品 }] }

@@ -67,6 +67,7 @@ run "JSON版本: 先筛选再取最新(公司引擎的问题)" $J 's/WHERE \(NOT
 run "下推: 丢掉了键上的条件(属于)"        $J 's/\n\s+AND \(\(coalesce\(cardinality\(\$1::text\[\]\), 0\) = 0\) OR \(t2\.product_code = ANY\(\$1::text\[\]\)\)\)//'
 NK=gen/db/catalog.list-product-labels.sql.go
 run "可以为空的键: 丢掉键为空的行(以前的工厂)"   $NK 's/WHERE \(NOT \(t2\.product_code IS NULL\)\)/WHERE (NOT (t2.product_code IS NULL)) AND (NOT (t2.label_code IS NULL))/'
+run "输出改名: 取错了来源的列"               $NK 's/t4\.text AS display_text/t4.label_code AS display_text/'
 run "可以为空的键: 空值和空字符串合成一组"       $NK 's/t2\.label_code COLLATE "C"/coalesce(t2.label_code, \x27\x27) COLLATE "C"/g'
 SH=internal/handler/sales/list_prices_as_of_gen.go
 run "分库: 不选库(一直用主库)"           $SH 's/h\.at\(int64\(m\.GetStoreCode\(\)\)\)\./h.q./'

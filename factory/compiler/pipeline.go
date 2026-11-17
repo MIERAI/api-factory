@@ -48,7 +48,11 @@ func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []re
 		parts.Filters = append(parts.Filters, e)
 	}
 	for _, c := range cols {
-		parts.Output = append(parts.Output, core.NamedExpr{Name: c, Expr: core.Col(c)})
+		src := c
+		if r, ok := s.Datasource.Rename[c]; ok { // 输出改名: 响应字段 ← 来源的列
+			src = r
+		}
+		parts.Output = append(parts.Output, core.NamedExpr{Name: c, Expr: core.Col(src)})
 	}
 	ex, ok := exits.ByKind(s.PatternKind()) // 出口的注册表(factory/exits)
 	if !ok || ex.Cell == "" {

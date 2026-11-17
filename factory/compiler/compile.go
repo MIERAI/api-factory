@@ -253,6 +253,7 @@ func apiSkeleton(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalog) (
 		}
 	}
 	api.BaseRequest = baseRequest(s)
+	api.Rename = s.Datasource.Rename
 	return api, nil
 }
 

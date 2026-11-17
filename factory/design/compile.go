@@ -359,12 +359,31 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 
 	// ---- 响应
 	resp := &message{Name: a.Name + "Response", Desc: a.Desc}
+	rename := map[string]string{} // 输出改名: 响应字段 → 来源的列(来自)。计算的输出由 AI 的代码决定,不能改名
+	for _, o := range a.Outputs {
+		if o.From == "" || o.From == o.Name {
+			continue
+		}
+		switch {
+		case a.Exit.AI:
+			e.add(o.Line, "输出 %s: 来自 只能用于数据来源的列(%s 的输出由 AI 的代码决定)", o.Name, a.Exit.Name)
+		case table == "":
+			e.add(o.Line, "输出 %s: 来自 需要 数据来源", o.Name)
+		default:
+			if _, ok := c.column(table, o.From); !ok {
+				e.add(o.Line, "输出 %s: 来自 %s 不是 %s 的列", o.Name, o.From, table)
+			} else {
+				rename[o.Name] = o.From
+			}
+		}
+	}
 	outFields := func(src string) []*field {
 		var out []*field
 		for _, o := range a.Outputs {
 			f := &field{Name: o.Name, Desc: o.Desc}
-			if o.From != "" && o.From != o.Name {
-				e.add(o.Line, "输出 %s: 来自 和名字不同的列还不支持", o.Name)
+			col := o.Name
+			if r, ok := rename[o.Name]; ok && src != "" {
+				col = r
 			}
 			if o.Type == "列表" {
 				itemName := a.ItemName
@@ -397,7 +416,7 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 					e.add(o.Line, "输出 %s: 计算的输出必须写 类型", o.Name)
 					continue
 				}
-				pt, kind, opt, err := c.columnField(src, o.Name)
+				pt, kind, opt, err := c.columnField(src, col)
 				if err != nil {
 					e.add(o.Line, "输出 %s: %v(没有同名列时请写 类型)", o.Name, err)
 					continue
@@ -410,6 +429,9 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 	}
 	if a.Exit.NotNullOrder { // 分页的游标: 排序列不能为空(在设计稿的层面报错,不等到编译器的设计规则检查)
 		for _, col := range a.Pattern.OrderBy {
+			if r, ok := rename[col]; ok { // 排序用响应字段名;可空性看来源的列
+				col = r
+			}
 			if cc, ok := c.column(table, col); ok && !cc.NotNull {
 				e.add(1, "排序的列 %s 可能为空,%s 的排序列必须不为空(翻页的位置记在排序列上)。"+
 					"请改用主键或不为空的列排序;存储: JSON版本 的字段除了主键都可能为空", col, a.Exit.Name)
@@ -465,6 +487,9 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 	s.Pattern = a.Pattern
 	s.Pattern.Kind = a.Kind
 	s.Datasource = spec.Datasource{Table: table, Filters: filters}
+	if len(rename) > 0 {
+		s.Datasource.Rename = rename
+	}
 	if len(a.UseColumns) > 0 { // 计算: 使用的列
 		s.Datasource.Columns = a.UseColumns
 	}

@@ -91,6 +91,8 @@ type Datasource struct {
 	Filters map[string]Filter `yaml:"filters"`
 	// Columns: SELECT 的列。默认从响应字段推导;compute 的输入是逻辑函数用的列,需要显式写
 	Columns []string `yaml:"columns"`
+	// Rename: 响应字段 → 来源的列(字段名和列名不同时)。筛选 / 每组取一条 用列名,排序 用响应字段名(投影之后)
+	Rename map[string]string `yaml:"rename,omitempty"`
 	// SQL: 逃生口(JOIN / 聚合 / 复杂条件)。写了 sql 就不写 filters/columns;
 	// table 可以写,表示结果列来自哪张表(用于查领域层的 enum 映射)
 	SQL string `yaml:"sql"`

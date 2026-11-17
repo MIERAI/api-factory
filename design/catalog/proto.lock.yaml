@@ -11,6 +11,8 @@
     ListProductMasterResponse:
         product_master: 1
     ProductLabel:
+        display_text: 5
+        label: 4
         label_code: 2
         product_code: 1
         text: 3

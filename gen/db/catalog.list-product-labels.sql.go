@@ -7,9 +7,9 @@ import (
 )
 
 const listProductLabels = `-- name: ListProductLabels :many
-SELECT t5.product_code, t5.label_code, t5.text
+SELECT t5.product_code, t5.label, t5.display_text
 FROM (
-    SELECT t4.product_code AS product_code, t4.label_code AS label_code, t4.text AS text
+    SELECT t4.product_code AS product_code, t4.label_code AS label, t4.text AS display_text
     FROM (
         SELECT t3.product_code AS product_code, t3.label_code AS label_code, t3.text AS text
         FROM (
@@ -25,7 +25,7 @@ FROM (
         WHERE ((t3._action <> 1::int4) AND ((NULL::text IS NULL) OR (NULL::text <> ''::text)))
     ) AS t4
 ) AS t5
-ORDER BY t5.label_code COLLATE "C"
+ORDER BY t5.label COLLATE "C"
 LIMIT 101
 `
 
@@ -35,8 +35,8 @@ type ListProductLabelsParams struct {
 
 type ListProductLabelsRow struct {
 	ProductCode string
-	LabelCode   *string
-	Text        *string
+	Label       *string
+	DisplayText *string
 }
 
 func (q *Queries) ListProductLabels(ctx context.Context, arg ListProductLabelsParams) ([]ListProductLabelsRow, error) {
@@ -48,7 +48,7 @@ func (q *Queries) ListProductLabels(ctx context.Context, arg ListProductLabelsPa
 	var items []ListProductLabelsRow
 	for rows.Next() {
 		var i ListProductLabelsRow
-		if err := rows.Scan(&i.ProductCode, &i.LabelCode, &i.Text); err != nil {
+		if err := rows.Scan(&i.ProductCode, &i.Label, &i.DisplayText); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

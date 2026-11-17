@@ -31,9 +31,9 @@ type ProductLabel struct {
 	// 商品コード
 	ProductCode string `protobuf:"bytes,1,opt,name=product_code,json=productCode,proto3" json:"product_code,omitempty"`
 	// ラベルコード(既定のラベルは空)
-	LabelCode *string `protobuf:"bytes,2,opt,name=label_code,json=labelCode,proto3,oneof" json:"label_code,omitempty"`
+	Label *string `protobuf:"bytes,4,opt,name=label,proto3,oneof" json:"label,omitempty"`
 	// 表示文言
-	Text          *string `protobuf:"bytes,3,opt,name=text,proto3,oneof" json:"text,omitempty"`
+	DisplayText   *string `protobuf:"bytes,5,opt,name=display_text,json=displayText,proto3,oneof" json:"display_text,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -75,16 +75,16 @@ func (x *ProductLabel) GetProductCode() string {
 	return ""
 }
 
-func (x *ProductLabel) GetLabelCode() string {
-	if x != nil && x.LabelCode != nil {
-		return *x.LabelCode
+func (x *ProductLabel) GetLabel() string {
+	if x != nil && x.Label != nil {
+		return *x.Label
 	}
 	return ""
 }
 
-func (x *ProductLabel) GetText() string {
-	if x != nil && x.Text != nil {
-		return *x.Text
+func (x *ProductLabel) GetDisplayText() string {
+	if x != nil && x.DisplayText != nil {
+		return *x.DisplayText
 	}
 	return ""
 }
@@ -386,14 +386,13 @@ var File_factory_catalog_v1_catalog_proto protoreflect.FileDescriptor
 
 const file_factory_catalog_v1_catalog_proto_rawDesc = "" +
 	"\n" +
-	" factory/catalog/v1/catalog.proto\x12\x12factory.catalog.v1\x1a\x1bbuf/validate/validate.proto\"\x86\x01\n" +
+	" factory/catalog/v1/catalog.proto\x12\x12factory.catalog.v1\x1a\x1bbuf/validate/validate.proto\"\x9b\x01\n" +
 	"\fProductLabel\x12!\n" +
-	"\fproduct_code\x18\x01 \x01(\tR\vproductCode\x12\"\n" +
-	"\n" +
-	"label_code\x18\x02 \x01(\tH\x00R\tlabelCode\x88\x01\x01\x12\x17\n" +
-	"\x04text\x18\x03 \x01(\tH\x01R\x04text\x88\x01\x01B\r\n" +
-	"\v_label_codeB\a\n" +
-	"\x05_text\"H\n" +
+	"\fproduct_code\x18\x01 \x01(\tR\vproductCode\x12\x19\n" +
+	"\x05label\x18\x04 \x01(\tH\x00R\x05label\x88\x01\x01\x12&\n" +
+	"\fdisplay_text\x18\x05 \x01(\tH\x01R\vdisplayText\x88\x01\x01B\b\n" +
+	"\x06_labelB\x0f\n" +
+	"\r_display_textJ\x04\b\x02\x10\x03J\x04\b\x03\x10\x04\"H\n" +
 	"\x18ListProductLabelsRequest\x12,\n" +
 	"\fproduct_code\x18\x01 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18\x14R\vproductCode\"b\n" +
 	"\x19ListProductLabelsResponse\x12E\n" +

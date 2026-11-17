@@ -811,7 +811,11 @@ func (e *diffEnv) present(column string, v any) any {
 	case *big.Rat:
 		return core.RatString(x)
 	case int64:
-		if en := e.plan.Enum(e.api.Table, column); en != nil {
+		col := column
+		if src, ok := e.api.Rename[column]; ok { // 输出改名: 枚举的映射按来源的列
+			col = src
+		}
+		if en := e.plan.Enum(e.api.Table, col); en != nil {
 			for _, ev := range en.Values {
 				if ev.DB == x {
 					return ev.Name

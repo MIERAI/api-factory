@@ -29,8 +29,8 @@ func (h *Handler) ListProductLabels(ctx context.Context, req *connect.Request[ca
 	for _, r := range rows {
 		res.ProductLabel = append(res.ProductLabel, &catalogv1.ProductLabel{
 			ProductCode: r.ProductCode,
-			LabelCode:   r.LabelCode,
-			Text:        r.Text,
+			Label:       r.Label,
+			DisplayText: r.DisplayText,
 		})
 	}
 	return connect.NewResponse(res), nil

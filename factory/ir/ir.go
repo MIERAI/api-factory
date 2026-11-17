@@ -36,15 +36,16 @@ type Service struct {
 }
 
 type API struct {
-	ID           string `json:"id"`        // jobs.list-jobs
-	SpecPath     string `json:"spec_path"` // specs/jobs/list-jobs/spec.yaml
-	Domain       string `json:"domain"`    // jobs
-	ProtoPackage string `json:"proto_package"`
-	Service      string `json:"service"`
-	Method       string `json:"method"`
-	Summary      string `json:"summary"` // proto 里 rpc 注释的第一行
-	Pattern      string `json:"pattern"` // get_by_id / list_keyset / compute / custom
-	Table        string `json:"table,omitempty"`
+	ID           string            `json:"id"`        // jobs.list-jobs
+	SpecPath     string            `json:"spec_path"` // specs/jobs/list-jobs/spec.yaml
+	Domain       string            `json:"domain"`    // jobs
+	ProtoPackage string            `json:"proto_package"`
+	Service      string            `json:"service"`
+	Method       string            `json:"method"`
+	Summary      string            `json:"summary"` // proto 里 rpc 注释的第一行
+	Pattern      string            `json:"pattern"` // get_by_id / list_keyset / compute / custom
+	Table        string            `json:"table,omitempty"`
+	Rename       map[string]string `json:"rename,omitempty"` // 响应字段 → 来源的列(输出改名;枚举的映射按来源的列查)
 
 	Request  Message `json:"request"`
 	Response Message `json:"response"`

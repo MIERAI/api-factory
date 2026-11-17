@@ -10,7 +10,7 @@ pattern:
     kind: list_all
     not_found_message: ""
     order_by:
-        - label_code
+        - label
     direction: asc
     page_size:
         default: 0
@@ -23,6 +23,9 @@ datasource:
             column: product_code
             op: eq
     columns: []
+    rename:
+        display_text: text
+        label: label_code
     sql: ""
 behavior: []
 acceptance:
@@ -54,10 +57,10 @@ acceptance:
             code: OK
             response:
                 product_label:
-                    - label_code: A
-                      text: 特売
-                    - label_code: null
-                      text: 既定2
+                    - display_text: 特売
+                      label: A
+                    - display_text: 既定2
+                      label: null
           steps: []
         - name: 既定のラベルが削除された商品は、残りのラベルだけ
           request:
@@ -66,8 +69,8 @@ acceptance:
             code: OK
             response:
                 product_label:
-                    - label_code: B
-                      text: 新商品
+                    - display_text: 新商品
+                      label: B
           steps: []
 logic_examples: []
 review_decisions: []

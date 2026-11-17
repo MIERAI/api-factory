@@ -33,6 +33,9 @@ func (g *genCtx) pbType(m *ir.Message) string { return g.pbAlias + "." + m.Name 
 
 // enumFor: 列对应的 enum 映射;proto 是 enum 但领域层没有映射时报错。
 func (g *genCtx) enumFor(column string) (*enumMapping, error) {
+	if src, ok := g.api.Rename[column]; ok { // 输出改名: 枚举的映射按来源的列
+		column = src
+	}
 	if m, ok := g.enums[column]; ok {
 		return m, nil
 	}
