@@ -45,6 +45,21 @@ muts = [tuple(parts[i:i + 3]) for i in range(0, len(parts), 3)]
 parlib.build_factory()
 
 
+# 变异改的文件 → 受影响的式样书目录(只验收这一部分;推不出来时验收全部)。
+# 变异只影响用到这个文件的 API,判定(抓到几次)和验收全部时一样,时间不随 API 的总数增长。
+def scope(path):
+    m = re.match(r"gen/db/(\w+)\.([\w-]+)\.sql\.go$", path)
+    if m:
+        d = f"specs/{m.group(1)}/{m.group(2)}"
+    elif (m := re.match(r"internal/handler/(\w+)/enums_gen\.go$", path)):
+        d = f"specs/{m.group(1)}"
+    elif (m := re.match(r"internal/handler/(\w+)/(\w+)_gen\.go$", path)):
+        d = f"specs/{m.group(1)}/{m.group(2).replace('_', '-')}"
+    else:
+        return None
+    return d if os.path.isdir(os.path.join(ROOT, d)) else None
+
+
 # ---- 1. 每个变异: 改出临时文件 → overlay 编译 + 单元测试
 def prepare(i):
     name, path, expr = muts[i]
@@ -81,7 +96,7 @@ def accept(job):
     p = prepared[i]
     if "skip" in p:
         return p["skip"]
-    out = parlib.accept(workers, p["server"], seed)
+    out = parlib.accept(workers, p["server"], seed, scope(muts[i][1]))
     name = muts[i][0]
     if "case(s)" not in out:
         return f"  ? {name}: 执行器出错 — {out.strip().splitlines()[-1] if out.strip() else ''}"
@@ -106,5 +121,6 @@ for k, s in enumerate(seeds):
         print(text, end="")
     r = subprocess.run([sys.executable, "scripts/margin.py", s, str(args.min), str(len(muts))], input=text, text=True)
     fail |= r.returncode
-print(f"⏱ 编译 {t1 - t0:.0f}s + 验收 {t2 - t1:.0f}s(变异 {len(muts)} × 种子 {len(seeds)},worker {args.workers})")
+scoped = sum(1 for m in muts if scope(m[1]))
+print(f"⏱ 编译 {t1 - t0:.0f}s + 验收 {t2 - t1:.0f}s(变异 {len(muts)} × 种子 {len(seeds)},worker {args.workers};只验收受影响的 API: {scoped}/{len(muts)})")
 sys.exit(fail)
