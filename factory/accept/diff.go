@@ -66,8 +66,8 @@ type diffEnv struct {
 	keyCol    map[string]string      // JSON 的键 → 逻辑列名(json_field 投影成的列)
 	constFor  map[string][]any       // 列(物理列或 JSON 的键投影成的列)→ 来源里和它比较的常量(删除值 / 逻辑删除值)
 	nkCols    map[string]bool        // 多版本来源的自然键(值域扩大,逻辑行才多)
-	nkExtend  bool                   // 自然键的组合太少(每个键的版本太多)时才扩大值域
-	nkTimes   int                    // 扩大的倍数: 键的数量 ≈ 数据行数 / 5(每个键约 5 个版本)
+	nkSpace   int                    // 自然键原来的组合数
+	scale     int                    // 数据量的倍数(覆盖不足时每次重试加倍: 条件严格的 API 需要更多的数据)
 	groupCols map[string]bool        // API 部分"每组取一条"的分组列: 值域缩小到 2 个,组里才有多个候选
 }
 
@@ -208,9 +208,7 @@ func (e *diffEnv) collect() {
 		for col := range e.nkCols {
 			space *= e.domainSize(col)
 		}
-		target := diffRows * 3 / 5 // 多版本来源生成 diffRows*3 行
-		e.nkExtend = space < target
-		e.nkTimes = (target + space - 1) / max(space, 1)
+		e.nkSpace = space
 	}
 }
 
@@ -273,6 +271,7 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 	for attempt := 0; attempt < 5; attempt++ {
 		attempts = attempt + 1
 		env.rnd = rand.New(rand.NewSource(seed0 + int64(attempt)*7919))
+		env.scale = 1 << min(attempt, 3) // 1, 2, 4, 8, 8 倍
 		env.rows, env.anchors = nil, nil
 		if inserted, rejected, err = env.load(); err != nil {
 			return fail("数据: %v", err)
@@ -366,7 +365,7 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 		}
 	}
 	if attempts > 1 {
-		cover += fmt.Sprintf(" / 数据生成 %d 次(覆盖条件不满足时换种子重来)", attempts)
+		cover += fmt.Sprintf(" / 数据生成 %d 次(覆盖条件不满足时换种子、数据加倍重来;最后 %d 倍)", attempts, env.scale)
 	}
 	results = append(results, Result{Spec: api.ID, Suite: "diff", Case: "覆盖条件", Passed: okCover, Detail: cover})
 	return results
@@ -468,14 +467,17 @@ func (e *diffEnv) scalarFor(col string, kind core.Kind, unique bool, i int) any 
 			}
 		}
 	}
-	if e.nkCols[col] && e.nkExtend && !unique {
+	// 多版本来源的自然键: 键的数量 ≈ 数据行数 / 5(每个键约 5 个版本;数据加倍时键也加倍)
+	target := diffRows * 3 / 5 * max(e.scale, 1)
+	if e.nkCols[col] && e.nkSpace > 0 && e.nkSpace < target && !unique {
+		times := (target + e.nkSpace - 1) / e.nkSpace
 		if _, ranged := e.ranges[col]; !ranged {
 			if _, formatted := e.formats[col]; !formatted {
 				switch v := e.scalar(kind, false, i).(type) { // 多版本来源的自然键: 值域扩大
 				case int64:
-					return v + int64(100*e.rnd.Intn(e.nkTimes))
+					return v + int64(100*e.rnd.Intn(times))
 				case string:
-					return fmt.Sprintf("%s%d", v, e.rnd.Intn(e.nkTimes))
+					return fmt.Sprintf("%s%d", v, e.rnd.Intn(times))
 				default:
 					return v
 				}
@@ -553,6 +555,7 @@ func (e *diffEnv) load() (int, int, error) {
 	if len(e.json) > 0 { // 多版本的来源(JSON版本 等): 一个键有好几行,多生成一些
 		n = diffRows * 3
 	}
+	n *= max(e.scale, 1)
 	for i := 0; i < n; i++ {
 		var args []any
 		conn := e.conn
