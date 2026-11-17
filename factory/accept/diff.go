@@ -433,8 +433,26 @@ func (e *diffEnv) scalarFor(col string, kind core.Kind, unique bool, i int) any 
 			return t.Domain[1+e.rnd.Intn(2)%len(t.Domain[1:])]
 		}
 	}
-	if cs := e.constFor[col]; len(cs) > 0 && !unique && e.rnd.Intn(6) == 0 {
-		return cs[e.rnd.Intn(len(cs))] // 来源里和这一列比较的常量(删除 / 逻辑删除要能出现)
+	if cs := e.constFor[col]; len(cs) > 0 && !unique {
+		if e.rnd.Intn(6) == 0 {
+			return cs[e.rnd.Intn(len(cs))] // 来源里和这一列比较的常量(删除 / 逻辑删除要能出现)
+		}
+		// 其他时候不取这些常量(值域里本来就有删除值 1 的话,删除的概率会叠加)
+		if t, ok := kinds.ByCore(kind); ok {
+			var rest []any
+			for _, v := range t.Domain {
+				hit := false
+				for _, c := range cs {
+					hit = hit || core.Canonical(v) == core.Canonical(c)
+				}
+				if !hit {
+					rest = append(rest, v)
+				}
+			}
+			if len(rest) > 0 {
+				return rest[e.rnd.Intn(len(rest))]
+			}
+		}
 	}
 	if e.nkCols[col] && e.nkExtend && !unique {
 		if _, ranged := e.ranges[col]; !ranged {
@@ -590,6 +608,10 @@ func (e *diffEnv) load() (int, int, error) {
 func (e *diffEnv) userParams() []core.ParamDecl {
 	var out []core.ParamDecl
 	for _, d := range e.api.Pipeline.Params {
+		// 必填: 流水线的 Required(sqlc.arg)或 proto 的校验规则 required(时间是 message,流水线里看起来是可选的)
+		if fd := e.api.Request.Field(d.Name); fd != nil && fd.Rules != nil && fd.Rules.Required {
+			d.Required = true
+		}
 		if _, ok := e.filter[d.Name]; ok {
 			out = append(out, d)
 		}
