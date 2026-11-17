@@ -198,6 +198,21 @@ func TestCertification(t *testing.T) {
 			env.check(fmt.Sprintf("pick_per_key g by %s desc=%v", c, desc), p, nil)
 		}
 	}
+	// 9b. pick_per_key 的键可以为 NULL: NULL 自己是一组(s 是可空的文本,i 是可空的整数;和 DISTINCT ON 一致)
+	for _, keys := range [][]string{{"s"}, {"i"}, {"g", "s"}, {"s", "i"}} {
+		p := &Pipeline{Steps: all(PickPerKey(keys, SortKey{"k", true}), Sort(SortKey{Col: "k"}))}
+		env.check(fmt.Sprintf("pick_per_key 可空的键 %v", keys), p, nil)
+	}
+	// 可空的键 + 只引用键的筛选(下推到取一条之前): NULL 的组对筛选是 UNKNOWN → 整组去掉
+	pn := &Pipeline{Params: []ParamDecl{opt("ps", Text)}, Steps: all(PickPerKey([]string{"s"}, SortKey{"k", true}),
+		Filter(Or(Absent("ps"), Cmp("=", Col("s"), Param("ps")))), Sort(SortKey{Col: "k"}))}
+	for _, v := range []any{"<absent>", "a", "x"} {
+		ps := Params{}
+		if v != "<absent>" {
+			ps["ps"] = v
+		}
+		env.check(fmt.Sprintf("可空的键 + 下推 ps=%v", v), pn, ps)
+	}
 	// 10. tuple_after(游标 = 每一行)
 	for _, desc := range []bool{false, true} {
 		p := &Pipeline{Params: []ParamDecl{opt("cg", Int32), opt("ck", Int64)},

@@ -60,8 +60,8 @@ func Reference() (string, error) {
 	}
 
 	w("\n## 数据来源(领域的 存储)\n\n不写 = 普通的表。\n\n")
-	row("存储", "内部名", "领域里另外的键", "取数的流水线")
-	row("---", "---", "---", "---")
+	row("存储", "内部名", "领域里另外的键", "字段的键", "取数的流水线")
+	row("---", "---", "---", "---", "---")
 	for _, s := range sources.All() {
 		steps := "—"
 		if sc, ok := lib.Sources[s.Name]; ok {
@@ -77,7 +77,7 @@ func Reference() (string, error) {
 		if name == "" {
 			name = "(不写: 普通的表)"
 		}
-		row(name, "`"+s.Kind+"`", code(s.DesignKeys), steps)
+		row(name, "`"+s.Kind+"`", code(s.DesignKeys), code(s.FieldKeys), steps)
 	}
 
 	w("\n## 类型\n\n输入 / 输出 / 列的类型。后面加「列表」= 多个(输入)。派生的类型继承基本类型,另外带格式。\n\n")

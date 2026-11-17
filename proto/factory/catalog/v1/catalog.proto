@@ -11,8 +11,33 @@ option go_package = "apifactory/gen/factory/catalog/v1;catalogv1";
 
 // 商品マスタ。変更のたびに 1 行追加される(上書きしない)
 service CatalogService {
+  // 商品コードを指定して、その商品のラベル(既定のラベルを含む)の現在の値を返す
+  rpc ListProductLabels(ListProductLabelsRequest) returns (ListProductLabelsResponse);
+
   // カテゴリと商品コードを条件に、商品マスタの現在の値を返す
   rpc ListProductMaster(ListProductMasterRequest) returns (ListProductMasterResponse);
+}
+
+// 商品の表示ラベル(商品 × ラベルコードごとに最新の版)。ラベルコードが空 = 既定のラベル
+message ProductLabel {
+  // 商品コード
+  string product_code = 1;
+  // ラベルコード(既定のラベルは空)
+  optional string label_code = 2;
+  // 表示文言
+  optional string text = 3;
+}
+
+// 商品コードを指定して、その商品のラベル(既定のラベルを含む)の現在の値を返す
+message ListProductLabelsRequest {
+  // 商品コード
+  string product_code = 1 [(buf.validate.field).string = {min_len: 1, max_len: 20}];
+}
+
+// 商品コードを指定して、その商品のラベル(既定のラベルを含む)の現在の値を返す
+message ListProductLabelsResponse {
+  // 最多 100 件;超过时返回错误(不会截断)
+  repeated ProductLabel product_label = 1;
 }
 
 // 商品マスタの現在の値(商品コードごとに最新に登録された行)

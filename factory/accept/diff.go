@@ -508,7 +508,11 @@ func (e *diffEnv) scalarFor(col string, kind core.Kind, unique bool, i int) any 
 			return d.Expand(e.rnd.Intn(target))
 		}
 		if _, constrained := e.domains[col]; !constrained {
-			switch v := e.scalar(kind, false, i).(type) { // 多版本来源的自然键: 值域扩大
+			v := e.scalar(kind, false, i)
+			if e.rnd.Intn(3) == 0 { // 约 1/3 保留原来的值(陷阱值: "" / "a%" / 0 …): 扩大会把它们变成普通的值
+				return v
+			}
+			switch v := v.(type) { // 多版本来源的自然键: 值域扩大
 			case int64:
 				return v + int64(100*e.rnd.Intn(times))
 			case string:

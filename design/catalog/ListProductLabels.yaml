@@ -1,0 +1,39 @@
+# ============================================================================
+# ListProductLabels: 商品のラベル(自然キーの一部が空でもよい JSON版本 の例)
+# ============================================================================
+API: ListProductLabels
+说明: 商品コードを指定して、その商品のラベル(既定のラベルを含む)の現在の値を返す
+背景: ラベルコードが空の行は既定のラベル。空のラベルコードも 1 つのキーとして版を管理する(空だからといって捨てない)
+负责人: catalog-team
+风险: 低
+
+种类: 多条
+数据来源: product_label
+
+输入:
+  product_code: { 类型: 文本, 必填: 是, 长度: 1~20, 说明: 商品コード, 筛选: product_code 等于 }
+
+输出:
+  product_code: 商品コード
+  label_code:   ラベルコード(既定のラベルは空)
+  text:         表示文言
+
+排序: [label_code 小到大]
+上限: 100
+
+例子:
+  准备数据:
+    product_label:   # 上から順に登録された(後の行が新しい)
+      - { product_code: "100", label_code: null, text: 既定 }
+      - { product_code: "100", label_code: "A", text: 特売 }
+      - { product_code: "100", label_code: null, text: 既定2 }      # 既定のラベルの新しい版
+      - { product_code: "200", label_code: null, text: 既定 }
+      - { product_code: "200", label_code: null, 操作: 删除 }        # 200 の既定のラベルを削除
+      - { product_code: "200", label_code: "B", text: 新商品 }
+  用例:
+    - 说明: 既定のラベル(ラベルコードが空)も 1 件として、新しい版を返す。空は最後に並ぶ
+      输入: { product_code: "100" }
+      结果: { product_label: [{ label_code: "A", text: 特売 }, { label_code: null, text: 既定2 }] }
+    - 说明: 既定のラベルが削除された商品は、残りのラベルだけ
+      输入: { product_code: "200" }
+      结果: { product_label: [{ label_code: "B", text: 新商品 }] }

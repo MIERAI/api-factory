@@ -42,6 +42,7 @@ type Source struct {
 	Name       string   // 领域里 存储 的值: JSON版本(普通的表 = "")
 	Kind       string   // spec / IR 的 storage.kind
 	DesignKeys []string // 领域里这种来源可以写的键
+	FieldKeys  []string // 字段可以写的键(有 字段 的来源)
 	Parse      func(d Domain) *spec.Storage
 	Columns    func(st *spec.Storage, nk []string) []Column
 	Steps      func(st *spec.Storage, nk []string, scan core.Step, lib *cells.Library) ([]core.Step, error)

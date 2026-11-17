@@ -25,6 +25,162 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// 商品の表示ラベル(商品 × ラベルコードごとに最新の版)。ラベルコードが空 = 既定のラベル
+type ProductLabel struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 商品コード
+	ProductCode string `protobuf:"bytes,1,opt,name=product_code,json=productCode,proto3" json:"product_code,omitempty"`
+	// ラベルコード(既定のラベルは空)
+	LabelCode *string `protobuf:"bytes,2,opt,name=label_code,json=labelCode,proto3,oneof" json:"label_code,omitempty"`
+	// 表示文言
+	Text          *string `protobuf:"bytes,3,opt,name=text,proto3,oneof" json:"text,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProductLabel) Reset() {
+	*x = ProductLabel{}
+	mi := &file_factory_catalog_v1_catalog_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProductLabel) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProductLabel) ProtoMessage() {}
+
+func (x *ProductLabel) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_catalog_v1_catalog_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProductLabel.ProtoReflect.Descriptor instead.
+func (*ProductLabel) Descriptor() ([]byte, []int) {
+	return file_factory_catalog_v1_catalog_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *ProductLabel) GetProductCode() string {
+	if x != nil {
+		return x.ProductCode
+	}
+	return ""
+}
+
+func (x *ProductLabel) GetLabelCode() string {
+	if x != nil && x.LabelCode != nil {
+		return *x.LabelCode
+	}
+	return ""
+}
+
+func (x *ProductLabel) GetText() string {
+	if x != nil && x.Text != nil {
+		return *x.Text
+	}
+	return ""
+}
+
+// 商品コードを指定して、その商品のラベル(既定のラベルを含む)の現在の値を返す
+type ListProductLabelsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 商品コード
+	ProductCode   string `protobuf:"bytes,1,opt,name=product_code,json=productCode,proto3" json:"product_code,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListProductLabelsRequest) Reset() {
+	*x = ListProductLabelsRequest{}
+	mi := &file_factory_catalog_v1_catalog_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListProductLabelsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListProductLabelsRequest) ProtoMessage() {}
+
+func (x *ListProductLabelsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_catalog_v1_catalog_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListProductLabelsRequest.ProtoReflect.Descriptor instead.
+func (*ListProductLabelsRequest) Descriptor() ([]byte, []int) {
+	return file_factory_catalog_v1_catalog_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *ListProductLabelsRequest) GetProductCode() string {
+	if x != nil {
+		return x.ProductCode
+	}
+	return ""
+}
+
+// 商品コードを指定して、その商品のラベル(既定のラベルを含む)の現在の値を返す
+type ListProductLabelsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 最多 100 件;超过时返回错误(不会截断)
+	ProductLabel  []*ProductLabel `protobuf:"bytes,1,rep,name=product_label,json=productLabel,proto3" json:"product_label,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListProductLabelsResponse) Reset() {
+	*x = ListProductLabelsResponse{}
+	mi := &file_factory_catalog_v1_catalog_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListProductLabelsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListProductLabelsResponse) ProtoMessage() {}
+
+func (x *ListProductLabelsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_catalog_v1_catalog_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListProductLabelsResponse.ProtoReflect.Descriptor instead.
+func (*ListProductLabelsResponse) Descriptor() ([]byte, []int) {
+	return file_factory_catalog_v1_catalog_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ListProductLabelsResponse) GetProductLabel() []*ProductLabel {
+	if x != nil {
+		return x.ProductLabel
+	}
+	return nil
+}
+
 // 商品マスタの現在の値(商品コードごとに最新に登録された行)
 type ProductMaster struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -46,7 +202,7 @@ type ProductMaster struct {
 
 func (x *ProductMaster) Reset() {
 	*x = ProductMaster{}
-	mi := &file_factory_catalog_v1_catalog_proto_msgTypes[0]
+	mi := &file_factory_catalog_v1_catalog_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -58,7 +214,7 @@ func (x *ProductMaster) String() string {
 func (*ProductMaster) ProtoMessage() {}
 
 func (x *ProductMaster) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_catalog_v1_catalog_proto_msgTypes[0]
+	mi := &file_factory_catalog_v1_catalog_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -71,7 +227,7 @@ func (x *ProductMaster) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProductMaster.ProtoReflect.Descriptor instead.
 func (*ProductMaster) Descriptor() ([]byte, []int) {
-	return file_factory_catalog_v1_catalog_proto_rawDescGZIP(), []int{0}
+	return file_factory_catalog_v1_catalog_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ProductMaster) GetProductCode() string {
@@ -131,7 +287,7 @@ type ListProductMasterRequest struct {
 
 func (x *ListProductMasterRequest) Reset() {
 	*x = ListProductMasterRequest{}
-	mi := &file_factory_catalog_v1_catalog_proto_msgTypes[1]
+	mi := &file_factory_catalog_v1_catalog_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -143,7 +299,7 @@ func (x *ListProductMasterRequest) String() string {
 func (*ListProductMasterRequest) ProtoMessage() {}
 
 func (x *ListProductMasterRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_catalog_v1_catalog_proto_msgTypes[1]
+	mi := &file_factory_catalog_v1_catalog_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -156,7 +312,7 @@ func (x *ListProductMasterRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListProductMasterRequest.ProtoReflect.Descriptor instead.
 func (*ListProductMasterRequest) Descriptor() ([]byte, []int) {
-	return file_factory_catalog_v1_catalog_proto_rawDescGZIP(), []int{1}
+	return file_factory_catalog_v1_catalog_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ListProductMasterRequest) GetCategory() string {
@@ -191,7 +347,7 @@ type ListProductMasterResponse struct {
 
 func (x *ListProductMasterResponse) Reset() {
 	*x = ListProductMasterResponse{}
-	mi := &file_factory_catalog_v1_catalog_proto_msgTypes[2]
+	mi := &file_factory_catalog_v1_catalog_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -203,7 +359,7 @@ func (x *ListProductMasterResponse) String() string {
 func (*ListProductMasterResponse) ProtoMessage() {}
 
 func (x *ListProductMasterResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_catalog_v1_catalog_proto_msgTypes[2]
+	mi := &file_factory_catalog_v1_catalog_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -216,7 +372,7 @@ func (x *ListProductMasterResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListProductMasterResponse.ProtoReflect.Descriptor instead.
 func (*ListProductMasterResponse) Descriptor() ([]byte, []int) {
-	return file_factory_catalog_v1_catalog_proto_rawDescGZIP(), []int{2}
+	return file_factory_catalog_v1_catalog_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ListProductMasterResponse) GetProductMaster() []*ProductMaster {
@@ -230,7 +386,18 @@ var File_factory_catalog_v1_catalog_proto protoreflect.FileDescriptor
 
 const file_factory_catalog_v1_catalog_proto_rawDesc = "" +
 	"\n" +
-	" factory/catalog/v1/catalog.proto\x12\x12factory.catalog.v1\x1a\x1bbuf/validate/validate.proto\"\x8d\x02\n" +
+	" factory/catalog/v1/catalog.proto\x12\x12factory.catalog.v1\x1a\x1bbuf/validate/validate.proto\"\x86\x01\n" +
+	"\fProductLabel\x12!\n" +
+	"\fproduct_code\x18\x01 \x01(\tR\vproductCode\x12\"\n" +
+	"\n" +
+	"label_code\x18\x02 \x01(\tH\x00R\tlabelCode\x88\x01\x01\x12\x17\n" +
+	"\x04text\x18\x03 \x01(\tH\x01R\x04text\x88\x01\x01B\r\n" +
+	"\v_label_codeB\a\n" +
+	"\x05_text\"H\n" +
+	"\x18ListProductLabelsRequest\x12,\n" +
+	"\fproduct_code\x18\x01 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18\x14R\vproductCode\"b\n" +
+	"\x19ListProductLabelsResponse\x12E\n" +
+	"\rproduct_label\x18\x01 \x03(\v2 .factory.catalog.v1.ProductLabelR\fproductLabel\"\x8d\x02\n" +
 	"\rProductMaster\x12!\n" +
 	"\fproduct_code\x18\x01 \x01(\tR\vproductCode\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\x1f\n" +
@@ -255,8 +422,9 @@ const file_factory_catalog_v1_catalog_proto_rawDesc = "" +
 	"\n" +
 	"_maker_zip\"e\n" +
 	"\x19ListProductMasterResponse\x12H\n" +
-	"\x0eproduct_master\x18\x01 \x03(\v2!.factory.catalog.v1.ProductMasterR\rproductMaster2\x82\x01\n" +
+	"\x0eproduct_master\x18\x01 \x03(\v2!.factory.catalog.v1.ProductMasterR\rproductMaster2\xf4\x01\n" +
 	"\x0eCatalogService\x12p\n" +
+	"\x11ListProductLabels\x12,.factory.catalog.v1.ListProductLabelsRequest\x1a-.factory.catalog.v1.ListProductLabelsResponse\x12p\n" +
 	"\x11ListProductMaster\x12,.factory.catalog.v1.ListProductMasterRequest\x1a-.factory.catalog.v1.ListProductMasterResponseB-Z+apifactory/gen/factory/catalog/v1;catalogv1b\x06proto3"
 
 var (
@@ -271,21 +439,27 @@ func file_factory_catalog_v1_catalog_proto_rawDescGZIP() []byte {
 	return file_factory_catalog_v1_catalog_proto_rawDescData
 }
 
-var file_factory_catalog_v1_catalog_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_factory_catalog_v1_catalog_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_factory_catalog_v1_catalog_proto_goTypes = []any{
-	(*ProductMaster)(nil),             // 0: factory.catalog.v1.ProductMaster
-	(*ListProductMasterRequest)(nil),  // 1: factory.catalog.v1.ListProductMasterRequest
-	(*ListProductMasterResponse)(nil), // 2: factory.catalog.v1.ListProductMasterResponse
+	(*ProductLabel)(nil),              // 0: factory.catalog.v1.ProductLabel
+	(*ListProductLabelsRequest)(nil),  // 1: factory.catalog.v1.ListProductLabelsRequest
+	(*ListProductLabelsResponse)(nil), // 2: factory.catalog.v1.ListProductLabelsResponse
+	(*ProductMaster)(nil),             // 3: factory.catalog.v1.ProductMaster
+	(*ListProductMasterRequest)(nil),  // 4: factory.catalog.v1.ListProductMasterRequest
+	(*ListProductMasterResponse)(nil), // 5: factory.catalog.v1.ListProductMasterResponse
 }
 var file_factory_catalog_v1_catalog_proto_depIdxs = []int32{
-	0, // 0: factory.catalog.v1.ListProductMasterResponse.product_master:type_name -> factory.catalog.v1.ProductMaster
-	1, // 1: factory.catalog.v1.CatalogService.ListProductMaster:input_type -> factory.catalog.v1.ListProductMasterRequest
-	2, // 2: factory.catalog.v1.CatalogService.ListProductMaster:output_type -> factory.catalog.v1.ListProductMasterResponse
-	2, // [2:3] is the sub-list for method output_type
-	1, // [1:2] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	0, // 0: factory.catalog.v1.ListProductLabelsResponse.product_label:type_name -> factory.catalog.v1.ProductLabel
+	3, // 1: factory.catalog.v1.ListProductMasterResponse.product_master:type_name -> factory.catalog.v1.ProductMaster
+	1, // 2: factory.catalog.v1.CatalogService.ListProductLabels:input_type -> factory.catalog.v1.ListProductLabelsRequest
+	4, // 3: factory.catalog.v1.CatalogService.ListProductMaster:input_type -> factory.catalog.v1.ListProductMasterRequest
+	2, // 4: factory.catalog.v1.CatalogService.ListProductLabels:output_type -> factory.catalog.v1.ListProductLabelsResponse
+	5, // 5: factory.catalog.v1.CatalogService.ListProductMaster:output_type -> factory.catalog.v1.ListProductMasterResponse
+	4, // [4:6] is the sub-list for method output_type
+	2, // [2:4] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_factory_catalog_v1_catalog_proto_init() }
@@ -294,14 +468,15 @@ func file_factory_catalog_v1_catalog_proto_init() {
 		return
 	}
 	file_factory_catalog_v1_catalog_proto_msgTypes[0].OneofWrappers = []any{}
-	file_factory_catalog_v1_catalog_proto_msgTypes[1].OneofWrappers = []any{}
+	file_factory_catalog_v1_catalog_proto_msgTypes[3].OneofWrappers = []any{}
+	file_factory_catalog_v1_catalog_proto_msgTypes[4].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_factory_catalog_v1_catalog_proto_rawDesc), len(file_factory_catalog_v1_catalog_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

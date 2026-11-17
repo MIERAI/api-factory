@@ -234,7 +234,8 @@ func (l *Library) Pattern(name string, parts Parts) ([]core.Step, error) {
 type SourceParts struct {
 	Scan    core.Step             // $原始表
 	Expand  []core.NamedExpr      // $展开
-	Keys    []string              // $键非空 / $每键最新 的键
+	Keys    []string              // $每键最新 的键
+	NotNull []string              // $键非空 的键(没有声明 可以为空 的键列;空 = 这一步省略)
 	Order   []core.SortKey        // $每键最新 的顺序
 	Logical []core.NamedExpr      // $逻辑列
 	Names   map[string]*core.Expr // 有效 里可用的名字
@@ -258,8 +259,11 @@ func (l *Library) Source(name string, parts SourceParts) ([]core.Step, error) {
 			case "project $展开":
 				steps = append(steps, core.Step{Kind: "project", Project: parts.Expand, From: from})
 			case "filter $键非空":
+				if len(parts.NotNull) == 0 { // 键列都可以为空
+					continue
+				}
 				var conj []*core.Expr
-				for _, k := range parts.Keys {
+				for _, k := range parts.NotNull {
 					conj = append(conj, core.Not(core.IsNull(core.Col(k))))
 				}
 				pred := conj[0]

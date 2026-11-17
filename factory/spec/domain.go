@@ -57,6 +57,8 @@ type StorageField struct {
 	Name string `yaml:"name"`          // 逻辑列名
 	Key  string `yaml:"key,omitempty"` // JSON 里的键(默认 = name)
 	Type string `yaml:"type"`          // SQL 类型: int4 / int8 / text / numeric / date / timestamptz / bool
+	// Nullable: 自然键的列也可以为空(表定义里非必填的键列)。空值自己是一组;不声明时键列不为空(取数时去掉键为空的行)
+	Nullable bool `yaml:"nullable,omitempty"`
 }
 
 func (f StorageField) JSONKey() string {

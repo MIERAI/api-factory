@@ -2,6 +2,30 @@
 # 人写的式样书在 design/catalog/领域.yaml(这个文件由设计编译器生成)
 domain_version: "0.1"
 entities:
+    product_label:
+        natural_key:
+            - product_code
+            - label_code
+        policy: versioned
+        storage:
+            kind: json_versions
+            table: product_label_events
+            data_column: data
+            action_column: action_type
+            delete_value: 1
+            order_by:
+                - registered_at
+                - id
+            fields:
+                - name: product_code
+                  type: text
+                - name: label_code
+                  type: text
+                  nullable: true
+                - name: text
+                  type: text
+        columns: {}
+        invariants: []
     product_master:
         natural_key:
             - product_code

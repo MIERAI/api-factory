@@ -23,15 +23,17 @@ import (
 //	字段:                              # 逻辑表的列
 //	  product_id: { 类型: 整数32, 说明: 商品ID }
 //	  valid_from: { 类型: 整数32, 键: from, 说明: 生效开始日 }   # 键 = JSON 里的名字(默认 = 列名)
+//	  line_code:  { 类型: 文本, 可以为空: 是, 说明: … }          # 主键的列也可以为空: 空值自己是一组(和原来的 DISTINCT ON 一样)
 func init() {
 	Register(&Source{
 		Name: "JSON版本", Kind: "json_versions",
 		DesignKeys: []string{"原始表", "存储列", "逻辑删除", "字段"},
+		FieldKeys:  FieldKeys,
 		Parse:      parseJSONVersions,
 		Columns: func(st *spec.Storage, nk []string) []Column {
 			var out []Column
 			for _, f := range st.Fields {
-				out = append(out, Column{Name: f.Name, SQLType: f.Type, NotNull: contains(nk, f.Name)})
+				out = append(out, Column{Name: f.Name, SQLType: f.Type, NotNull: contains(nk, f.Name) && !f.Nullable})
 			}
 			return out
 		},
@@ -52,6 +54,9 @@ func init() {
 		},
 	})
 }
+
+// FieldKeys: JSON版本 的表的一个字段可以写的键。
+var FieldKeys = []string{"类型", "键", "说明", "枚举", "可以为空"}
 
 func parseJSONVersions(d Domain) *spec.Storage {
 	n, name := d.Node(), d.Name()
@@ -91,7 +96,15 @@ func parseJSONVersions(d Domain) *spec.Storage {
 	if fields != nil {
 		for i := 0; i+1 < len(fields.Content); i += 2 {
 			key, val := fields.Content[i], fields.Content[i+1]
-			d.CheckKeys(val, "表 "+name+" 的字段 "+key.Value, "类型", "键", "说明", "枚举")
+			d.CheckKeys(val, "表 "+name+" 的字段 "+key.Value, FieldKeys...)
+			nullable := false
+			switch str(val, "可以为空") {
+			case "是":
+				nullable = true
+			case "", "否":
+			default:
+				d.Err(key.Line, "表 %s 的字段 %s: 可以为空 只能是 是 / 否", name, key.Value)
+			}
 			typ := str(val, "类型")
 			sqlType, ok := "", false
 			if k, found := kinds.ByName(typ); found && len(k.SQL) > 0 {
@@ -104,7 +117,7 @@ func parseJSONVersions(d Domain) *spec.Storage {
 			if !ok {
 				d.Err(key.Line, "表 %s 的字段 %s: 类型 %q 无法识别(%s)", name, key.Value, typ, kinds.Names())
 			}
-			st.Fields = append(st.Fields, spec.StorageField{Name: key.Value, Key: str(val, "键"), Type: sqlType})
+			st.Fields = append(st.Fields, spec.StorageField{Name: key.Value, Key: str(val, "键"), Type: sqlType, Nullable: nullable})
 			d.Column(key.Value, str(val, "说明"), en)
 		}
 	}
@@ -128,6 +141,17 @@ func jsonVersionsSteps(st *spec.Storage, nk []string, scan core.Step, lib *cells
 	data := core.Col(st.DataColumn)
 	var parts cells.SourceParts
 	parts.Scan, parts.Keys = scan, nk
+	for _, k := range nk { // 键非空: 只对没有声明 可以为空 的键列
+		nullable := false
+		for _, f := range st.Fields {
+			if f.Name == k && f.Nullable {
+				nullable = true
+			}
+		}
+		if !nullable {
+			parts.NotNull = append(parts.NotNull, k)
+		}
+	}
 	for _, f := range st.Fields {
 		k, ok := kinds.BySQL(f.Type)
 		if !ok || k.Core == "" {

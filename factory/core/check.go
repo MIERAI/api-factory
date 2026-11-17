@@ -72,9 +72,10 @@ func Check(p *Pipeline) (Schema, error) {
 				t, ok := cur.Col(k)
 				if !ok {
 					add("%s: 键 %s 不存在", at, k)
-				} else if t.Nullable {
-					add("%s: 键 %s 可能为 NULL(键必须 NOT NULL)", at, k)
+				} else if t.Kind == JSON {
+					add("%s: 键 %s 不能是 json", at, k)
 				}
+				// 键可以为 NULL: NULL 自己是一组(和 SQL 的 DISTINCT ON 一样;参考求值器按规范文本分组,NULL = "∅")
 			}
 			checkOrder(cur, st.Order, at, add)
 		case "sort":
