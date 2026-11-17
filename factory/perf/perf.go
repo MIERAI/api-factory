@@ -180,6 +180,9 @@ func collect(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, api *ir.API, ta
 	}
 	keys := map[string]core.Kind{}
 	for _, f := range st.Fields {
+		if f.Column != "" { // 外壳列: 物理表的列(不在 JSON 里)
+			continue
+		}
 		if k, ok := kindOfSQL(f.Type); ok {
 			keys[f.Key] = k
 		}
@@ -269,7 +272,7 @@ func jsonSQL(k core.Kind, salt int, nk [2]int, n int) string {
 		case core.Date:
 			return "to_char(date '2024-01-01' + " + base + ", 'YYYY-MM-DD')"
 		case core.Timestamp:
-			return "to_char(timestamptz '2024-01-01 00:00:00+00' + make_interval(mins => " + base + ") AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')"
+			return "to_char((timestamptz '2024-01-01 00:00:00+00' + make_interval(mins => " + base + ")) AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')"
 		case core.Decimal:
 			return base + "::text"
 		case core.Bool:
@@ -285,7 +288,7 @@ func jsonSQL(k core.Kind, salt int, nk [2]int, n int) string {
 	case core.Decimal:
 		return "(" + v + ")::text"
 	case core.Timestamp:
-		return "to_char(" + v + " AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')"
+		return "to_char((" + v + ") AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')"
 	}
 	return v
 }
@@ -375,22 +378,52 @@ func quote(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'
 // sample: 数据里这一列(逻辑列: JSON 版本取 data->>键)按顺序排在 q 分位的值。
 // 区间筛选的下界取 0.4、上界取 0.6,区间里约有 20% 的行;其他取中位数。
 func sample(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, api *ir.API, col string, k core.Kind, n int, q float64) (any, error) {
-	scan := api.Pipeline.Steps[0]
-	expr := pgx.Identifier{col}.Sanitize()
-	if st := plan.Storage(api.Table); st != nil {
-		for _, f := range st.Fields {
-			if f.Name == col {
-				expr = fmt.Sprintf("(%s ->> %s)::%s", pgx.Identifier{st.DataColumn}.Sanitize(), quote(f.Key), k.SQLType())
-			}
-		}
-	}
-	var s *string
-	err := conn.QueryRow(ctx, fmt.Sprintf("SELECT %s::text FROM %s WHERE %s IS NOT NULL ORDER BY 1 OFFSET %d LIMIT 1",
-		expr, pgx.Identifier{scan.Table}.Sanitize(), expr, int(float64(n)*q))).Scan(&s)
+	xs, err := sampleRow(ctx, conn, plan, api, []string{col}, []core.Kind{k}, n, q)
 	if err != nil {
 		return nil, err
 	}
-	return core.FromPGText(s, k)
+	return xs[0], nil
+}
+
+// sampleRow: 同一行的几列(组属于的一个组要取自同一行,否则组合在数据里不存在)。
+func sampleRow(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, api *ir.API, cols []string, ks []core.Kind, n int, q float64) ([]any, error) {
+	scan := api.Pipeline.Steps[0]
+	var exprs, conds []string
+	for i, col := range cols {
+		expr := pgx.Identifier{col}.Sanitize()
+		if st := plan.Storage(api.Table); st != nil {
+			for _, f := range st.Fields {
+				if f.Name == col && f.Column != "" {
+					expr = pgx.Identifier{f.Column}.Sanitize()
+				} else if f.Name == col {
+					expr = fmt.Sprintf("(%s ->> %s)::%s", pgx.Identifier{st.DataColumn}.Sanitize(), quote(f.Key), ks[i].SQLType())
+				}
+			}
+		}
+		exprs = append(exprs, expr+"::text")
+		conds = append(conds, expr+" IS NOT NULL")
+	}
+	ss := make([]*string, len(cols))
+	dst := make([]any, len(cols))
+	for i := range ss {
+		dst[i] = &ss[i]
+	}
+	var order []string
+	for i := range cols {
+		order = append(order, fmt.Sprint(i+1))
+	}
+	err := conn.QueryRow(ctx, fmt.Sprintf("SELECT %s FROM %s WHERE %s ORDER BY %s OFFSET %d LIMIT 1",
+		strings.Join(exprs, ", "), pgx.Identifier{scan.Table}.Sanitize(), strings.Join(conds, " AND "), strings.Join(order, ", "), int(float64(n)*q))).Scan(dst...)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]any, len(cols))
+	for i, s := range ss {
+		if out[i], err = core.FromPGText(s, ks[i]); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 // quantile: 筛选的种类 → 取样的分位。
@@ -446,14 +479,20 @@ func optionalParams(api *ir.API) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	filters := map[string]bool{}
+	filters := map[string]string{} // 参数 → 变体名(组属于: 每个字段的参数 → 组的输入名)
 	for _, f := range api.Filters {
-		filters[f.Field] = true
+		if f.Op == "in_tuples" {
+			for _, c := range f.Columns {
+				filters[ir.MemberParam(f.Field, c)] = f.Field
+			}
+			continue
+		}
+		filters[f.Field] = f.Field
 	}
 	var out []string
 	for _, d := range q.Params {
-		if filters[d.Name] && !required(api, d) {
-			out = append(out, d.Name)
+		if v, ok := filters[d.Name]; ok && !required(api, d) && !slices.Contains(out, v) {
+			out = append(out, v)
 		}
 	}
 	return out, nil
@@ -475,9 +514,19 @@ func explain(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, api *ir.API, va
 		return r, err
 	}
 	filters := map[string]ir.Filter{}
+	tuple := map[string]ir.Filter{} // 组属于的字段的参数 → 这个筛选
 	for _, f := range api.Filters {
+		if f.Op == "in_tuples" {
+			for _, c := range f.Columns {
+				m := ir.MemberParam(f.Field, c)
+				filters[m] = ir.Filter{Field: m, Column: c, Op: "in"}
+				tuple[m] = f
+			}
+			continue
+		}
 		filters[f.Field] = f
 	}
+	tupleRow := map[string][]any{} // 组属于: 一个组(同一行)的样本
 	var args []any
 	var requiredCols, givenCols []string
 	for _, d := range q.Params {
@@ -490,14 +539,28 @@ func explain(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, api *ir.API, va
 		default:
 			f, ok := filters[d.Name]
 			required := required(api, d)
-			if !ok || (!required && !all && d.Name != variant) {
+			if !ok || (!required && !all && d.Name != variant && tuple[d.Name].Field != variant) {
 				break
 			}
 			if required && !slices.Contains(requiredCols, f.Column) {
 				requiredCols = append(requiredCols, f.Column)
 			}
-			x, err := sample(ctx, conn, plan, api, f.Column, d.Type.Kind, opt.Rows, quantile(f.Op))
-			if err != nil {
+			var x any
+			if tf, ok := tuple[d.Name]; ok {
+				row, ok := tupleRow[tf.Field]
+				if !ok {
+					var ks []core.Kind
+					for _, c := range tf.Columns {
+						pd := api.Pipeline.Param(ir.MemberParam(tf.Field, c))
+						ks = append(ks, pd.Type.Kind)
+					}
+					if row, err = sampleRow(ctx, conn, plan, api, tf.Columns, ks, opt.Rows, 0.5); err != nil {
+						return r, fmt.Errorf("参数 %s: %w", tf.Field, err)
+					}
+					tupleRow[tf.Field] = row
+				}
+				x = row[slices.Index(tf.Columns, f.Column)]
+			} else if x, err = sample(ctx, conn, plan, api, f.Column, d.Type.Kind, opt.Rows, quantile(f.Op)); err != nil {
 				return r, fmt.Errorf("参数 %s: %w", d.Name, err)
 			}
 			if s, isText := x.(string); isText && f.Op == "prefix" {

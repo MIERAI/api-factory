@@ -240,6 +240,45 @@ func (c *ctx) columnField(table, col string) (string, string, bool, error) {
 }
 
 func (c *ctx) inputField(a *API, in *Input, e *errs) *field {
+	if in.Type == GroupListType { // 组的列表: repeated <API><组名>,组里的字段都必须指定
+		name := a.Name + pascal(singular(in.Name))
+		m := &message{Name: name, Desc: in.Desc}
+		for _, mi := range in.Group {
+			if strings.HasSuffix(mi.Type, "列表") {
+				e.add(mi.Line, "输入 %s 的组: 字段 %s 不能是列表", in.Name, mi.Name)
+				continue
+			}
+			if d := c.d.Enum(mi.Type); d != nil {
+				e.add(mi.Line, "输入 %s 的组: 字段 %s 还不能是枚举", in.Name, mi.Name)
+				continue
+			}
+			if mf := c.inputField(a, mi, e); mf != nil {
+				m.Fields = append(m.Fields, mf)
+			}
+		}
+		if len(m.Fields) < 2 {
+			e.add(in.Line, "输入 %s: 组至少要有 2 个字段(1 个字段请用 列表 + 属于)", in.Name)
+		}
+		c.addMessage(m)
+		f := &field{Name: in.Name, Type: name, Repeated: true, Desc: in.Desc, kind: "message:" + name}
+		for k := range in.Constraints {
+			if k != "个数" {
+				e.add(in.Line, "输入 %s: 组列表 只能写 个数(其他约束写在组的字段上)", in.Name)
+			}
+		}
+		rules, cerrs := constraints.Compile(constraints.Ctx{ProtoType: name, List: true, Required: in.Required}, in.Constraints)
+		for _, err := range cerrs {
+			e.add(in.Line, "输入 %s: %v", in.Name, err)
+		}
+		if in.Required && !constraints.Has(in.Constraints, "个数") {
+			f.Rules = append(f.Rules, "repeated.min_items = 1")
+		}
+		f.Rules = append(f.Rules, rules...)
+		if in.Desc != "" && !in.Required {
+			f.Desc = in.Desc + "(空列表 = 不按这个条件筛选)"
+		}
+		return f
+	}
 	elemType, isList := strings.CutSuffix(in.Type, "列表")
 	pt, kind, ok := c.typeOf(elemType)
 	if !ok {
@@ -305,6 +344,24 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 		if f := c.inputField(a, in, e); f != nil {
 			req.Fields = append(req.Fields, f)
 		}
+		if in.Type == GroupListType {
+			op, ok := c.lib.FilterID(strings.TrimSpace(in.Filter))
+			if !ok || op != "in_tuples" {
+				e.add(in.Line, "输入 %s: 组列表 的筛选写成 \"组属于\"(组的字段名 = 列名)", in.Name)
+				continue
+			}
+			var cols []string
+			for _, mi := range in.Group {
+				if _, has := c.column(table, mi.Name); !has {
+					e.add(mi.Line, "输入 %s 的组: 字段 %s 不是表 %s 的列(组的字段名 = 列名)", in.Name, mi.Name, table)
+				}
+				cols = append(cols, mi.Name)
+			}
+			if len(cols) > 0 {
+				filters[in.Name] = spec.Filter{Column: cols[0], Columns: cols, Op: op}
+			}
+			continue
+		}
 		if in.Filter != "" {
 			parts := strings.Fields(in.Filter)
 			op, ok := "", false
@@ -313,6 +370,10 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 			}
 			if !ok {
 				e.add(in.Line, "输入 %s: 筛选 %q 无法识别。写成 \"列 <筛选单元>\",单元库里有: %s", in.Name, in.Filter, strings.Join(c.lib.FilterNames(), " / "))
+				continue
+			}
+			if op == "in_tuples" {
+				e.add(in.Line, "输入 %s: 组属于 只能用于 类型 %s 的输入", in.Name, GroupListType)
 				continue
 			}
 			cols := strings.Split(parts[0], "~") // 多列的单元: 开始列~结束列

@@ -4,6 +4,13 @@
         changed_at: 3
         label_code: 1
         text: 2
+    ListLabelsByPairsPair:
+        label_code: 2
+        product_code: 1
+    ListLabelsByPairsRequest:
+        pairs: 1
+    ListLabelsByPairsResponse:
+        product_label: 1
     ListProductLabelsRequest:
         product_code: 1
     ListProductLabelsResponse:
@@ -19,6 +26,10 @@
         product_code: 1
     ListRecentLabelChangesResponse:
         product_label: 1
+    PairLabel:
+        label_code: 2
+        product_code: 1
+        text: 3
     ProductLabel:
         display_text: 5
         label: 4

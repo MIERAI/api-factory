@@ -1,0 +1,51 @@
+# ============================================================================
+# ListLabelsByPairs: (商品コード, ラベルコード) の組のリストで引く(组列表 + 组属于 の例)
+# ============================================================================
+API: ListLabelsByPairs
+说明: (商品コード, ラベルコード) の組のリストを受け取り、組ごとのラベルの現在の文言を返す
+背景: 画面に並んだ複数の商品 × ラベルをまとめて 1 回で引く。組ごとに一致するものだけ(商品コードの一覧 × ラベルコードの一覧の掛け合わせではない)
+负责人: catalog-team
+风险: 低
+
+种类: 多条
+输出行名: PairLabel
+数据来源: product_label
+
+输入:
+  pairs:
+    类型: 组列表
+    必填: 是
+    个数: 1~50
+    说明: 引きたい (商品コード, ラベルコード) の組
+    筛选: 组属于
+    组:
+      product_code: { 类型: 文本, 长度: 1~20, 格式: 数字, 说明: 商品コード }
+      label_code:   { 类型: 文本, 长度: 0~10, 说明: ラベルコード(既定のラベル = 空のラベルコードは組では指定できない) }
+
+输出:
+  product_code: 商品コード
+  label_code:   ラベルコード
+  text:         表示文言
+
+排序: [product_code 小到大, label_code 小到大]
+上限: 50
+
+例子:
+  准备数据:
+    product_label:
+      - { product_code: "100", label_code: "A", text: 特売 }
+      - { product_code: "100", label_code: "B", text: 新商品 }
+      - { product_code: "200", label_code: "A", text: 限定 }
+      - { product_code: "200", label_code: "B", text: 旧 }
+      - { product_code: "200", label_code: "B", text: 再入荷 }    # 200/B の新しい版
+      - { product_code: "300", label_code: null, text: 既定 }
+  用例:
+    - 说明: 組ごとに一致するものだけ(100/B と 200/A は掛け合わせなので返さない)
+      输入: { pairs: [{ product_code: "100", label_code: "A" }, { product_code: "200", label_code: "B" }] }
+      结果: { product_label: [{ product_code: "100", label_code: "A", text: 特売 }, { product_code: "200", label_code: "B", text: 再入荷 }] }
+    - 说明: ラベルコードが空(既定のラベル)の行は、空文字の組とは一致しない
+      输入: { pairs: [{ product_code: "300", label_code: "" }] }
+      结果: { product_label: [] }
+    - 说明: 同じ組を 2 回書いても 1 件
+      输入: { pairs: [{ product_code: "100", label_code: "B" }, { product_code: "100", label_code: "B" }] }
+      结果: { product_label: [{ product_code: "100", label_code: "B", text: 新商品 }] }

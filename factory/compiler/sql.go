@@ -55,6 +55,20 @@ func resolveFilters(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalog
 			}
 		}
 		rf.Columns = f.Columns
+		if f.Op == "in_tuples" { // 组的列表: 组的字段 = 筛选的列(顺序一致)
+			if !fd.IsList() || fd.Kind() != protoreflect.MessageKind {
+				return nil, fmt.Errorf("datasource.filters.%s: in_tuples needs a repeated message field", name)
+			}
+			mf := fd.Message().Fields()
+			if mf.Len() != len(f.Columns) {
+				return nil, fmt.Errorf("datasource.filters.%s: %s has %d fields, filter has %d columns", name, fd.Message().Name(), mf.Len(), len(f.Columns))
+			}
+			for i, c := range f.Columns {
+				if string(mf.Get(i).Name()) != c {
+					return nil, fmt.Errorf("datasource.filters.%s: field #%d of %s is %s, column is %s", name, i+1, fd.Message().Name(), mf.Get(i).Name(), c)
+				}
+			}
+		}
 		if fd.IsList() { // 列表参数: 至少 1 个(min_items ≥ 1)时必填
 			rf.List = true
 			r := convRules(fd)

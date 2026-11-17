@@ -73,6 +73,11 @@ EV=gen/db/catalog.list-recent-label-changes.sql.go
 run "外壳列: 从 JSON 里取(没有这个键)"          $EV 's/t1\.registered_at AS updated_at/((t1.data ->> \x27updated_at\x27)::timestamptz) AS updated_at/'
 run "外壳列: 取了最早的版本的时间"              $EV 's/t1\.registered_at AS updated_at/min(t1.registered_at) OVER (PARTITION BY t1.data ->> \x27product_code\x27, t1.data ->> \x27label_code\x27) AS updated_at/'
 run "外壳列: 筛选 >= 写成 >"                 $EV 's/t4\.updated_at >= \$2/t4.updated_at > \$2/'
+TP=gen/db/catalog.list-labels-by-pairs.sql.go
+run "组属于: 按列各自属于(交叉组合)"            $TP 's/EXISTS \(SELECT 1 FROM [^\n]*tup2\.n = tup1\.n\)/(t2.product_code = ANY(\$1::text[])) AND (t2.label_code = ANY(\$2::text[]))/'
+run "组属于: 没有按下标对齐"                    $TP 's/ AND tup2\.n = tup1\.n//'
+TH=internal/handler/catalog/list_labels_by_pairs_gen.go
+run "组属于: 组的字段取错(商品 ← ラベル)"        $TH 's/out = append\(out, x\.GetProductCode\(\)\)/out = append(out, x.GetLabelCode())/'
 SH=internal/handler/sales/list_prices_as_of_gen.go
 run "分库: 不选库(一直用主库)"           $SH 's/h\.at\(int64\(m\.GetStoreCode\(\)\)\)\./h.q./'
 run "分库: 选错库(店铺代码 +1)"          $SH 's/h\.at\(int64\(m\.GetStoreCode\(\)\)\)/h.at(int64(m.GetStoreCode())+1)/'

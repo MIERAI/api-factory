@@ -9,6 +9,7 @@ import (
 	"apifactory/factory/cells"
 	"apifactory/factory/core"
 	"apifactory/factory/exits"
+	"apifactory/factory/ir"
 	"apifactory/factory/kinds"
 	"apifactory/factory/sources"
 	"apifactory/factory/spec"
@@ -35,13 +36,27 @@ func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []re
 		if err != nil {
 			return nil, err
 		}
-		p.Params = append(p.Params, core.ParamDecl{Name: f.Name, Type: core.Type{Kind: t.Kind}, Required: !f.Presence, List: f.List})
 		cell := f.Op // 单元的内部名(eq / in / valid_at …);单元库按内部名或名字都能找到
 		cols := f.Columns
 		if len(cols) == 0 {
 			cols = []string{f.Column.Name}
 		}
-		e, err := lib.Filter(cell, cols, f.Name)
+		var members []string
+		if f.Op == "in_tuples" { // 组的列表: 每个字段一个列表参数(类型 = 列的类型)
+			for _, c := range cols {
+				cc, _ := cat.column(table, c)
+				ct, err := coreType(table, cc)
+				if err != nil {
+					return nil, err
+				}
+				m := ir.MemberParam(f.Name, c)
+				members = append(members, m)
+				p.Params = append(p.Params, core.ParamDecl{Name: m, Type: core.Type{Kind: ct.Kind}, Required: !f.Presence, List: true})
+			}
+		} else {
+			p.Params = append(p.Params, core.ParamDecl{Name: f.Name, Type: core.Type{Kind: t.Kind}, Required: !f.Presence, List: f.List})
+		}
+		e, err := lib.Filter(cell, cols, f.Name, members...)
 		if err != nil {
 			return nil, fmt.Errorf("筛选 %s: %w", f.Name, err)
 		}

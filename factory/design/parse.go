@@ -349,6 +349,7 @@ type Input struct {
 	Desc        string
 	Filter      string // "created_at 大于等于"
 	Line        int
+	Group       []*Input // 类型 组列表: 一个组的字段(名字 = 列名;组里的字段都要指定)
 }
 
 type Output struct {
@@ -415,6 +416,23 @@ func loadAPI(path string) (*API, error) {
 		}
 		if f := str(p.Val, "必填"); f != "是" && f != "否" {
 			e.add(p.Line, "输入 %s: 必填 只能是 是 / 否", p.Key)
+		}
+		if g := get(p.Val, "组"); g != nil {
+			if in.Type != GroupListType {
+				e.add(p.Line, "输入 %s: 只有 类型 %s 才能写 组", p.Key, GroupListType)
+			}
+			for _, m := range pairs(g) {
+				checkKeys(e, m.Val, "输入 "+p.Key+" 的组 "+m.Key, append([]string{"类型", "说明"}, constraints.Keys()...)...)
+				mi := &Input{Name: m.Key, Type: str(m.Val, "类型"), Required: true, Desc: str(m.Val, "说明"), Line: m.Line, Constraints: map[string]string{}}
+				for _, k := range constraints.Keys() {
+					if v := str(m.Val, k); v != "" {
+						mi.Constraints[k] = v
+					}
+				}
+				in.Group = append(in.Group, mi)
+			}
+		} else if in.Type == GroupListType {
+			e.add(p.Line, "输入 %s: 类型 %s 要写 组(组里的字段,名字 = 列名)", p.Key, GroupListType)
 		}
 		a.Inputs = append(a.Inputs, in)
 	}
@@ -587,4 +605,7 @@ func OutputKeys() []string {
 }
 
 // InputKeys: 输入可以写的键(约束的键另外由 factory/constraints 决定)。
-func InputKeys() []string { return []string{"类型", "必填", "说明", "筛选"} }
+func InputKeys() []string { return []string{"类型", "必填", "说明", "筛选", "组"} }
+
+// GroupListType: 组的列表(每个组几个字段,和 筛选: 组属于 一起用: 有一个组逐列相等就留下)。
+const GroupListType = "组列表"

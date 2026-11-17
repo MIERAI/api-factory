@@ -172,6 +172,54 @@ func (g *genCtx) resExpr(src, srcType string, f *ir.Field) (string, error) {
 	return "", fmt.Errorf("query column %s (%s) cannot be mapped to response field %s (%s)", src, srcType, f.Name, kind)
 }
 
+// memberExpr: 组的列表(in_tuples)的一个字段 → 并行的列表参数(第 i 个 = 第 i 个组的这个字段)。
+func (g *genCtx) memberExpr(param, paramType string) (string, bool, error) {
+	for _, flt := range g.api.Filters {
+		if flt.Op != "in_tuples" {
+			continue
+		}
+		for _, col := range flt.Columns {
+			if norm(ir.MemberParam(flt.Field, col)) != norm(param) {
+				continue
+			}
+			rf, err := g.requestField(flt.Field)
+			if err != nil {
+				return "", true, err
+			}
+			if !rf.List || rf.Message == nil {
+				return "", true, fmt.Errorf("request field %s: in_tuples needs a repeated message", flt.Field)
+			}
+			var mf *ir.Field
+			for i := range rf.Message.Fields {
+				if rf.Message.Fields[i].Name == col {
+					mf = &rf.Message.Fields[i]
+				}
+			}
+			if mf == nil {
+				return "", true, fmt.Errorf("request field %s has no member %s", flt.Field, col)
+			}
+			k, err := goKind(mf)
+			if err != nil {
+				return "", true, err
+			}
+			get := fmt.Sprintf("x.Get%s()", goCamelCase(col))
+			elem := strings.TrimPrefix(paramType, "[]")
+			switch {
+			case k == elem:
+			case k == "string" && elem == "time.Time": // 日期 "YYYY-MM-DD"
+				g.use("apifactory/platform/conv", "")
+				get = fmt.Sprintf("conv.Date(%s)", get)
+			case k == "ts" && elem == "time.Time":
+				get += ".AsTime()"
+			default:
+				return "", true, fmt.Errorf("member %s.%s (%s) cannot be mapped to query param type %s", flt.Field, col, k, paramType)
+			}
+			return fmt.Sprintf("func() %[1]s {\n\t\tout := make(%[1]s, 0, len(m.Get%[2]s()))\n\t\tfor _, x := range m.Get%[2]s() {\n\t\t\tout = append(out, %[3]s)\n\t\t}\n\t\treturn out\n\t}()", paramType, goCamelCase(flt.Field), get), true, nil
+		}
+	}
+	return "", false, nil
+}
+
 // requestField 按名字找到查询参数对应的请求字段。
 func (g *genCtx) requestField(param string) (*ir.Field, error) {
 	for i := range g.api.Request.Fields {
@@ -187,6 +235,13 @@ func (g *genCtx) paramAssignments(skip func(string) bool) ([]string, error) {
 	var lines []string
 	for _, f := range g.db.structs[g.query.ParamType] {
 		if skip(f.Name) {
+			continue
+		}
+		if e, ok, err := g.memberExpr(f.Name, f.Type); ok || err != nil { // 组的列表的一个字段
+			if err != nil {
+				return nil, err
+			}
+			lines = append(lines, fmt.Sprintf("%s: %s,", f.Name, e))
 			continue
 		}
 		rf, err := g.requestField(f.Name)

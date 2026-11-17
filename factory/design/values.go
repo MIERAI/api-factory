@@ -194,6 +194,19 @@ func (c *ctx) request(req *message, n *yaml.Node) (map[string]any, error) {
 		if f == nil {
 			return nil, fmt.Errorf("第 %d 行: %s 不是输入", p.Line, p.Key)
 		}
+		if f.Repeated && strings.HasPrefix(f.kind, "message:") { // 组的列表: [{ 字段: 值, … }, …]
+			sub := c.msgByNm[strings.TrimPrefix(f.kind, "message:")]
+			list := []any{}
+			for _, it := range p.Val.Content {
+				m, err := c.request(sub, it)
+				if err != nil {
+					return nil, fmt.Errorf("第 %d 行 %s: %v", it.Line, p.Key, err)
+				}
+				list = append(list, m)
+			}
+			out[p.Key] = list
+			continue
+		}
 		if f.Repeated { // 列表输入: [a, b]
 			list := []any{}
 			for _, it := range p.Val.Content {

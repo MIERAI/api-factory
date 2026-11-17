@@ -348,6 +348,21 @@ func (g *sqlGen) expr(e *Expr, lv *sqlLevel) (string, error) {
 			op = "<"
 		}
 		return fmt.Sprintf("(%s IS NULL OR (%s) %s (%s))", first, strings.Join(cols, ", "), op, strings.Join(ps, ", ")), nil
+	case "in_tuples": // 并行的数组按下标对齐成组(单参数 unnest + WITH ORDINALITY);EXISTS 是两值的(和参考求值器一致)
+		var from, conds []string
+		for i, c := range e.Args {
+			s, err := sub(c)
+			if err != nil {
+				return "", err
+			}
+			p, _ := g.param(e.Params[i])
+			from = append(from, fmt.Sprintf("unnest(%s) WITH ORDINALITY AS tup%d(v, n)", p, i+1))
+			conds = append(conds, fmt.Sprintf("%s = tup%d.v", s, i+1))
+			if i > 0 {
+				conds = append(conds, fmt.Sprintf("tup%d.n = tup1.n", i+1))
+			}
+		}
+		return fmt.Sprintf("EXISTS (SELECT 1 FROM %s WHERE %s)", strings.Join(from, ", "), strings.Join(conds, " AND ")), nil
 	}
 	return "", fmt.Errorf("sql: unknown expr %q", e.Op)
 }

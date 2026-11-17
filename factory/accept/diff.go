@@ -71,6 +71,14 @@ type diffEnv struct {
 	pickCols  map[string]bool                // API 部分的每组取一条的键
 	nkSeen    []map[string]any               // 已经生成的行的自然键(JSON 的键 → 值;自然键空间很大时沿用,造出版本)
 	groupCols map[string]bool                // API 部分"每组取一条"的分组列: 值域缩小到 2 个,组里才有多个候选
+	tuples    []tupleGroup                   // 组的列表(组属于): 每个字段是一个列表参数,请求 / 求值前按下标对齐(align)
+}
+
+// tupleGroup: 一个组的列表输入。members[i] = 第 i 个字段的参数名(ir.MemberParam),cols[i] = 它的列。
+type tupleGroup struct {
+	field   string
+	members []string
+	cols    []string
 }
 
 type jsonKey struct {
@@ -180,6 +188,14 @@ func (e *diffEnv) collect() {
 	// 参数的约束(范围 / 格式 …,factory/constraints)→ 被它筛选的列(多列单元的每一列)的值域
 	e.domains = map[string]*constraints.Domain{}
 	for _, f := range e.api.Filters {
+		if rf := e.api.Request.Field(f.Field); f.Op == "in_tuples" && rf != nil && rf.Message != nil { // 组的字段各自的约束
+			for i := range rf.Message.Fields {
+				if d := constraints.DomainOf(&rf.Message.Fields[i]); d != nil {
+					e.domains[rf.Message.Fields[i].Name] = d
+				}
+			}
+			continue
+		}
 		d := constraints.DomainOf(e.api.Request.Field(f.Field))
 		if d == nil {
 			continue
@@ -236,6 +252,16 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 	env := &diffEnv{ctx: ctx, conn: conn, db: d, plan: plan, api: api, table: p.Steps[0].Table, cols: p.Steps[0].Columns,
 		rnd: rand.New(rand.NewSource(int64(h.Sum64()))), filter: map[string]ir.Filter{}, exit: ex}
 	for _, f := range api.Filters {
+		if f.Op == "in_tuples" { // 组的列表: 每个字段当作一个"属于"的列表参数生成,用的时候再对齐成组
+			g := tupleGroup{field: f.Field, cols: f.Columns}
+			for _, c := range f.Columns {
+				m := ir.MemberParam(f.Field, c)
+				g.members = append(g.members, m)
+				env.filter[m] = ir.Filter{Field: m, Column: c, Op: "in", Presence: f.Presence}
+			}
+			env.tuples = append(env.tuples, g)
+			continue
+		}
 		env.filter[f.Field] = f
 	}
 	files, err := protoload.Load()
@@ -328,6 +354,7 @@ func (e *diffEnv) injectRemoval(req core.Params, mode int) error {
 	if st == nil || len(st.NaturalKey) == 0 {
 		return nil
 	}
+	req = e.align(req)
 	res, err := core.Eval(e.api.Pipeline, map[string][]core.Row{e.table: e.rowsFor(req)}, req)
 	if err != nil || len(res.Rows) == 0 {
 		return err
@@ -1023,6 +1050,7 @@ func (e *diffEnv) requests() []core.Params {
 }
 
 func (e *diffEnv) describe(ps core.Params) string {
+	ps = e.align(ps)
 	var keys []string
 	for k := range ps {
 		keys = append(keys, k)
@@ -1082,11 +1110,108 @@ func (e *diffEnv) colType(name string) (core.Type, bool) {
 }
 
 func (e *diffEnv) request(ps core.Params) map[string]any {
+	ps = e.align(ps)
 	req := map[string]any{}
+	member := map[string]bool{}
+	for _, g := range e.tuples {
+		l, ok := ps[g.members[0]].([]any)
+		if !ok {
+			continue
+		}
+		items := make([]any, len(l))
+		for k := range l {
+			item := map[string]any{}
+			for i, m := range g.members {
+				item[g.cols[i]] = e.present(g.cols[i], ps[m].([]any)[k])
+			}
+			items[k] = item
+		}
+		req[g.field] = items
+		for _, m := range g.members {
+			member[m] = true
+		}
+	}
 	for k, v := range ps {
-		req[k] = e.present(e.filter[k].Column, v)
+		if !member[k] {
+			req[k] = e.present(e.filter[k].Column, v)
+		}
 	}
 	return req
+}
+
+// align: 组的列表的各个字段对齐成同样长的列表(确定性的)。第 k 个组缺的字段从数据里找:
+// 和已知的字段都相等的第一行(现存的行优先,再找旧版本);找不到时用数据里不存在的值。
+// 随机 / 扫描 / 定向生成的请求只设了部分字段时也能变成合法的组。
+func (e *diffEnv) align(ps core.Params) core.Params {
+	if len(e.tuples) == 0 {
+		return ps
+	}
+	var out core.Params
+	for _, g := range e.tuples {
+		lists := make([][]any, len(g.members))
+		n, present, aligned := 0, false, true
+		for i, m := range g.members {
+			l, ok := ps[m].([]any)
+			present = present || ok
+			lists[i] = l
+			n = max(n, len(l))
+		}
+		for _, l := range lists {
+			aligned = aligned && len(l) == n
+		}
+		if !present || aligned {
+			continue
+		}
+		if out == nil {
+			out = core.Params{}
+			for k, v := range ps {
+				out[k] = v
+			}
+		}
+		full := make([][]any, len(g.members))
+		cands := [][]core.Row{e.anchors, e.staleRows()}
+		for k := 0; k < n; k++ {
+			var row core.Row
+			for _, cand := range cands {
+				for _, r := range cand {
+					match := true
+					for i, l := range lists {
+						if k < len(l) && (r[g.cols[i]] == nil || core.Compare(r[g.cols[i]], l[k]) != 0) {
+							match = false
+							break
+						}
+					}
+					if match {
+						row = r
+						break
+					}
+				}
+				if row != nil {
+					break
+				}
+			}
+			for i, l := range lists {
+				var v any
+				switch {
+				case k < len(l):
+					v = l[k]
+				case row != nil && row[g.cols[i]] != nil:
+					v = row[g.cols[i]]
+				default:
+					t, _ := e.colType(g.cols[i])
+					v = e.missingFor(g.cols[i], t.Kind)
+				}
+				full[i] = append(full[i], v)
+			}
+		}
+		for i, m := range g.members {
+			out[m] = full[i]
+		}
+	}
+	if out == nil {
+		return ps
+	}
+	return out
 }
 
 func (e *diffEnv) item(r core.Row, msg *ir.Message) map[string]any {
@@ -1149,6 +1274,7 @@ func (e *diffEnv) Present(column string, v any) any                { return e.pr
 
 // Eval: 参考求值器(参数 + 出口另外的参数,例如分页的 row_limit)。
 func (e *diffEnv) Eval(ps core.Params) ([]core.Row, error) {
+	ps = e.align(ps)
 	evalParams := core.Params{}
 	for k, v := range ps {
 		evalParams[k] = v
@@ -1720,6 +1846,20 @@ func (e *diffEnv) sensTargets() []sensTarget {
 					targets = append(targets, sensTarget{step: i, node: a, desc: fmt.Sprintf("%s 的第 %d 项", st.From, j+1)})
 				}
 			}
+			if x.Op == "in_tuples" { // 组属于: 按列各自"属于"(组的交叉组合也算命中)的实现要看得出来
+				i, node := i, x
+				var each []*core.Expr
+				for j, c := range x.Args {
+					each = append(each, core.InList(c, x.Params[j]))
+				}
+				cross := core.And(each...)
+				targets = append(targets, sensTarget{step: i, node: x, desc: st.From + " 的组(按列各自属于)", mutate: func(p *core.Pipeline) *core.Pipeline {
+					mut := *p
+					mut.Steps = append([]core.Step(nil), p.Steps...)
+					mut.Steps[i].Pred = replaceExpr(p.Steps[i].Pred, node, cross)
+					return &mut
+				}})
+			}
 			for _, a := range x.Args {
 				walk(a)
 			}
@@ -1761,6 +1901,9 @@ func (e *diffEnv) sensTargets() []sensTarget {
 			continue
 		}
 		for _, k := range st.Keys {
+			if e.narrowedOut(k) { // API 的必填条件拒绝空值(类型收窄后输出里这一列不为空): 空键的组本来就进不了结果,去掉它们是等价的
+				continue
+			}
 			if t, ok := schema.Col(k); ok && t.Nullable {
 				i, k := i, k
 				out = append(out, sensTarget{desc: "可以为空的键 " + k, mutate: func(p *core.Pipeline) *core.Pipeline {
@@ -1772,6 +1915,18 @@ func (e *diffEnv) sensTargets() []sensTarget {
 		}
 	}
 	return out
+}
+
+// narrowedOut: 来源的列 col 在最终的输出里(可能改了名)被收窄成不为空。
+func (e *diffEnv) narrowedOut(col string) bool {
+	name := col
+	for out, src := range e.api.Rename {
+		if src == col {
+			name = out
+		}
+	}
+	t, ok := e.out.Col(name)
+	return ok && !t.Nullable
 }
 
 // directed: 按条件的敏感度定向补请求。起作用的请求不到 3 个的条件,从数据的行(现存 + 旧版本)构造候选请求
@@ -1859,6 +2014,40 @@ func (e *diffEnv) directed(reqs []core.Params, seen map[string]bool) []core.Para
 				n++
 			}
 		}
+		// 两行一起: 列表参数放两行的值(组属于的交叉组合 / 属于的多值),标量参数取第一行
+		if n < 3 && len(rows) > 1 {
+			m := min(len(rows), 40)
+		pairs:
+			for a := 0; a < m; a++ {
+				for b := 0; b < m; b++ {
+					if n >= 3 {
+						break pairs
+					}
+					if a == b {
+						continue
+					}
+					ps := fromRow(rows[a], 0)
+					for k, v := range fromRow(rows[b], 0) {
+						if l, ok := v.([]any); ok {
+							if cur, ok := ps[k].([]any); ok {
+								ps[k] = append(append([]any(nil), cur...), l...)
+							}
+						}
+					}
+					key := e.describe(ps)
+					if seen[key] {
+						continue
+					}
+					if bad, err := e.invalid(e.request(ps)); err != nil || bad || !e.sensitiveTo(ps, t) {
+						continue
+					}
+					seen[key] = true
+					out = append(out, ps)
+					valid = append(valid, ps)
+					n++
+				}
+			}
+		}
 	}
 	return out
 }
@@ -1922,6 +2111,7 @@ func refersColumn(x *core.Expr) bool {
 
 // evalCanon: 参考求值器的结果(规范文本,比较用)。出错 → "error"。
 func (e *diffEnv) evalCanon(pl *core.Pipeline, ps core.Params) string {
+	ps = e.align(ps)
 	params := core.Params{}
 	for k, v := range ps {
 		params[k] = v
@@ -1984,6 +2174,7 @@ func (e *diffEnv) pickReduced(reqs []core.Params) (int, bool) {
 		return 0, false
 	}
 	count := func(upto int, ps core.Params) int {
+		ps = e.align(ps)
 		evalParams := core.Params{}
 		for k, v := range ps {
 			evalParams[k] = v
@@ -2125,6 +2316,7 @@ func cmpOrdered[T int64 | float64](a, b T) int {
 
 // rowsBeforeLimit: 截取(limit)之前的行数(前N条 的截断有没有发生 / 分页有没有多页)。
 func (e *diffEnv) rowsBeforeLimit(ps core.Params) (int, error) {
+	ps = e.align(ps)
 	steps := e.api.Pipeline.Steps
 	for len(steps) > 0 && steps[len(steps)-1].Kind == "limit" {
 		steps = steps[:len(steps)-1]

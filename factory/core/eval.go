@@ -336,6 +336,35 @@ func (p *Pipeline) eval(e *Expr, r Row, schema Schema, params Params) (any, erro
 			}
 		}
 		return false, nil
+	case "in_tuples":
+		vals := make([]any, len(e.Args))
+		for i, c := range e.Args {
+			v, err := p.eval(c, r, schema, params)
+			if err != nil {
+				return nil, err
+			}
+			if v == nil {
+				return false, nil
+			}
+			vals[i] = v
+		}
+		lists := make([][]any, len(e.Params))
+		for i, n := range e.Params {
+			lists[i], _ = params[n].([]any)
+			if len(lists[i]) != len(lists[0]) {
+				return nil, fmt.Errorf("in_tuples: 参数 %s 和 %s 的长度不同", n, e.Params[0])
+			}
+		}
+	next:
+		for k := range lists[0] {
+			for i, v := range vals {
+				if x := lists[i][k]; x == nil || compareValues(v, x) != 0 {
+					continue next
+				}
+			}
+			return true, nil
+		}
+		return false, nil
 	}
 	return nil, fmt.Errorf("eval: unknown expr %q", e.Op)
 }

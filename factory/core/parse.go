@@ -144,6 +144,14 @@ func (p *parser) expr() (*Expr, error) {
 			return nil, err
 		}
 		return Absent(n), nil
+	case "in_tuples": // in_tuples(列组, 值组): 由调用方把 列组 / 值组 绑定成 tuple_cols / tuple_params
+		if err := need(2); err != nil {
+			return nil, err
+		}
+		if args[0].Op != "tuple_cols" || args[1].Op != "tuple_params" {
+			return nil, fmt.Errorf("in_tuples 的参数必须是 列组 和 值组")
+		}
+		return &Expr{Op: "in_tuples", Args: args[0].Args, Params: args[1].Params}, nil
 	case "in_list", "starts_with":
 		if err := need(2); err != nil {
 			return nil, err

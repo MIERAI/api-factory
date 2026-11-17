@@ -86,6 +86,8 @@ func comparable(a, b Kind) bool {
 //	starts_with  Args[0] 以参数 Name 开头(按字面,% _ \ 不是通配符);任一边 NULL → UNKNOWN
 //	json_field   Args[0](json)里键 Name 的值转换成 Type。键不存在 / JSON null → NULL;格式错 → 查询失败
 //	tuple_after  Args(列)按 Desc 方向严格在参数 Params 之后(keyset 游标)。参数 Params[0] 没有指定 → TRUE
+//	in_tuples    组的列表: Params 是同样长的列表参数(第 i 个组 = 每个参数的第 i 个值)。
+//	             有一个组和 Args(列)逐个相等 → TRUE,否则 FALSE(两值,和 EXISTS 一样: 列为 NULL 时不相等,不是 UNKNOWN);空列表 → FALSE
 type Expr struct {
 	Op     string   `json:"op"`
 	Name   string   `json:"name,omitempty"`
@@ -114,6 +116,14 @@ func JSONField(x *Expr, key string, t Type) *Expr {
 }
 func TupleAfter(cols []string, params []string, desc bool) *Expr {
 	e := &Expr{Op: "tuple_after", Params: params, Desc: desc}
+	for _, c := range cols {
+		e.Args = append(e.Args, Col(c))
+	}
+	return e
+}
+
+func InTuples(cols []string, params []string) *Expr {
+	e := &Expr{Op: "in_tuples", Params: params}
 	for _, c := range cols {
 		e.Args = append(e.Args, Col(c))
 	}

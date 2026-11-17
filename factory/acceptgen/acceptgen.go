@@ -130,6 +130,46 @@ func (c *ctx) validationSuite() (spec.Suite, []string) {
 			})
 		}
 	}
+	// 组的列表: 组里每个字段的边界(基础请求的第一个组只改这个字段)
+	for i := range c.api.Request.Fields {
+		f := &c.api.Request.Fields[i]
+		items, _ := base[f.Name].([]any)
+		if !f.List || f.Message == nil || len(items) == 0 {
+			continue
+		}
+		first, ok := items[0].(map[string]any)
+		if !ok {
+			continue
+		}
+		for j := range f.Message.Fields {
+			mf := &f.Message.Fields[j]
+			if mf.Rules == nil {
+				continue
+			}
+			bs, rules := constraints.Boundaries(mf, first)
+			if len(bs) == 0 {
+				continue
+			}
+			cov = append(cov, fmt.Sprintf("validation: %s.%s(%s)", f.Name, mf.Name, strings.Join(rules, ", ")))
+			for _, b := range bs {
+				item := map[string]any{}
+				for k, v := range first {
+					item[k] = v
+				}
+				item[mf.Name] = b.Value
+				req := map[string]any{}
+				for k, v := range base {
+					req[k] = v
+				}
+				req[f.Name] = append([]any{item}, items[1:]...)
+				code := "INVALID_ARGUMENT"
+				if b.Valid {
+					code = "!INVALID_ARGUMENT"
+				}
+				suite.Cases = append(suite.Cases, spec.Case{Name: fmt.Sprintf("%s.%s %s", f.Name, mf.Name, b.Label), Request: req, Expect: spec.Expect{Code: code}})
+			}
+		}
+	}
 	// 输入之间的规则(关系的注册表): 一个请求改几个字段
 	rcs, labels, unknown := constraints.RelationCases(&c.api.Request, base)
 	for _, rc := range rcs {

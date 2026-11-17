@@ -165,6 +165,38 @@ func TestCertification(t *testing.T) {
 		}
 		env.check("属于 不传 "+col, &Pipeline{Params: []ParamDecl{list("l", kind.Kind)}, Steps: all(Filter(Or(Absent("l"), InList(Col(col), "l"))), Sort(byK))}, Params{})
 	}
+	// 5b. in_tuples(组的列表): 两值(列为 NULL → FALSE,NOT 之后是 TRUE)、空列表、组的组合不能交叉匹配
+	for _, pair := range [][2]string{{"g", "s"}, {"i", "dt"}, {"t", "d"}} {
+		ka, _ := Schema(certCols).Col(pair[0])
+		kb, _ := Schema(certCols).Col(pair[1])
+		da, db := certDomain[pair[0]], certDomain[pair[1]]
+		if da[0] == nil {
+			da = da[1:]
+		}
+		if db[0] == nil {
+			db = db[1:]
+		}
+		var all2 [][2]any
+		for _, a := range da {
+			for _, b := range db {
+				all2 = append(all2, [2]any{a, b})
+			}
+		}
+		for _, tuples := range [][][2]any{{}, all2[:1], {all2[0], all2[len(all2)-1]}, all2[:len(all2)/2], all2} {
+			la, lb := []any{}, []any{}
+			for _, x := range tuples {
+				la, lb = append(la, x[0]), append(lb, x[1])
+			}
+			p := &Pipeline{Params: []ParamDecl{list("la", ka.Kind), list("lb", kb.Kind)}}
+			ps := Params{"la": la, "lb": lb}
+			e := InTuples([]string{pair[0], pair[1]}, []string{"la", "lb"})
+			name := fmt.Sprintf("in_tuples %s,%s %d", pair[0], pair[1], len(tuples))
+			p.Steps = all(Project(NamedExpr{"k", Col("k")}, NamedExpr{"v", e}, NamedExpr{"nv", Not(e)}), Sort(byK))
+			env.check(name, p, ps)
+			p.Steps = all(Filter(Or(Absent("la"), e)), Sort(byK))
+			env.check(name+" 组属于", p, ps)
+		}
+	}
 	// 6. starts_with
 	for _, pre := range []any{"a", "a%", "a_", "", "B", "é", "<absent>"} {
 		ps := Params{}

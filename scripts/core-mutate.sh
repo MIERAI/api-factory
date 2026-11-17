@@ -33,6 +33,9 @@ mutate "参考: and 把 UNKNOWN 当 FALSE"  $E 's|			if v == nil {\n				unknown 
 mutate "参考: NULL 排在最前"            $E 's|		return 1\n	case b == nil:|&|; /case a == nil:/{n;s|return 1|return -1|;}'
 mutate "参考: 文本不按字节(忽略大小写)" $E 's|return bytes.Compare(\[\]byte(x), \[\]byte(b.(string)))|return strings.Compare(strings.ToLower(x), strings.ToLower(b.(string)))|'
 mutate "参考: 空列表 → 不是 absent"     $E 's|return len(l) == 0|return false|'
+mutate "SQL: 组属于没有按下标对齐"       $S 's|conds = append(conds, fmt.Sprintf("tup%d.n = tup1.n", i+1))|_ = 0|'
+mutate "SQL: 组属于用 IN(三值)"          $S 's|return fmt.Sprintf("EXISTS (SELECT 1 FROM %s WHERE %s)", strings.Join(from, ", "), strings.Join(conds, " AND ")), nil|return fmt.Sprintf("(CASE WHEN EXISTS (SELECT 1 FROM %s WHERE %s) THEN TRUE WHEN %s IS NULL THEN NULL ELSE FALSE END)", strings.Join(from, ", "), strings.Join(conds, " AND "), "NULL::bool"), nil|'
+mutate "参考: 组属于列为 NULL → UNKNOWN"  $E '/case "in_tuples":/,/vals\[i\] = v/s|return false, nil|return nil, nil|'
 echo "变异: 抓到 $caught / $total"
 for m in "${missed[@]:-}"; do if [ -n "$m" ]; then echo "  - $m"; fi; done
 [ "$caught" -eq "$total" ]

@@ -124,6 +124,9 @@ type Query struct {
 	Params      []Param  `json:"params"`           // 参数(sqlc 分析)
 }
 
+// MemberParam: 组的列表(in_tuples)的每个字段对应的查询参数(并行的列表)。
+func MemberParam(field, column string) string { return field + "__" + column }
+
 type Filter struct {
 	Field      string   `json:"field"` // 请求字段名 = 查询参数名
 	Column     string   `json:"column"`

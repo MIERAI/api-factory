@@ -111,7 +111,8 @@ func (l *Library) add(name string, b []byte) error {
 }
 
 // Filter: 筛选单元 → 表达式。columns = 列名(列 = 列1 = 第一列,列2 = 第二列 …),param = 请求参数名。
-func (l *Library) Filter(name string, columns []string, param string) (*core.Expr, error) {
+// members: 组的列表的筛选(列组 / 值组): 每列一个列表参数(和 columns 一一对应);这时 值 = 第一个(判断有没有传)。
+func (l *Library) Filter(name string, columns []string, param string, members ...string) (*core.Expr, error) {
 	if n, ok := l.byID[name]; ok { // 内部名也可以
 		name = n
 	}
@@ -125,7 +126,22 @@ func (l *Library) Filter(name string, columns []string, param string) (*core.Exp
 		case "列":
 			id = "列1"
 		case "值":
+			if len(members) > 0 {
+				return core.Param(members[0]), true
+			}
 			return core.Param(param), true
+		case "列组":
+			used = len(columns)
+			e := &core.Expr{Op: "tuple_cols"}
+			for _, c := range columns {
+				e.Args = append(e.Args, core.Col(c))
+			}
+			return e, true
+		case "值组":
+			if len(members) != len(columns) {
+				return nil, false
+			}
+			return &core.Expr{Op: "tuple_params", Params: members}, true
 		}
 		var i int
 		if _, err := fmt.Sscanf(id, "列%d", &i); err == nil && i >= 1 && i <= len(columns) {

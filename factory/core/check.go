@@ -150,6 +150,10 @@ func nullRejects(e *Expr, p *Pipeline) (cols map[string]bool, all bool) {
 		col(e.Args[1])
 	case "in_list", "starts_with": // 第一个参数 NULL → UNKNOWN
 		col(e.Args[0])
+	case "in_tuples": // 任一列 NULL → FALSE
+		for _, a := range e.Args {
+			col(a)
+		}
 	case "not":
 		if a := e.Args[0]; a.Op == "is_null" {
 			col(a.Args[0])
@@ -328,6 +332,21 @@ func (p *Pipeline) typeOf(e *Expr, cur Schema) (Type, error) {
 			d := p.Param(e.Params[i])
 			if d == nil || d.List || !comparable(t.Kind, d.Type.Kind) {
 				return Type{}, fmt.Errorf("tuple_after: 参数 %s 的类型不对", e.Params[i])
+			}
+		}
+		return boolT(false), nil
+	case "in_tuples":
+		if len(e.Args) < 2 || len(e.Args) != len(e.Params) {
+			return Type{}, fmt.Errorf("in_tuples: 至少两列,列和参数的个数必须相同")
+		}
+		for i, c := range e.Args {
+			t, err := p.typeOf(c, cur)
+			if err != nil {
+				return Type{}, err
+			}
+			d := p.Param(e.Params[i])
+			if d == nil || !d.List || !comparable(t.Kind, d.Type.Kind) {
+				return Type{}, fmt.Errorf("in_tuples: 参数 %s 必须是 %s 的列表", e.Params[i], t.Kind)
 			}
 		}
 		return boolT(false), nil
