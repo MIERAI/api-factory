@@ -1125,8 +1125,12 @@ func (e *diffEnv) Missing(param string, i int) any {
 	if i == 0 {
 		return base
 	}
-	if d, ok := e.domains[col]; ok && d.Missing != nil { // 有专门的"不存在的值"(格式)时,只有这一个
-		return nil
+	// 带格式的文本有专门的"不存在的值"时只有这一个(加后缀会违反格式);
+	// 整数(范围的"不存在的值"在扩大的区间之外)往上加仍然合法,照常 +1、+2
+	if d, ok := e.domains[col]; ok && d.Missing != nil {
+		if _, isInt := d.Missing.(int64); !isInt {
+			return nil
+		}
 	}
 	switch v := base.(type) {
 	case int64:
