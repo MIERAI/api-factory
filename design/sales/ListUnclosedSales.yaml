@@ -1,0 +1,48 @@
+# ============================================================================
+# ListUnclosedSales: 店舗の未締めの売上日(多条 + 固定条件)
+# ============================================================================
+API: ListUnclosedSales
+说明: 指定した店舗の、まだ締めていない売上日の売上を返す
+背景: 締め処理の漏れを確認する画面。締め日(closed_on)が空の日 = 未締め。1 店で 1 か月分を超えることは想定しない
+负责人: sales-team
+风险: 低
+
+种类: 多条
+数据来源: daily_sales
+
+输入:
+  store_code: { 类型: 整数32, 必填: 是, 范围: "> 0", 说明: 店舗コード, 筛选: store_code 等于 }
+  from_date:  { 类型: 日期, 必填: 否, 说明: この日以降(含)だけ(不指定 = 全期間), 筛选: sales_date 大于等于 }
+
+固定条件:
+  - closed_on 为空
+
+输出:
+  sales_date: 売上日
+  amount:     売上金額
+  discount:   値引き額
+
+排序: [sales_date 小到大]
+上限: 31
+输出行名: UnclosedSale
+
+例子:
+  准备数据:
+    daily_sales:
+      - { sales_date: 2026-11-01, store_code: 1, amount: 100,  discount: 1,    closed_on: 2026-11-02 }   # 締め済み
+      - { sales_date: 2026-11-02, store_code: 1, amount: 110,  discount: 0,    closed_on: null }
+      - { sales_date: 2026-11-03, store_code: 1, amount: 95.5, discount: null, closed_on: null }
+      - { sales_date: 2026-11-02, store_code: 2, amount: 10,   discount: null, closed_on: null }         # 別の店
+  用例:
+    - 说明: 未締めの日だけ、日付順
+      输入: { store_code: 1 }
+      结果: { daily_sales: [{ sales_date: 2026-11-02, amount: "110", discount: "0" }, { sales_date: 2026-11-03, amount: "95.5", discount: 不设置 }] }
+    - 说明: 開始日を指定
+      输入: { store_code: 1, from_date: 2026-11-03 }
+      结果: { daily_sales: [{ sales_date: 2026-11-03, amount: "95.5" }] }
+    - 说明: 未締めの日がない店は空
+      输入: { store_code: 9 }
+      结果: { daily_sales: [] }
+    - 说明: 店舗コードは 1 以上
+      输入: { store_code: 0 }
+      结果: 参数错误
