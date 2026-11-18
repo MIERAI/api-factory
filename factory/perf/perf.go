@@ -27,9 +27,11 @@ import (
 )
 
 type Options struct {
-	DB    string
-	Rows  int     // 每张物理表的行数
-	MaxMs float64 // 执行时间的阈值
+	DB       string
+	FillOnly bool    // 只灌数据(迁移排练 / 恢复演练的数据量),不跑 EXPLAIN。所有列都填(包括没有 API 读的列)
+	Dirty    bool    // 掺"脏"数据: 可为空的列 5% 空值、空字符串 / 前后空格 / 超长文本 / 0 / 负数 / 极端日期(约束允许的范围内)
+	Rows     int     // 每张物理表的行数
+	MaxMs    float64 // 执行时间的阈值
 }
 
 type Report struct {
@@ -56,6 +58,10 @@ type table struct {
 	action    string                          // 操作列(删除值 1)
 	orderTs   string                          // 登记顺序(时间)
 	enums     map[string][]int64              // 枚举列(物理列名或 JSON 键) → 合法的 DB 值
+	nullable  map[string]bool                 // 物理列可以为空
+	checked   map[string]bool                 // 物理列出现在 CHECK 约束里(脏数据只掺空值)
+	literals  map[string][]string             // CHECK 的取值列表(SQL 字面量): 轮流取
+	dirty     bool
 }
 
 func Run(ctx context.Context, plan *ir.Plan, opt Options) ([]Report, error) {
@@ -82,15 +88,30 @@ func Run(ctx context.Context, plan *ir.Plan, opt Options) ([]Report, error) {
 			return nil, fmt.Errorf("%s: %w", api.ID, err)
 		}
 	}
+	if opt.FillOnly { // 没有 API 读的表也灌(迁移排练要整个库)
+		if err := otherTables(ctx, conn, tables); err != nil {
+			return nil, err
+		}
+	}
 	names := make([]string, 0, len(tables))
 	for n := range tables {
 		names = append(names, n)
 	}
 	sort.Strings(names)
 	for _, n := range names {
-		if err := fill(ctx, conn, tables[n], opt.Rows); err != nil {
+		t := tables[n]
+		if opt.FillOnly {
+			if err := allColumns(ctx, conn, t); err != nil {
+				return nil, fmt.Errorf("数据 %s: %w", n, err)
+			}
+		}
+		t.dirty = opt.Dirty
+		if err := fill(ctx, conn, t, opt.Rows); err != nil {
 			return nil, fmt.Errorf("数据 %s: %w", n, err)
 		}
+	}
+	if opt.FillOnly {
+		return nil, nil
 	}
 	var out []Report
 	for i := range plan.APIs {
@@ -119,37 +140,49 @@ func Run(ctx context.Context, plan *ir.Plan, opt Options) ([]Report, error) {
 	return out, nil
 }
 
+func newTable(name string, cols []core.NamedType) *table {
+	return &table{name: name, cols: cols, unique: map[string]bool{}, composite: map[string][2]int{}, json: map[string]map[string]core.Kind{},
+		nkKeys: map[string][2]int{}, delKey: map[string]string{}, enums: map[string][]int64{}, nullable: map[string]bool{}, checked: map[string]bool{}, literals: map[string][]string{}}
+}
+
+// loadKeys: 主键 / 唯一约束(单列 → unique,多列 → composite)。
+func loadKeys(ctx context.Context, conn *pgx.Conn, t *table) error {
+	rows, err := conn.Query(ctx, `
+			SELECT kcu.column_name, count(*) OVER (PARTITION BY tc.constraint_name), kcu.ordinal_position
+			FROM information_schema.table_constraints tc
+			JOIN information_schema.key_column_usage kcu
+			  ON kcu.constraint_schema = tc.constraint_schema AND kcu.constraint_name = tc.constraint_name
+			WHERE tc.table_schema = current_schema() AND tc.table_name = $1 AND tc.constraint_type IN ('PRIMARY KEY', 'UNIQUE')`, t.name)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var c string
+		var n int64
+		var pos int32
+		if err := rows.Scan(&c, &n, &pos); err != nil {
+			rows.Close()
+			return err
+		}
+		if n == 1 {
+			t.unique[c] = true
+		} else if _, seen := t.composite[c]; !seen {
+			t.composite[c] = [2]int{int(pos) - 1, int(n)}
+		}
+	}
+	rows.Close()
+	return nil
+}
+
 // collect: 从流水线的来源部分知道要生成哪张物理表、哪些列 / JSON 的键。
 func collect(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, api *ir.API, tables map[string]*table) error {
 	scan := api.Pipeline.Steps[0]
 	t, ok := tables[scan.Table]
 	if !ok {
-		t = &table{name: scan.Table, cols: scan.Columns, unique: map[string]bool{}, composite: map[string][2]int{}, json: map[string]map[string]core.Kind{},
-			nkKeys: map[string][2]int{}, delKey: map[string]string{}, enums: map[string][]int64{}}
-		rows, err := conn.Query(ctx, `
-			SELECT kcu.column_name, count(*) OVER (PARTITION BY tc.constraint_name), kcu.ordinal_position
-			FROM information_schema.table_constraints tc
-			JOIN information_schema.key_column_usage kcu
-			  ON kcu.constraint_schema = tc.constraint_schema AND kcu.constraint_name = tc.constraint_name
-			WHERE tc.table_schema = current_schema() AND tc.table_name = $1 AND tc.constraint_type IN ('PRIMARY KEY', 'UNIQUE')`, scan.Table)
-		if err != nil {
+		t = newTable(scan.Table, scan.Columns)
+		if err := loadKeys(ctx, conn, t); err != nil {
 			return err
 		}
-		for rows.Next() {
-			var c string
-			var n int64
-			var pos int32
-			if err := rows.Scan(&c, &n, &pos); err != nil {
-				rows.Close()
-				return err
-			}
-			if n == 1 {
-				t.unique[c] = true
-			} else if _, seen := t.composite[c]; !seen {
-				t.composite[c] = [2]int{int(pos) - 1, int(n)}
-			}
-		}
-		rows.Close()
 		tables[scan.Table] = t
 	} else { // 别的 API 读同一张表的其他列
 		for _, c := range scan.Columns {
@@ -326,12 +359,17 @@ func fill(ctx context.Context, conn *pgx.Conn, t *table, n int) error {
 			e = "CASE WHEN i % 50 = 0 THEN 1 ELSE 0 END"
 		case len(t.enums[c.Name]) > 0:
 			e = enumSQL(t.enums[c.Name], salt)
+		case len(t.literals[c.Name]) > 0:
+			e = fmt.Sprintf("(ARRAY[%s])[1 + (i + %d) %% %d]", strings.Join(t.literals[c.Name], ","), salt, len(t.literals[c.Name]))
 		case c.Name == t.orderTs:
 			e = "timestamptz '2024-01-01 00:00:00+00' + make_interval(secs => i)"
 		case !t.unique[c.Name] && t.composite[c.Name][1] > 1:
 			e = compositeSQL(c.Type.Kind, t.composite[c.Name], n)
 		default:
 			e = valueSQL(c.Type.Kind, salt, t.unique[c.Name])
+			if t.dirty && !t.unique[c.Name] && t.composite[c.Name][1] == 0 {
+				e = dirtySQL(c.Type.Kind, e, t.nullable[c.Name], t.checked[c.Name], salt)
+			}
 		}
 		exprs = append(exprs, e)
 	}

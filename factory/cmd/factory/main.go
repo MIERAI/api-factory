@@ -19,6 +19,9 @@ import (
 	"strconv"
 	"strings"
 	"text/template"
+	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"apifactory/factory/accept"
 	"apifactory/factory/acceptgen"
@@ -79,6 +82,8 @@ func main() {
 		err = cmdAnswer(args)
 	case "perf":
 		err = cmdPerf(args)
+	case "seed-volume":
+		err = cmdSeedVolume(args)
 	case "doc":
 		err = cmdDoc(args)
 	default:
@@ -705,6 +710,34 @@ func linkPrevious(apiID, dir string, fs []answer.Finding) {
 			ref = p.Full.SameAs
 		}
 	}
+}
+
+// cmdSeedVolume: 给一个库灌接近生产的数据量(恢复演练 / 迁移排练),和 perf 用同一个生成器(业务语义: 自然键、版本、
+// 逻辑删除),所有列都填,--dirty 掺脏数据。会清空 --db 里的表: 必须用 --yes 确认库名。
+func cmdSeedVolume(args []string) error {
+	fs := flag.NewFlagSet("seed-volume", flag.ExitOnError)
+	db := fs.String("db", "", "目标库(表会被清空)")
+	rows := fs.Int("rows", 1000000, "每张物理表的行数")
+	dirty := fs.Bool("dirty", true, "掺脏数据(空值 / 边界值)")
+	yes := fs.String("yes", "", "确认: 写目标库的库名")
+	_ = fs.Parse(args)
+	cfg, err := pgx.ParseConfig(*db)
+	if *db == "" || err != nil {
+		return fmt.Errorf("seed-volume: --db is required (%v)", err)
+	}
+	if *yes != cfg.Database {
+		return fmt.Errorf("seed-volume: 会清空 %s@%s:%d/%s 的全部表;确认的话加 --yes %s", cfg.User, cfg.Host, cfg.Port, cfg.Database, cfg.Database)
+	}
+	plan, err := ir.Load(ir.DefaultPath)
+	if err != nil {
+		return fmt.Errorf("IR not found (run factory prepare first): %w", err)
+	}
+	t0 := time.Now()
+	if _, err := perf.Run(context.Background(), plan, perf.Options{DB: *db, Rows: *rows, FillOnly: true, Dirty: *dirty}); err != nil {
+		return err
+	}
+	fmt.Printf("✓ %s: 每表 %d 行(脏数据 %v) %s\n", cfg.Database, *rows, *dirty, time.Since(t0).Round(time.Second))
+	return nil
 }
 
 // cmdPerf: 性能闸门(P4)。接近真实的数据量 + EXPLAIN ANALYZE。会清空 --db 里的表,只用专门的性能库。
