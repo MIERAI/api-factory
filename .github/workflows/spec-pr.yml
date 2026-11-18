@@ -21,7 +21,9 @@ jobs:
       - name: 式样书检查 + AI 审查
         env:
           BASE: origin/${{ github.base_ref }}
-          REVIEW_MODEL: local   # winpc: 只作参考,不阻塞(spec-review.sh)
+          # 仓库变量 FACTORY_REVIEW_MODEL: claude(阻塞,原来的设计)| local(winpc,只作参考)。默认 local
+          REVIEW_MODEL: ${{ vars.FACTORY_REVIEW_MODEL || 'local' }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}   # claude 时用(订阅的令牌)
         run: rm -f .factory/ci-summary.md && scripts/ci/spec-review.sh
       - name: 结果贴到 PR
         if: always()

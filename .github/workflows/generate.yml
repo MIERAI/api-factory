@@ -30,7 +30,9 @@ jobs:
       - name: 生成
         env:
           BASE: ${{ inputs.base || github.event.before }}
-          IMPLEMENT_MODEL: local   # winpc(factory.yaml ai.models.local);有路径闸门 + 编译 + 验收兜底
+          # 仓库变量 FACTORY_IMPLEMENT_MODEL: claude | local(winpc)。默认 local。都有路径闸门 + 编译 + 验收兜底
+          IMPLEMENT_MODEL: ${{ vars.FACTORY_IMPLEMENT_MODEL || 'local' }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: scripts/ci/generate.sh
       - name: 推送分支 + 开 PR
         id: pr
