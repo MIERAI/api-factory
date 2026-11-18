@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"apifactory/platform/anomaly"
+	"apifactory/platform/metrics"
 	"apifactory/platform/apierr"
 	"apifactory/platform/paging"
 	"apifactory/platform/shard"
@@ -139,6 +140,7 @@ func run(log *slog.Logger, build Builder) error {
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 		anomaly.WriteMetrics(w)
+		metrics.Write(w)
 	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		pingCtx, cancel := context.WithTimeout(r.Context(), time.Second)
@@ -187,6 +189,7 @@ func newLoggingInterceptor(log *slog.Logger) connect.UnaryInterceptorFunc {
 			if err != nil {
 				code = connect.CodeOf(err).String()
 			}
+			metrics.Observe(req.Spec().Procedure, code, time.Since(start))
 			log.InfoContext(ctx, "rpc",
 				"procedure", req.Spec().Procedure,
 				"code", code,
