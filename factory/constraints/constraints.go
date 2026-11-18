@@ -15,6 +15,7 @@ package constraints
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -303,5 +304,46 @@ func Required(f *ir.Field) bool {
 		return true
 	}
 	r := parse(f.Rules.Raw)
-	return r != nil && r.GetRepeated().GetMinItems() > 0
+	if r == nil {
+		return false
+	}
+	if r.GetRepeated().GetMinItems() > 0 {
+		return true
+	}
+	// 没有 presence 的标量: 不传 = 零值。零值违反规则 = 必填(例: 必填的日期是普通的 string + 格式,"" 不匹配)。
+	// 以前没认出来 → "只指定另一个(合法)"的用例去掉了这个字段,服务器按格式拒绝(批量压测: 期间两个都必填)
+	if !f.Presence {
+		if s := r.GetString(); s != nil {
+			if s.GetMinLen() > 0 {
+				return true
+			}
+			if p := s.GetPattern(); p != "" {
+				if re, err := regexp.Compile(p); err == nil && !re.MatchString("") {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// RelatedRequired: 和 name 出现在同一个输入之间的规则里、而且必填的其他字段。
+func RelatedRequired(m *ir.Message, name string) []string {
+	var out []string
+	for _, id := range m.Relations {
+		_, args := RelationOf(id)
+		in := false
+		for _, a := range args {
+			in = in || a == name
+		}
+		if !in {
+			continue
+		}
+		for _, a := range args {
+			if a != name && Required(m.Field(a)) {
+				out = append(out, a)
+			}
+		}
+	}
+	return out
 }

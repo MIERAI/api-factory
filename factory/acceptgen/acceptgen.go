@@ -109,7 +109,13 @@ func (c *ctx) validationSuite() (spec.Suite, []string) {
 			continue
 		}
 		cov = append(cov, fmt.Sprintf("validation: %s(%s)", f.Name, strings.Join(rules, ", ")))
+		// 和必填的字段有输入之间的规则: 单独改这个字段的"合法"值可能违反规则(例: date_to 的格式边界 2026-01-01 早于
+		// 基础请求的 date_from)→ 不生成(合法的值由规则自己的用例测)。不合法的边界照常生成
+		related := len(constraints.RelatedRequired(&c.api.Request, f.Name)) > 0
 		for _, b := range bs {
+			if related && b.Valid {
+				continue
+			}
 			req := map[string]any{}
 			for k, v := range base {
 				req[k] = v
