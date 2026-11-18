@@ -3,6 +3,7 @@
 FROM alpine:3.24
 RUN apk add --no-cache postgresql16-client
 COPY db/schema/ /schema/
+COPY db/seed/ /seed/
 COPY deploy/schema-apply.sh /usr/local/bin/schema-apply
 USER 65532:65532
 ENTRYPOINT ["schema-apply"]
