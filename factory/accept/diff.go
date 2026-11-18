@@ -656,31 +656,52 @@ func (e *diffEnv) atMostOneRow() bool {
 }
 
 // uniqueColumns: 需要唯一序号的列。单列的主键 / 唯一约束 → 这一列;
-// 复合的 → 最后一列(前面的列保持小值域,形成分组: 例如 (order_id, line_no) 每个订单有多行)。
+// 复合的 → 最后一个不是分组列(groupCols: 请求固定的必填等于 / 属于的列、分库键)的列,前面的列保持小值域,形成分组
+// (例如 (order_id, line_no) 每个订单有多行)。分组列取唯一值时,请求固定它就最多 1 行,多行的结果永远不出现
+// (例: 主键 (sales_date, store_code) + 必填的 store_code 等于 → sales_date 取唯一值,一个店有多天)。
+// 所有列都是分组列 → 最后一列(和以前一样)。
 func (e *diffEnv) uniqueColumns() (map[string]bool, error) {
 	rows, err := e.conn.Query(e.ctx, `
-		SELECT kcu.column_name,
-		       kcu.ordinal_position = max(kcu.ordinal_position) OVER (PARTITION BY tc.constraint_name)
+		SELECT tc.constraint_name, kcu.column_name
 		FROM information_schema.table_constraints tc
 		JOIN information_schema.key_column_usage kcu
 		  ON kcu.constraint_schema = tc.constraint_schema AND kcu.constraint_name = tc.constraint_name
-		WHERE tc.table_schema = current_schema() AND tc.table_name = $1 AND tc.constraint_type IN ('PRIMARY KEY', 'UNIQUE')`, e.table)
+		WHERE tc.table_schema = current_schema() AND tc.table_name = $1 AND tc.constraint_type IN ('PRIMARY KEY', 'UNIQUE')
+		ORDER BY tc.constraint_name, kcu.ordinal_position`, e.table)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := map[string]bool{}
+	var names []string
+	cols := map[string][]string{}
 	for rows.Next() {
-		var col string
-		var last bool
-		if err := rows.Scan(&col, &last); err != nil {
+		var name, col string
+		if err := rows.Scan(&name, &col); err != nil {
 			return nil, err
 		}
-		if last {
-			out[col] = true
+		if _, ok := cols[name]; !ok {
+			names = append(names, name)
+		}
+		cols[name] = append(cols[name], col)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := map[string]bool{}
+	for _, name := range names {
+		out[uniqueColumnOf(cols[name], e.groupCols)] = true
+	}
+	return out, nil
+}
+
+// uniqueColumnOf: 约束的列(按顺序)里取唯一值的那一列: 最后一个不是分组列的列;都是分组列 → 最后一列。
+func uniqueColumnOf(cols []string, group map[string]bool) string {
+	for i := len(cols) - 1; i >= 0; i-- {
+		if !group[cols[i]] {
+			return cols[i]
 		}
 	}
-	return out, rows.Err()
+	return cols[len(cols)-1]
 }
 
 func (e *diffEnv) value(c core.NamedType, i int, unique bool) any {
@@ -842,6 +863,20 @@ func (e *diffEnv) scalar(kind core.Kind, unique bool, i int) any {
 	}
 	if _, isInt := t.Domain[0].(int64); isInt && unique { // 唯一列: 序号
 		return int64(i + 1)
+	}
+	if unique {
+		switch t.Domain[0].(type) {
+		case time.Time: // 日期 / 时间的唯一列: 值域中间的时刻 ±0, -1, +1, -2, +2 … 天(以前从 3 个值里随机取 → 主键冲突,行被拒绝;
+			// 围绕请求用的那几个值分布 → 大于 / 小于的筛选切掉约一半)
+			center := t.Domain[len(t.Domain)/2].(time.Time)
+			off := (i + 1) / 2
+			if i%2 == 1 {
+				off = -off
+			}
+			return center.AddDate(0, 0, off)
+		case *big.Rat: // 十进制的唯一列: 序号
+			return big.NewRat(int64(i+1), 1)
+		}
 	}
 	v := t.Domain[e.rnd.Intn(len(t.Domain))]
 	if s, isText := v.(string); isText && unique {
