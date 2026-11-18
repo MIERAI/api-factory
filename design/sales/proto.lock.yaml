@@ -53,6 +53,11 @@
         sales_date: 1
     ListTopStoresResponse:
         daily_sales: 1
+    ListUnclosedSalesRequest:
+        from_date: 2
+        store_code: 1
+    ListUnclosedSalesResponse:
+        daily_sales: 1
     StorePrice:
         price: 4
         product_code: 1
@@ -65,3 +70,7 @@
     TopStore:
         amount: 2
         store_code: 1
+    UnclosedSale:
+        amount: 2
+        discount: 3
+        sales_date: 1
