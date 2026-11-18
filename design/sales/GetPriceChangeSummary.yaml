@@ -1,0 +1,83 @@
+# ============================================================================
+# GetPriceChangeSummary: 売価変更の指示の集計(计算: 分類のルール + 変化率 + 警告)
+# ============================================================================
+API: GetPriceChangeSummary
+说明: 店舗と指示日を指定して、売価変更の指示を分類して数え、変化率の平均・最大の値上げ率・警告を返す
+背景: 売価変更の前日チェック画面。件数のバランスと、変化の大きすぎる指示がないかを見る
+负责人: sales-team
+风险: 中
+
+种类: 计算
+数据来源: price_changes
+使用的列: [product_code, new_price, old_price, deal_id]
+
+输入:
+  store_code: { 类型: 整数32, 必填: 是, 范围: "> 0", 说明: 店舗コード, 筛选: store_code 等于 }
+  proc_date:  { 类型: 日期,   必填: 是, 说明: 指示日, 筛选: proc_date 等于 }
+
+输出:
+  total:             { 类型: 整数64, 说明: 指示の件数 }
+  price_up:          { 类型: 整数64, 说明: 値上げの件数 }
+  price_down:        { 类型: 整数64, 说明: 値下げの件数 }
+  unchanged:         { 类型: 整数64, 说明: 据え置きの件数 }
+  new_products:      { 类型: 整数64, 说明: 新規(旧売価なし)の件数 }
+  undecided:         { 类型: 整数64, 说明: 未定(新売価なし)の件数 }
+  forced:            { 类型: 整数64, 说明: 強制送信の件数 }
+  avg_change_rate:   { 类型: 小数, 可以不设置: 是, 说明: 変化率の平均 }
+  max_increase_rate: { 类型: 小数, 可以不设置: 是, 说明: 最大の値上げ率 }
+  alert:             { 类型: 文本, 说明: 警告 NONE / LARGE_CHANGE / NO_DATA }
+
+业务规则:
+  - 情况: 分類(1 件は 1 つにだけ数える。上から順に判定)
+    结果: |
+      新売価が空 → 未定
+      旧売価が空 → 新規
+      新売価 > 旧売価 → 値上げ / 新売価 < 旧売価 → 値下げ / 同じ → 据え置き
+  - 情况: 強制送信
+    结果: 取引ID が 99999999 の件数。分類とは別に数える(据え置きでも強制送信でもある、など重なってよい)
+  - 情况: 変化率
+    结果: (新売価 - 旧売価) / 旧売価。新売価・旧売価の両方があり、旧売価 > 0 の指示だけが対象(旧売価 0 は対象外)
+  - 情况: 平均・最大
+    结果: 変化率の平均、変化率が正のものの最大。どちらも小数 4 位に四捨五入(0.5 は 0 から遠い方へ)。対象がなければ設定しない
+  - 情况: 警告
+    结果: |
+      指示がない → NO_DATA
+      変化率の絶対値が 0.3 以上の指示が 1 件でもある → LARGE_CHANGE(ちょうど 30% も含む)
+      それ以外 → NONE
+
+例子:
+  准备数据:
+    price_changes:
+      - { store_code: 1, product_code: "4901", proc_date: 2026-11-20, new_price: 98,    old_price: 108,   deal_id: null }        # 値下げ -9.26%
+      - { store_code: 1, product_code: "4902", proc_date: 2026-11-20, new_price: 150,   old_price: 150,   deal_id: null }        # 据え置き
+      - { store_code: 1, product_code: "4903", proc_date: 2026-11-20, new_price: 150,   old_price: 150,   deal_id: 99999999 }    # 据え置き + 強制送信
+      - { store_code: 1, product_code: "4904", proc_date: 2026-11-20, new_price: 200,   old_price: null,  deal_id: null }        # 新規
+      - { store_code: 1, product_code: "4905", proc_date: 2026-11-20, new_price: null,  old_price: 120,   deal_id: null }        # 未定
+      - { store_code: 1, product_code: "4906", proc_date: 2026-11-20, new_price: 130,   old_price: 100,   deal_id: null }        # 値上げ ちょうど 30%
+      - { store_code: 1, product_code: "4907", proc_date: 2026-11-20, new_price: 101,   old_price: 100,   deal_id: null }        # 値上げ 1%
+      - { store_code: 1, product_code: "4901", proc_date: 2026-11-21, new_price: 100,   old_price: 100,   deal_id: null }
+      - { store_code: 1, product_code: "4908", proc_date: 2026-11-22, new_price: 50,    old_price: 0,     deal_id: null }        # 旧売価 0
+      - { store_code: 3, product_code: "4909", proc_date: 2026-11-20, new_price: 60,    old_price: 100,   deal_id: null }        # -40%
+      - { store_code: 3, product_code: "4910", proc_date: 2026-11-21, new_price: 12999, old_price: 10000, deal_id: null }        # +29.99%
+  用例:
+    - 说明: 全分類。平均 = (-10/108 + 0 + 0 + 0.3 + 0.01) / 5 = 0.04348… → 0.0435。ちょうど 30% は警告
+      输入: { store_code: 1, proc_date: 2026-11-20 }
+      结果: { total: 7, price_up: 2, price_down: 1, unchanged: 2, new_products: 1, undecided: 1, forced: 1, avg_change_rate: 0.0435, max_increase_rate: 0.3, alert: LARGE_CHANGE }
+    - 说明: 据え置きだけ。値上げがない → 最大の値上げ率は設定しない
+      输入: { store_code: 1, proc_date: 2026-11-21 }
+      结果: { total: 1, unchanged: 1, avg_change_rate: 0, max_increase_rate: 不设置, alert: NONE }
+    - 说明: 旧売価 0 は値上げとして数えるが、変化率の対象外 → 平均も最大も設定しない
+      输入: { store_code: 1, proc_date: 2026-11-22 }
+      结果: { total: 1, price_up: 1, avg_change_rate: 不设置, max_increase_rate: 不设置, alert: NONE }
+    - 说明: 値下げ 40% も警告(絶対値)
+      输入: { store_code: 3, proc_date: 2026-11-20 }
+      结果: { total: 1, price_down: 1, avg_change_rate: -0.4, max_increase_rate: 不设置, alert: LARGE_CHANGE }
+    - 说明: 29.99% は警告しない
+      输入: { store_code: 3, proc_date: 2026-11-21 }
+      结果: { total: 1, price_up: 1, avg_change_rate: 0.2999, max_increase_rate: 0.2999, alert: NONE }
+    - 说明: 指示がない → NO_DATA
+      输入: { store_code: 2, proc_date: 2026-11-20 }
+      结果: { total: 0, avg_change_rate: 不设置, max_increase_rate: 不设置, alert: NO_DATA }
+    - 说明: 店舗コードは 1 以上
+      输入: { store_code: 0, proc_date: 2026-11-20 }
+      结果: 参数错误
