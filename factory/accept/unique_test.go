@@ -9,21 +9,32 @@ import (
 )
 
 func TestUniqueColumnOf(t *testing.T) {
+	g := func(cs ...string) map[string]bool {
+		m := map[string]bool{}
+		for _, c := range cs {
+			m[c] = true
+		}
+		return m
+	}
 	cases := []struct {
-		cols  []string
-		group map[string]bool
-		want  string
+		cols        []string
+		group, ties map[string]bool
+		want        string
 	}{
-		{[]string{"id"}, nil, "id"},                                                                                   // 单列
-		{[]string{"order_id", "line_no"}, nil, "line_no"},                                                             // 没有分组列: 最后一列
-		{[]string{"order_id", "line_no"}, map[string]bool{"order_id": true}, "line_no"},                               // 分组列在前: 不变
-		{[]string{"sales_date", "store_code"}, map[string]bool{"store_code": true}, "sales_date"},                     // 分组列在最后: 跳过它
-		{[]string{"a", "b", "c"}, map[string]bool{"b": true, "c": true}, "a"},                                         // 从后往前第一个非分组列
-		{[]string{"sales_date", "store_code"}, map[string]bool{"sales_date": true, "store_code": true}, "store_code"}, // 都是分组列
+		{[]string{"id"}, nil, nil, "id"},                                                         // 单列
+		{[]string{"order_id", "line_no"}, nil, nil, "line_no"},                                   // 没有分组列: 最后一列
+		{[]string{"order_id", "line_no"}, g("order_id"), nil, "line_no"},                         // 分组列在前: 不变
+		{[]string{"sales_date", "store_code"}, g("store_code"), nil, "sales_date"},               // 分组列在最后: 跳过它
+		{[]string{"a", "b", "c"}, g("b", "c"), nil, "a"},                                         // 从后往前第一个非分组列
+		{[]string{"sales_date", "store_code"}, g("sales_date", "store_code"), nil, "store_code"}, // 都是分组列
+		// 主键 (store_code, product_code, proc_date)、product_code 等于、排序 [proc_date, store_code]:
+		// proc_date 要平局 → store_code 取唯一值
+		{[]string{"store_code", "product_code", "proc_date"}, g("product_code"), g("proc_date"), "store_code"},
+		{[]string{"a", "b"}, g("b"), g("a"), "a"}, // 都不满足: 退回到"不是分组列"
 	}
 	for _, c := range cases {
-		if got := uniqueColumnOf(c.cols, c.group); got != c.want {
-			t.Errorf("uniqueColumnOf(%v, %v) = %q, want %q", c.cols, c.group, got, c.want)
+		if got := uniqueColumnOf(c.cols, c.group, c.ties); got != c.want {
+			t.Errorf("uniqueColumnOf(%v, %v, %v) = %q, want %q", c.cols, c.group, c.ties, got, c.want)
 		}
 	}
 }

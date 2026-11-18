@@ -688,14 +688,40 @@ func (e *diffEnv) uniqueColumns() (map[string]bool, error) {
 		return nil, err
 	}
 	out := map[string]bool{}
+	ties := e.tieCols()
 	for _, name := range names {
-		out[uniqueColumnOf(cols[name], e.groupCols)] = true
+		out[uniqueColumnOf(cols[name], e.groupCols, ties)] = true
 	}
 	return out, nil
 }
 
-// uniqueColumnOf: 约束的列(按顺序)里取唯一值的那一列: 最后一个不是分组列的列;都是分组列 → 最后一列。
-func uniqueColumnOf(cols []string, group map[string]bool) string {
+// tieCols: 排序里需要平局的列 = 每个排序的最后一列以外的列(数据源的列名)。这些列取唯一值的话,后面的排序列
+// 永远比不到,"排序的第 N 列的方向"的覆盖条件不可能满足(例: 排序 [proc_date 新到旧, store_code 大到小],
+// proc_date 唯一 → 同一天只有一行)。
+func (e *diffEnv) tieCols() map[string]bool {
+	out := map[string]bool{}
+	if e.api.Pipeline == nil {
+		return out
+	}
+	for _, st := range e.api.Pipeline.Steps {
+		if st.Kind != "sort" {
+			continue
+		}
+		for j := 0; j < len(st.Order)-1; j++ {
+			out[e.srcCol(st.Order[j].Col)] = true
+		}
+	}
+	return out
+}
+
+// uniqueColumnOf: 约束的列(按顺序)里取唯一值的那一列,从后往前找:
+// 既不是分组列、也不需要平局的列 → 不是分组列的列 → 最后一列。
+func uniqueColumnOf(cols []string, group, ties map[string]bool) string {
+	for i := len(cols) - 1; i >= 0; i-- {
+		if !group[cols[i]] && !ties[cols[i]] {
+			return cols[i]
+		}
+	}
 	for i := len(cols) - 1; i >= 0; i-- {
 		if !group[cols[i]] {
 			return cols[i]
