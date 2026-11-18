@@ -34,6 +34,15 @@ service JobService {
 
   // 按任务类型和 id 的列表筛选任务,新的在前,分页
   rpc ListJobsByTypes(ListJobsByTypesRequest) returns (ListJobsByTypesResponse);
+
+  // 任務の種類を指定して、終了時刻の新しい任務を 2 件返す
+  rpc ListLatestFinishedJobs(ListLatestFinishedJobsRequest) returns (ListLatestFinishedJobsResponse);
+
+  // 任務の種類ごとに、いちばん新しく作られた任務を返す
+  rpc ListLatestJobPerType(ListLatestJobPerTypeRequest) returns (ListLatestJobPerTypeResponse);
+
+  // まだ終わっていない任務を古い順に返す(分页)
+  rpc ListPendingJobs(ListPendingJobsRequest) returns (ListPendingJobsResponse);
 }
 
 // 按 id 返回一个任务的处理状态
@@ -143,6 +152,83 @@ message ListJobsByTypesRequest {
 // 按任务类型和 id 的列表筛选任务,新的在前,分页
 message ListJobsByTypesResponse {
   repeated Job jobs = 1;
+  // 还有下一页时不为空
+  string next_page_token = 2;
+}
+
+// 任务
+message FinishedJob {
+  // 任務 id
+  int64 id = 1;
+  // 処理状態
+  JobStatus status = 2;
+  // 終了時刻
+  google.protobuf.Timestamp finished_at = 3;
+}
+
+// 任務の種類を指定して、終了時刻の新しい任務を 2 件返す
+message ListLatestFinishedJobsRequest {
+  // 任務の種類
+  string job_type = 1 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 64];
+  // 処理状態
+  optional JobStatus status = 2 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+}
+
+// 任務の種類を指定して、終了時刻の新しい任務を 2 件返す
+message ListLatestFinishedJobsResponse {
+  // 按排序取前 2 件(不足时全部)
+  repeated FinishedJob jobs = 1;
+}
+
+// 任务
+message LatestJobOfType {
+  // 任務の種類
+  string job_type = 1;
+  // 任務 id
+  int64 id = 2;
+  // 処理状態
+  JobStatus status = 3;
+  // 作成時刻
+  google.protobuf.Timestamp created_at = 4;
+}
+
+// 任務の種類ごとに、いちばん新しく作られた任務を返す
+message ListLatestJobPerTypeRequest {
+}
+
+// 任務の種類ごとに、いちばん新しく作られた任務を返す
+message ListLatestJobPerTypeResponse {
+  // 最多 100 件;超过时返回错误(不会截断)
+  repeated LatestJobOfType jobs = 1;
+}
+
+// 任务
+message PendingJob {
+  // 任務 id
+  int64 id = 1;
+  // 任務の種類
+  string job_type = 2;
+  // 処理状態
+  JobStatus status = 3;
+  // 作成時刻
+  google.protobuf.Timestamp created_at = 4;
+}
+
+// まだ終わっていない任務を古い順に返す(分页)
+message ListPendingJobsRequest {
+  // 每页件数。0 = 默认 20,最多 100
+  int32 page_size = 1 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
+  // 上一页返回的 next_page_token(不透明的字符串)
+  string page_token = 2;
+  // 任務の種類(不指定 = 全部)(空列表 = 不按这个条件筛选)
+  repeated string job_types = 3 [(buf.validate.field).repeated.max_items = 20, (buf.validate.field).repeated.items.string.min_len = 1, (buf.validate.field).repeated.items.string.max_len = 64];
+  // 作成時刻の下限(含)
+  google.protobuf.Timestamp created_after = 4;
+}
+
+// まだ終わっていない任務を古い順に返す(分页)
+message ListPendingJobsResponse {
+  repeated PendingJob jobs = 1;
   // 还有下一页时不为空
   string next_page_token = 2;
 }

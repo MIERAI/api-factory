@@ -39,6 +39,9 @@ const (
 	// CatalogServiceGetProductLabelProcedure is the fully-qualified name of the CatalogService's
 	// GetProductLabel RPC.
 	CatalogServiceGetProductLabelProcedure = "/factory.catalog.v1.CatalogService/GetProductLabel"
+	// CatalogServiceListLabelsByLabelCodesProcedure is the fully-qualified name of the CatalogService's
+	// ListLabelsByLabelCodes RPC.
+	CatalogServiceListLabelsByLabelCodesProcedure = "/factory.catalog.v1.CatalogService/ListLabelsByLabelCodes"
 	// CatalogServiceListLabelsByPairsProcedure is the fully-qualified name of the CatalogService's
 	// ListLabelsByPairs RPC.
 	CatalogServiceListLabelsByPairsProcedure = "/factory.catalog.v1.CatalogService/ListLabelsByPairs"
@@ -48,6 +51,9 @@ const (
 	// CatalogServiceListProductMasterProcedure is the fully-qualified name of the CatalogService's
 	// ListProductMaster RPC.
 	CatalogServiceListProductMasterProcedure = "/factory.catalog.v1.CatalogService/ListProductMaster"
+	// CatalogServiceListProductsByCategoryProcedure is the fully-qualified name of the CatalogService's
+	// ListProductsByCategory RPC.
+	CatalogServiceListProductsByCategoryProcedure = "/factory.catalog.v1.CatalogService/ListProductsByCategory"
 	// CatalogServiceListRecentLabelChangesProcedure is the fully-qualified name of the CatalogService's
 	// ListRecentLabelChanges RPC.
 	CatalogServiceListRecentLabelChangesProcedure = "/factory.catalog.v1.CatalogService/ListRecentLabelChanges"
@@ -57,12 +63,16 @@ const (
 type CatalogServiceClient interface {
 	// 商品コードとラベルコードを指定して、ラベルの現在の文言を返す。なければ found = false
 	GetProductLabel(context.Context, *connect.Request[v1.GetProductLabelRequest]) (*connect.Response[v1.GetProductLabelResponse], error)
+	// ラベルコード(複数)を指定して、全商品のそのラベルの現在の文言を返す。商品コードの前方一致で絞れる
+	ListLabelsByLabelCodes(context.Context, *connect.Request[v1.ListLabelsByLabelCodesRequest]) (*connect.Response[v1.ListLabelsByLabelCodesResponse], error)
 	// (商品コード, ラベルコード) の組のリストを受け取り、組ごとのラベルの現在の文言を返す
 	ListLabelsByPairs(context.Context, *connect.Request[v1.ListLabelsByPairsRequest]) (*connect.Response[v1.ListLabelsByPairsResponse], error)
 	// 商品コードを指定して、その商品のラベル(既定のラベルを含む)の現在の値を返す
 	ListProductLabels(context.Context, *connect.Request[v1.ListProductLabelsRequest]) (*connect.Response[v1.ListProductLabelsResponse], error)
 	// カテゴリと商品コードを条件に、商品マスタの現在の値を返す
 	ListProductMaster(context.Context, *connect.Request[v1.ListProductMasterRequest]) (*connect.Response[v1.ListProductMasterResponse], error)
+	// カテゴリを指定して、現在の商品を安い順に返す。最低価格で絞れる
+	ListProductsByCategory(context.Context, *connect.Request[v1.ListProductsByCategoryRequest]) (*connect.Response[v1.ListProductsByCategoryResponse], error)
 	// 商品コードを指定して、その商品のラベルを最後に変わった順に返す(いつ変わったかも返す)
 	ListRecentLabelChanges(context.Context, *connect.Request[v1.ListRecentLabelChangesRequest]) (*connect.Response[v1.ListRecentLabelChangesResponse], error)
 }
@@ -84,6 +94,12 @@ func NewCatalogServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(catalogServiceMethods.ByName("GetProductLabel")),
 			connect.WithClientOptions(opts...),
 		),
+		listLabelsByLabelCodes: connect.NewClient[v1.ListLabelsByLabelCodesRequest, v1.ListLabelsByLabelCodesResponse](
+			httpClient,
+			baseURL+CatalogServiceListLabelsByLabelCodesProcedure,
+			connect.WithSchema(catalogServiceMethods.ByName("ListLabelsByLabelCodes")),
+			connect.WithClientOptions(opts...),
+		),
 		listLabelsByPairs: connect.NewClient[v1.ListLabelsByPairsRequest, v1.ListLabelsByPairsResponse](
 			httpClient,
 			baseURL+CatalogServiceListLabelsByPairsProcedure,
@@ -102,6 +118,12 @@ func NewCatalogServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(catalogServiceMethods.ByName("ListProductMaster")),
 			connect.WithClientOptions(opts...),
 		),
+		listProductsByCategory: connect.NewClient[v1.ListProductsByCategoryRequest, v1.ListProductsByCategoryResponse](
+			httpClient,
+			baseURL+CatalogServiceListProductsByCategoryProcedure,
+			connect.WithSchema(catalogServiceMethods.ByName("ListProductsByCategory")),
+			connect.WithClientOptions(opts...),
+		),
 		listRecentLabelChanges: connect.NewClient[v1.ListRecentLabelChangesRequest, v1.ListRecentLabelChangesResponse](
 			httpClient,
 			baseURL+CatalogServiceListRecentLabelChangesProcedure,
@@ -114,15 +136,22 @@ func NewCatalogServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 // catalogServiceClient implements CatalogServiceClient.
 type catalogServiceClient struct {
 	getProductLabel        *connect.Client[v1.GetProductLabelRequest, v1.GetProductLabelResponse]
+	listLabelsByLabelCodes *connect.Client[v1.ListLabelsByLabelCodesRequest, v1.ListLabelsByLabelCodesResponse]
 	listLabelsByPairs      *connect.Client[v1.ListLabelsByPairsRequest, v1.ListLabelsByPairsResponse]
 	listProductLabels      *connect.Client[v1.ListProductLabelsRequest, v1.ListProductLabelsResponse]
 	listProductMaster      *connect.Client[v1.ListProductMasterRequest, v1.ListProductMasterResponse]
+	listProductsByCategory *connect.Client[v1.ListProductsByCategoryRequest, v1.ListProductsByCategoryResponse]
 	listRecentLabelChanges *connect.Client[v1.ListRecentLabelChangesRequest, v1.ListRecentLabelChangesResponse]
 }
 
 // GetProductLabel calls factory.catalog.v1.CatalogService.GetProductLabel.
 func (c *catalogServiceClient) GetProductLabel(ctx context.Context, req *connect.Request[v1.GetProductLabelRequest]) (*connect.Response[v1.GetProductLabelResponse], error) {
 	return c.getProductLabel.CallUnary(ctx, req)
+}
+
+// ListLabelsByLabelCodes calls factory.catalog.v1.CatalogService.ListLabelsByLabelCodes.
+func (c *catalogServiceClient) ListLabelsByLabelCodes(ctx context.Context, req *connect.Request[v1.ListLabelsByLabelCodesRequest]) (*connect.Response[v1.ListLabelsByLabelCodesResponse], error) {
+	return c.listLabelsByLabelCodes.CallUnary(ctx, req)
 }
 
 // ListLabelsByPairs calls factory.catalog.v1.CatalogService.ListLabelsByPairs.
@@ -140,6 +169,11 @@ func (c *catalogServiceClient) ListProductMaster(ctx context.Context, req *conne
 	return c.listProductMaster.CallUnary(ctx, req)
 }
 
+// ListProductsByCategory calls factory.catalog.v1.CatalogService.ListProductsByCategory.
+func (c *catalogServiceClient) ListProductsByCategory(ctx context.Context, req *connect.Request[v1.ListProductsByCategoryRequest]) (*connect.Response[v1.ListProductsByCategoryResponse], error) {
+	return c.listProductsByCategory.CallUnary(ctx, req)
+}
+
 // ListRecentLabelChanges calls factory.catalog.v1.CatalogService.ListRecentLabelChanges.
 func (c *catalogServiceClient) ListRecentLabelChanges(ctx context.Context, req *connect.Request[v1.ListRecentLabelChangesRequest]) (*connect.Response[v1.ListRecentLabelChangesResponse], error) {
 	return c.listRecentLabelChanges.CallUnary(ctx, req)
@@ -149,12 +183,16 @@ func (c *catalogServiceClient) ListRecentLabelChanges(ctx context.Context, req *
 type CatalogServiceHandler interface {
 	// 商品コードとラベルコードを指定して、ラベルの現在の文言を返す。なければ found = false
 	GetProductLabel(context.Context, *connect.Request[v1.GetProductLabelRequest]) (*connect.Response[v1.GetProductLabelResponse], error)
+	// ラベルコード(複数)を指定して、全商品のそのラベルの現在の文言を返す。商品コードの前方一致で絞れる
+	ListLabelsByLabelCodes(context.Context, *connect.Request[v1.ListLabelsByLabelCodesRequest]) (*connect.Response[v1.ListLabelsByLabelCodesResponse], error)
 	// (商品コード, ラベルコード) の組のリストを受け取り、組ごとのラベルの現在の文言を返す
 	ListLabelsByPairs(context.Context, *connect.Request[v1.ListLabelsByPairsRequest]) (*connect.Response[v1.ListLabelsByPairsResponse], error)
 	// 商品コードを指定して、その商品のラベル(既定のラベルを含む)の現在の値を返す
 	ListProductLabels(context.Context, *connect.Request[v1.ListProductLabelsRequest]) (*connect.Response[v1.ListProductLabelsResponse], error)
 	// カテゴリと商品コードを条件に、商品マスタの現在の値を返す
 	ListProductMaster(context.Context, *connect.Request[v1.ListProductMasterRequest]) (*connect.Response[v1.ListProductMasterResponse], error)
+	// カテゴリを指定して、現在の商品を安い順に返す。最低価格で絞れる
+	ListProductsByCategory(context.Context, *connect.Request[v1.ListProductsByCategoryRequest]) (*connect.Response[v1.ListProductsByCategoryResponse], error)
 	// 商品コードを指定して、その商品のラベルを最後に変わった順に返す(いつ変わったかも返す)
 	ListRecentLabelChanges(context.Context, *connect.Request[v1.ListRecentLabelChangesRequest]) (*connect.Response[v1.ListRecentLabelChangesResponse], error)
 }
@@ -170,6 +208,12 @@ func NewCatalogServiceHandler(svc CatalogServiceHandler, opts ...connect.Handler
 		CatalogServiceGetProductLabelProcedure,
 		svc.GetProductLabel,
 		connect.WithSchema(catalogServiceMethods.ByName("GetProductLabel")),
+		connect.WithHandlerOptions(opts...),
+	)
+	catalogServiceListLabelsByLabelCodesHandler := connect.NewUnaryHandler(
+		CatalogServiceListLabelsByLabelCodesProcedure,
+		svc.ListLabelsByLabelCodes,
+		connect.WithSchema(catalogServiceMethods.ByName("ListLabelsByLabelCodes")),
 		connect.WithHandlerOptions(opts...),
 	)
 	catalogServiceListLabelsByPairsHandler := connect.NewUnaryHandler(
@@ -190,6 +234,12 @@ func NewCatalogServiceHandler(svc CatalogServiceHandler, opts ...connect.Handler
 		connect.WithSchema(catalogServiceMethods.ByName("ListProductMaster")),
 		connect.WithHandlerOptions(opts...),
 	)
+	catalogServiceListProductsByCategoryHandler := connect.NewUnaryHandler(
+		CatalogServiceListProductsByCategoryProcedure,
+		svc.ListProductsByCategory,
+		connect.WithSchema(catalogServiceMethods.ByName("ListProductsByCategory")),
+		connect.WithHandlerOptions(opts...),
+	)
 	catalogServiceListRecentLabelChangesHandler := connect.NewUnaryHandler(
 		CatalogServiceListRecentLabelChangesProcedure,
 		svc.ListRecentLabelChanges,
@@ -200,12 +250,16 @@ func NewCatalogServiceHandler(svc CatalogServiceHandler, opts ...connect.Handler
 		switch r.URL.Path {
 		case CatalogServiceGetProductLabelProcedure:
 			catalogServiceGetProductLabelHandler.ServeHTTP(w, r)
+		case CatalogServiceListLabelsByLabelCodesProcedure:
+			catalogServiceListLabelsByLabelCodesHandler.ServeHTTP(w, r)
 		case CatalogServiceListLabelsByPairsProcedure:
 			catalogServiceListLabelsByPairsHandler.ServeHTTP(w, r)
 		case CatalogServiceListProductLabelsProcedure:
 			catalogServiceListProductLabelsHandler.ServeHTTP(w, r)
 		case CatalogServiceListProductMasterProcedure:
 			catalogServiceListProductMasterHandler.ServeHTTP(w, r)
+		case CatalogServiceListProductsByCategoryProcedure:
+			catalogServiceListProductsByCategoryHandler.ServeHTTP(w, r)
 		case CatalogServiceListRecentLabelChangesProcedure:
 			catalogServiceListRecentLabelChangesHandler.ServeHTTP(w, r)
 		default:
@@ -221,6 +275,10 @@ func (UnimplementedCatalogServiceHandler) GetProductLabel(context.Context, *conn
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.catalog.v1.CatalogService.GetProductLabel is not implemented"))
 }
 
+func (UnimplementedCatalogServiceHandler) ListLabelsByLabelCodes(context.Context, *connect.Request[v1.ListLabelsByLabelCodesRequest]) (*connect.Response[v1.ListLabelsByLabelCodesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.catalog.v1.CatalogService.ListLabelsByLabelCodes is not implemented"))
+}
+
 func (UnimplementedCatalogServiceHandler) ListLabelsByPairs(context.Context, *connect.Request[v1.ListLabelsByPairsRequest]) (*connect.Response[v1.ListLabelsByPairsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.catalog.v1.CatalogService.ListLabelsByPairs is not implemented"))
 }
@@ -231,6 +289,10 @@ func (UnimplementedCatalogServiceHandler) ListProductLabels(context.Context, *co
 
 func (UnimplementedCatalogServiceHandler) ListProductMaster(context.Context, *connect.Request[v1.ListProductMasterRequest]) (*connect.Response[v1.ListProductMasterResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.catalog.v1.CatalogService.ListProductMaster is not implemented"))
+}
+
+func (UnimplementedCatalogServiceHandler) ListProductsByCategory(context.Context, *connect.Request[v1.ListProductsByCategoryRequest]) (*connect.Response[v1.ListProductsByCategoryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.catalog.v1.CatalogService.ListProductsByCategory is not implemented"))
 }
 
 func (UnimplementedCatalogServiceHandler) ListRecentLabelChanges(context.Context, *connect.Request[v1.ListRecentLabelChangesRequest]) (*connect.Response[v1.ListRecentLabelChangesResponse], error) {
