@@ -632,6 +632,7 @@ func cmdAnswer(args []string) error {
 	if err != nil {
 		return err
 	}
+	linkPrevious(apiID, dir, findings)
 	var todo []answer.Finding
 	for _, f := range findings {
 		if *all || f.Answerable() {
@@ -665,6 +666,45 @@ func cmdAnswer(args []string) error {
 	}
 	fmt.Printf("下一步: make check(重新编译)→ scripts/review.sh specs/%s/%s/spec.yaml(重新审查)\n", domain, strings.TrimPrefix(apiID, domain+"."))
 	return nil
+}
+
+// linkPrevious: 这一轮的问题标上"挡流水线"(verdict.json),和之前轮次的同一个问题(same_as 的链)的原文。
+// 下一轮按问题原文判断"已回答": 只记这一轮的说法的话,原来的问题仍然算没回答,又被带过来挡。
+func linkPrevious(apiID, dir string, fs []answer.Finding) {
+	v, _ := review.ReadVerdict(dir)
+	blocks := map[string]bool{}
+	for _, id := range v.Blocking {
+		blocks[id] = true
+	}
+	cycle := review.Cycle(review.History(".factory/reviews", apiID, ""))
+	if n := len(cycle); n > 0 && filepath.Clean(cycle[n-1]) == filepath.Clean(dir) {
+		cycle = cycle[:n-1]
+	}
+	prev, _ := review.Previous(cycle)
+	byRef := map[string]review.Prev{}
+	for _, p := range prev {
+		byRef[p.Ref] = p
+	}
+	rf, _ := review.ReadFindings(dir)
+	sameAs := map[string]string{}
+	for _, f := range rf {
+		sameAs[f.ID] = f.SameAs
+	}
+	for i := range fs {
+		fs[i].Blocks = blocks[fs[i].ID]
+		seen := map[string]bool{}
+		for ref := sameAs[fs[i].ID]; ref != "" && !seen[ref]; {
+			seen[ref] = true
+			p, ok := byRef[ref]
+			if !ok {
+				break
+			}
+			if p.Question != fs[i].Question {
+				fs[i].Also = append(fs[i].Also, p.Question)
+			}
+			ref = p.Full.SameAs
+		}
+	}
 }
 
 // cmdPerf: 性能闸门(P4)。接近真实的数据量 + EXPLAIN ANALYZE。会清空 --db 里的表,只用专门的性能库。

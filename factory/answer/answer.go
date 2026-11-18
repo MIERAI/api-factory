@@ -26,6 +26,9 @@ type Finding struct {
 	Options      []Option `json:"options"`
 	Recommended  int      `json:"recommended"`
 	DesignChange string   `json:"design_change"`
+
+	Blocks bool     `json:"-"` // 这一轮挡流水线(verdict.json)
+	Also   []string `json:"-"` // 之前轮次的同一个问题的原文(same_as 的链): 回答时一起记下
 }
 
 type Option struct {
@@ -57,7 +60,8 @@ func (f Finding) Blocking() bool {
 
 // Answerable: 需要人做决定的问题 = 除了"验收覆盖"(覆盖建议: 补充例子即可)以外的全部。
 // minor 的矛盾也要能回答: 不记录的话,下一轮审查会把同一个问题升级后再问一遍(试用里实际发生)。
-func (f Finding) Answerable() bool { return f.Category != "验收覆盖" }
+// 挡流水线的问题(和之前没回答的问题相同,严重度不能降)即使是验收覆盖也要能回答,否则永远挡。
+func (f Finding) Answerable() bool { return f.Category != "验收覆盖" || f.Blocks }
 
 // LatestReview: .factory/reviews 下这个 API 最新的审查结果。
 func LatestReview(apiID string) (string, []Finding, error) {
@@ -274,6 +278,9 @@ func entry(d Decision, src string) string {
 	fmt.Fprintf(&b, "  - 问题: %s\n", q(d.Finding.Question))
 	if len(opts) > 0 {
 		fmt.Fprintf(&b, "    选项: [%s]\n", strings.Join(opts, ", "))
+	}
+	for _, a := range d.Finding.Also {
+		fmt.Fprintf(&b, "    同一个问题: %s\n", q(a))
 	}
 	fmt.Fprintf(&b, "    回答: %s\n", q(d.Answer))
 	if d.When != "" && d.Then != "" {
