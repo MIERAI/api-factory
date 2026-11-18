@@ -22,8 +22,8 @@ jobs:
         env:
           BASE: origin/${{ github.base_ref }}
           REVIEW_MODEL: local   # winpc: 只作参考,不阻塞(spec-review.sh)
-        run: scripts/ci/spec-review.sh
+        run: rm -f .factory/ci-summary.md && scripts/ci/spec-review.sh
       - name: 结果贴到 PR
         if: always()
         env: { GH_TOKEN: "${{ github.token }}" }
-        run: gh pr comment ${{ github.event.pull_request.number }} --edit-last --body-file "$GITHUB_STEP_SUMMARY" || gh pr comment ${{ github.event.pull_request.number }} --body-file "$GITHUB_STEP_SUMMARY"
+        run: gh pr comment ${{ github.event.pull_request.number }} --edit-last --body-file .factory/ci-summary.md || gh pr comment ${{ github.event.pull_request.number }} --body-file .factory/ci-summary.md

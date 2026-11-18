@@ -2,9 +2,14 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 export PATH="$PATH:$(go env GOPATH)/bin"
-SUMMARY=${GITHUB_STEP_SUMMARY:-${CI_SUMMARY:-.factory/ci-summary.md}}
+# 结果的 Markdown: 总是写文件(后面的步骤贴到 PR 上;GitHub 的 $GITHUB_STEP_SUMMARY 是每个步骤各自的文件,别的步骤读不到),
+# 在 GitHub 上同时写步骤的摘要
+SUMMARY=${CI_SUMMARY:-.factory/ci-summary.md}
 mkdir -p .factory "$(dirname "$SUMMARY")"
-md() { printf '%s\n' "$@" >> "$SUMMARY"; }
+md() {
+  printf '%s\n' "$@" >> "$SUMMARY"
+  if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]; then printf '%s\n' "$@" >> "$GITHUB_STEP_SUMMARY"; fi
+}
 
 # 阶段计时: stage "名字" 命令...
 stage() {
