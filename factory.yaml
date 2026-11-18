@@ -28,7 +28,8 @@ ai:
       model: claude
       # 第一波实测: 本地模型审查 10 个 API,挡下的 8 个 blocker 全部是误报(enum 的 DB 值和 proto 编号混淆等)。
       # 审查没有闸门兜底,误报会让流水线停下 → 只允许强模型
-      allowed: [claude]
+      # local 也允许,但只作参考: scripts/ci/spec-review.sh 对 claude 以外的模型不阻塞(CI 用 winpc 时)
+      allowed: [claude, local]
       args: [--tools, "", --max-turns, "2"]
       timeout_sec: 600
     implement:

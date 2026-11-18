@@ -3,7 +3,9 @@
 name: verify
 on:
   pull_request:
-  workflow_call:   # release(合并到 main 之后)也先跑一遍
+  workflow_call:   # release(合并到 main 之后)也先跑一遍;generate 用 ref 验证生成物的分支
+    inputs:
+      ref: { type: string, default: "", description: "要验证的分支(空 = 触发的提交)" }
 permissions:
   contents: read
 jobs:
@@ -12,7 +14,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+        with: { fetch-depth: 0, ref: "${{ inputs.ref }}" }
       - name: 只改了式样书?
         id: scope
         run: |

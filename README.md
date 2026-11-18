@@ -57,7 +57,10 @@ spec-review     generate                verify               deploy
 - 认证: `AUTH_MODE` 必须指定(不写不启动)。`token` = Bearer 令牌(服务器只存 SHA-256,`AUTH_TOKEN_SHA256` 逗号隔开可轮换)/
   `none` = 交给平台(Cloud Run 的 IAM `--no-allow-unauthenticated`)
 - 在 GitHub 上启用(仓库的 variables / secrets;没设时对应的 workflow 跳过):
-  - `FACTORY_GENERATE=on` + secrets `FACTORY_BOT_TOKEN`(GitHub App / 机器人的令牌: `GITHUB_TOKEN` 开的 PR 不会触发 verify)、`ANTHROPIC_API_KEY`
+  - `FACTORY_GENERATE=on`: 式样书的审查(spec-pr)和生成(generate)在 self-hosted runner `[self-hosted, laptop]` 上跑
+    (tailnet 里的常驻机器,能连到 winpc 的模型;仓库是私有的,外部的 PR 不会在上面执行)。模型 = factory.yaml 的 `local`:
+    实现由路径闸门 + 编译 + 验收兜底;审查只作参考、不阻塞(本地模型误报多)。runner 上预装 `claude` CLI 和 docker。
+    生成物的 PR 用 `GITHUB_TOKEN` 开(不会触发 verify)→ generate 在同一次运行里对生成物的分支调用 verify,结果贴到 PR
   - `GCP_PROJECT` / `GCP_REGION` / `SERVICE` / `AR_REPO` / `RUN_SA` / `GCP_WIF_PROVIDER` / `GCP_DEPLOY_SA`(Workload Identity Federation,仓库里不放密钥);
     连接信息在 Secret Manager(`<SERVICE>-database-url` 等)。第一次部署(服务还不存在)不能用 `--no-traffic`,先普通部署一次
 - 真实环境的部署后检查只做只读的(健康检查 / 认证);对新版本跑验收会清空并灌测试数据,只用于模拟

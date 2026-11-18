@@ -7,29 +7,50 @@ on:
     paths: ["design/**"]
 concurrency: { group: generate, cancel-in-progress: false }
 permissions:
-  contents: read
+  contents: write        # 推送生成物的分支
+  pull-requests: write   # 开 PR、贴验证结果
 jobs:
   generate:
-    if: ${{ vars.FACTORY_GENERATE == 'on' }}   # 机器人的令牌(FACTORY_BOT_TOKEN)准备好之后,仓库的 variables 设 FACTORY_GENERATE=on
-    runs-on: ubuntu-latest
+    if: ${{ vars.FACTORY_GENERATE == 'on' }}
+    # 笔记本上的 self-hosted runner(私有仓库专用): 只有它能连到 tailnet 里 winpc 的模型
+    runs-on: [self-hosted, laptop]
     timeout-minutes: 30
+    outputs:
+      branch: ${{ steps.pr.outputs.branch }}
+      pr: ${{ steps.pr.outputs.pr }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.FACTORY_BOT_TOKEN }}
+        with: { fetch-depth: 0 }
       - uses: ./.github/actions/setup
-      - name: AI 命令行(计算 / 自定义的 API 才用)
-        run: npm install -g @anthropic-ai/claude-code
+      - name: AI 命令行(runner 上预装)
+        run: claude --version
       - name: 生成
         env:
           BASE: ${{ github.event.before }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          IMPLEMENT_MODEL: local   # winpc(factory.yaml ai.models.local);有路径闸门 + 编译 + 验收兜底
         run: scripts/ci/generate.sh
       - name: 推送分支 + 开 PR
-        env: { GH_TOKEN: "${{ secrets.FACTORY_BOT_TOKEN }}" }
+        id: pr
+        env: { GH_TOKEN: "${{ github.token }}" }
         run: |
-          branch=$(cat .factory/gen-branch)
           [ -f .factory/pr-body.md ] || { echo "生成物没有变化"; exit 0; }
+          branch=$(cat .factory/gen-branch)
           git push origin "$branch"
-          gh pr create --base main --head "$branch" --title "factory: 生成 $(git rev-parse --short HEAD~1)" --body-file .factory/pr-body.md
+          url=$(gh pr create --base main --head "$branch" --title "factory: 生成 $(git rev-parse --short HEAD~1)" --body-file .factory/pr-body.md)
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"; echo "pr=${url##*/}" >> "$GITHUB_OUTPUT"
+  # GITHUB_TOKEN 开的 PR 不会触发 verify → 在这里对生成物的分支跑同一个 verify(不需要机器人的令牌)
+  verify:
+    needs: generate
+    if: ${{ needs.generate.outputs.branch != '' }}
+    uses: ./.github/workflows/verify.yml
+    with: { ref: "${{ needs.generate.outputs.branch }}" }
+  report:
+    needs: [generate, verify]
+    if: ${{ always() && needs.generate.outputs.pr != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - env: { GH_TOKEN: "${{ github.token }}", RESULT: "${{ needs.verify.result }}" }
+        run: |
+          if [ "$RESULT" = success ]; then msg="✓ verify 通过(生成物最新 + 编译 + 单元测试 + 验收 3 种子 + 变异余量)。可以 review 并合并。"
+          else msg="✗ verify: $RESULT。详情: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"; fi
+          gh pr comment ${{ needs.generate.outputs.pr }} -R ${{ github.repository }} --body "$msg"

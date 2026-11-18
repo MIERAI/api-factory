@@ -8,19 +8,20 @@ permissions:
   pull-requests: write
 jobs:
   review:
-    if: ${{ !startsWith(github.head_ref, 'factory/gen-') && vars.FACTORY_GENERATE == 'on' }}   # AI 的凭证准备好之后
-    runs-on: ubuntu-latest
+    if: ${{ !startsWith(github.head_ref, 'factory/gen-') && vars.FACTORY_GENERATE == 'on' }}
+    # 笔记本上的 self-hosted runner(私有仓库专用): 只有它能连到 tailnet 里 winpc 的模型
+    runs-on: [self-hosted, laptop]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
       - uses: ./.github/actions/setup
-      - name: AI 命令行
-        run: npm install -g @anthropic-ai/claude-code
+      - name: AI 命令行(runner 上预装)
+        run: claude --version
       - name: 式样书检查 + AI 审查
         env:
           BASE: origin/${{ github.base_ref }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          REVIEW_MODEL: local   # winpc: 只作参考,不阻塞(spec-review.sh)
         run: scripts/ci/spec-review.sh
       - name: 结果贴到 PR
         if: always()
