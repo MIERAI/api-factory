@@ -38,8 +38,10 @@ jobs:
         run: |
           [ -f .factory/pr-body.md ] || { echo "生成物没有变化"; exit 0; }
           branch=$(cat .factory/gen-branch)
-          git push origin "$branch"
-          url=$(gh pr create --base main --head "$branch" --title "factory: 生成 $(git rev-parse --short HEAD~1)" --body-file .factory/pr-body.md)
+          # 生成物的分支只属于机器: 重新生成时覆盖;PR 已经有了就沿用(手动重新生成 / 重跑)
+          git push --force origin "$branch"
+          url=$(gh pr view "$branch" --json url --jq .url 2>/dev/null || true)
+          [ -n "$url" ] || url=$(gh pr create --base main --head "$branch" --title "factory: 生成 $(git rev-parse --short HEAD~1)" --body-file .factory/pr-body.md)
           echo "branch=$branch" >> "$GITHUB_OUTPUT"; echo "pr=${url##*/}" >> "$GITHUB_OUTPUT"
   # GITHUB_TOKEN 开的 PR 不会触发 verify → 在这里对生成物的分支跑同一个 verify(不需要机器人的令牌)
   verify:
