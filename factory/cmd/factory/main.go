@@ -613,7 +613,8 @@ func designSource(specYAML []byte) string {
 // cmdAnswer: 回答审查的问题,写进审查记录。
 //
 //	factory answer design/jobs/GetJobSummary.yaml            终端里一题一题地问
-//	factory answer design/jobs/GetJobSummary.yaml F1=2 F3=0   一次性回答(0 = 跳过,"文字" = 自己写)
+//	factory answer design/jobs/GetJobSummary.yaml F1=2 F3=0   一次性回答(0 = 跳过,"文字" = 自己写,
+//	                                                           @design[:说明] = 已经直接改了设计书)
 //	factory answer --list design/jobs/GetJobSummary.yaml      只列出问题
 //	--all: 也包括不挡流水线的建议
 func cmdAnswer(args []string) error {

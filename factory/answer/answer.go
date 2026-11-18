@@ -79,14 +79,26 @@ func LatestReview(apiID string) (string, []Finding, error) {
 
 // Decision: 一个问题的回答
 type Decision struct {
-	Finding Finding
-	Answer  string // 选中的选项或自己写的回答
-	When    string
-	Then    string
-	Domain  bool          // 写进 领域.审查.yaml
-	Changes []InputChange // 改设计稿的输入定义
-	Rules   []string      // 追加的输入之间的规则
-	Sets    []KeySet      // 改顶层的单值键
+	Finding  Finding
+	Answer   string // 选中的选项或自己写的回答
+	When     string
+	Then     string
+	Domain   bool          // 写进 领域.审查.yaml
+	Changes  []InputChange // 改设计稿的输入定义
+	Rules    []string      // 追加的输入之间的规则
+	Sets     []KeySet      // 改顶层的单值键
+	ByDesign string        // 已经直接改了设计书(这个 PR 里): 改了什么。不写补充规则
+}
+
+// ByDesignPrefix: 命令行回答"已经直接改了设计书": F1=@design 或 F1=@design:改成了一览
+const ByDesignPrefix = "@design"
+
+func byDesign(f Finding, note string) Decision {
+	note = strings.TrimSpace(note)
+	if note == "" {
+		note = "见这次的设计书改动"
+	}
+	return Decision{Finding: f, Answer: "已经直接修改了设计书", ByDesign: note}
 }
 
 // Ask: 在终端里一题一题地问。
@@ -121,10 +133,15 @@ func Ask(in io.Reader, out io.Writer, fs []Finding, domain string) []Decision {
 				fmt.Fprintf(out, "       → 改设计: %s → %s\n", k.Key, k.Value)
 			}
 		}
-		fmt.Fprintf(out, "  0) 跳过    9) 自己写\n  选择 [%d]: ", f.Recommended+1)
+		fmt.Fprintf(out, "  0) 跳过    8) 已经直接改了设计书    9) 自己写\n  选择 [%d]: ", f.Recommended+1)
 		choice := read()
 		if choice == "" {
 			choice = strconv.Itoa(f.Recommended + 1)
+		}
+		if choice == "8" && len(f.Options) < 8 {
+			fmt.Fprint(out, "  改了什么(一句话,可以不写): ")
+			ds = append(ds, byDesign(f, read()))
+			continue
 		}
 		d, ok := decide(f, choice, func() string { fmt.Fprint(out, "  你的回答: "); return read() })
 		if !ok {
@@ -162,6 +179,12 @@ func FromArgs(fs []Finding, args []string) ([]Decision, error) {
 		toDomain := false
 		if v, ok := strings.CutSuffix(val, "@domain"); ok {
 			val, toDomain = v, true
+		}
+		if note, ok := strings.CutPrefix(val, ByDesignPrefix); ok && (note == "" || note[0] == ':') {
+			d := byDesign(f, strings.TrimPrefix(note, ":"))
+			d.Domain = toDomain
+			ds = append(ds, d)
+			continue
 		}
 		d, ok := decide(f, val, func() string { return val })
 		if !ok {
@@ -264,6 +287,9 @@ func entry(d Decision, src string) string {
 	}
 	for _, k := range d.Sets {
 		fmt.Fprintf(&b, "    改了设计: %s\n", q(k.Key+" → "+k.Value))
+	}
+	if d.ByDesign != "" {
+		fmt.Fprintf(&b, "    改了设计: %s\n", q(d.ByDesign))
 	}
 	fmt.Fprintf(&b, "    来自: %s\n", q(src))
 	return b.String()
