@@ -2,8 +2,8 @@
 # ListTopDiscountStores: 値引き額の上位店舗(前N条: 空になりうる列で並べる)
 # ============================================================================
 API: ListTopDiscountStores
-说明: 売上日を指定して、値引き額の大きい店舗を上位 2 件返す
-背景: 日次の値引きランキング
+说明: 売上日を指定して、値引きのあった店舗のうち値引き額の大きい店舗を上位 2 件返す
+背景: 日次の値引きランキング。値引き額が空や 0 の店舗はランキングに入れない(空は降順で先頭に並ぶため、固定条件で除く)
 负责人: sales-team
 风险: 低
 
@@ -12,6 +12,9 @@ API: ListTopDiscountStores
 
 输入:
   sales_date: { 类型: 日期, 必填: 是, 说明: 売上日, 筛选: sales_date 等于 }
+
+固定条件:
+  - discount > 0
 
 输出:
   store_code: 店舗コード
@@ -28,6 +31,8 @@ API: ListTopDiscountStores
       - { sales_date: 2026-11-01, store_code: 1, amount: 100, discount: 5, closed_on: null }
       - { sales_date: 2026-11-01, store_code: 2, amount: 100, discount: 9, closed_on: null }
       - { sales_date: 2026-11-01, store_code: 4, amount: 100, discount: 9, closed_on: null }
+      - { sales_date: 2026-11-01, store_code: 5, amount: 100, discount: null, closed_on: null }   # 空は入らない
+      - { sales_date: 2026-11-01, store_code: 6, amount: 100, discount: 0, closed_on: null }      # 0 も入らない
   用例:
     - 说明: 値引き額の大きい順、同じなら店舗コードの小さい順に 2 件
       输入: { sales_date: 2026-11-01 }

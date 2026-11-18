@@ -3,7 +3,7 @@
 # ============================================================================
 API: ListLatestFinishedJobs
 说明: 任務の種類を指定して、終了時刻の新しい任務を 2 件返す
-背景: 運用画面の「最近の結果」。状態で絞れる
+背景: 運用画面の「最近の結果」。終わった任務だけが対象(終了時刻が空 = 未完了は出さない)。状態で絞れる(PENDING を指定すると空になる)
 负责人: platform-team
 风险: 低
 
@@ -13,6 +13,9 @@ API: ListLatestFinishedJobs
 输入:
   job_type: { 类型: 文本, 必填: 是, 长度: 1~64, 说明: 任務の種類, 筛选: job_type 等于 }
   status:   { 类型: JobStatus, 必填: 否, 说明: 処理状態, 筛选: status 等于 }
+
+固定条件:
+  - finished_at 不为空
 
 输出:
   id:          任務 id
@@ -32,6 +35,9 @@ API: ListLatestFinishedJobs
       - { id: 4, job_type: export, status: PENDING,   created_at: 2026-11-04 09:00, finished_at: null }
       - { id: 5, job_type: import, status: SUCCEEDED, created_at: 2026-11-05 09:00, finished_at: 2026-11-05 09:05 }
   用例:
+    - 说明: 状態を指定しなくても未完了(4)は出ない
+      输入: { job_type: export }
+      结果: { jobs: [2, 3] }
     - 说明: 成功した任務の新しい 2 件
       输入: { job_type: export, status: SUCCEEDED }
       结果: { jobs: [2, 3] }
