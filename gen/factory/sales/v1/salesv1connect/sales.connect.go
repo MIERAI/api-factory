@@ -72,7 +72,7 @@ const (
 type SaleServiceClient interface {
 	// 指定した売上日の売上を店舗横断で集計する(合計・値引き・純売上・値引き率・締めの状況)
 	GetDailySalesSummary(context.Context, *connect.Request[v1.GetDailySalesSummaryRequest]) (*connect.Response[v1.GetDailySalesSummaryResponse], error)
-	// 店舗と指示日を指定して、売価変更の指示を分類して数え、変化率の平均・最大の値上げ率・警告を返す
+	// 店舗と指示日を指定して、売価変更の指示を分類して件数を数え、変化率の平均・最大の値上げ率・警告を返す
 	GetPriceChangeSummary(context.Context, *connect.Request[v1.GetPriceChangeSummaryRequest]) (*connect.Response[v1.GetPriceChangeSummaryResponse], error)
 	// 店舗の全商品について、基準日までに始まった売価のうち最新の 1 件をページごとに返す
 	ListCurrentPrices(context.Context, *connect.Request[v1.ListCurrentPricesRequest]) (*connect.Response[v1.ListCurrentPricesResponse], error)
@@ -234,7 +234,7 @@ func (c *saleServiceClient) ListUnclosedSales(ctx context.Context, req *connect.
 type SaleServiceHandler interface {
 	// 指定した売上日の売上を店舗横断で集計する(合計・値引き・純売上・値引き率・締めの状況)
 	GetDailySalesSummary(context.Context, *connect.Request[v1.GetDailySalesSummaryRequest]) (*connect.Response[v1.GetDailySalesSummaryResponse], error)
-	// 店舗と指示日を指定して、売価変更の指示を分類して数え、変化率の平均・最大の値上げ率・警告を返す
+	// 店舗と指示日を指定して、売価変更の指示を分類して件数を数え、変化率の平均・最大の値上げ率・警告を返す
 	GetPriceChangeSummary(context.Context, *connect.Request[v1.GetPriceChangeSummaryRequest]) (*connect.Response[v1.GetPriceChangeSummaryResponse], error)
 	// 店舗の全商品について、基準日までに始まった売価のうち最新の 1 件をページごとに返す
 	ListCurrentPrices(context.Context, *connect.Request[v1.ListCurrentPricesRequest]) (*connect.Response[v1.ListCurrentPricesResponse], error)

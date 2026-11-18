@@ -180,7 +180,7 @@ func (x *GetDailySalesSummaryResponse) GetStatus() string {
 	return ""
 }
 
-// 店舗と指示日を指定して、売価変更の指示を分類して数え、変化率の平均・最大の値上げ率・警告を返す
+// 店舗と指示日を指定して、売価変更の指示を分類して件数を数え、変化率の平均・最大の値上げ率・警告を返す
 type GetPriceChangeSummaryRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 店舗コード
@@ -235,7 +235,7 @@ func (x *GetPriceChangeSummaryRequest) GetProcDate() string {
 	return ""
 }
 
-// 店舗と指示日を指定して、売価変更の指示を分類して数え、変化率の平均・最大の値上げ率・警告を返す
+// 店舗と指示日を指定して、売価変更の指示を分類して件数を数え、変化率の平均・最大の値上げ率・警告を返す
 type GetPriceChangeSummaryResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 指示の件数
