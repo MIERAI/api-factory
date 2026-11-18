@@ -40,12 +40,22 @@ behavior:
     - when: 変化率
       then: (新売価 - 旧売価) / 旧売価。新売価・旧売価の両方があり、旧売価 > 0 の指示だけが対象(旧売価 0 は対象外)
     - when: 平均・最大
-      then: 変化率の平均、変化率が正のものの最大。どちらも小数 4 位に四捨五入(0.5 は 0 から遠い方へ)。対象がなければ設定しない
+      then: |-
+        変化率の平均、変化率が正のものの最大。どちらも小数 4 位に四捨五入(0.5 は 0 から遠い方へ)。対象がなければ設定しない。
+        四捨五入は正確な値(十进制)で行う: 浮動小数で計算すると 3 / 20000 = 0.00015 が 0.000149999… になり 0.0001 になってしまう
+        平均は各指示の四捨五入する前の変化率を平均し、最後に 1 回だけ四捨五入する。四捨五入の結果が 0 なら符号のない 0(-0 にしない)
     - when: 警告
       then: |-
         指示がない → NO_DATA
-        変化率の絶対値が 0.3 以上の指示が 1 件でもある → LARGE_CHANGE(ちょうど 30% も含む)
+        変化率の絶対値が 0.3 以上の指示が 1 件でもある → LARGE_CHANGE(ちょうど 30% も、ちょうど -30% も含む)。
+        判定は四捨五入する前の変化率で行う(0.299994 は表示が 0.3 でも警告しない)
         それ以外 → NONE
+    - when: 警告の判定
+      then: 四捨五入する前の変化率の絶対値で 0.3 以上かを判定する(0.299994… は 0.3 未満なので警告しない。表示される最大の値上げ率が 0.3 でも NONE になりうる)
+    - when: 最大の値上げ率の対象の判定
+      then: '四捨五入する前の変化率が 0 より大きい指示を対象にする。四捨五入した結果が 0 になっても設定し、値は 0 にする(例: 30000 → 30001 だけなら 最大の値上げ率 = 0)'
+    - when: 変化率の平均を計算するとき
+      then: '各指示の変化率は 分子(新売価 - 旧売価)/ 分母(旧売価)の分数のまま誤差なく扱い、合計を件数で割った正確な値を最後に 1 回だけ小数 4 位に四捨五入する(例: 300→400 が 3 件と 5000→5001 が 1 件なら 平均 = 0.25005 → 0.2501)'
 acceptance:
     fixtures:
         price_changes:
@@ -115,6 +125,30 @@ acceptance:
               proc_date: "2026-11-21"
               product_code: "4910"
               store_code: 3
+            - deal_id: null
+              new_price: 20003
+              old_price: 20000
+              proc_date: "2026-11-21"
+              product_code: "4911"
+              store_code: 4
+            - deal_id: null
+              new_price: 43334
+              old_price: 33334
+              proc_date: "2026-11-22"
+              product_code: "4912"
+              store_code: 4
+            - deal_id: null
+              new_price: 70
+              old_price: 100
+              proc_date: "2026-11-23"
+              product_code: "4913"
+              store_code: 4
+            - deal_id: null
+              new_price: 19997
+              old_price: 20000
+              proc_date: "2026-11-24"
+              product_code: "4914"
+              store_code: 4
     cases:
         - name: 全分類。平均 = (-10/108 + 0 + 0 + 0.3 + 0.01) / 5 = 0.04348… → 0.0435。ちょうど 30% は警告
           request:
@@ -186,6 +220,58 @@ acceptance:
                 price_up: 1
                 total: 1
           steps: []
+        - name: ちょうど半分(0.00015)は正確な値で四捨五入 → 0.0002(浮動小数だと 0.0001 になる)
+          request:
+            proc_date: "2026-11-21"
+            store_code: 4
+          expect:
+            code: OK
+            response:
+                alert: NONE
+                avg_change_rate: 0.0002
+                max_increase_rate: 0.0002
+                price_up: 1
+                total: 1
+          steps: []
+        - name: 負のちょうど半分も 0 から遠い方へ → -0.0002
+          request:
+            proc_date: "2026-11-24"
+            store_code: 4
+          expect:
+            code: OK
+            response:
+                alert: NONE
+                avg_change_rate: -0.0002
+                max_increase_rate: $absent
+                price_down: 1
+                total: 1
+          steps: []
+        - name: 0.299994… は表示が 0.3 でも警告しない(四捨五入する前で判定)
+          request:
+            proc_date: "2026-11-22"
+            store_code: 4
+          expect:
+            code: OK
+            response:
+                alert: NONE
+                avg_change_rate: 0.3
+                max_increase_rate: 0.3
+                price_up: 1
+                total: 1
+          steps: []
+        - name: ちょうど -30% も警告
+          request:
+            proc_date: "2026-11-23"
+            store_code: 4
+          expect:
+            code: OK
+            response:
+                alert: LARGE_CHANGE
+                avg_change_rate: -0.3
+                max_increase_rate: $absent
+                price_down: 1
+                total: 1
+          steps: []
         - name: 指示がない → NO_DATA
           request:
             proc_date: "2026-11-20"
@@ -207,4 +293,10 @@ acceptance:
             response: {}
           steps: []
 logic_examples: []
-review_decisions: []
+review_decisions:
+    - question: '警告の「0.3 以上」は、四捨五入する前の変化率で判定しますか、それとも小数 4 位に四捨五入した後の変化率で判定しますか?(例: 旧売価 33334 → 新売価 43334 は変化率 0.299994…。四捨五入すると 0.3 になり、画面の「最大の値上げ率」には 0.3 と表示される)'
+      decision: 四捨五入前の値で判定
+    - question: '「最大の値上げ率」の対象となる「変化率が正のもの」は、四捨五入する前の値で正かどうかを判定しますか?それとも四捨五入した後の値で判定しますか?(例: 旧売価 30000 → 新売価 30001 だけの日は、変化率が 0.0000333… で、四捨五入すると 0.0000 になる。この場合、最大の値上げ率を 0 として設定するか、設定しないか)'
+      decision: 四捨五入前の値で判定(0 を設定する)
+    - question: '割り切れない変化率(例: 旧売価 300 → 新売価 400 の 1/3)を平均するとき、分数のまま誤差なく計算しますか、それとも小数の桁数を決めて計算しますか?(例: 300→400 が 3 件と 5000→5001(0.0002)が 1 件の日。正確に計算すると平均は (1/3×3 + 0.0002) / 4 = 0.25005 なので 0.2501 になる。1/3 を小数 16 桁(0.3333333333333333)で計算すると平均は 0.2500499999… になり、0.2500 になる)'
+      decision: 分数のまま正確に計算する

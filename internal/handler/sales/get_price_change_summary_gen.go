@@ -21,7 +21,7 @@ type getPriceChangeSummaryRow struct {
 	DealID      *int64
 }
 
-// GetPriceChangeSummary 店舗と指示日を指定して、売価変更の指示を分類して数え、変化率の平均・最大の値上げ率・警告を返す
+// GetPriceChangeSummary 店舗と指示日を指定して、売価変更の指示を分類して件数を数え、変化率の平均・最大の値上げ率・警告を返す
 // 业务逻辑在 getPriceChangeSummaryLogic(纯函数,由 AI 实现)。
 func (h *Handler) GetPriceChangeSummary(ctx context.Context, req *connect.Request[salesv1.GetPriceChangeSummaryRequest]) (*connect.Response[salesv1.GetPriceChangeSummaryResponse], error) {
 	m := req.Msg
