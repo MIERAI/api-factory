@@ -27,7 +27,7 @@ stage() {
 # 领域.yaml 变了 = 这个领域的全部 API。BASE 之后改过的。
 changed_specs() {
   local base=$1 f dom
-  local files; files=$(git diff --name-only "$base" -- design/ 2>/dev/null || true)
+  local files; files=$(git -c core.quotePath=false diff --name-only "$base" -- design/ 2>/dev/null || true)
   for f in $files; do
     dom=$(echo "$f" | cut -d/ -f2)
     case "$f" in

@@ -41,7 +41,7 @@ for i in $(seq 1 "$N"); do
     accept_pass=$(grep "\[$API_ID\]" "$OUT/accept.txt" | grep -c '✓')
   fi
   git status --porcelain --untracked-files=all > "$OUT/changed.txt"
-  git diff HEAD > "$OUT/diff.patch"; for f in $(git ls-files --others --exclude-standard); do echo "=== $f"; cat "$f"; done >> "$OUT/diff.patch"
+  git diff HEAD > "$OUT/diff.patch"; for f in $(git -c core.quotePath=false ls-files --others --exclude-standard); do echo "=== $f"; cat "$f"; done >> "$OUT/diff.patch"
 
   python3 - "$OUT" "$MODEL" "$API_ID" "$i" "$ai_rc" "$ai_sec" "$guard_rc" "$build_rc" "$accept_pass" "$accept_total" "$SPEC_SHA" >> "$ROOT/.factory/trials/results.jsonl" <<'PY'
 import json, sys

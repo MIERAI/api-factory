@@ -13,9 +13,9 @@ fi
 pattern=$(grep -vE '^\s*(#|$)' "$list" | paste -sd'|' -)
 [[ -z "$pattern" ]] && exit 0
 case "$mode" in
-  --staged) hits=$( { git diff --cached --name-only; git diff --cached -U0 | grep '^+' ; } | grep -inE "$pattern" | head -20) ;;
-  --tree)   hits=$( { git ls-files; git grep -I -n -i -E "$pattern" -- . ':!scripts/content-guard.sh' 2>/dev/null; } | grep -inE "$pattern" | head -20) ;;
-  --range)  hits=$( { git log --name-only --format= "$2"; git log -p --format= "$2" | grep '^+'; } | grep -inE "$pattern" | head -20) ;;
+  --staged) hits=$( { git -c core.quotePath=false diff --cached --name-only; git diff --cached -U0 | grep '^+' ; } | grep -inE "$pattern" | head -20) ;;
+  --tree)   hits=$( { git -c core.quotePath=false ls-files; git grep -I -n -i -E "$pattern" -- . ':!scripts/content-guard.sh' 2>/dev/null; } | grep -inE "$pattern" | head -20) ;;
+  --range)  hits=$( { git -c core.quotePath=false log --name-only --format= "$2"; git log -p --format= "$2" | grep '^+'; } | grep -inE "$pattern" | head -20) ;;
   *) echo "usage: content-guard.sh --staged | --tree | --range a..b"; exit 2 ;;
 esac
 if [[ -n "$hits" ]]; then
