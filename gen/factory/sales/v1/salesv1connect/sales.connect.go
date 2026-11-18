@@ -54,6 +54,9 @@ const (
 	// SaleServiceListTopStoresProcedure is the fully-qualified name of the SaleService's ListTopStores
 	// RPC.
 	SaleServiceListTopStoresProcedure = "/factory.sales.v1.SaleService/ListTopStores"
+	// SaleServiceListUnclosedSalesProcedure is the fully-qualified name of the SaleService's
+	// ListUnclosedSales RPC.
+	SaleServiceListUnclosedSalesProcedure = "/factory.sales.v1.SaleService/ListUnclosedSales"
 )
 
 // SaleServiceClient is a client for the factory.sales.v1.SaleService service.
@@ -70,6 +73,8 @@ type SaleServiceClient interface {
 	ListTopSales(context.Context, *connect.Request[v1.ListTopSalesRequest]) (*connect.Response[v1.ListTopSalesResponse], error)
 	// 売上日を指定して、売上金額の上位 3 店を返す
 	ListTopStores(context.Context, *connect.Request[v1.ListTopStoresRequest]) (*connect.Response[v1.ListTopStoresResponse], error)
+	// 指定した店舗の、まだ締めていない売上日の売上を返す
+	ListUnclosedSales(context.Context, *connect.Request[v1.ListUnclosedSalesRequest]) (*connect.Response[v1.ListUnclosedSalesResponse], error)
 }
 
 // NewSaleServiceClient constructs a client for the factory.sales.v1.SaleService service. By
@@ -119,6 +124,12 @@ func NewSaleServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(saleServiceMethods.ByName("ListTopStores")),
 			connect.WithClientOptions(opts...),
 		),
+		listUnclosedSales: connect.NewClient[v1.ListUnclosedSalesRequest, v1.ListUnclosedSalesResponse](
+			httpClient,
+			baseURL+SaleServiceListUnclosedSalesProcedure,
+			connect.WithSchema(saleServiceMethods.ByName("ListUnclosedSales")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -130,6 +141,7 @@ type saleServiceClient struct {
 	listStoreSales            *connect.Client[v1.ListStoreSalesRequest, v1.ListStoreSalesResponse]
 	listTopSales              *connect.Client[v1.ListTopSalesRequest, v1.ListTopSalesResponse]
 	listTopStores             *connect.Client[v1.ListTopStoresRequest, v1.ListTopStoresResponse]
+	listUnclosedSales         *connect.Client[v1.ListUnclosedSalesRequest, v1.ListUnclosedSalesResponse]
 }
 
 // ListCurrentPrices calls factory.sales.v1.SaleService.ListCurrentPrices.
@@ -162,6 +174,11 @@ func (c *saleServiceClient) ListTopStores(ctx context.Context, req *connect.Requ
 	return c.listTopStores.CallUnary(ctx, req)
 }
 
+// ListUnclosedSales calls factory.sales.v1.SaleService.ListUnclosedSales.
+func (c *saleServiceClient) ListUnclosedSales(ctx context.Context, req *connect.Request[v1.ListUnclosedSalesRequest]) (*connect.Response[v1.ListUnclosedSalesResponse], error) {
+	return c.listUnclosedSales.CallUnary(ctx, req)
+}
+
 // SaleServiceHandler is an implementation of the factory.sales.v1.SaleService service.
 type SaleServiceHandler interface {
 	// 店舗の全商品について、基準日までに始まった売価のうち最新の 1 件をページごとに返す
@@ -176,6 +193,8 @@ type SaleServiceHandler interface {
 	ListTopSales(context.Context, *connect.Request[v1.ListTopSalesRequest]) (*connect.Response[v1.ListTopSalesResponse], error)
 	// 売上日を指定して、売上金額の上位 3 店を返す
 	ListTopStores(context.Context, *connect.Request[v1.ListTopStoresRequest]) (*connect.Response[v1.ListTopStoresResponse], error)
+	// 指定した店舗の、まだ締めていない売上日の売上を返す
+	ListUnclosedSales(context.Context, *connect.Request[v1.ListUnclosedSalesRequest]) (*connect.Response[v1.ListUnclosedSalesResponse], error)
 }
 
 // NewSaleServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -221,6 +240,12 @@ func NewSaleServiceHandler(svc SaleServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(saleServiceMethods.ByName("ListTopStores")),
 		connect.WithHandlerOptions(opts...),
 	)
+	saleServiceListUnclosedSalesHandler := connect.NewUnaryHandler(
+		SaleServiceListUnclosedSalesProcedure,
+		svc.ListUnclosedSales,
+		connect.WithSchema(saleServiceMethods.ByName("ListUnclosedSales")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/factory.sales.v1.SaleService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case SaleServiceListCurrentPricesProcedure:
@@ -235,6 +260,8 @@ func NewSaleServiceHandler(svc SaleServiceHandler, opts ...connect.HandlerOption
 			saleServiceListTopSalesHandler.ServeHTTP(w, r)
 		case SaleServiceListTopStoresProcedure:
 			saleServiceListTopStoresHandler.ServeHTTP(w, r)
+		case SaleServiceListUnclosedSalesProcedure:
+			saleServiceListUnclosedSalesHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -266,4 +293,8 @@ func (UnimplementedSaleServiceHandler) ListTopSales(context.Context, *connect.Re
 
 func (UnimplementedSaleServiceHandler) ListTopStores(context.Context, *connect.Request[v1.ListTopStoresRequest]) (*connect.Response[v1.ListTopStoresResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.sales.v1.SaleService.ListTopStores is not implemented"))
+}
+
+func (UnimplementedSaleServiceHandler) ListUnclosedSales(context.Context, *connect.Request[v1.ListUnclosedSalesRequest]) (*connect.Response[v1.ListUnclosedSalesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.sales.v1.SaleService.ListUnclosedSales is not implemented"))
 }
