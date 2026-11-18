@@ -1,5 +1,9 @@
 # 由设计编译器维护,不要手改。proto 的字段编号对外发布后不能变: 只追加,删掉的字段编号保留(reserved)
 字段编号:
+    FinishedJob:
+        finished_at: 3
+        id: 1
+        status: 2
     GetJobStatusRequest:
         job_id: 1
     GetJobStatusResponse:
@@ -26,6 +30,11 @@
         JOB_STATUS_FAILED: 3
         JOB_STATUS_PENDING: 1
         JOB_STATUS_SUCCEEDED: 2
+    LatestJobOfType:
+        created_at: 4
+        id: 2
+        job_type: 1
+        status: 3
     ListJobsByTypesRequest:
         job_ids: 4
         job_types: 3
@@ -44,3 +53,23 @@
     ListJobsResponse:
         jobs: 1
         next_page_token: 2
+    ListLatestFinishedJobsRequest:
+        job_type: 1
+        status: 2
+    ListLatestFinishedJobsResponse:
+        jobs: 1
+    ListLatestJobPerTypeResponse:
+        jobs: 1
+    ListPendingJobsRequest:
+        created_after: 4
+        job_types: 3
+        page_size: 1
+        page_token: 2
+    ListPendingJobsResponse:
+        jobs: 1
+        next_page_token: 2
+    PendingJob:
+        created_at: 4
+        id: 1
+        job_type: 2
+        status: 3

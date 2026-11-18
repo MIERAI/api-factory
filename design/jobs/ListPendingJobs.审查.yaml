@@ -1,0 +1,10 @@
+# ============================================================================
+# 审查记录: 这个文件由工厂写入,不用自己写(factory answer)。
+# ============================================================================
+问答:
+
+  - 问题: "処理状態と終了時刻が食い違う任務は、この一覧に出しますか?例: status が SUCCEEDED なのに finished_at が空の任務は、今の設計では「まだ終わっていない」として status=SUCCEEDED のまま一覧に出ます。逆に status が PENDING なのに finished_at が入っている任務は出ません。"
+    选项: ["保持现在的行为: finished_at だけで判断", "改设计: status=PENDING だけで判断", "改设计: 両方そろった任務だけ"]
+    回答: "保持现在的行为: finished_at だけで判断"
+    补充规则: { 情况: "処理状態と終了時刻が食い違う任務(例: status=SUCCEEDED/FAILED で finished_at が空、または status=PENDING で finished_at あり)", 结果: "finished_at が空なら status に関係なく一覧に出し、status は保存されている値のまま返す。finished_at があれば status が PENDING でも出さない" }
+    来自: "ListPendingJobs 的审查 2026-11-18 20261118-194754-claude-jobs.list-pending-jobs"

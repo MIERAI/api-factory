@@ -1,0 +1,49 @@
+# ============================================================================
+# ListStoreSalesByPeriod: 店舗の期間の売上(多条: 等于がキーの最後の列 + 日付の範囲)
+# ============================================================================
+API: ListStoreSalesByPeriod
+说明: 店舗と期間を指定して、日別の売上を新しい日から返す
+背景: 店舗の売上推移画面。期間は必須で最大 2 か月の想定。売上のある日が 62 日分を超えるとエラー(期間を短くしてもらう)。
+  期間の長さそのものは制限しない(売上のない日が多ければ 2 か月を超える期間でも返る)
+  # 設計語言の缺口: 「不超过 N 天」は 时间 だけ(日期 に使えない)。使えるようになったら期間の長さで制限する
+负责人: sales-team
+风险: 低
+
+种类: 多条
+数据来源: daily_sales
+
+输入:
+  store_code: { 类型: 整数32, 必填: 是, 范围: "> 0", 说明: 店舗コード, 筛选: store_code 等于 }
+  date_from:  { 类型: 日期, 必填: 是, 说明: 期間の開始(含), 筛选: sales_date 大于等于 }
+  date_to:    { 类型: 日期, 必填: 是, 说明: 期間の終了(含まない), 筛选: sales_date 小于 }
+
+输入之间的规则:
+  - date_from 早于 date_to
+
+输出:
+  sales_date: 売上日
+  amount:     売上金額
+  discount:   値引き額
+  closed_on:  締め日
+
+排序: [sales_date 新到旧]
+上限: 62
+输出行名: StoreDaySale
+
+例子:
+  准备数据:
+    daily_sales:
+      - { sales_date: 2026-11-01, store_code: 1, amount: 100, discount: null, closed_on: 2026-11-02 }
+      - { sales_date: 2026-11-02, store_code: 1, amount: 110, discount: 5,    closed_on: null }
+      - { sales_date: 2026-11-03, store_code: 1, amount: 120, discount: null, closed_on: null }
+      - { sales_date: 2026-11-01, store_code: 2, amount: 90,  discount: null, closed_on: null }
+  用例:
+    - 说明: 期間内、新しい日から
+      输入: { store_code: 1, date_from: 2026-11-01, date_to: 2026-11-04 }
+      结果: { daily_sales: [{ sales_date: 2026-11-03 }, { sales_date: 2026-11-02 }, { sales_date: 2026-11-01 }] }
+    - 说明: 開始は含み、終了は含まない
+      输入: { store_code: 1, date_from: 2026-11-02, date_to: 2026-11-03 }
+      结果: { daily_sales: [{ sales_date: 2026-11-02, amount: "110", discount: "5" }] }
+    - 说明: 開始が終了より後
+      输入: { store_code: 1, date_from: 2026-11-03, date_to: 2026-11-02 }
+      结果: 参数错误
