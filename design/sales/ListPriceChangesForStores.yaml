@@ -1,0 +1,41 @@
+# ============================================================================
+# ListPriceChangesForStores: 複数店舗の売価変更(多条: 必填の属于がキーの最初の列)
+# ============================================================================
+API: ListPriceChangesForStores
+说明: 店舗(複数)と指示日を指定して、売価変更の指示を返す
+背景: エリア単位の売価変更の確認。一度に 10 店まで
+负责人: sales-team
+风险: 低
+
+种类: 多条
+数据来源: price_changes
+
+输入:
+  store_codes: { 类型: 整数32列表, 必填: 是, 个数: "1~10", 说明: 店舗コード, 筛选: store_code 属于 }
+  proc_date:   { 类型: 日期, 必填: 是, 说明: 指示日, 筛选: proc_date 等于 }
+
+输出:
+  store_code:   店舗コード
+  product_code: 商品コード
+  new_price:    新売価
+  old_price:    旧売価
+
+排序: [store_code 小到大, product_code 小到大]
+上限: 500
+输出行名: StorePriceChange
+
+例子:
+  准备数据:
+    price_changes:
+      - { store_code: 1, product_code: "4901", proc_date: 2026-11-20, new_price: 98,  old_price: 108, deal_id: null }
+      - { store_code: 2, product_code: "4901", proc_date: 2026-11-20, new_price: 99,  old_price: 108, deal_id: null }
+      - { store_code: 1, product_code: "4902", proc_date: 2026-11-20, new_price: 150, old_price: 150, deal_id: null }
+      - { store_code: 3, product_code: "4901", proc_date: 2026-11-20, new_price: 97,  old_price: 108, deal_id: null }
+      - { store_code: 1, product_code: "4901", proc_date: 2026-11-21, new_price: 96,  old_price: 98,  deal_id: null }
+  用例:
+    - 说明: 指定した店舗だけ、店舗・商品の順
+      输入: { store_codes: [2, 1], proc_date: 2026-11-20 }
+      结果: { price_changes: [{ store_code: 1, product_code: "4901" }, { store_code: 1, product_code: "4902" }, { store_code: 2, product_code: "4901" }] }
+    - 说明: 店舗の指定は必須
+      输入: { proc_date: 2026-11-20 }
+      结果: 参数错误

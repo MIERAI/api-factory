@@ -1,0 +1,41 @@
+# ============================================================================
+# ListStorePricesByPrefix: 店舗の売価(多条: 分库キー + 前缀匹配)
+# ============================================================================
+API: ListStorePricesByPrefix
+说明: 店舗を指定して、商品コードの前方一致で売価(有効期間つき)を返す
+背景: 店舗の売価マスタの検索画面。商品コードの先頭の数桁で絞る
+负责人: sales-team
+风险: 低
+
+种类: 多条
+数据来源: store_prices
+
+输入:
+  store_code:     { 类型: 整数32, 必填: 是, 范围: "> 0", 说明: 店舗コード, 筛选: store_code 等于 }
+  product_prefix: { 类型: 文本, 必填: 否, 长度: 1~20, 说明: 商品コードの先頭, 筛选: product_code 前缀匹配 }
+
+输出:
+  product_code: 商品コード
+  valid_from:   適用開始日
+  valid_to:     適用終了日
+  price:        売価
+
+排序: [product_code 小到大, valid_from 新到旧]
+上限: 200
+输出行名: StorePrice
+
+例子:
+  准备数据:
+    store_prices:
+      - { store_code: 1, product_code: "49",   valid_from: 2026-11-01, valid_to: null,       price: 100 }
+      - { store_code: 1, product_code: "4901", valid_from: 2026-11-01, valid_to: 2026-11-30, price: 98 }
+      - { store_code: 1, product_code: "4901", valid_from: 2026-12-01, valid_to: null,       price: 95 }
+      - { store_code: 1, product_code: "5001", valid_from: 2026-11-01, valid_to: null,       price: 200 }
+      - { store_code: 2, product_code: "4901", valid_from: 2026-11-01, valid_to: null,       price: 99 }
+  用例:
+    - 说明: 前方一致。同じ商品は新しい適用開始日から
+      输入: { store_code: 1, product_prefix: "49" }
+      结果: { store_prices: [{ product_code: "49" }, { product_code: "4901", valid_from: 2026-12-01 }, { product_code: "4901", valid_from: 2026-11-01 }] }
+    - 说明: 指定しなければ店舗の全商品
+      输入: { store_code: 2 }
+      结果: { store_prices: [{ product_code: "4901", price: "99" }] }

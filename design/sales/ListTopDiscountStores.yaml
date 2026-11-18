@@ -1,0 +1,34 @@
+# ============================================================================
+# ListTopDiscountStores: 値引き額の上位店舗(前N条: 空になりうる列で並べる)
+# ============================================================================
+API: ListTopDiscountStores
+说明: 売上日を指定して、値引き額の大きい店舗を上位 2 件返す
+背景: 日次の値引きランキング
+负责人: sales-team
+风险: 低
+
+种类: 前N条
+数据来源: daily_sales
+
+输入:
+  sales_date: { 类型: 日期, 必填: 是, 说明: 売上日, 筛选: sales_date 等于 }
+
+输出:
+  store_code: 店舗コード
+  discount:   値引き額
+  amount:     売上金額
+
+排序: [discount 大到小, store_code 小到大]
+条数: 2
+输出行名: TopDiscountStore
+
+例子:
+  准备数据:
+    daily_sales:
+      - { sales_date: 2026-11-01, store_code: 1, amount: 100, discount: 5, closed_on: null }
+      - { sales_date: 2026-11-01, store_code: 2, amount: 100, discount: 9, closed_on: null }
+      - { sales_date: 2026-11-01, store_code: 4, amount: 100, discount: 9, closed_on: null }
+  用例:
+    - 说明: 値引き額の大きい順、同じなら店舗コードの小さい順に 2 件
+      输入: { sales_date: 2026-11-01 }
+      结果: { daily_sales: [{ store_code: 2, discount: "9" }, { store_code: 4, discount: "9" }] }

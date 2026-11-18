@@ -1,0 +1,42 @@
+# ============================================================================
+# ListLabelsByLabelCodes: ラベルコードで横断検索(多条: 空になりうる自然键 + 属于 + 前缀匹配)
+# ============================================================================
+API: ListLabelsByLabelCodes
+说明: ラベルコード(複数)を指定して、全商品のそのラベルの現在の文言を返す。商品コードの前方一致で絞れる
+背景: 特売ラベルの一斉確認。既定のラベル(コードが空)は対象外(属于では空を指定できない)
+负责人: catalog-team
+风险: 低
+
+种类: 多条
+数据来源: product_label
+
+输入:
+  label_codes:    { 类型: 文本列表, 必填: 是, 个数: "1~10", 长度: 1~10, 说明: ラベルコード, 筛选: label_code 属于 }
+  product_prefix: { 类型: 文本, 必填: 否, 长度: 1~20, 说明: 商品コードの先頭, 筛选: product_code 前缀匹配 }
+
+输出:
+  product_code: 商品コード
+  label_code:   ラベルコード
+  text:         表示文言
+
+排序: [product_code 小到大, label_code 小到大]
+上限: 500
+输出行名: LabelOfCode
+
+例子:
+  准备数据:
+    product_label:
+      - { product_code: "100", label_code: "A",  text: 特売 }
+      - { product_code: "100", label_code: "A",  text: 特売2 }      # 新しい版
+      - { product_code: "100", label_code: null, text: 既定 }
+      - { product_code: "200", label_code: "A",  text: 新 }
+      - { product_code: "200", label_code: "B",  text: 限定 }
+      - { product_code: "300", label_code: "A",  text: 旧 }
+      - { product_code: "300", label_code: "A",  操作: 删除 }
+  用例:
+    - 说明: 現在の版、削除されたものは出ない
+      输入: { label_codes: [A] }
+      结果: { product_label: [{ product_code: "100", text: 特売2 }, { product_code: "200", text: 新 }] }
+    - 说明: 複数のコード + 前方一致
+      输入: { label_codes: [A, B], product_prefix: "2" }
+      结果: { product_label: [{ product_code: "200", label_code: "A" }, { product_code: "200", label_code: "B" }] }

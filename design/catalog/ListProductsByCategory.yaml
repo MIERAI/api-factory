@@ -1,0 +1,42 @@
+# ============================================================================
+# ListProductsByCategory: カテゴリの商品(多条: JSON版本 + 十进制の範囲。一览は排序列が空になりうるので不可)
+# ============================================================================
+API: ListProductsByCategory
+说明: カテゴリを指定して、現在の商品を安い順に返す。最低価格で絞れる
+背景: 商品一覧画面。削除・論理削除された商品は出ない
+负责人: catalog-team
+风险: 低
+
+种类: 多条
+数据来源: product_master
+
+输入:
+  category:  { 类型: 文本, 必填: 是, 长度: 1~40, 说明: カテゴリ, 筛选: category 等于 }
+  min_price: { 类型: 十进制, 必填: 否, 说明: 最低価格(含), 筛选: price 大于等于 }
+
+输出:
+  product_code: 商品コード
+  name:         商品名
+  price:        標準売価
+
+排序: [price 小到大, product_code 小到大]
+上限: 100
+输出行名: CategoryProduct
+
+例子:
+  准备数据:
+    product_master:   # 上から順に登録された(後の行が新しい)
+      - { product_code: A, name: りんご,   category: fruit, price: 100, launched_on: null }
+      - { product_code: A, name: りんご,   category: fruit, price: 120, launched_on: null }   # 値上げ後
+      - { product_code: B, name: バナナ,   category: fruit, price: 50,  launched_on: null }
+      - { product_code: C, name: みかん,   category: fruit, price: 120, launched_on: null }
+      - { product_code: D, name: ぶどう,   category: fruit, price: 300, launched_on: null }
+      - { product_code: D, 操作: 删除 }
+      - { product_code: E, name: にんじん, category: veg,   price: 80,  launched_on: null }
+  用例:
+    - 说明: 現在の価格で安い順、同じ価格は商品コード順。削除された商品は出ない
+      输入: { category: fruit }
+      结果: { product_master: [{ product_code: B }, { product_code: A, price: "120" }, { product_code: C }] }
+    - 说明: 最低価格(含)
+      输入: { category: fruit, min_price: "120" }
+      结果: { product_master: [{ product_code: A }, { product_code: C }] }
