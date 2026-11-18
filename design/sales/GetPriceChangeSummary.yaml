@@ -2,7 +2,7 @@
 # GetPriceChangeSummary: 売価変更の指示の集計(计算: 分類のルール + 変化率 + 警告)
 # ============================================================================
 API: GetPriceChangeSummary
-说明: 店舗と指示日を指定して、売価変更の指示を分類して数え、変化率の平均・最大の値上げ率・警告を返す
+说明: 店舗と指示日を指定して、売価変更の指示を分類して件数を数え、変化率の平均・最大の値上げ率・警告を返す
 背景: 売価変更の前日チェック画面。件数のバランスと、変化の大きすぎる指示がないかを見る
 负责人: sales-team
 风险: 中
@@ -38,11 +38,15 @@ API: GetPriceChangeSummary
   - 情况: 変化率
     结果: (新売価 - 旧売価) / 旧売価。新売価・旧売価の両方があり、旧売価 > 0 の指示だけが対象(旧売価 0 は対象外)
   - 情况: 平均・最大
-    结果: 変化率の平均、変化率が正のものの最大。どちらも小数 4 位に四捨五入(0.5 は 0 から遠い方へ)。対象がなければ設定しない
+    结果: |
+      変化率の平均、変化率が正のものの最大。どちらも小数 4 位に四捨五入(0.5 は 0 から遠い方へ)。対象がなければ設定しない。
+      四捨五入は正確な値(十进制)で行う: 浮動小数で計算すると 3 / 20000 = 0.00015 が 0.000149999… になり 0.0001 になってしまう
+      平均は各指示の四捨五入する前の変化率を平均し、最後に 1 回だけ四捨五入する。四捨五入の結果が 0 なら符号のない 0(-0 にしない)
   - 情况: 警告
     结果: |
       指示がない → NO_DATA
-      変化率の絶対値が 0.3 以上の指示が 1 件でもある → LARGE_CHANGE(ちょうど 30% も含む)
+      変化率の絶対値が 0.3 以上の指示が 1 件でもある → LARGE_CHANGE(ちょうど 30% も、ちょうど -30% も含む)。
+      判定は四捨五入する前の変化率で行う(0.299994 は表示が 0.3 でも警告しない)
       それ以外 → NONE
 
 例子:
@@ -59,6 +63,10 @@ API: GetPriceChangeSummary
       - { store_code: 1, product_code: "4908", proc_date: 2026-11-22, new_price: 50,    old_price: 0,     deal_id: null }        # 旧売価 0
       - { store_code: 3, product_code: "4909", proc_date: 2026-11-20, new_price: 60,    old_price: 100,   deal_id: null }        # -40%
       - { store_code: 3, product_code: "4910", proc_date: 2026-11-21, new_price: 12999, old_price: 10000, deal_id: null }        # +29.99%
+      - { store_code: 4, product_code: "4911", proc_date: 2026-11-21, new_price: 20003, old_price: 20000, deal_id: null }        # +0.00015 ちょうど半分
+      - { store_code: 4, product_code: "4912", proc_date: 2026-11-22, new_price: 43334, old_price: 33334, deal_id: null }        # +0.299994…
+      - { store_code: 4, product_code: "4913", proc_date: 2026-11-23, new_price: 70,    old_price: 100,   deal_id: null }        # ちょうど -30%
+      - { store_code: 4, product_code: "4914", proc_date: 2026-11-24, new_price: 19997, old_price: 20000, deal_id: null }        # -0.00015 ちょうど半分
   用例:
     - 说明: 全分類。平均 = (-10/108 + 0 + 0 + 0.3 + 0.01) / 5 = 0.04348… → 0.0435。ちょうど 30% は警告
       输入: { store_code: 1, proc_date: 2026-11-20 }
@@ -75,6 +83,18 @@ API: GetPriceChangeSummary
     - 说明: 29.99% は警告しない
       输入: { store_code: 3, proc_date: 2026-11-21 }
       结果: { total: 1, price_up: 1, avg_change_rate: 0.2999, max_increase_rate: 0.2999, alert: NONE }
+    - 说明: ちょうど半分(0.00015)は正確な値で四捨五入 → 0.0002(浮動小数だと 0.0001 になる)
+      输入: { store_code: 4, proc_date: 2026-11-21 }
+      结果: { total: 1, price_up: 1, avg_change_rate: 0.0002, max_increase_rate: 0.0002, alert: NONE }
+    - 说明: 負のちょうど半分も 0 から遠い方へ → -0.0002
+      输入: { store_code: 4, proc_date: 2026-11-24 }
+      结果: { total: 1, price_down: 1, avg_change_rate: -0.0002, max_increase_rate: 不设置, alert: NONE }
+    - 说明: 0.299994… は表示が 0.3 でも警告しない(四捨五入する前で判定)
+      输入: { store_code: 4, proc_date: 2026-11-22 }
+      结果: { total: 1, price_up: 1, avg_change_rate: 0.3, max_increase_rate: 0.3, alert: NONE }
+    - 说明: ちょうど -30% も警告
+      输入: { store_code: 4, proc_date: 2026-11-23 }
+      结果: { total: 1, price_down: 1, avg_change_rate: -0.3, max_increase_rate: 不设置, alert: LARGE_CHANGE }
     - 说明: 指示がない → NO_DATA
       输入: { store_code: 2, proc_date: 2026-11-20 }
       结果: { total: 0, avg_change_rate: 不设置, max_increase_rate: 不设置, alert: NO_DATA }
