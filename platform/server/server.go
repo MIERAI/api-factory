@@ -137,11 +137,25 @@ func run(log *slog.Logger, build Builder) error {
 		mux.Handle(s.Path, s.Handler)
 		log.Info("service mounted", "path", s.Path)
 	}
-	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
+	writeMetrics := func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 		anomaly.WriteMetrics(w)
 		metrics.Write(w)
-	})
+	}
+	mux.HandleFunc("/metrics", writeMetrics) // 对外的端口: 和 API 一样要认证
+	// METRICS_PORT: 指标的内部端口(不认证,不对外暴露;Prometheus 从这里抓)
+	if p := os.Getenv("METRICS_PORT"); p != "" {
+		mm := http.NewServeMux()
+		mm.HandleFunc("/metrics", writeMetrics)
+		ms := &http.Server{Addr: ":" + p, Handler: mm, ReadHeaderTimeout: 5 * time.Second}
+		go func() {
+			log.Info("metrics listening", "port", p)
+			if err := ms.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Error("metrics server", "err", err)
+			}
+		}()
+		defer ms.Close()
+	}
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		pingCtx, cancel := context.WithTimeout(r.Context(), time.Second)
 		defer cancel()
