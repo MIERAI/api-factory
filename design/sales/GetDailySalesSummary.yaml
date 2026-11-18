@@ -1,0 +1,64 @@
+# ============================================================================
+# GetDailySalesSummary: 売上日の全店集計(计算: 工厂がデータを取り、AI が集計関数を書く)
+# ============================================================================
+API: GetDailySalesSummary
+说明: 指定した売上日の売上を店舗横断で集計する(合計・値引き・純売上・値引き率・締めの状況)
+背景: 日次の本部ダッシュボード。金額は十进制のまま正確に集計する(浮動小数の誤差を出さない)
+负责人: sales-team
+风险: 中
+
+种类: 计算
+数据来源: daily_sales
+使用的列: [store_code, amount, discount, closed_on]
+
+输入:
+  sales_date:  { 类型: 日期,       必填: 是, 说明: 売上日, 筛选: sales_date 等于 }
+  store_codes: { 类型: 整数32列表, 必填: 否, 个数: "0~100", 说明: 対象の店舗(不指定 = 全店), 筛选: store_code 属于 }
+
+输出:
+  store_count:     { 类型: 整数64, 说明: 店舗数(行数) }
+  total_amount:    { 类型: 十进制, 说明: 売上金額の合計 }
+  total_discount:  { 类型: 十进制, 说明: 値引き額の合計 }
+  net_amount:      { 类型: 十进制, 说明: 純売上 }
+  discount_rate:   { 类型: 小数, 可以不设置: 是, 说明: 値引き率 }
+  unclosed_stores: { 类型: 整数64, 说明: 未締めの店舗数 }
+  status:          { 类型: 文本, 说明: 締めの状況 NO_DATA / OPEN / CLOSED }
+
+业务规则:
+  - 情况: 合計
+    结果: 売上金額と値引き額をそれぞれ合計する。値引き額が空の行は 0。十进制のまま計算する(浮動小数に変換しない)
+  - 情况: 純売上
+    结果: total_amount - total_discount
+  - 情况: 値引き率
+    结果: total_discount / total_amount を小数 4 位に四捨五入(0.5 は 0 から遠い方へ)。total_amount が 0 のときは設定しない
+  - 情况: 締めの状況
+    结果: |
+      行がない → NO_DATA
+      締め日(closed_on)が空の店が 1 つでもある → OPEN
+      すべて締め済み → CLOSED
+
+例子:
+  准备数据:
+    daily_sales:
+      - { sales_date: 2026-11-01, store_code: 1, amount: 100.50, discount: 0.50, closed_on: 2026-11-02 }
+      - { sales_date: 2026-11-01, store_code: 2, amount: 200,    discount: null, closed_on: 2026-11-02 }
+      - { sales_date: 2026-11-01, store_code: 3, amount: 50.25,  discount: 1.25, closed_on: null }
+      - { sales_date: 2026-11-02, store_code: 1, amount: 80,     discount: 0,    closed_on: 2026-11-03 }
+      - { sales_date: 2026-11-02, store_code: 2, amount: 20,     discount: 5,    closed_on: 2026-11-03 }
+      - { sales_date: 2026-11-03, store_code: 1, amount: 0,      discount: null, closed_on: null }
+  用例:
+    - 说明: 全店。値引きの空は 0、未締めが 1 店 → OPEN。率 1.75 / 350.75 = 0.00498… → 0.005
+      输入: { sales_date: 2026-11-01 }
+      结果: { store_count: 3, total_amount: "350.75", total_discount: "1.75", net_amount: "349", discount_rate: 0.005, unclosed_stores: 1, status: OPEN }
+    - 说明: 店舗を絞る(締め済みの 2 店だけ → CLOSED)。率 0.5 / 300.5 = 0.00166… → 0.0017
+      输入: { sales_date: 2026-11-01, store_codes: [1, 2] }
+      结果: { store_count: 2, total_amount: "300.5", total_discount: "0.5", net_amount: "300", discount_rate: 0.0017, unclosed_stores: 0, status: CLOSED }
+    - 说明: 全店締め済み。率 5 / 100 = 0.05
+      输入: { sales_date: 2026-11-02 }
+      结果: { store_count: 2, total_amount: "100", total_discount: "5", net_amount: "95", discount_rate: 0.05, unclosed_stores: 0, status: CLOSED }
+    - 说明: 売上 0 → 率は設定しない
+      输入: { sales_date: 2026-11-03 }
+      结果: { store_count: 1, total_amount: "0", total_discount: "0", net_amount: "0", discount_rate: 不设置, unclosed_stores: 1, status: OPEN }
+    - 说明: 行がない日 → NO_DATA
+      输入: { sales_date: 2026-11-04 }
+      结果: { store_count: 0, total_amount: "0", total_discount: "0", net_amount: "0", discount_rate: 不设置, unclosed_stores: 0, status: NO_DATA }
