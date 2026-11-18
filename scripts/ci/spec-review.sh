@@ -18,7 +18,16 @@ for s in $specs; do
     md "- \`$id\`: AI 审查跳过(REVIEW=skip)"
     continue
   fi
+  # 审查的输入(式样书 / 设计书 / 审查记录 / 领域 / prompt / 模型)和上次通过时相同 → 沿用(审查是不确定的:
+  # 同一个设计书再审一次可能翻转;.factory/reviews 在 CI 里按 PR 分支保留,见 spec-pr.yml)
+  key=$(scripts/ci/review-key.sh "$s" "${REVIEW_MODEL:-default}")
+  mark=.factory/reviews/passed/$id-$key
+  if [[ -f $mark ]]; then
+    md "- \`$id\`: ✓ 审查通过(审查的输入没有变,沿用 $(cat "$mark") 的结果)"
+    continue
+  fi
   rc=0; out=$(scripts/review.sh "$s" "${REVIEW_MODEL:-}" 2>&1) || rc=$?
+  if [[ $rc == 0 ]]; then mkdir -p .factory/reviews/passed; date '+%Y-%m-%d %H:%M' > "$mark"; fi
   usage=$(scripts/ci/ai-usage.sh "$(ls -td .factory/reviews/*-"${REVIEW_MODEL:-default}"-"$id"* 2>/dev/null | head -1)/ai.json")
   if [[ -n ${REVIEW_MODEL:-} && ${REVIEW_MODEL} != claude* ]]; then   # 只作参考
     case $rc in

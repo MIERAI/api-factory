@@ -16,6 +16,14 @@ jobs:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
       - uses: ./.github/actions/setup
+      # 审查的历史(.factory/reviews): 轮次 / 迟到 / 重复提问 的规则和"输入没变就沿用"都要上一轮的记录。
+      # checkout 会清掉工作区 → 按 PR 分支存到 Actions 的缓存(以前每次都是第 1 轮,收敛的规则不起作用)
+      - name: 审查的历史(恢复)
+        uses: actions/cache/restore@v4
+        with:
+          path: .factory/reviews
+          key: review-${{ github.head_ref }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: review-${{ github.head_ref }}-
       - name: AI 命令行(runner 上预装)
         run: claude --version
       - name: 式样书检查 + AI 审查
@@ -25,6 +33,12 @@ jobs:
           REVIEW_MODEL: ${{ vars.FACTORY_REVIEW_MODEL || 'local' }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}   # claude 时用(订阅的令牌)
         run: rm -f .factory/ci-summary.md && scripts/ci/spec-review.sh
+      - name: 审查的历史(保存)
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .factory/reviews
+          key: review-${{ github.head_ref }}-${{ github.run_id }}-${{ github.run_attempt }}
       - name: 结果贴到 PR
         if: always()
         env: { GH_TOKEN: "${{ github.token }}" }
