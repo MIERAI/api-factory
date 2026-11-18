@@ -7,14 +7,22 @@ BASE=${BASE:?BASE=合并前的提交}
 md "## 生成" "" "| 步骤 | 时间 |" "|---|---|"
 stage "② 确定性生成" bash -c "make --no-print-directory design >/dev/null && make --no-print-directory prepare"
 specs=$(changed_specs "$BASE")
-ai=0
-for s in $specs; do
-  if [[ $(go run ./factory/cmd/factory ai-paths "$s" | wc -l) -gt 1 ]]; then # AI 要写的文件(计算 / 自定义)
-    ai=1
-    stage "④ AI 实现 $(basename "$(dirname "$s")")" bash -c "go run ./factory/cmd/factory prompt '$s' | go run ./factory/cmd/factory ai --role implement ${IMPLEMENT_MODEL:+--model $IMPLEMENT_MODEL} -- --output-format text"
-  fi
+ai_specs=()
+for s in $specs; do   # AI 要写的文件(计算 / 自定义)
+  if [[ $(go run ./factory/cmd/factory ai-paths "$s" | wc -l) -gt 1 ]]; then ai_specs+=("$s"); fi
 done
-if [[ $ai == 1 ]]; then stage "⑤ 路径 / 纯函数闸门" make --no-print-directory guard; fi
+if (( ${#ai_specs[@]} )); then
+  # 基线 = AI 动手前(确定性生成之后)的状态: 路径闸门只看 AI 改了什么(和 scripts/loop.sh 一样)。
+  # 没有基线时,确定性生成的文件也算成 AI 的改动 → 闸门误判(CI 第一次真跑时发现)
+  pre=$(git rev-parse HEAD)
+  git add -A
+  git -c user.name=factory-bot -c user.email=factory-bot@localhost commit -q --allow-empty -m "factory: baseline before AI"
+  for s in "${ai_specs[@]}"; do
+    stage "④ AI 实现 $(basename "$(dirname "$s")")" bash -c "go run ./factory/cmd/factory prompt '$s' | go run ./factory/cmd/factory ai --role implement ${IMPLEMENT_MODEL:+--model $IMPLEMENT_MODEL} -- --output-format text"
+  done
+  stage "⑤ 路径 / 纯函数闸门" make --no-print-directory guard
+  git reset -q --soft "$pre"   # 基线只给闸门用: 最后仍是一个生成物的提交
+fi
 stage "编译" make --no-print-directory build
 sha=$(git rev-parse --short HEAD)
 branch=factory/gen-$sha

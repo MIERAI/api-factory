@@ -5,6 +5,9 @@ on:
   push:
     branches: [main]
     paths: ["design/**"]
+  workflow_dispatch:   # 手动重新生成(生成失败、修好工厂之后): base = 式样书合并之前的提交
+    inputs:
+      base: { description: "比较的基准(式样书合并之前的提交)", required: true }
 concurrency: { group: generate, cancel-in-progress: false }
 permissions:
   contents: write        # 推送生成物的分支
@@ -26,7 +29,7 @@ jobs:
         run: claude --version
       - name: 生成
         env:
-          BASE: ${{ github.event.before }}
+          BASE: ${{ inputs.base || github.event.before }}
           IMPLEMENT_MODEL: local   # winpc(factory.yaml ai.models.local);有路径闸门 + 编译 + 验收兜底
         run: scripts/ci/generate.sh
       - name: 推送分支 + 开 PR
