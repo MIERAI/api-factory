@@ -16,6 +16,31 @@
         new_price: 2
         old_price: 3
         product_code: 1
+    GetDailySalesSummaryRequest:
+        sales_date: 1
+        store_codes: 2
+    GetDailySalesSummaryResponse:
+        discount_rate: 5
+        net_amount: 4
+        status: 7
+        store_count: 1
+        total_amount: 2
+        total_discount: 3
+        unclosed_stores: 6
+    GetPriceChangeSummaryRequest:
+        proc_date: 2
+        store_code: 1
+    GetPriceChangeSummaryResponse:
+        alert: 10
+        avg_change_rate: 8
+        forced: 7
+        max_increase_rate: 9
+        new_products: 5
+        price_down: 3
+        price_up: 2
+        total: 1
+        unchanged: 4
+        undecided: 6
     ListCurrentPricesRequest:
         as_of: 4
         page_size: 1
@@ -28,6 +53,15 @@
         proc_date: 2
         store_code: 1
     ListEffectivePriceChangesResponse:
+        price_changes: 1
+    ListPriceChangeHistoryRequest:
+        from_date: 5
+        page_size: 1
+        page_token: 2
+        product_code: 3
+        store_codes: 4
+    ListPriceChangeHistoryResponse:
+        next_page_token: 2
         price_changes: 1
     ListPricesAsOfRequest:
         as_of: 2
@@ -58,6 +92,11 @@
         store_code: 1
     ListUnclosedSalesResponse:
         daily_sales: 1
+    PriceChange:
+        new_price: 3
+        old_price: 4
+        proc_date: 2
+        store_code: 1
     StorePrice:
         price: 4
         product_code: 1
