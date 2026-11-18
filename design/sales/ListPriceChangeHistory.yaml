@@ -1,0 +1,47 @@
+# ============================================================================
+# ListPriceChangeHistory: 商品の売価変更の履歴(一览 = 分页。筛选は複合キーの真ん中の列)
+# ============================================================================
+API: ListPriceChangeHistory
+说明: 商品コードを指定して、各店の売価変更の指示を新しい指示日から返す(分页)
+背景: 商品担当が「この商品の売価がいつ、どの店で、どう変わったか」を追う画面。店舗数 × 日数で件数が多くなる
+负责人: sales-team
+风险: 低
+
+种类: 一览
+数据来源: price_changes
+
+输入:
+  product_code: { 类型: 文本,       必填: 是, 长度: 1~20, 格式: 数字, 说明: 商品コード, 筛选: product_code 等于 }
+  store_codes:  { 类型: 整数32列表, 必填: 否, 个数: "0~100", 说明: 対象の店舗(不指定 = 全店), 筛选: store_code 属于 }
+  from_date:    { 类型: 日期,       必填: 否, 说明: この指示日以降(含)だけ, 筛选: proc_date 大于等于 }
+
+输出:
+  store_code: 店舗コード
+  proc_date:  指示日
+  new_price:  新売価
+  old_price:  旧売価
+
+排序: [proc_date 新到旧, store_code 大到小]     # 商品コードは必填の等于で固定 → (指示日, 店舗) で 1 行に決まる。一览は方向をそろえる
+分页: { 默认每页: 20, 每页最多: 100 }
+
+例子:
+  准备数据:
+    price_changes:
+      - { store_code: 1, product_code: "4901", proc_date: 2026-11-10, new_price: 108, old_price: 110, deal_id: null }
+      - { store_code: 1, product_code: "4901", proc_date: 2026-11-20, new_price: 98,  old_price: 108, deal_id: null }
+      - { store_code: 2, product_code: "4901", proc_date: 2026-11-20, new_price: 100, old_price: 108, deal_id: null }
+      - { store_code: 3, product_code: "4901", proc_date: 2026-11-25, new_price: 95,  old_price: 100, deal_id: null }
+      - { store_code: 1, product_code: "4902", proc_date: 2026-11-20, new_price: 150, old_price: 150, deal_id: null }   # 別の商品
+  用例:
+    - 说明: 新しい指示日から。同じ日は店舗コードの大きい順
+      输入: { product_code: "4901" }
+      结果: { price_changes: [{ store_code: 3, proc_date: 2026-11-25, new_price: 95, old_price: 100 }, { store_code: 2, proc_date: 2026-11-20, new_price: 100, old_price: 108 }, { store_code: 1, proc_date: 2026-11-20, new_price: 98, old_price: 108 }, { store_code: 1, proc_date: 2026-11-10, new_price: 108, old_price: 110 }] }
+    - 说明: 店舗を指定
+      输入: { product_code: "4901", store_codes: [1] }
+      结果: { price_changes: [{ store_code: 1, proc_date: 2026-11-20 }, { store_code: 1, proc_date: 2026-11-10 }] }
+    - 说明: 指示日の下限(含)
+      输入: { product_code: "4901", from_date: 2026-11-20 }
+      结果: { price_changes: [{ store_code: 3, proc_date: 2026-11-25 }, { store_code: 2, proc_date: 2026-11-20 }, { store_code: 1, proc_date: 2026-11-20 }] }
+    - 说明: 指示のない商品は空
+      输入: { product_code: "9999" }
+      结果: { price_changes: [] }
