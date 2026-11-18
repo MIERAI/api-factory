@@ -11,6 +11,10 @@
         discount: 4
         sales_date: 1
         store_code: 2
+    DiscountedSale:
+        amount: 2
+        discount: 3
+        store_code: 1
     EffectivePriceChange:
         deal_id: 4
         new_price: 2
@@ -49,6 +53,13 @@
     ListCurrentPricesResponse:
         next_page_token: 2
         store_prices: 1
+    ListDiscountedSalesRequest:
+        page_size: 1
+        page_token: 2
+        sales_date: 3
+    ListDiscountedSalesResponse:
+        daily_sales: 1
+        next_page_token: 2
     ListEffectivePriceChangesRequest:
         proc_date: 2
         store_code: 1
@@ -63,15 +74,38 @@
     ListPriceChangeHistoryResponse:
         next_page_token: 2
         price_changes: 1
+    ListPriceChangesForStoresRequest:
+        page_size: 1
+        page_token: 2
+        proc_date: 4
+        store_codes: 3
+    ListPriceChangesForStoresResponse:
+        next_page_token: 2
+        price_changes: 1
     ListPricesAsOfRequest:
         as_of: 2
         store_code: 1
     ListPricesAsOfResponse:
         store_prices: 1
+    ListStorePricesByPrefixRequest:
+        product_prefix: 2
+        store_code: 1
+    ListStorePricesByPrefixResponse:
+        store_prices: 1
+    ListStoreSalesByPeriodRequest:
+        date_from: 2
+        date_to: 3
+        store_code: 1
+    ListStoreSalesByPeriodResponse:
+        daily_sales: 1
     ListStoreSalesRequest:
         sales_date: 1
         store_codes: 2
     ListStoreSalesResponse:
+        daily_sales: 1
+    ListTopDiscountStoresRequest:
+        sales_date: 1
+    ListTopDiscountStoresResponse:
         daily_sales: 1
     ListTopSalesRequest:
         date_from: 4
@@ -97,14 +131,28 @@
         old_price: 4
         proc_date: 2
         store_code: 1
+    StoreDaySale:
+        amount: 2
+        closed_on: 4
+        discount: 3
+        sales_date: 1
     StorePrice:
         price: 4
         product_code: 1
         valid_from: 2
         valid_to: 3
+    StorePriceChange:
+        new_price: 3
+        old_price: 4
+        product_code: 2
+        store_code: 1
     StoreSale:
         amount: 2
         discount: 3
+        store_code: 1
+    TopDiscountStore:
+        amount: 3
+        discount: 2
         store_code: 1
     TopStore:
         amount: 2
