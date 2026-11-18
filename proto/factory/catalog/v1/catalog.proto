@@ -15,6 +15,9 @@ service CatalogService {
   // 商品コードとラベルコードを指定して、ラベルの現在の文言を返す。なければ found = false
   rpc GetProductLabel(GetProductLabelRequest) returns (GetProductLabelResponse);
 
+  // ラベルコード(複数)を指定して、全商品のそのラベルの現在の文言を返す。商品コードの前方一致で絞れる
+  rpc ListLabelsByLabelCodes(ListLabelsByLabelCodesRequest) returns (ListLabelsByLabelCodesResponse);
+
   // (商品コード, ラベルコード) の組のリストを受け取り、組ごとのラベルの現在の文言を返す
   rpc ListLabelsByPairs(ListLabelsByPairsRequest) returns (ListLabelsByPairsResponse);
 
@@ -23,6 +26,9 @@ service CatalogService {
 
   // カテゴリと商品コードを条件に、商品マスタの現在の値を返す
   rpc ListProductMaster(ListProductMasterRequest) returns (ListProductMasterResponse);
+
+  // カテゴリを指定して、現在の商品を安い順に返す。最低価格で絞れる
+  rpc ListProductsByCategory(ListProductsByCategoryRequest) returns (ListProductsByCategoryResponse);
 
   // 商品コードを指定して、その商品のラベルを最後に変わった順に返す(いつ変わったかも返す)
   rpc ListRecentLabelChanges(ListRecentLabelChangesRequest) returns (ListRecentLabelChangesResponse);
@@ -42,6 +48,30 @@ message GetProductLabelResponse {
   optional string text = 1;
   // 找到了: true。找不到时 false(其他字段都不设置)
   bool found = 2;
+}
+
+// 商品の表示ラベル(商品 × ラベルコードごとに最新の版)。ラベルコードが空 = 既定のラベル
+message LabelOfCode {
+  // 商品コード
+  string product_code = 1;
+  // ラベルコード
+  optional string label_code = 2;
+  // 表示文言
+  optional string text = 3;
+}
+
+// ラベルコード(複数)を指定して、全商品のそのラベルの現在の文言を返す。商品コードの前方一致で絞れる
+message ListLabelsByLabelCodesRequest {
+  // ラベルコード
+  repeated string label_codes = 1 [(buf.validate.field).repeated.min_items = 1, (buf.validate.field).repeated.max_items = 10, (buf.validate.field).repeated.items.string.min_len = 1, (buf.validate.field).repeated.items.string.max_len = 10];
+  // 商品コードの先頭
+  optional string product_prefix = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 20];
+}
+
+// ラベルコード(複数)を指定して、全商品のそのラベルの現在の文言を返す。商品コードの前方一致で絞れる
+message ListLabelsByLabelCodesResponse {
+  // 最多 500 件;超过时返回错误(不会截断)
+  repeated LabelOfCode product_label = 1;
 }
 
 // 引きたい (商品コード, ラベルコード) の組
@@ -133,6 +163,30 @@ message ListProductMasterRequest {
 message ListProductMasterResponse {
   // 最多 200 件;超过时返回错误(不会截断)
   repeated ProductMaster product_master = 1;
+}
+
+// 商品マスタの現在の値(商品コードごとに最新に登録された行)
+message CategoryProduct {
+  // 商品コード
+  string product_code = 1;
+  // 商品名
+  optional string name = 2;
+  // 標準売価
+  optional string price = 3;
+}
+
+// カテゴリを指定して、現在の商品を安い順に返す。最低価格で絞れる
+message ListProductsByCategoryRequest {
+  // カテゴリ
+  string category = 1 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 40];
+  // 最低価格(含)
+  optional string min_price = 2 [(buf.validate.field).string.pattern = "^-?\\d+(\\.\\d+)?$"];
+}
+
+// カテゴリを指定して、現在の商品を安い順に返す。最低価格で絞れる
+message ListProductsByCategoryResponse {
+  // 最多 100 件;超过时返回错误(不会截断)
+  repeated CategoryProduct product_master = 1;
 }
 
 // 商品の表示ラベル(商品 × ラベルコードごとに最新の版)。ラベルコードが空 = 既定のラベル

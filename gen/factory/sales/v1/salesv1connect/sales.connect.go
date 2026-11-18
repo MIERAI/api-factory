@@ -45,18 +45,33 @@ const (
 	// SaleServiceListCurrentPricesProcedure is the fully-qualified name of the SaleService's
 	// ListCurrentPrices RPC.
 	SaleServiceListCurrentPricesProcedure = "/factory.sales.v1.SaleService/ListCurrentPrices"
+	// SaleServiceListDiscountedSalesProcedure is the fully-qualified name of the SaleService's
+	// ListDiscountedSales RPC.
+	SaleServiceListDiscountedSalesProcedure = "/factory.sales.v1.SaleService/ListDiscountedSales"
 	// SaleServiceListEffectivePriceChangesProcedure is the fully-qualified name of the SaleService's
 	// ListEffectivePriceChanges RPC.
 	SaleServiceListEffectivePriceChangesProcedure = "/factory.sales.v1.SaleService/ListEffectivePriceChanges"
 	// SaleServiceListPriceChangeHistoryProcedure is the fully-qualified name of the SaleService's
 	// ListPriceChangeHistory RPC.
 	SaleServiceListPriceChangeHistoryProcedure = "/factory.sales.v1.SaleService/ListPriceChangeHistory"
+	// SaleServiceListPriceChangesForStoresProcedure is the fully-qualified name of the SaleService's
+	// ListPriceChangesForStores RPC.
+	SaleServiceListPriceChangesForStoresProcedure = "/factory.sales.v1.SaleService/ListPriceChangesForStores"
 	// SaleServiceListPricesAsOfProcedure is the fully-qualified name of the SaleService's
 	// ListPricesAsOf RPC.
 	SaleServiceListPricesAsOfProcedure = "/factory.sales.v1.SaleService/ListPricesAsOf"
+	// SaleServiceListStorePricesByPrefixProcedure is the fully-qualified name of the SaleService's
+	// ListStorePricesByPrefix RPC.
+	SaleServiceListStorePricesByPrefixProcedure = "/factory.sales.v1.SaleService/ListStorePricesByPrefix"
 	// SaleServiceListStoreSalesProcedure is the fully-qualified name of the SaleService's
 	// ListStoreSales RPC.
 	SaleServiceListStoreSalesProcedure = "/factory.sales.v1.SaleService/ListStoreSales"
+	// SaleServiceListStoreSalesByPeriodProcedure is the fully-qualified name of the SaleService's
+	// ListStoreSalesByPeriod RPC.
+	SaleServiceListStoreSalesByPeriodProcedure = "/factory.sales.v1.SaleService/ListStoreSalesByPeriod"
+	// SaleServiceListTopDiscountStoresProcedure is the fully-qualified name of the SaleService's
+	// ListTopDiscountStores RPC.
+	SaleServiceListTopDiscountStoresProcedure = "/factory.sales.v1.SaleService/ListTopDiscountStores"
 	// SaleServiceListTopSalesProcedure is the fully-qualified name of the SaleService's ListTopSales
 	// RPC.
 	SaleServiceListTopSalesProcedure = "/factory.sales.v1.SaleService/ListTopSales"
@@ -76,14 +91,24 @@ type SaleServiceClient interface {
 	GetPriceChangeSummary(context.Context, *connect.Request[v1.GetPriceChangeSummaryRequest]) (*connect.Response[v1.GetPriceChangeSummaryResponse], error)
 	// 店舗の全商品について、基準日までに始まった売価のうち最新の 1 件をページごとに返す
 	ListCurrentPrices(context.Context, *connect.Request[v1.ListCurrentPricesRequest]) (*connect.Response[v1.ListCurrentPricesResponse], error)
+	// 売上日を指定して、値引きのあった店舗の売上を売上金額の大きい順に返す(分页)
+	ListDiscountedSales(context.Context, *connect.Request[v1.ListDiscountedSalesRequest]) (*connect.Response[v1.ListDiscountedSalesResponse], error)
 	// 店舗と指示日を指定して、売価が実際に変わる売価変更の指示を返す
 	ListEffectivePriceChanges(context.Context, *connect.Request[v1.ListEffectivePriceChangesRequest]) (*connect.Response[v1.ListEffectivePriceChangesResponse], error)
 	// 商品コードを指定して、各店の売価変更の指示を新しい指示日から返す(分页)
 	ListPriceChangeHistory(context.Context, *connect.Request[v1.ListPriceChangeHistoryRequest]) (*connect.Response[v1.ListPriceChangeHistoryResponse], error)
+	// 店舗(複数)と指示日を指定して、売価変更の指示を返す(分页)
+	ListPriceChangesForStores(context.Context, *connect.Request[v1.ListPriceChangesForStoresRequest]) (*connect.Response[v1.ListPriceChangesForStoresResponse], error)
 	// 店舗の、基準日に有効な売価を返す
 	ListPricesAsOf(context.Context, *connect.Request[v1.ListPricesAsOfRequest]) (*connect.Response[v1.ListPricesAsOfResponse], error)
+	// 店舗を指定して、商品コードの前方一致で売価(有効期間つき)を返す
+	ListStorePricesByPrefix(context.Context, *connect.Request[v1.ListStorePricesByPrefixRequest]) (*connect.Response[v1.ListStorePricesByPrefixResponse], error)
 	// 指定した売上日の、店舗別の売上を返す(分页なし)
 	ListStoreSales(context.Context, *connect.Request[v1.ListStoreSalesRequest]) (*connect.Response[v1.ListStoreSalesResponse], error)
+	// 店舗と期間を指定して、日別の売上を新しい日から返す
+	ListStoreSalesByPeriod(context.Context, *connect.Request[v1.ListStoreSalesByPeriodRequest]) (*connect.Response[v1.ListStoreSalesByPeriodResponse], error)
+	// 売上日を指定して、値引きのあった店舗のうち値引き額の大きい店舗を上位 2 件返す
+	ListTopDiscountStores(context.Context, *connect.Request[v1.ListTopDiscountStoresRequest]) (*connect.Response[v1.ListTopDiscountStoresResponse], error)
 	// 売上金額の多い順に、日別・店別の売上を返す
 	ListTopSales(context.Context, *connect.Request[v1.ListTopSalesRequest]) (*connect.Response[v1.ListTopSalesResponse], error)
 	// 売上日を指定して、売上金額の上位 3 店を返す
@@ -121,6 +146,12 @@ func NewSaleServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(saleServiceMethods.ByName("ListCurrentPrices")),
 			connect.WithClientOptions(opts...),
 		),
+		listDiscountedSales: connect.NewClient[v1.ListDiscountedSalesRequest, v1.ListDiscountedSalesResponse](
+			httpClient,
+			baseURL+SaleServiceListDiscountedSalesProcedure,
+			connect.WithSchema(saleServiceMethods.ByName("ListDiscountedSales")),
+			connect.WithClientOptions(opts...),
+		),
 		listEffectivePriceChanges: connect.NewClient[v1.ListEffectivePriceChangesRequest, v1.ListEffectivePriceChangesResponse](
 			httpClient,
 			baseURL+SaleServiceListEffectivePriceChangesProcedure,
@@ -133,16 +164,40 @@ func NewSaleServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(saleServiceMethods.ByName("ListPriceChangeHistory")),
 			connect.WithClientOptions(opts...),
 		),
+		listPriceChangesForStores: connect.NewClient[v1.ListPriceChangesForStoresRequest, v1.ListPriceChangesForStoresResponse](
+			httpClient,
+			baseURL+SaleServiceListPriceChangesForStoresProcedure,
+			connect.WithSchema(saleServiceMethods.ByName("ListPriceChangesForStores")),
+			connect.WithClientOptions(opts...),
+		),
 		listPricesAsOf: connect.NewClient[v1.ListPricesAsOfRequest, v1.ListPricesAsOfResponse](
 			httpClient,
 			baseURL+SaleServiceListPricesAsOfProcedure,
 			connect.WithSchema(saleServiceMethods.ByName("ListPricesAsOf")),
 			connect.WithClientOptions(opts...),
 		),
+		listStorePricesByPrefix: connect.NewClient[v1.ListStorePricesByPrefixRequest, v1.ListStorePricesByPrefixResponse](
+			httpClient,
+			baseURL+SaleServiceListStorePricesByPrefixProcedure,
+			connect.WithSchema(saleServiceMethods.ByName("ListStorePricesByPrefix")),
+			connect.WithClientOptions(opts...),
+		),
 		listStoreSales: connect.NewClient[v1.ListStoreSalesRequest, v1.ListStoreSalesResponse](
 			httpClient,
 			baseURL+SaleServiceListStoreSalesProcedure,
 			connect.WithSchema(saleServiceMethods.ByName("ListStoreSales")),
+			connect.WithClientOptions(opts...),
+		),
+		listStoreSalesByPeriod: connect.NewClient[v1.ListStoreSalesByPeriodRequest, v1.ListStoreSalesByPeriodResponse](
+			httpClient,
+			baseURL+SaleServiceListStoreSalesByPeriodProcedure,
+			connect.WithSchema(saleServiceMethods.ByName("ListStoreSalesByPeriod")),
+			connect.WithClientOptions(opts...),
+		),
+		listTopDiscountStores: connect.NewClient[v1.ListTopDiscountStoresRequest, v1.ListTopDiscountStoresResponse](
+			httpClient,
+			baseURL+SaleServiceListTopDiscountStoresProcedure,
+			connect.WithSchema(saleServiceMethods.ByName("ListTopDiscountStores")),
 			connect.WithClientOptions(opts...),
 		),
 		listTopSales: connect.NewClient[v1.ListTopSalesRequest, v1.ListTopSalesResponse](
@@ -171,10 +226,15 @@ type saleServiceClient struct {
 	getDailySalesSummary      *connect.Client[v1.GetDailySalesSummaryRequest, v1.GetDailySalesSummaryResponse]
 	getPriceChangeSummary     *connect.Client[v1.GetPriceChangeSummaryRequest, v1.GetPriceChangeSummaryResponse]
 	listCurrentPrices         *connect.Client[v1.ListCurrentPricesRequest, v1.ListCurrentPricesResponse]
+	listDiscountedSales       *connect.Client[v1.ListDiscountedSalesRequest, v1.ListDiscountedSalesResponse]
 	listEffectivePriceChanges *connect.Client[v1.ListEffectivePriceChangesRequest, v1.ListEffectivePriceChangesResponse]
 	listPriceChangeHistory    *connect.Client[v1.ListPriceChangeHistoryRequest, v1.ListPriceChangeHistoryResponse]
+	listPriceChangesForStores *connect.Client[v1.ListPriceChangesForStoresRequest, v1.ListPriceChangesForStoresResponse]
 	listPricesAsOf            *connect.Client[v1.ListPricesAsOfRequest, v1.ListPricesAsOfResponse]
+	listStorePricesByPrefix   *connect.Client[v1.ListStorePricesByPrefixRequest, v1.ListStorePricesByPrefixResponse]
 	listStoreSales            *connect.Client[v1.ListStoreSalesRequest, v1.ListStoreSalesResponse]
+	listStoreSalesByPeriod    *connect.Client[v1.ListStoreSalesByPeriodRequest, v1.ListStoreSalesByPeriodResponse]
+	listTopDiscountStores     *connect.Client[v1.ListTopDiscountStoresRequest, v1.ListTopDiscountStoresResponse]
 	listTopSales              *connect.Client[v1.ListTopSalesRequest, v1.ListTopSalesResponse]
 	listTopStores             *connect.Client[v1.ListTopStoresRequest, v1.ListTopStoresResponse]
 	listUnclosedSales         *connect.Client[v1.ListUnclosedSalesRequest, v1.ListUnclosedSalesResponse]
@@ -195,6 +255,11 @@ func (c *saleServiceClient) ListCurrentPrices(ctx context.Context, req *connect.
 	return c.listCurrentPrices.CallUnary(ctx, req)
 }
 
+// ListDiscountedSales calls factory.sales.v1.SaleService.ListDiscountedSales.
+func (c *saleServiceClient) ListDiscountedSales(ctx context.Context, req *connect.Request[v1.ListDiscountedSalesRequest]) (*connect.Response[v1.ListDiscountedSalesResponse], error) {
+	return c.listDiscountedSales.CallUnary(ctx, req)
+}
+
 // ListEffectivePriceChanges calls factory.sales.v1.SaleService.ListEffectivePriceChanges.
 func (c *saleServiceClient) ListEffectivePriceChanges(ctx context.Context, req *connect.Request[v1.ListEffectivePriceChangesRequest]) (*connect.Response[v1.ListEffectivePriceChangesResponse], error) {
 	return c.listEffectivePriceChanges.CallUnary(ctx, req)
@@ -205,14 +270,34 @@ func (c *saleServiceClient) ListPriceChangeHistory(ctx context.Context, req *con
 	return c.listPriceChangeHistory.CallUnary(ctx, req)
 }
 
+// ListPriceChangesForStores calls factory.sales.v1.SaleService.ListPriceChangesForStores.
+func (c *saleServiceClient) ListPriceChangesForStores(ctx context.Context, req *connect.Request[v1.ListPriceChangesForStoresRequest]) (*connect.Response[v1.ListPriceChangesForStoresResponse], error) {
+	return c.listPriceChangesForStores.CallUnary(ctx, req)
+}
+
 // ListPricesAsOf calls factory.sales.v1.SaleService.ListPricesAsOf.
 func (c *saleServiceClient) ListPricesAsOf(ctx context.Context, req *connect.Request[v1.ListPricesAsOfRequest]) (*connect.Response[v1.ListPricesAsOfResponse], error) {
 	return c.listPricesAsOf.CallUnary(ctx, req)
 }
 
+// ListStorePricesByPrefix calls factory.sales.v1.SaleService.ListStorePricesByPrefix.
+func (c *saleServiceClient) ListStorePricesByPrefix(ctx context.Context, req *connect.Request[v1.ListStorePricesByPrefixRequest]) (*connect.Response[v1.ListStorePricesByPrefixResponse], error) {
+	return c.listStorePricesByPrefix.CallUnary(ctx, req)
+}
+
 // ListStoreSales calls factory.sales.v1.SaleService.ListStoreSales.
 func (c *saleServiceClient) ListStoreSales(ctx context.Context, req *connect.Request[v1.ListStoreSalesRequest]) (*connect.Response[v1.ListStoreSalesResponse], error) {
 	return c.listStoreSales.CallUnary(ctx, req)
+}
+
+// ListStoreSalesByPeriod calls factory.sales.v1.SaleService.ListStoreSalesByPeriod.
+func (c *saleServiceClient) ListStoreSalesByPeriod(ctx context.Context, req *connect.Request[v1.ListStoreSalesByPeriodRequest]) (*connect.Response[v1.ListStoreSalesByPeriodResponse], error) {
+	return c.listStoreSalesByPeriod.CallUnary(ctx, req)
+}
+
+// ListTopDiscountStores calls factory.sales.v1.SaleService.ListTopDiscountStores.
+func (c *saleServiceClient) ListTopDiscountStores(ctx context.Context, req *connect.Request[v1.ListTopDiscountStoresRequest]) (*connect.Response[v1.ListTopDiscountStoresResponse], error) {
+	return c.listTopDiscountStores.CallUnary(ctx, req)
 }
 
 // ListTopSales calls factory.sales.v1.SaleService.ListTopSales.
@@ -238,14 +323,24 @@ type SaleServiceHandler interface {
 	GetPriceChangeSummary(context.Context, *connect.Request[v1.GetPriceChangeSummaryRequest]) (*connect.Response[v1.GetPriceChangeSummaryResponse], error)
 	// 店舗の全商品について、基準日までに始まった売価のうち最新の 1 件をページごとに返す
 	ListCurrentPrices(context.Context, *connect.Request[v1.ListCurrentPricesRequest]) (*connect.Response[v1.ListCurrentPricesResponse], error)
+	// 売上日を指定して、値引きのあった店舗の売上を売上金額の大きい順に返す(分页)
+	ListDiscountedSales(context.Context, *connect.Request[v1.ListDiscountedSalesRequest]) (*connect.Response[v1.ListDiscountedSalesResponse], error)
 	// 店舗と指示日を指定して、売価が実際に変わる売価変更の指示を返す
 	ListEffectivePriceChanges(context.Context, *connect.Request[v1.ListEffectivePriceChangesRequest]) (*connect.Response[v1.ListEffectivePriceChangesResponse], error)
 	// 商品コードを指定して、各店の売価変更の指示を新しい指示日から返す(分页)
 	ListPriceChangeHistory(context.Context, *connect.Request[v1.ListPriceChangeHistoryRequest]) (*connect.Response[v1.ListPriceChangeHistoryResponse], error)
+	// 店舗(複数)と指示日を指定して、売価変更の指示を返す(分页)
+	ListPriceChangesForStores(context.Context, *connect.Request[v1.ListPriceChangesForStoresRequest]) (*connect.Response[v1.ListPriceChangesForStoresResponse], error)
 	// 店舗の、基準日に有効な売価を返す
 	ListPricesAsOf(context.Context, *connect.Request[v1.ListPricesAsOfRequest]) (*connect.Response[v1.ListPricesAsOfResponse], error)
+	// 店舗を指定して、商品コードの前方一致で売価(有効期間つき)を返す
+	ListStorePricesByPrefix(context.Context, *connect.Request[v1.ListStorePricesByPrefixRequest]) (*connect.Response[v1.ListStorePricesByPrefixResponse], error)
 	// 指定した売上日の、店舗別の売上を返す(分页なし)
 	ListStoreSales(context.Context, *connect.Request[v1.ListStoreSalesRequest]) (*connect.Response[v1.ListStoreSalesResponse], error)
+	// 店舗と期間を指定して、日別の売上を新しい日から返す
+	ListStoreSalesByPeriod(context.Context, *connect.Request[v1.ListStoreSalesByPeriodRequest]) (*connect.Response[v1.ListStoreSalesByPeriodResponse], error)
+	// 売上日を指定して、値引きのあった店舗のうち値引き額の大きい店舗を上位 2 件返す
+	ListTopDiscountStores(context.Context, *connect.Request[v1.ListTopDiscountStoresRequest]) (*connect.Response[v1.ListTopDiscountStoresResponse], error)
 	// 売上金額の多い順に、日別・店別の売上を返す
 	ListTopSales(context.Context, *connect.Request[v1.ListTopSalesRequest]) (*connect.Response[v1.ListTopSalesResponse], error)
 	// 売上日を指定して、売上金額の上位 3 店を返す
@@ -279,6 +374,12 @@ func NewSaleServiceHandler(svc SaleServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(saleServiceMethods.ByName("ListCurrentPrices")),
 		connect.WithHandlerOptions(opts...),
 	)
+	saleServiceListDiscountedSalesHandler := connect.NewUnaryHandler(
+		SaleServiceListDiscountedSalesProcedure,
+		svc.ListDiscountedSales,
+		connect.WithSchema(saleServiceMethods.ByName("ListDiscountedSales")),
+		connect.WithHandlerOptions(opts...),
+	)
 	saleServiceListEffectivePriceChangesHandler := connect.NewUnaryHandler(
 		SaleServiceListEffectivePriceChangesProcedure,
 		svc.ListEffectivePriceChanges,
@@ -291,16 +392,40 @@ func NewSaleServiceHandler(svc SaleServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(saleServiceMethods.ByName("ListPriceChangeHistory")),
 		connect.WithHandlerOptions(opts...),
 	)
+	saleServiceListPriceChangesForStoresHandler := connect.NewUnaryHandler(
+		SaleServiceListPriceChangesForStoresProcedure,
+		svc.ListPriceChangesForStores,
+		connect.WithSchema(saleServiceMethods.ByName("ListPriceChangesForStores")),
+		connect.WithHandlerOptions(opts...),
+	)
 	saleServiceListPricesAsOfHandler := connect.NewUnaryHandler(
 		SaleServiceListPricesAsOfProcedure,
 		svc.ListPricesAsOf,
 		connect.WithSchema(saleServiceMethods.ByName("ListPricesAsOf")),
 		connect.WithHandlerOptions(opts...),
 	)
+	saleServiceListStorePricesByPrefixHandler := connect.NewUnaryHandler(
+		SaleServiceListStorePricesByPrefixProcedure,
+		svc.ListStorePricesByPrefix,
+		connect.WithSchema(saleServiceMethods.ByName("ListStorePricesByPrefix")),
+		connect.WithHandlerOptions(opts...),
+	)
 	saleServiceListStoreSalesHandler := connect.NewUnaryHandler(
 		SaleServiceListStoreSalesProcedure,
 		svc.ListStoreSales,
 		connect.WithSchema(saleServiceMethods.ByName("ListStoreSales")),
+		connect.WithHandlerOptions(opts...),
+	)
+	saleServiceListStoreSalesByPeriodHandler := connect.NewUnaryHandler(
+		SaleServiceListStoreSalesByPeriodProcedure,
+		svc.ListStoreSalesByPeriod,
+		connect.WithSchema(saleServiceMethods.ByName("ListStoreSalesByPeriod")),
+		connect.WithHandlerOptions(opts...),
+	)
+	saleServiceListTopDiscountStoresHandler := connect.NewUnaryHandler(
+		SaleServiceListTopDiscountStoresProcedure,
+		svc.ListTopDiscountStores,
+		connect.WithSchema(saleServiceMethods.ByName("ListTopDiscountStores")),
 		connect.WithHandlerOptions(opts...),
 	)
 	saleServiceListTopSalesHandler := connect.NewUnaryHandler(
@@ -329,14 +454,24 @@ func NewSaleServiceHandler(svc SaleServiceHandler, opts ...connect.HandlerOption
 			saleServiceGetPriceChangeSummaryHandler.ServeHTTP(w, r)
 		case SaleServiceListCurrentPricesProcedure:
 			saleServiceListCurrentPricesHandler.ServeHTTP(w, r)
+		case SaleServiceListDiscountedSalesProcedure:
+			saleServiceListDiscountedSalesHandler.ServeHTTP(w, r)
 		case SaleServiceListEffectivePriceChangesProcedure:
 			saleServiceListEffectivePriceChangesHandler.ServeHTTP(w, r)
 		case SaleServiceListPriceChangeHistoryProcedure:
 			saleServiceListPriceChangeHistoryHandler.ServeHTTP(w, r)
+		case SaleServiceListPriceChangesForStoresProcedure:
+			saleServiceListPriceChangesForStoresHandler.ServeHTTP(w, r)
 		case SaleServiceListPricesAsOfProcedure:
 			saleServiceListPricesAsOfHandler.ServeHTTP(w, r)
+		case SaleServiceListStorePricesByPrefixProcedure:
+			saleServiceListStorePricesByPrefixHandler.ServeHTTP(w, r)
 		case SaleServiceListStoreSalesProcedure:
 			saleServiceListStoreSalesHandler.ServeHTTP(w, r)
+		case SaleServiceListStoreSalesByPeriodProcedure:
+			saleServiceListStoreSalesByPeriodHandler.ServeHTTP(w, r)
+		case SaleServiceListTopDiscountStoresProcedure:
+			saleServiceListTopDiscountStoresHandler.ServeHTTP(w, r)
 		case SaleServiceListTopSalesProcedure:
 			saleServiceListTopSalesHandler.ServeHTTP(w, r)
 		case SaleServiceListTopStoresProcedure:
@@ -364,6 +499,10 @@ func (UnimplementedSaleServiceHandler) ListCurrentPrices(context.Context, *conne
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.sales.v1.SaleService.ListCurrentPrices is not implemented"))
 }
 
+func (UnimplementedSaleServiceHandler) ListDiscountedSales(context.Context, *connect.Request[v1.ListDiscountedSalesRequest]) (*connect.Response[v1.ListDiscountedSalesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.sales.v1.SaleService.ListDiscountedSales is not implemented"))
+}
+
 func (UnimplementedSaleServiceHandler) ListEffectivePriceChanges(context.Context, *connect.Request[v1.ListEffectivePriceChangesRequest]) (*connect.Response[v1.ListEffectivePriceChangesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.sales.v1.SaleService.ListEffectivePriceChanges is not implemented"))
 }
@@ -372,12 +511,28 @@ func (UnimplementedSaleServiceHandler) ListPriceChangeHistory(context.Context, *
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.sales.v1.SaleService.ListPriceChangeHistory is not implemented"))
 }
 
+func (UnimplementedSaleServiceHandler) ListPriceChangesForStores(context.Context, *connect.Request[v1.ListPriceChangesForStoresRequest]) (*connect.Response[v1.ListPriceChangesForStoresResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.sales.v1.SaleService.ListPriceChangesForStores is not implemented"))
+}
+
 func (UnimplementedSaleServiceHandler) ListPricesAsOf(context.Context, *connect.Request[v1.ListPricesAsOfRequest]) (*connect.Response[v1.ListPricesAsOfResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.sales.v1.SaleService.ListPricesAsOf is not implemented"))
 }
 
+func (UnimplementedSaleServiceHandler) ListStorePricesByPrefix(context.Context, *connect.Request[v1.ListStorePricesByPrefixRequest]) (*connect.Response[v1.ListStorePricesByPrefixResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.sales.v1.SaleService.ListStorePricesByPrefix is not implemented"))
+}
+
 func (UnimplementedSaleServiceHandler) ListStoreSales(context.Context, *connect.Request[v1.ListStoreSalesRequest]) (*connect.Response[v1.ListStoreSalesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.sales.v1.SaleService.ListStoreSales is not implemented"))
+}
+
+func (UnimplementedSaleServiceHandler) ListStoreSalesByPeriod(context.Context, *connect.Request[v1.ListStoreSalesByPeriodRequest]) (*connect.Response[v1.ListStoreSalesByPeriodResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.sales.v1.SaleService.ListStoreSalesByPeriod is not implemented"))
+}
+
+func (UnimplementedSaleServiceHandler) ListTopDiscountStores(context.Context, *connect.Request[v1.ListTopDiscountStoresRequest]) (*connect.Response[v1.ListTopDiscountStoresResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.sales.v1.SaleService.ListTopDiscountStores is not implemented"))
 }
 
 func (UnimplementedSaleServiceHandler) ListTopSales(context.Context, *connect.Request[v1.ListTopSalesRequest]) (*connect.Response[v1.ListTopSalesResponse], error) {

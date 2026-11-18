@@ -46,6 +46,15 @@ const (
 	// JobServiceListJobsByTypesProcedure is the fully-qualified name of the JobService's
 	// ListJobsByTypes RPC.
 	JobServiceListJobsByTypesProcedure = "/factory.jobs.v1.JobService/ListJobsByTypes"
+	// JobServiceListLatestFinishedJobsProcedure is the fully-qualified name of the JobService's
+	// ListLatestFinishedJobs RPC.
+	JobServiceListLatestFinishedJobsProcedure = "/factory.jobs.v1.JobService/ListLatestFinishedJobs"
+	// JobServiceListLatestJobPerTypeProcedure is the fully-qualified name of the JobService's
+	// ListLatestJobPerType RPC.
+	JobServiceListLatestJobPerTypeProcedure = "/factory.jobs.v1.JobService/ListLatestJobPerType"
+	// JobServiceListPendingJobsProcedure is the fully-qualified name of the JobService's
+	// ListPendingJobs RPC.
+	JobServiceListPendingJobsProcedure = "/factory.jobs.v1.JobService/ListPendingJobs"
 )
 
 // JobServiceClient is a client for the factory.jobs.v1.JobService service.
@@ -58,6 +67,12 @@ type JobServiceClient interface {
 	ListJobs(context.Context, *connect.Request[v1.ListJobsRequest]) (*connect.Response[v1.ListJobsResponse], error)
 	// 按任务类型和 id 的列表筛选任务,新的在前,分页
 	ListJobsByTypes(context.Context, *connect.Request[v1.ListJobsByTypesRequest]) (*connect.Response[v1.ListJobsByTypesResponse], error)
+	// 任務の種類を指定して、終了時刻の新しい任務を 2 件返す
+	ListLatestFinishedJobs(context.Context, *connect.Request[v1.ListLatestFinishedJobsRequest]) (*connect.Response[v1.ListLatestFinishedJobsResponse], error)
+	// 任務の種類ごとに、いちばん新しく作られた任務を返す
+	ListLatestJobPerType(context.Context, *connect.Request[v1.ListLatestJobPerTypeRequest]) (*connect.Response[v1.ListLatestJobPerTypeResponse], error)
+	// まだ終わっていない任務を古い順に返す(分页)
+	ListPendingJobs(context.Context, *connect.Request[v1.ListPendingJobsRequest]) (*connect.Response[v1.ListPendingJobsResponse], error)
 }
 
 // NewJobServiceClient constructs a client for the factory.jobs.v1.JobService service. By default,
@@ -95,15 +110,36 @@ func NewJobServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(jobServiceMethods.ByName("ListJobsByTypes")),
 			connect.WithClientOptions(opts...),
 		),
+		listLatestFinishedJobs: connect.NewClient[v1.ListLatestFinishedJobsRequest, v1.ListLatestFinishedJobsResponse](
+			httpClient,
+			baseURL+JobServiceListLatestFinishedJobsProcedure,
+			connect.WithSchema(jobServiceMethods.ByName("ListLatestFinishedJobs")),
+			connect.WithClientOptions(opts...),
+		),
+		listLatestJobPerType: connect.NewClient[v1.ListLatestJobPerTypeRequest, v1.ListLatestJobPerTypeResponse](
+			httpClient,
+			baseURL+JobServiceListLatestJobPerTypeProcedure,
+			connect.WithSchema(jobServiceMethods.ByName("ListLatestJobPerType")),
+			connect.WithClientOptions(opts...),
+		),
+		listPendingJobs: connect.NewClient[v1.ListPendingJobsRequest, v1.ListPendingJobsResponse](
+			httpClient,
+			baseURL+JobServiceListPendingJobsProcedure,
+			connect.WithSchema(jobServiceMethods.ByName("ListPendingJobs")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // jobServiceClient implements JobServiceClient.
 type jobServiceClient struct {
-	getJobStatus    *connect.Client[v1.GetJobStatusRequest, v1.GetJobStatusResponse]
-	getJobSummary   *connect.Client[v1.GetJobSummaryRequest, v1.GetJobSummaryResponse]
-	listJobs        *connect.Client[v1.ListJobsRequest, v1.ListJobsResponse]
-	listJobsByTypes *connect.Client[v1.ListJobsByTypesRequest, v1.ListJobsByTypesResponse]
+	getJobStatus           *connect.Client[v1.GetJobStatusRequest, v1.GetJobStatusResponse]
+	getJobSummary          *connect.Client[v1.GetJobSummaryRequest, v1.GetJobSummaryResponse]
+	listJobs               *connect.Client[v1.ListJobsRequest, v1.ListJobsResponse]
+	listJobsByTypes        *connect.Client[v1.ListJobsByTypesRequest, v1.ListJobsByTypesResponse]
+	listLatestFinishedJobs *connect.Client[v1.ListLatestFinishedJobsRequest, v1.ListLatestFinishedJobsResponse]
+	listLatestJobPerType   *connect.Client[v1.ListLatestJobPerTypeRequest, v1.ListLatestJobPerTypeResponse]
+	listPendingJobs        *connect.Client[v1.ListPendingJobsRequest, v1.ListPendingJobsResponse]
 }
 
 // GetJobStatus calls factory.jobs.v1.JobService.GetJobStatus.
@@ -126,6 +162,21 @@ func (c *jobServiceClient) ListJobsByTypes(ctx context.Context, req *connect.Req
 	return c.listJobsByTypes.CallUnary(ctx, req)
 }
 
+// ListLatestFinishedJobs calls factory.jobs.v1.JobService.ListLatestFinishedJobs.
+func (c *jobServiceClient) ListLatestFinishedJobs(ctx context.Context, req *connect.Request[v1.ListLatestFinishedJobsRequest]) (*connect.Response[v1.ListLatestFinishedJobsResponse], error) {
+	return c.listLatestFinishedJobs.CallUnary(ctx, req)
+}
+
+// ListLatestJobPerType calls factory.jobs.v1.JobService.ListLatestJobPerType.
+func (c *jobServiceClient) ListLatestJobPerType(ctx context.Context, req *connect.Request[v1.ListLatestJobPerTypeRequest]) (*connect.Response[v1.ListLatestJobPerTypeResponse], error) {
+	return c.listLatestJobPerType.CallUnary(ctx, req)
+}
+
+// ListPendingJobs calls factory.jobs.v1.JobService.ListPendingJobs.
+func (c *jobServiceClient) ListPendingJobs(ctx context.Context, req *connect.Request[v1.ListPendingJobsRequest]) (*connect.Response[v1.ListPendingJobsResponse], error) {
+	return c.listPendingJobs.CallUnary(ctx, req)
+}
+
 // JobServiceHandler is an implementation of the factory.jobs.v1.JobService service.
 type JobServiceHandler interface {
 	// 按 id 返回一个任务的处理状态
@@ -136,6 +187,12 @@ type JobServiceHandler interface {
 	ListJobs(context.Context, *connect.Request[v1.ListJobsRequest]) (*connect.Response[v1.ListJobsResponse], error)
 	// 按任务类型和 id 的列表筛选任务,新的在前,分页
 	ListJobsByTypes(context.Context, *connect.Request[v1.ListJobsByTypesRequest]) (*connect.Response[v1.ListJobsByTypesResponse], error)
+	// 任務の種類を指定して、終了時刻の新しい任務を 2 件返す
+	ListLatestFinishedJobs(context.Context, *connect.Request[v1.ListLatestFinishedJobsRequest]) (*connect.Response[v1.ListLatestFinishedJobsResponse], error)
+	// 任務の種類ごとに、いちばん新しく作られた任務を返す
+	ListLatestJobPerType(context.Context, *connect.Request[v1.ListLatestJobPerTypeRequest]) (*connect.Response[v1.ListLatestJobPerTypeResponse], error)
+	// まだ終わっていない任務を古い順に返す(分页)
+	ListPendingJobs(context.Context, *connect.Request[v1.ListPendingJobsRequest]) (*connect.Response[v1.ListPendingJobsResponse], error)
 }
 
 // NewJobServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -169,6 +226,24 @@ func NewJobServiceHandler(svc JobServiceHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(jobServiceMethods.ByName("ListJobsByTypes")),
 		connect.WithHandlerOptions(opts...),
 	)
+	jobServiceListLatestFinishedJobsHandler := connect.NewUnaryHandler(
+		JobServiceListLatestFinishedJobsProcedure,
+		svc.ListLatestFinishedJobs,
+		connect.WithSchema(jobServiceMethods.ByName("ListLatestFinishedJobs")),
+		connect.WithHandlerOptions(opts...),
+	)
+	jobServiceListLatestJobPerTypeHandler := connect.NewUnaryHandler(
+		JobServiceListLatestJobPerTypeProcedure,
+		svc.ListLatestJobPerType,
+		connect.WithSchema(jobServiceMethods.ByName("ListLatestJobPerType")),
+		connect.WithHandlerOptions(opts...),
+	)
+	jobServiceListPendingJobsHandler := connect.NewUnaryHandler(
+		JobServiceListPendingJobsProcedure,
+		svc.ListPendingJobs,
+		connect.WithSchema(jobServiceMethods.ByName("ListPendingJobs")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/factory.jobs.v1.JobService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case JobServiceGetJobStatusProcedure:
@@ -179,6 +254,12 @@ func NewJobServiceHandler(svc JobServiceHandler, opts ...connect.HandlerOption) 
 			jobServiceListJobsHandler.ServeHTTP(w, r)
 		case JobServiceListJobsByTypesProcedure:
 			jobServiceListJobsByTypesHandler.ServeHTTP(w, r)
+		case JobServiceListLatestFinishedJobsProcedure:
+			jobServiceListLatestFinishedJobsHandler.ServeHTTP(w, r)
+		case JobServiceListLatestJobPerTypeProcedure:
+			jobServiceListLatestJobPerTypeHandler.ServeHTTP(w, r)
+		case JobServiceListPendingJobsProcedure:
+			jobServiceListPendingJobsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -202,4 +283,16 @@ func (UnimplementedJobServiceHandler) ListJobs(context.Context, *connect.Request
 
 func (UnimplementedJobServiceHandler) ListJobsByTypes(context.Context, *connect.Request[v1.ListJobsByTypesRequest]) (*connect.Response[v1.ListJobsByTypesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.jobs.v1.JobService.ListJobsByTypes is not implemented"))
+}
+
+func (UnimplementedJobServiceHandler) ListLatestFinishedJobs(context.Context, *connect.Request[v1.ListLatestFinishedJobsRequest]) (*connect.Response[v1.ListLatestFinishedJobsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.jobs.v1.JobService.ListLatestFinishedJobs is not implemented"))
+}
+
+func (UnimplementedJobServiceHandler) ListLatestJobPerType(context.Context, *connect.Request[v1.ListLatestJobPerTypeRequest]) (*connect.Response[v1.ListLatestJobPerTypeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.jobs.v1.JobService.ListLatestJobPerType is not implemented"))
+}
+
+func (UnimplementedJobServiceHandler) ListPendingJobs(context.Context, *connect.Request[v1.ListPendingJobsRequest]) (*connect.Response[v1.ListPendingJobsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.jobs.v1.JobService.ListPendingJobs is not implemented"))
 }
