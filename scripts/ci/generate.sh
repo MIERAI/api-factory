@@ -8,6 +8,7 @@ md "## 生成" "" "| 步骤 | 时间 |" "|---|---|"
 stage "② 确定性生成" bash -c "make --no-print-directory design >/dev/null && make --no-print-directory prepare"
 specs=$(changed_specs "$BASE")
 ai_specs=()
+rm -f .factory/ai-usage.md   # AI 的用量(实际的模型 / token / 费用)→ 生成物 PR 的说明
 for s in $specs; do   # AI 要写的文件(计算 / 自定义)
   if [[ $(go run ./factory/cmd/factory ai-paths "$s" | wc -l) -gt 1 ]]; then ai_specs+=("$s"); fi
 done
@@ -18,7 +19,9 @@ if (( ${#ai_specs[@]} )); then
   git add -A
   git -c user.name=factory-bot -c user.email=factory-bot@localhost commit -q --allow-empty -m "factory: baseline before AI"
   for s in "${ai_specs[@]}"; do
-    stage "④ AI 实现 $(basename "$(dirname "$s")")" bash -c "go run ./factory/cmd/factory prompt '$s' | go run ./factory/cmd/factory ai --role implement ${IMPLEMENT_MODEL:+--model $IMPLEMENT_MODEL} -- --output-format text"
+    name=$(basename "$(dirname "$s")")
+    stage "④ AI 实现 $name" bash -c "go run ./factory/cmd/factory prompt '$s' | go run ./factory/cmd/factory ai --role implement ${IMPLEMENT_MODEL:+--model $IMPLEMENT_MODEL} -- --output-format json > .factory/impl-$name.json"
+    echo "- \`$name\`: $(scripts/ci/ai-usage.sh ".factory/impl-$name.json")" >> .factory/ai-usage.md
   done
   stage "⑤ 路径 / 纯函数闸门" make --no-print-directory guard
   git reset -q --soft "$pre"   # 基线只给闸门用: 最后仍是一个生成物的提交
@@ -34,4 +37,5 @@ fi
 git -c user.name=factory-bot -c user.email=factory-bot@localhost commit -q -m "factory: 生成 $sha 的式样书"
 echo "$branch" > .factory/gen-branch
 scripts/ci/pr-body.sh "$BASE" "$specs" > .factory/pr-body.md
+if [[ -s .factory/ai-usage.md ]]; then printf '\n### AI 的用量\n\n' >> .factory/pr-body.md; cat .factory/ai-usage.md >> .factory/pr-body.md; fi
 echo "✓ 分支 $branch(PR 说明 .factory/pr-body.md)"

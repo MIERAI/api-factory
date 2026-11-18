@@ -2,7 +2,7 @@
 # 阶段 1: 式样书的 PR(只改 design/)。机械检查 → 确定性生成(不提交)→ AI 审查改动的 API。
 #   有挡流水线的问题 → 失败(PR 上回答问题: factory answer design/…,再推)
 #   BASE: 和哪个提交比(GitHub: origin/main)。REVIEW=skip: 不调用 AI(本地模拟 / 没有 AI 凭证时)
-#   REVIEW_MODEL: factory.yaml 的模型(空 = 默认 claude)。claude 以外 = 只作参考: 意见贴出来,不挡 PR
+#   REVIEW_MODEL: factory.yaml 的模型(空 = 默认 claude)。claude* 以外 = 只作参考: 意见贴出来,不挡 PR
 #   (实测: 本地模型的 blocker 全是误报,审查后面没有闸门兜底)
 source "$(dirname "$0")/lib.sh"
 BASE=${BASE:-origin/main}
@@ -19,12 +19,14 @@ for s in $specs; do
     continue
   fi
   rc=0; out=$(scripts/review.sh "$s" "${REVIEW_MODEL:-}" 2>&1) || rc=$?
-  if [[ -n ${REVIEW_MODEL:-} && ${REVIEW_MODEL} != claude ]]; then   # 只作参考
+  usage=$(scripts/ci/ai-usage.sh "$(ls -td .factory/reviews/*-"${REVIEW_MODEL:-default}"-"$id"* 2>/dev/null | head -1)/ai.json")
+  if [[ -n ${REVIEW_MODEL:-} && ${REVIEW_MODEL} != claude* ]]; then   # 只作参考
     case $rc in
       0) md "- \`$id\`: ✓ 审查通过($REVIEW_MODEL,参考)" ;;
       1) md "- \`$id\`: ⚠ $REVIEW_MODEL 的审查意见(仅供参考,不阻塞;本地模型误报多,由人判断)" "" '```' "$out" '```' ;;
       *) md "- \`$id\`: ⚠ 审查工具出错(不阻塞)" "" '```' "$out" '```' ;;
     esac
+    md "  - $usage"
     continue
   fi
   case $rc in
@@ -32,5 +34,6 @@ for s in $specs; do
     1) md "- \`$id\`: ✗ 有要回答的问题" "" '```' "$out" '```'; blocked=1 ;;
     *) md "- \`$id\`: ⚠ 审查工具出错(不是规格的问题)" "" '```' "$out" '```'; blocked=1 ;;
   esac
+  md "  - $usage"
 done
 exit $blocked

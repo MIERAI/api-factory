@@ -9,8 +9,11 @@ proto:
 ai:
   # 模型: 怎么调用(命令 + 环境变量)
   models:
-    claude:
-      command: [claude, -p]
+    # 模型 ID 写死: CLI 的默认模型会随套餐 / 版本变,结果不可复现(2026-11-18 以前没指定,用的是哪个模型不明)
+    claude:                      # 强模型: 审查(阻塞)
+      command: [claude, -p, --model, claude-opus-5-5]
+    claude-sonnet:               # 实现: 有路径闸门 + 编译 + 验收兜底,用便宜一些的模型
+      command: [claude, -p, --model, claude-sonnet-5-5]
     local:                       # winpc 的 Ollama(Anthropic 兼容 API),同一个 harness 只换模型
       command: [claude, -p, --model, "qwen3.6:35b"]
       env:
@@ -35,6 +38,6 @@ ai:
     implement:
       model: claude
       # 实现有路径闸门 + 编译 + 验收兜底,弱模型也可以(实测: 本地模型 compute 8/9 次通过)
-      allowed: [claude, local]
+      allowed: [claude, claude-sonnet, local]
       args: [--max-turns, "40"]    # 允许的工具来自适配器清单(ai_tools)
       timeout_sec: 1800
