@@ -333,6 +333,8 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 		}
 	}
 
+	checkPickUniquePlain(c, a, table, e)
+
 	// ---- 请求
 	req := &message{Name: a.Name + "Request", Desc: a.Desc}
 	if a.Exit.Request != nil { // 出口加到请求里的字段(分页: page_size / page_token)
@@ -830,4 +832,38 @@ func contains(xs []string, x string) bool {
 		}
 	}
 	return false
+}
+
+// checkPickUniquePlain: 普通的表(没有 存储)上的 每组取一条: 按 + 取 的列要覆盖表的主键,否则同一组里可能有多行
+// 取的值相同,取哪一行不确定。以前只在验收时由参考求值器报 ambiguous order(批量压测: ListLatestJobPerType 按
+// job_type 取 created_at 最大,创建时刻相同的任务);设计稿编译时就报。多版本的来源由 compiler.checkPickUnique 检查。
+func checkPickUniquePlain(c *ctx, a *API, table string, e *errs) {
+	g := a.Pattern.PickPerGroup
+	if g == nil || table == "" {
+		return
+	}
+	t := c.d.Tables[table]
+	if t == nil || t.Storage != nil || len(t.PrimaryKey) == 0 {
+		return
+	}
+	have := map[string]bool{}
+	for _, k := range g.By {
+		have[k] = true
+	}
+	var take []string
+	for _, o := range g.Order {
+		col, _, _ := strings.Cut(o, " ")
+		have[col] = true
+		take = append(take, col)
+	}
+	var miss []string
+	for _, k := range t.PrimaryKey {
+		if !have[k] {
+			miss = append(miss, k)
+		}
+	}
+	if len(miss) > 0 {
+		e.add(1, "每组取一条: 按 %v + 取 %v 不能唯一确定一行(同一组里可能有多行取的值相同,取哪一行不确定)。"+
+			"取 里加上 %v(%s 的主键),例: 取: %s 最大、%s 最大", g.By, take, miss, table, take[0], miss[0])
+	}
 }
