@@ -1,0 +1,1768 @@
+[
+  {
+    "id": "catalog.get-product-label",
+    "method": "GetProductLabel",
+    "summary": "商品コードとラベルコードを指定して、ラベルの現在の文言を返す。なければ found = false",
+    "path": "/factory.catalog.v1.CatalogService/GetProductLabel",
+    "pattern": "get_by_id",
+    "cases": [
+      {
+        "name": "最新の版の文言(found = true)",
+        "request": {
+          "label_code": "A",
+          "product_code": "100"
+        },
+        "response": {
+          "found": true,
+          "text": "特売2"
+        }
+      },
+      {
+        "name": "削除されたラベルは「ない」(エラーではなく found = false)",
+        "request": {
+          "label_code": "B",
+          "product_code": "100"
+        },
+        "response": {
+          "found": false
+        }
+      },
+      {
+        "name": "登録のないラベルも found = false",
+        "request": {
+          "label_code": "A",
+          "product_code": "999"
+        },
+        "response": {
+          "found": false
+        }
+      }
+    ]
+  },
+  {
+    "id": "catalog.list-labels-by-label-codes",
+    "method": "ListLabelsByLabelCodes",
+    "summary": "ラベルコード(複数)を指定して、全商品のそのラベルの現在の文言を返す。商品コードの前方一致で絞れる",
+    "path": "/factory.catalog.v1.CatalogService/ListLabelsByLabelCodes",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "現在の版、削除されたものは出ない",
+        "request": {
+          "label_codes": [
+            "A"
+          ]
+        },
+        "response": {
+          "product_label": [
+            {
+              "product_code": "100",
+              "text": "特売2"
+            },
+            {
+              "product_code": "200",
+              "text": "新"
+            }
+          ]
+        }
+      },
+      {
+        "name": "複数のコード + 前方一致",
+        "request": {
+          "label_codes": [
+            "A",
+            "B"
+          ],
+          "product_prefix": "2"
+        },
+        "response": {
+          "product_label": [
+            {
+              "label_code": "A",
+              "product_code": "200"
+            },
+            {
+              "label_code": "B",
+              "product_code": "200"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "catalog.list-labels-by-pairs",
+    "method": "ListLabelsByPairs",
+    "summary": "(商品コード, ラベルコード) の組のリストを受け取り、組ごとのラベルの現在の文言を返す",
+    "path": "/factory.catalog.v1.CatalogService/ListLabelsByPairs",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "組ごとに一致するものだけ(100/B と 200/A は掛け合わせなので返さない)",
+        "request": {
+          "pairs": [
+            {
+              "label_code": "A",
+              "product_code": "100"
+            },
+            {
+              "label_code": "B",
+              "product_code": "200"
+            }
+          ]
+        },
+        "response": {
+          "product_label": [
+            {
+              "label_code": "A",
+              "product_code": "100",
+              "text": "特売"
+            },
+            {
+              "label_code": "B",
+              "product_code": "200",
+              "text": "再入荷"
+            }
+          ]
+        }
+      },
+      {
+        "name": "ラベルコードが空(既定のラベル)の行は、空文字の組とは一致しない",
+        "request": {
+          "pairs": [
+            {
+              "label_code": "",
+              "product_code": "300"
+            }
+          ]
+        },
+        "response": {
+          "product_label": []
+        }
+      },
+      {
+        "name": "同じ組を 2 回書いても 1 件",
+        "request": {
+          "pairs": [
+            {
+              "label_code": "B",
+              "product_code": "100"
+            },
+            {
+              "label_code": "B",
+              "product_code": "100"
+            }
+          ]
+        },
+        "response": {
+          "product_label": [
+            {
+              "label_code": "B",
+              "product_code": "100",
+              "text": "新商品"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "catalog.list-product-labels",
+    "method": "ListProductLabels",
+    "summary": "商品コードを指定して、その商品のラベル(既定のラベルを含む)の現在の値を返す",
+    "path": "/factory.catalog.v1.CatalogService/ListProductLabels",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "既定のラベル(ラベルコードが空)も 1 件として、新しい版を返す。空は最後に並ぶ",
+        "request": {
+          "product_code": "100"
+        },
+        "response": {
+          "product_label": [
+            {
+              "display_text": "特売",
+              "label": "A"
+            },
+            {
+              "display_text": "既定2",
+              "label": null
+            }
+          ]
+        }
+      },
+      {
+        "name": "既定のラベルが削除された商品は、残りのラベルだけ",
+        "request": {
+          "product_code": "200"
+        },
+        "response": {
+          "product_label": [
+            {
+              "display_text": "新商品",
+              "label": "B"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "catalog.list-product-master",
+    "method": "ListProductMaster",
+    "summary": "カテゴリと商品コードを条件に、商品マスタの現在の値を返す",
+    "path": "/factory.catalog.v1.CatalogService/ListProductMaster",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "現在の値だけ。削除された B は返さない(古い版に戻らない)。論理削除された C は次の例(veg)で確認",
+        "request": {
+          "category": "fruit"
+        },
+        "response": {
+          "product_master": [
+            {
+              "launched_on": "2026-01-01",
+              "name": "りんご2",
+              "price": "120",
+              "product_code": "A"
+            },
+            {
+              "category": "fruit",
+              "product_code": "D"
+            }
+          ]
+        }
+      },
+      {
+        "name": "筛选は現在の値に対して行う。D の古い版は veg だが、今は fruit なので veg では返さない",
+        "request": {
+          "category": "veg"
+        },
+        "response": {
+          "product_master": []
+        }
+      }
+    ]
+  },
+  {
+    "id": "catalog.list-products-by-category",
+    "method": "ListProductsByCategory",
+    "summary": "カテゴリを指定して、現在の商品を安い順に返す。最低価格で絞れる",
+    "path": "/factory.catalog.v1.CatalogService/ListProductsByCategory",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "現在の価格で安い順、同じ価格は商品コード順。削除された商品は出ない",
+        "request": {
+          "category": "fruit"
+        },
+        "response": {
+          "product_master": [
+            {
+              "product_code": "B"
+            },
+            {
+              "price": "120",
+              "product_code": "A"
+            },
+            {
+              "product_code": "C"
+            }
+          ]
+        }
+      },
+      {
+        "name": "最低価格(含)",
+        "request": {
+          "category": "fruit",
+          "min_price": "120"
+        },
+        "response": {
+          "product_master": [
+            {
+              "product_code": "A"
+            },
+            {
+              "product_code": "C"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "catalog.list-recent-label-changes",
+    "method": "ListRecentLabelChanges",
+    "summary": "商品コードを指定して、その商品のラベルを最後に変わった順に返す(いつ変わったかも返す)",
+    "path": "/factory.catalog.v1.CatalogService/ListRecentLabelChanges",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "最後に変わった順(A は 1/3 に変わったので先)",
+        "request": {
+          "product_code": "100"
+        },
+        "response": {
+          "product_label": [
+            {
+              "changed_at": "2026-01-03T00:00:00Z",
+              "label_code": "A",
+              "text": "特売2"
+            },
+            {
+              "changed_at": "2026-01-02T00:00:00Z",
+              "label_code": "B",
+              "text": "新商品"
+            }
+          ]
+        }
+      },
+      {
+        "name": "指定時刻以降に変わったものだけ(最新の版の時刻で判断する)",
+        "request": {
+          "changed_since": "2026-01-02T12:00:00Z",
+          "product_code": "100"
+        },
+        "response": {
+          "product_label": [
+            {
+              "changed_at": "2026-01-03T00:00:00Z",
+              "label_code": "A",
+              "text": "特売2"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "jobs.get-job-status",
+    "method": "GetJobStatus",
+    "summary": "按 id 返回一个任务的处理状态",
+    "path": "/factory.jobs.v1.JobService/GetJobStatus",
+    "pattern": "get_by_id",
+    "cases": [
+      {
+        "name": "普通的 id",
+        "request": {
+          "job_id": 102
+        },
+        "response": {
+          "status": "JOB_STATUS_SUCCEEDED"
+        }
+      },
+      {
+        "name": "超过 32 位整数范围的 id 也能查到",
+        "request": {
+          "job_id": 3000000000
+        },
+        "response": {
+          "status": "JOB_STATUS_FAILED"
+        }
+      }
+    ]
+  },
+  {
+    "id": "jobs.get-job-summary",
+    "method": "GetJobSummary",
+    "summary": "按任务类型和期间,汇总任务的处理情况",
+    "path": "/factory.jobs.v1.JobService/GetJobSummary",
+    "pattern": "compute",
+    "cases": [
+      {
+        "name": "alpha — 0.95 刚好 OK,期间边界外不计",
+        "request": {
+          "job_type": "alpha",
+          "period_end": "2026-11-08T00:00:00Z",
+          "period_start": "2026-11-01T00:00:00Z"
+        },
+        "response": {
+          "avg_duration_seconds": 60,
+          "failed": 1,
+          "health": "OK",
+          "pending": 0,
+          "sla_breaches": 0,
+          "succeeded": 19,
+          "success_rate": 0.95,
+          "total": 20
+        }
+      },
+      {
+        "name": "beta — 300 秒不算违约 / 数据不一致的行 / 0.75 CRITICAL",
+        "request": {
+          "job_type": "beta",
+          "period_end": "2026-11-08T00:00:00Z",
+          "period_start": "2026-11-01T00:00:00Z"
+        },
+        "response": {
+          "avg_duration_seconds": 233.7,
+          "failed": 1,
+          "health": "CRITICAL",
+          "pending": 1,
+          "sla_breaches": 1,
+          "succeeded": 3,
+          "success_rate": 0.75,
+          "total": 5
+        }
+      },
+      {
+        "name": "gamma — 全部未完成 → NO_DATA,比率和平均不设置",
+        "request": {
+          "job_type": "gamma",
+          "period_end": "2026-11-08T00:00:00Z",
+          "period_start": "2026-11-01T00:00:00Z"
+        },
+        "response": {
+          "avg_duration_seconds": "$absent",
+          "failed": 0,
+          "health": "NO_DATA",
+          "pending": 2,
+          "sla_breaches": 0,
+          "succeeded": 0,
+          "success_rate": "$absent",
+          "total": 2
+        }
+      }
+    ]
+  },
+  {
+    "id": "jobs.list-jobs",
+    "method": "ListJobs",
+    "summary": "按条件列出任务,新的在前,分页",
+    "path": "/factory.jobs.v1.JobService/ListJobs",
+    "pattern": "list_keyset",
+    "cases": [
+      {
+        "name": "时间范围是左闭右开(业务上\"11/2 到 11/5\"指 11/2 当天到 11/4 当天)",
+        "request": {
+          "created_after": "2026-11-02T00:00:00Z",
+          "created_before": "2026-11-05T00:00:00Z"
+        },
+        "response": {
+          "jobs": [
+            {
+              "id": 4
+            },
+            {
+              "id": 3
+            },
+            {
+              "id": 2
+            }
+          ]
+        }
+      },
+      {
+        "name": "管理画面最常用的查询 — 某类型的成功任务,新的在前",
+        "request": {
+          "job_type": "export",
+          "status": "JOB_STATUS_SUCCEEDED"
+        },
+        "response": {
+          "jobs": [
+            {
+              "id": 7
+            },
+            {
+              "id": 6
+            },
+            {
+              "id": 1
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "jobs.list-jobs-by-types",
+    "method": "ListJobsByTypes",
+    "summary": "按任务类型和 id 的列表筛选任务,新的在前,分页",
+    "path": "/factory.jobs.v1.JobService/ListJobsByTypes",
+    "pattern": "list_keyset",
+    "cases": [
+      {
+        "name": "两种类型",
+        "request": {
+          "job_types": [
+            "export",
+            "report"
+          ]
+        },
+        "response": {
+          "jobs": [
+            {
+              "id": 3
+            },
+            {
+              "id": 1
+            }
+          ]
+        }
+      },
+      {
+        "name": "类型和 id 同时指定 = 两个条件都满足",
+        "request": {
+          "job_ids": [
+            2,
+            3
+          ],
+          "job_types": [
+            "export",
+            "import"
+          ]
+        },
+        "response": {
+          "jobs": [
+            {
+              "id": 2
+            }
+          ]
+        }
+      },
+      {
+        "name": "空列表 = 不筛选",
+        "request": {
+          "job_types": []
+        },
+        "response": {
+          "jobs": [
+            {
+              "id": 3
+            },
+            {
+              "id": 2
+            },
+            {
+              "id": 1
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "jobs.list-latest-finished-jobs",
+    "method": "ListLatestFinishedJobs",
+    "summary": "任務の種類を指定して、終了時刻の新しい任務を 2 件返す",
+    "path": "/factory.jobs.v1.JobService/ListLatestFinishedJobs",
+    "pattern": "top_n",
+    "cases": [
+      {
+        "name": "状態を指定しなくても未完了(4)は出ない",
+        "request": {
+          "job_type": "export"
+        },
+        "response": {
+          "jobs": [
+            {
+              "id": 2
+            },
+            {
+              "id": 3
+            }
+          ]
+        }
+      },
+      {
+        "name": "成功した任務の新しい 2 件",
+        "request": {
+          "job_type": "export",
+          "status": "JOB_STATUS_SUCCEEDED"
+        },
+        "response": {
+          "jobs": [
+            {
+              "id": 2
+            },
+            {
+              "id": 3
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "jobs.list-latest-job-per-type",
+    "method": "ListLatestJobPerType",
+    "summary": "任務の種類ごとに、いちばん新しく作られた任務を返す",
+    "path": "/factory.jobs.v1.JobService/ListLatestJobPerType",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "種類ごとに最新の 1 件、種類の順",
+        "request": {},
+        "response": {
+          "jobs": [
+            {
+              "id": 3,
+              "job_type": "export"
+            },
+            {
+              "id": 2,
+              "job_type": "import"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "jobs.list-pending-jobs",
+    "method": "ListPendingJobs",
+    "summary": "まだ終わっていない任務を古い順に返す(分页)",
+    "path": "/factory.jobs.v1.JobService/ListPendingJobs",
+    "pattern": "list_keyset",
+    "cases": [
+      {
+        "name": "終わっていない任務だけ、古い順",
+        "request": {},
+        "response": {
+          "jobs": [
+            {
+              "id": 1
+            },
+            {
+              "id": 2
+            },
+            {
+              "id": 4
+            }
+          ]
+        }
+      },
+      {
+        "name": "種類で絞る",
+        "request": {
+          "job_types": [
+            "export"
+          ]
+        },
+        "response": {
+          "jobs": [
+            {
+              "id": 1
+            },
+            {
+              "id": 4
+            }
+          ]
+        }
+      },
+      {
+        "name": "作成時刻の下限(含)",
+        "request": {
+          "created_after": "2026-11-02T00:00:00Z"
+        },
+        "response": {
+          "jobs": [
+            {
+              "id": 2
+            },
+            {
+              "id": 4
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "sales.get-daily-sales-summary",
+    "method": "GetDailySalesSummary",
+    "summary": "指定した売上日の売上を店舗横断で集計する(合計・値引き・純売上・値引き率・締めの状況)",
+    "path": "/factory.sales.v1.SaleService/GetDailySalesSummary",
+    "pattern": "compute",
+    "cases": [
+      {
+        "name": "全店。値引きの空は 0、未締めが 1 店 → OPEN。率 1.75 / 350.75 = 0.00498… → 0.005",
+        "request": {
+          "sales_date": "2026-11-01"
+        },
+        "response": {
+          "discount_rate": 0.005,
+          "net_amount": "349",
+          "status": "OPEN",
+          "store_count": 3,
+          "total_amount": "350.75",
+          "total_discount": "1.75",
+          "unclosed_stores": 1
+        }
+      },
+      {
+        "name": "店舗を絞る(締め済みの 2 店だけ → CLOSED)。率 0.5 / 300.5 = 0.00166… → 0.0017",
+        "request": {
+          "sales_date": "2026-11-01",
+          "store_codes": [
+            1,
+            2
+          ]
+        },
+        "response": {
+          "discount_rate": 0.0017,
+          "net_amount": "300",
+          "status": "CLOSED",
+          "store_count": 2,
+          "total_amount": "300.5",
+          "total_discount": "0.5",
+          "unclosed_stores": 0
+        }
+      },
+      {
+        "name": "全店締め済み。率 5 / 100 = 0.05",
+        "request": {
+          "sales_date": "2026-11-02"
+        },
+        "response": {
+          "discount_rate": 0.05,
+          "net_amount": "95",
+          "status": "CLOSED",
+          "store_count": 2,
+          "total_amount": "100",
+          "total_discount": "5",
+          "unclosed_stores": 0
+        }
+      }
+    ]
+  },
+  {
+    "id": "sales.get-price-change-summary",
+    "method": "GetPriceChangeSummary",
+    "summary": "店舗と指示日を指定して、売価変更の指示を分類して件数を数え、変化率の平均・最大の値上げ率・警告を返す",
+    "path": "/factory.sales.v1.SaleService/GetPriceChangeSummary",
+    "pattern": "compute",
+    "cases": [
+      {
+        "name": "全分類。平均 = (-10/108 + 0 + 0 + 0.3 + 0.01) / 5 = 0.04348… → 0.0435。ちょうど 30% は警告",
+        "request": {
+          "proc_date": "2026-11-20",
+          "store_code": 1
+        },
+        "response": {
+          "alert": "LARGE_CHANGE",
+          "avg_change_rate": 0.0435,
+          "forced": 1,
+          "max_increase_rate": 0.3,
+          "new_products": 1,
+          "price_down": 1,
+          "price_up": 2,
+          "total": 7,
+          "unchanged": 2,
+          "undecided": 1
+        }
+      },
+      {
+        "name": "据え置きだけ。値上げがない → 最大の値上げ率は設定しない",
+        "request": {
+          "proc_date": "2026-11-21",
+          "store_code": 1
+        },
+        "response": {
+          "alert": "NONE",
+          "avg_change_rate": 0,
+          "max_increase_rate": "$absent",
+          "total": 1,
+          "unchanged": 1
+        }
+      },
+      {
+        "name": "旧売価 0 は値上げとして数えるが、変化率の対象外 → 平均も最大も設定しない",
+        "request": {
+          "proc_date": "2026-11-22",
+          "store_code": 1
+        },
+        "response": {
+          "alert": "NONE",
+          "avg_change_rate": "$absent",
+          "max_increase_rate": "$absent",
+          "price_up": 1,
+          "total": 1
+        }
+      }
+    ]
+  },
+  {
+    "id": "sales.list-current-prices",
+    "method": "ListCurrentPrices",
+    "summary": "店舗の全商品について、基準日までに始まった売価のうち最新の 1 件をページごとに返す",
+    "path": "/factory.sales.v1.SaleService/ListCurrentPrices",
+    "pattern": "list_keyset",
+    "cases": [
+      {
+        "name": "商品ごとに基準日までの最新の 1 件(A は 11/01 の売価。12/01 は未来)。1 ページ目は 2 件",
+        "request": {
+          "as_of": "2026-11-20",
+          "store_code": 1
+        },
+        "response": {
+          "store_prices": [
+            {
+              "item": "A",
+              "price": "120",
+              "valid_from": "2026-11-01"
+            },
+            {
+              "item": "B",
+              "price": "50",
+              "valid_from": "2026-11-15"
+            }
+          ]
+        }
+      },
+      {
+        "name": "基準日より前に始まった売価がない商品(B)は出てこない",
+        "request": {
+          "as_of": "2026-11-01",
+          "page_size": 10,
+          "store_code": 1
+        },
+        "response": {
+          "store_prices": [
+            {
+              "item": "A",
+              "price": "120"
+            },
+            {
+              "item": "C",
+              "price": "70"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "sales.list-discounted-sales",
+    "method": "ListDiscountedSales",
+    "summary": "売上日を指定して、値引きのあった店舗の売上を売上金額の大きい順に返す(分页)",
+    "path": "/factory.sales.v1.SaleService/ListDiscountedSales",
+    "pattern": "list_keyset",
+    "cases": [
+      {
+        "name": "金額の大きい順、同じ金額は店舗コードの大きい順。0 と空は出ない",
+        "request": {
+          "sales_date": "2026-11-01"
+        },
+        "response": {
+          "daily_sales": [
+            {
+              "store_code": 5
+            },
+            {
+              "store_code": 4
+            },
+            {
+              "store_code": 1
+            }
+          ]
+        }
+      },
+      {
+        "name": "値引きのない日は空",
+        "request": {
+          "sales_date": "2026-11-02"
+        },
+        "response": {
+          "daily_sales": []
+        }
+      }
+    ]
+  },
+  {
+    "id": "sales.list-effective-price-changes",
+    "method": "ListEffectivePriceChanges",
+    "summary": "店舗と指示日を指定して、売価が実際に変わる売価変更の指示を返す",
+    "path": "/factory.sales.v1.SaleService/ListEffectivePriceChanges",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "売価が変わるもの + 強制送信。変わらないもの(B)と比較できないもの(D)は返さない",
+        "request": {
+          "proc_date": "2026-11-20",
+          "store_code": 1
+        },
+        "response": {
+          "price_changes": [
+            {
+              "product_code": "A"
+            },
+            {
+              "product_code": "C"
+            },
+            {
+              "product_code": "E"
+            },
+            {
+              "product_code": "F"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "sales.list-price-change-history",
+    "method": "ListPriceChangeHistory",
+    "summary": "商品コードを指定して、各店の売価変更の指示を新しい指示日から返す(分页)",
+    "path": "/factory.sales.v1.SaleService/ListPriceChangeHistory",
+    "pattern": "list_keyset",
+    "cases": [
+      {
+        "name": "新しい指示日から。同じ日は店舗コードの大きい順",
+        "request": {
+          "product_code": "4901"
+        },
+        "response": {
+          "price_changes": [
+            {
+              "new_price": 95,
+              "old_price": 100,
+              "proc_date": "2026-11-25",
+              "store_code": 3
+            },
+            {
+              "new_price": 100,
+              "old_price": 108,
+              "proc_date": "2026-11-20",
+              "store_code": 2
+            },
+            {
+              "new_price": 98,
+              "old_price": 108,
+              "proc_date": "2026-11-20",
+              "store_code": 1
+            },
+            {
+              "new_price": 108,
+              "old_price": 110,
+              "proc_date": "2026-11-10",
+              "store_code": 1
+            }
+          ]
+        }
+      },
+      {
+        "name": "店舗を指定",
+        "request": {
+          "product_code": "4901",
+          "store_codes": [
+            1
+          ]
+        },
+        "response": {
+          "price_changes": [
+            {
+              "proc_date": "2026-11-20",
+              "store_code": 1
+            },
+            {
+              "proc_date": "2026-11-10",
+              "store_code": 1
+            }
+          ]
+        }
+      },
+      {
+        "name": "指示日の下限(含)",
+        "request": {
+          "from_date": "2026-11-20",
+          "product_code": "4901"
+        },
+        "response": {
+          "price_changes": [
+            {
+              "proc_date": "2026-11-25",
+              "store_code": 3
+            },
+            {
+              "proc_date": "2026-11-20",
+              "store_code": 2
+            },
+            {
+              "proc_date": "2026-11-20",
+              "store_code": 1
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "sales.list-price-changes-for-stores",
+    "method": "ListPriceChangesForStores",
+    "summary": "店舗(複数)と指示日を指定して、売価変更の指示を返す(分页)",
+    "path": "/factory.sales.v1.SaleService/ListPriceChangesForStores",
+    "pattern": "list_keyset",
+    "cases": [
+      {
+        "name": "指定した店舗だけ、店舗・商品の順",
+        "request": {
+          "proc_date": "2026-11-20",
+          "store_codes": [
+            2,
+            1
+          ]
+        },
+        "response": {
+          "price_changes": [
+            {
+              "product_code": "4901",
+              "store_code": 1
+            },
+            {
+              "product_code": "4902",
+              "store_code": 1
+            },
+            {
+              "product_code": "4901",
+              "store_code": 2
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "sales.list-prices-as-of",
+    "method": "ListPricesAsOf",
+    "summary": "店舗の、基準日に有効な売価を返す",
+    "path": "/factory.sales.v1.SaleService/ListPricesAsOf",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "終了日の当日は有効(含む)",
+        "request": {
+          "as_of": "2026-10-31",
+          "store_code": 1
+        },
+        "response": {
+          "store_prices": [
+            {
+              "price": "100",
+              "product_code": "A"
+            }
+          ]
+        }
+      },
+      {
+        "name": "終了日が空 = 期限なし。開始日前の B は返さない",
+        "request": {
+          "as_of": "2026-11-01",
+          "store_code": 1
+        },
+        "response": {
+          "store_prices": [
+            {
+              "price": "120",
+              "product_code": "A",
+              "valid_to": "$absent"
+            }
+          ]
+        }
+      },
+      {
+        "name": "開始日の当日は有効",
+        "request": {
+          "as_of": "2026-11-15",
+          "store_code": 1
+        },
+        "response": {
+          "store_prices": [
+            {
+              "product_code": "A"
+            },
+            {
+              "product_code": "B"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "sales.list-store-prices-by-prefix",
+    "method": "ListStorePricesByPrefix",
+    "summary": "店舗を指定して、商品コードの前方一致で売価(有効期間つき)を返す",
+    "path": "/factory.sales.v1.SaleService/ListStorePricesByPrefix",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "前方一致。同じ商品は新しい適用開始日から",
+        "request": {
+          "product_prefix": "49",
+          "store_code": 1
+        },
+        "response": {
+          "store_prices": [
+            {
+              "product_code": "49"
+            },
+            {
+              "product_code": "4901",
+              "valid_from": "2026-12-01"
+            },
+            {
+              "product_code": "4901",
+              "valid_from": "2026-11-01"
+            }
+          ]
+        }
+      },
+      {
+        "name": "指定しなければ店舗の全商品",
+        "request": {
+          "store_code": 2
+        },
+        "response": {
+          "store_prices": [
+            {
+              "price": "99",
+              "product_code": "4901"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "sales.list-store-sales",
+    "method": "ListStoreSales",
+    "summary": "指定した売上日の、店舗別の売上を返す(分页なし)",
+    "path": "/factory.sales.v1.SaleService/ListStoreSales",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "全店(店舗コード順)",
+        "request": {
+          "sales_date": "2026-11-01"
+        },
+        "response": {
+          "daily_sales": [
+            {
+              "store_code": 1
+            },
+            {
+              "store_code": 2
+            }
+          ]
+        }
+      },
+      {
+        "name": "店舗を指定",
+        "request": {
+          "sales_date": "2026-11-01",
+          "store_codes": [
+            2
+          ]
+        },
+        "response": {
+          "daily_sales": [
+            {
+              "amount": "10",
+              "discount": "$absent",
+              "store_code": 2
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "sales.list-store-sales-by-period",
+    "method": "ListStoreSalesByPeriod",
+    "summary": "店舗と期間を指定して、日別の売上を新しい日から返す",
+    "path": "/factory.sales.v1.SaleService/ListStoreSalesByPeriod",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "期間内、新しい日から",
+        "request": {
+          "date_from": "2026-11-01",
+          "date_to": "2026-11-04",
+          "store_code": 1
+        },
+        "response": {
+          "daily_sales": [
+            {
+              "sales_date": "2026-11-03"
+            },
+            {
+              "sales_date": "2026-11-02"
+            },
+            {
+              "sales_date": "2026-11-01"
+            }
+          ]
+        }
+      },
+      {
+        "name": "開始は含み、終了は含まない",
+        "request": {
+          "date_from": "2026-11-02",
+          "date_to": "2026-11-03",
+          "store_code": 1
+        },
+        "response": {
+          "daily_sales": [
+            {
+              "amount": "110",
+              "discount": "5",
+              "sales_date": "2026-11-02"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "sales.list-top-discount-stores",
+    "method": "ListTopDiscountStores",
+    "summary": "売上日を指定して、値引きのあった店舗のうち値引き額の大きい店舗を上位 2 件返す",
+    "path": "/factory.sales.v1.SaleService/ListTopDiscountStores",
+    "pattern": "top_n",
+    "cases": [
+      {
+        "name": "値引き額の大きい順、同じなら店舗コードの小さい順に 2 件",
+        "request": {
+          "sales_date": "2026-11-01"
+        },
+        "response": {
+          "daily_sales": [
+            {
+              "discount": "9",
+              "store_code": 2
+            },
+            {
+              "discount": "9",
+              "store_code": 4
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "sales.list-top-sales",
+    "method": "ListTopSales",
+    "summary": "売上金額の多い順に、日別・店別の売上を返す",
+    "path": "/factory.sales.v1.SaleService/ListTopSales",
+    "pattern": "list_keyset",
+    "cases": [
+      {
+        "name": "金額は数値として並べる(10 は 9 より大きい。文字列の辞書順だと逆になる)",
+        "request": {},
+        "response": {
+          "daily_sales": [
+            {
+              "amount": "100.25",
+              "sales_date": "2026-11-02"
+            },
+            {
+              "amount": "10",
+              "closed_on": "$absent",
+              "discount": "0.5"
+            },
+            {
+              "amount": "9",
+              "closed_on": "2026-11-02"
+            }
+          ]
+        }
+      },
+      {
+        "name": "金額の下限(数値で比較、10 \u003e= 9.5)",
+        "request": {
+          "min_amount": "9.5"
+        },
+        "response": {
+          "daily_sales": [
+            {
+              "amount": "100.25"
+            },
+            {
+              "amount": "10"
+            }
+          ]
+        }
+      },
+      {
+        "name": "売上日の下限",
+        "request": {
+          "date_from": "2026-11-02"
+        },
+        "response": {
+          "daily_sales": [
+            {
+              "amount": "100.25",
+              "store_code": 1
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "sales.list-top-stores",
+    "method": "ListTopStores",
+    "summary": "売上日を指定して、売上金額の上位 3 店を返す",
+    "path": "/factory.sales.v1.SaleService/ListTopStores",
+    "pattern": "top_n",
+    "cases": [
+      {
+        "name": "上位 3 店(金額は数値で比べる)。4 位以下は返さない(エラーにもしない)",
+        "request": {
+          "sales_date": "2026-11-01"
+        },
+        "response": {
+          "daily_sales": [
+            {
+              "store_code": 3
+            },
+            {
+              "store_code": 4
+            },
+            {
+              "store_code": 2
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "sales.list-unclosed-sales",
+    "method": "ListUnclosedSales",
+    "summary": "指定した店舗の、まだ締めていない売上日の売上を返す",
+    "path": "/factory.sales.v1.SaleService/ListUnclosedSales",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "未締めの日だけ、日付順",
+        "request": {
+          "store_code": 1
+        },
+        "response": {
+          "daily_sales": [
+            {
+              "amount": "110",
+              "discount": "0",
+              "sales_date": "2026-11-02"
+            },
+            {
+              "amount": "95.5",
+              "discount": "$absent",
+              "sales_date": "2026-11-03"
+            }
+          ]
+        }
+      },
+      {
+        "name": "開始日を指定",
+        "request": {
+          "from_date": "2026-11-03",
+          "store_code": 1
+        },
+        "response": {
+          "daily_sales": [
+            {
+              "amount": "95.5",
+              "sales_date": "2026-11-03"
+            }
+          ]
+        }
+      },
+      {
+        "name": "未締めの日がない店は空",
+        "request": {
+          "store_code": 9
+        },
+        "response": {
+          "daily_sales": []
+        }
+      }
+    ]
+  },
+  {
+    "id": "shop.get-customer",
+    "method": "GetCustomer",
+    "summary": "R1: 按顾客 id 返回顾客信息",
+    "path": "/factory.shop.v1.ShopService/GetCustomer",
+    "pattern": "get_by_id",
+    "cases": [
+      {
+        "name": "金卡会员的信息(含 enum 和时间)",
+        "request": {
+          "customer_id": 1
+        },
+        "response": {
+          "created_at": "2025-04-01T00:00:00Z",
+          "email": "taro@example.com",
+          "name": "山田太郎",
+          "tier": "CUSTOMER_TIER_GOLD"
+        }
+      }
+    ]
+  },
+  {
+    "id": "shop.get-customer-order-stats",
+    "method": "GetCustomerOrderStats",
+    "summary": "R7: 某顾客在期间内的订单统计",
+    "path": "/factory.shop.v1.ShopService/GetCustomerOrderStats",
+    "pattern": "compute",
+    "cases": [
+      {
+        "name": "取消的订单计入件数和取消率,但不计入金额",
+        "request": {
+          "customer_id": 1,
+          "period_end": "2026-11-01T00:00:00Z",
+          "period_start": "2026-10-01T00:00:00Z"
+        },
+        "response": {
+          "avg_amount": 1501,
+          "cancel_rate": 0.3333,
+          "order_count": 3,
+          "total_amount": 3001
+        }
+      },
+      {
+        "name": "期间内没有订单",
+        "request": {
+          "customer_id": 1,
+          "period_end": "2026-12-01T00:00:00Z",
+          "period_start": "2026-11-01T00:00:00Z"
+        },
+        "response": {
+          "avg_amount": "$absent",
+          "cancel_rate": "$absent",
+          "order_count": 0,
+          "total_amount": 0
+        }
+      }
+    ]
+  },
+  {
+    "id": "shop.get-daily-sales-report",
+    "method": "GetDailySalesReport",
+    "summary": "R9: 日别销售额报表",
+    "path": "/factory.shop.v1.ShopService/GetDailySalesReport",
+    "pattern": "compute",
+    "cases": [
+      {
+        "name": "按日本时间划分日期;取消不计;没有订单的日子也返回 0",
+        "request": {
+          "period_end": "2026-10-03T15:00:00Z",
+          "period_start": "2026-09-30T15:00:00Z"
+        },
+        "response": {
+          "days": [
+            {
+              "date": "2026-10-01",
+              "order_count": 1,
+              "total_amount": 1000
+            },
+            {
+              "date": "2026-10-02",
+              "order_count": 1,
+              "total_amount": 2000
+            },
+            {
+              "date": "2026-10-03",
+              "order_count": 0,
+              "total_amount": 0
+            }
+          ]
+        }
+      },
+      {
+        "name": "期间不在 0 点 — 首尾两天只统计期间内的订单",
+        "request": {
+          "period_end": "2026-10-01T15:30:00Z",
+          "period_start": "2026-10-01T03:00:00Z"
+        },
+        "response": {
+          "days": [
+            {
+              "date": "2026-10-01",
+              "order_count": 1,
+              "total_amount": 1000
+            },
+            {
+              "date": "2026-10-02",
+              "order_count": 1,
+              "total_amount": 2000
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "shop.get-order-with-items",
+    "method": "GetOrderWithItems",
+    "summary": "R8: 订单详情(订单头 + 全部明细)",
+    "path": "/factory.shop.v1.ShopService/GetOrderWithItems",
+    "pattern": "compute",
+    "cases": [
+      {
+        "name": "订单头 + 明细(按行号升序)",
+        "request": {
+          "order_id": 1
+        },
+        "response": {
+          "items": [
+            {
+              "line_no": 1,
+              "quantity": 2
+            },
+            {
+              "line_no": 2,
+              "quantity": 1
+            }
+          ],
+          "order": {
+            "customer_id": 7,
+            "id": 1,
+            "status": "ORDER_STATUS_SHIPPED",
+            "total_amount": 3200
+          }
+        }
+      },
+      {
+        "name": "没有明细的订单 → items 为空",
+        "request": {
+          "order_id": 2
+        },
+        "response": {
+          "items": [],
+          "order": {
+            "id": 2,
+            "shipped_at": "$absent",
+            "status": "ORDER_STATUS_PLACED"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "shop.get-product-by-sku",
+    "method": "GetProductBySku",
+    "summary": "R2: 按 SKU 返回商品",
+    "path": "/factory.shop.v1.ShopService/GetProductBySku",
+    "pattern": "get_by_id",
+    "cases": [
+      {
+        "name": "扫到停售商品也能查到(仓库要处理退货)",
+        "request": {
+          "sku": "SKU-0002"
+        },
+        "response": {
+          "id": 11,
+          "name": "旧款马克杯",
+          "status": "PRODUCT_STATUS_DISCONTINUED"
+        }
+      }
+    ]
+  },
+  {
+    "id": "shop.get-product-price-as-of",
+    "method": "GetProductPriceAsOf",
+    "summary": "R6: 某商品在某个时点的有效价格",
+    "path": "/factory.shop.v1.ShopService/GetProductPriceAsOf",
+    "pattern": "get_by_id",
+    "cases": [
+      {
+        "name": "改价前的时点 → 旧价格",
+        "request": {
+          "as_of": "2025-06-30T23:59:59Z",
+          "product_id": 10
+        },
+        "response": {
+          "price": 1000,
+          "valid_from": "2025-01-01T00:00:00Z"
+        }
+      },
+      {
+        "name": "恰好在 valid_from 那一刻 → 新价格生效",
+        "request": {
+          "as_of": "2025-07-01T00:00:00Z",
+          "product_id": 10
+        },
+        "response": {
+          "price": 1200
+        }
+      }
+    ]
+  },
+  {
+    "id": "shop.list-order-items",
+    "method": "ListOrderItems",
+    "summary": "R5: 某个订单的明细,按行号升序",
+    "path": "/factory.shop.v1.ShopService/ListOrderItems",
+    "pattern": "list_keyset",
+    "cases": [
+      {
+        "name": "只返回这个订单的明细,按行号升序",
+        "request": {
+          "order_id": 1
+        },
+        "response": {
+          "items": [
+            {
+              "line_no": 1,
+              "product_id": 10,
+              "quantity": 2,
+              "unit_price": 1000
+            },
+            {
+              "line_no": 2
+            }
+          ]
+        }
+      },
+      {
+        "name": "不存在的订单(或没有明细的订单)→ OK + 空列表",
+        "request": {
+          "order_id": 999
+        },
+        "response": {
+          "items": []
+        }
+      }
+    ]
+  },
+  {
+    "id": "shop.list-orders",
+    "method": "ListOrders",
+    "summary": "R3: 订单一览(按顾客/状态/下单期间筛选,新的在前,游标分页)",
+    "path": "/factory.shop.v1.ShopService/ListOrders",
+    "pattern": "list_keyset",
+    "cases": [
+      {
+        "name": "客服查某位顾客的订单,新的在前;未发货的订单没有 shipped_at",
+        "request": {
+          "customer_id": 1
+        },
+        "response": {
+          "orders": [
+            {
+              "id": 2,
+              "shipped_at": "$absent",
+              "status": "ORDER_STATUS_PLACED",
+              "total_amount": 1500
+            },
+            {
+              "id": 1,
+              "shipped_at": "2026-10-02T09:00:00Z",
+              "status": "ORDER_STATUS_DELIVERED"
+            }
+          ]
+        }
+      },
+      {
+        "name": "期间是左闭右开(10/5 10:00 下单的订单属于 \"10/5 10:00 之后\")",
+        "request": {
+          "ordered_after": "2026-10-05T10:00:00Z",
+          "ordered_before": "2026-10-06T10:00:00Z"
+        },
+        "response": {
+          "orders": [
+            {
+              "id": 2
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "shop.list-products",
+    "method": "ListProducts",
+    "summary": "R4: 商品一览(按分类/状态筛选,按商品名前缀搜索,新的在前,游标分页)",
+    "path": "/factory.shop.v1.ShopService/ListProducts",
+    "pattern": "list_keyset",
+    "cases": [
+      {
+        "name": "按前缀搜索 \"有机\",新的在前",
+        "request": {
+          "name_prefix": "有机"
+        },
+        "response": {
+          "products": [
+            {
+              "id": 2
+            },
+            {
+              "id": 1
+            }
+          ]
+        }
+      },
+      {
+        "name": "前缀 + 分类",
+        "request": {
+          "category": "kitchen",
+          "name_prefix": "咖啡"
+        },
+        "response": {
+          "products": [
+            {
+              "id": 3
+            }
+          ]
+        }
+      },
+      {
+        "name": "前缀里的 % 和 _ 按字面匹配,不是通配符",
+        "request": {
+          "name_prefix": "有%"
+        },
+        "response": {
+          "products": []
+        }
+      }
+    ]
+  },
+  {
+    "id": "shop.list-shipping-delays",
+    "method": "ListShippingDelays",
+    "summary": "R10: 发货延迟告警(截至 as_of,下单已满 min_days 天仍未发货的订单;恰好 min_days 天也算)",
+    "path": "/factory.shop.v1.ShopService/ListShippingDelays",
+    "pattern": "list_keyset",
+    "cases": [
+      {
+        "name": "截至 10/10,下单超过 7 天未发货的订单(已发货和已取消不算)",
+        "request": {
+          "as_of": "2026-10-10T00:00:00Z",
+          "min_days": 7
+        },
+        "response": {
+          "orders": [
+            {
+              "id": 1,
+              "status": "ORDER_STATUS_PLACED"
+            }
+          ]
+        }
+      },
+      {
+        "name": "恰好 N 天也算延迟(\u003c=)",
+        "request": {
+          "as_of": "2026-10-15T00:00:00Z",
+          "min_days": 7
+        },
+        "response": {
+          "orders": [
+            {
+              "id": 1
+            },
+            {
+              "id": 2
+            }
+          ]
+        }
+      }
+    ]
+  }
+]

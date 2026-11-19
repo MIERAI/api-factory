@@ -190,6 +190,10 @@ func cmdPrepare(args []string) error {
 	if err := acceptgen.Write(plan); err != nil {
 		return err
 	}
+	// ②' API 目录(交付看板的"试一下"): 路径 + 人写的 OK 用例
+	if err := writeCatalog(plan, specs); err != nil {
+		return err
+	}
 	// ③ 适配器: IR → 这种语言的代码(factory.yaml 选的适配器;各适配器在 init 里登记)
 	m, err := adapter.Load()
 	if err != nil {
