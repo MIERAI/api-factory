@@ -29,6 +29,9 @@ service JobService {
   // 按任务类型和期间,汇总任务的处理情况
   rpc GetJobSummary(GetJobSummaryRequest) returns (GetJobSummaryResponse);
 
+  // 失敗した任務を新しい順に返す(分页)。種類と作成時刻で絞れる
+  rpc ListFailedJobs(ListFailedJobsRequest) returns (ListFailedJobsResponse);
+
   // 按条件列出任务,新的在前,分页
   rpc ListJobs(ListJobsRequest) returns (ListJobsResponse);
 
@@ -95,6 +98,37 @@ message GetJobSummaryResponse {
   int64 sla_breaches = 7;
   // 健康度 OK / DEGRADED / CRITICAL / NO_DATA
   string health = 8;
+}
+
+// 任务
+message FailedJob {
+  // 任務 id
+  int64 id = 1;
+  // 任務の種類
+  string job_type = 2;
+  // 作成時刻
+  google.protobuf.Timestamp created_at = 3;
+  // 失敗した時刻
+  google.protobuf.Timestamp finished_at = 4;
+}
+
+// 失敗した任務を新しい順に返す(分页)。種類と作成時刻で絞れる
+message ListFailedJobsRequest {
+  // 每页件数。0 = 默认 20,最多 100
+  int32 page_size = 1 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
+  // 上一页返回的 next_page_token(不透明的字符串)
+  string page_token = 2;
+  // 任務の種類(不指定 = 全部)(空列表 = 不按这个条件筛选)
+  repeated string job_types = 3 [(buf.validate.field).repeated.max_items = 20, (buf.validate.field).repeated.items.string.min_len = 1, (buf.validate.field).repeated.items.string.max_len = 64];
+  // 作成時刻の下限(含)
+  google.protobuf.Timestamp created_after = 4;
+}
+
+// 失敗した任務を新しい順に返す(分页)。種類と作成時刻で絞れる
+message ListFailedJobsResponse {
+  repeated FailedJob jobs = 1;
+  // 还有下一页时不为空
+  string next_page_token = 2;
 }
 
 // 任务
