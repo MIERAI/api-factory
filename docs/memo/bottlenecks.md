@@ -165,6 +165,9 @@ B1 的"第一步"(统计试用分支里 计算 / 自定义 的比例)仍然有�
 - **完成(同一天)**: 第 3~5 轮审查后 10/10 通过 → 合并(#14)→ 确定性生成(AI 写的文件 0)→ verify(3 种子 + 变异)→
   release → dev(kind + 笔记本,部署后压测通过)→ promote prod。审查轮次: 6 个 API 2~3 轮,ListProductsByCategory 5 轮
   (改设计 price >= 0 → 负数被排除? → 0 元呢? 每次改设计都带出新的边界问题,属于正常的 new_rule)
+- **未修: 生成 PR 上的 pull_request verify 总是启动即失败**(2026-11-19 交付看板发现): 机器人(GITHUB_TOKEN)开的
+  生成 PR 触发的 verify 运行 0 个 job、"workflow file issue"(#13 #15 都是);真正的闸门是 generate 内部 workflow_call
+  的 verify(通过)。GitHub 上 PR 一直显示红叉却被合并,没人注意到。待查: bot 触发事件的限制 / 去掉重复的 PR verify
 - **又一个 CI 缺口(已修)**: git 把非 ASCII 的文件名加引号输出("design/X.\345…"),verify 认不出"只改了式样书"的 PR
   (有 审查.yaml 时总是失败,#11 也是);content-guard 也匹配不到文件名里的非 ASCII 禁止词 → 全部 core.quotePath=false
 
