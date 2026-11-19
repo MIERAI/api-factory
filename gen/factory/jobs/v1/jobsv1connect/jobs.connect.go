@@ -41,6 +41,9 @@ const (
 	// JobServiceGetJobSummaryProcedure is the fully-qualified name of the JobService's GetJobSummary
 	// RPC.
 	JobServiceGetJobSummaryProcedure = "/factory.jobs.v1.JobService/GetJobSummary"
+	// JobServiceListFailedJobsProcedure is the fully-qualified name of the JobService's ListFailedJobs
+	// RPC.
+	JobServiceListFailedJobsProcedure = "/factory.jobs.v1.JobService/ListFailedJobs"
 	// JobServiceListJobsProcedure is the fully-qualified name of the JobService's ListJobs RPC.
 	JobServiceListJobsProcedure = "/factory.jobs.v1.JobService/ListJobs"
 	// JobServiceListJobsByTypesProcedure is the fully-qualified name of the JobService's
@@ -63,6 +66,8 @@ type JobServiceClient interface {
 	GetJobStatus(context.Context, *connect.Request[v1.GetJobStatusRequest]) (*connect.Response[v1.GetJobStatusResponse], error)
 	// 按任务类型和期间,汇总任务的处理情况
 	GetJobSummary(context.Context, *connect.Request[v1.GetJobSummaryRequest]) (*connect.Response[v1.GetJobSummaryResponse], error)
+	// 失敗した任務を新しい順に返す(分页)。種類と作成時刻で絞れる
+	ListFailedJobs(context.Context, *connect.Request[v1.ListFailedJobsRequest]) (*connect.Response[v1.ListFailedJobsResponse], error)
 	// 按条件列出任务,新的在前,分页
 	ListJobs(context.Context, *connect.Request[v1.ListJobsRequest]) (*connect.Response[v1.ListJobsResponse], error)
 	// 按任务类型和 id 的列表筛选任务,新的在前,分页
@@ -96,6 +101,12 @@ func NewJobServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			httpClient,
 			baseURL+JobServiceGetJobSummaryProcedure,
 			connect.WithSchema(jobServiceMethods.ByName("GetJobSummary")),
+			connect.WithClientOptions(opts...),
+		),
+		listFailedJobs: connect.NewClient[v1.ListFailedJobsRequest, v1.ListFailedJobsResponse](
+			httpClient,
+			baseURL+JobServiceListFailedJobsProcedure,
+			connect.WithSchema(jobServiceMethods.ByName("ListFailedJobs")),
 			connect.WithClientOptions(opts...),
 		),
 		listJobs: connect.NewClient[v1.ListJobsRequest, v1.ListJobsResponse](
@@ -135,6 +146,7 @@ func NewJobServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 type jobServiceClient struct {
 	getJobStatus           *connect.Client[v1.GetJobStatusRequest, v1.GetJobStatusResponse]
 	getJobSummary          *connect.Client[v1.GetJobSummaryRequest, v1.GetJobSummaryResponse]
+	listFailedJobs         *connect.Client[v1.ListFailedJobsRequest, v1.ListFailedJobsResponse]
 	listJobs               *connect.Client[v1.ListJobsRequest, v1.ListJobsResponse]
 	listJobsByTypes        *connect.Client[v1.ListJobsByTypesRequest, v1.ListJobsByTypesResponse]
 	listLatestFinishedJobs *connect.Client[v1.ListLatestFinishedJobsRequest, v1.ListLatestFinishedJobsResponse]
@@ -150,6 +162,11 @@ func (c *jobServiceClient) GetJobStatus(ctx context.Context, req *connect.Reques
 // GetJobSummary calls factory.jobs.v1.JobService.GetJobSummary.
 func (c *jobServiceClient) GetJobSummary(ctx context.Context, req *connect.Request[v1.GetJobSummaryRequest]) (*connect.Response[v1.GetJobSummaryResponse], error) {
 	return c.getJobSummary.CallUnary(ctx, req)
+}
+
+// ListFailedJobs calls factory.jobs.v1.JobService.ListFailedJobs.
+func (c *jobServiceClient) ListFailedJobs(ctx context.Context, req *connect.Request[v1.ListFailedJobsRequest]) (*connect.Response[v1.ListFailedJobsResponse], error) {
+	return c.listFailedJobs.CallUnary(ctx, req)
 }
 
 // ListJobs calls factory.jobs.v1.JobService.ListJobs.
@@ -183,6 +200,8 @@ type JobServiceHandler interface {
 	GetJobStatus(context.Context, *connect.Request[v1.GetJobStatusRequest]) (*connect.Response[v1.GetJobStatusResponse], error)
 	// 按任务类型和期间,汇总任务的处理情况
 	GetJobSummary(context.Context, *connect.Request[v1.GetJobSummaryRequest]) (*connect.Response[v1.GetJobSummaryResponse], error)
+	// 失敗した任務を新しい順に返す(分页)。種類と作成時刻で絞れる
+	ListFailedJobs(context.Context, *connect.Request[v1.ListFailedJobsRequest]) (*connect.Response[v1.ListFailedJobsResponse], error)
 	// 按条件列出任务,新的在前,分页
 	ListJobs(context.Context, *connect.Request[v1.ListJobsRequest]) (*connect.Response[v1.ListJobsResponse], error)
 	// 按任务类型和 id 的列表筛选任务,新的在前,分页
@@ -212,6 +231,12 @@ func NewJobServiceHandler(svc JobServiceHandler, opts ...connect.HandlerOption) 
 		JobServiceGetJobSummaryProcedure,
 		svc.GetJobSummary,
 		connect.WithSchema(jobServiceMethods.ByName("GetJobSummary")),
+		connect.WithHandlerOptions(opts...),
+	)
+	jobServiceListFailedJobsHandler := connect.NewUnaryHandler(
+		JobServiceListFailedJobsProcedure,
+		svc.ListFailedJobs,
+		connect.WithSchema(jobServiceMethods.ByName("ListFailedJobs")),
 		connect.WithHandlerOptions(opts...),
 	)
 	jobServiceListJobsHandler := connect.NewUnaryHandler(
@@ -250,6 +275,8 @@ func NewJobServiceHandler(svc JobServiceHandler, opts ...connect.HandlerOption) 
 			jobServiceGetJobStatusHandler.ServeHTTP(w, r)
 		case JobServiceGetJobSummaryProcedure:
 			jobServiceGetJobSummaryHandler.ServeHTTP(w, r)
+		case JobServiceListFailedJobsProcedure:
+			jobServiceListFailedJobsHandler.ServeHTTP(w, r)
 		case JobServiceListJobsProcedure:
 			jobServiceListJobsHandler.ServeHTTP(w, r)
 		case JobServiceListJobsByTypesProcedure:
@@ -275,6 +302,10 @@ func (UnimplementedJobServiceHandler) GetJobStatus(context.Context, *connect.Req
 
 func (UnimplementedJobServiceHandler) GetJobSummary(context.Context, *connect.Request[v1.GetJobSummaryRequest]) (*connect.Response[v1.GetJobSummaryResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.jobs.v1.JobService.GetJobSummary is not implemented"))
+}
+
+func (UnimplementedJobServiceHandler) ListFailedJobs(context.Context, *connect.Request[v1.ListFailedJobsRequest]) (*connect.Response[v1.ListFailedJobsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.jobs.v1.JobService.ListFailedJobs is not implemented"))
 }
 
 func (UnimplementedJobServiceHandler) ListJobs(context.Context, *connect.Request[v1.ListJobsRequest]) (*connect.Response[v1.ListJobsResponse], error) {

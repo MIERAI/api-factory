@@ -427,6 +427,66 @@
     ]
   },
   {
+    "id": "jobs.list-failed-jobs",
+    "method": "ListFailedJobs",
+    "summary": "失敗した任務を新しい順に返す(分页)。種類と作成時刻で絞れる",
+    "path": "/factory.jobs.v1.JobService/ListFailedJobs",
+    "pattern": "list_keyset",
+    "cases": [
+      {
+        "name": "失敗した任務だけ、新しい順",
+        "request": {},
+        "response": {
+          "jobs": [
+            {
+              "id": 5
+            },
+            {
+              "id": 3
+            },
+            {
+              "id": 1
+            }
+          ]
+        }
+      },
+      {
+        "name": "種類で絞る",
+        "request": {
+          "job_types": [
+            "export"
+          ]
+        },
+        "response": {
+          "jobs": [
+            {
+              "id": 5
+            },
+            {
+              "id": 1
+            }
+          ]
+        }
+      },
+      {
+        "name": "作成時刻の下限(含)",
+        "request": {
+          "created_after": "2026-11-03T00:00:00Z"
+        },
+        "response": {
+          "jobs": [
+            {
+              "id": 5
+            },
+            {
+              "id": 3
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
     "id": "jobs.list-jobs",
     "method": "ListJobs",
     "summary": "按条件列出任务,新的在前,分页",
