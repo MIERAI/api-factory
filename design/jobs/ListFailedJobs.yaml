@@ -1,0 +1,47 @@
+# ============================================================================
+# ListFailedJobs: 失敗した任務(一览: 固定条件 等于 + 任意の属于 + 時刻の範囲)
+# ============================================================================
+API: ListFailedJobs
+说明: 失敗した任務を新しい順に返す(分页)。種類と作成時刻で絞れる
+背景: 運用画面の「失敗した任務」。再実行するかどうかを人が判断する
+负责人: platform-team
+风险: 低
+
+种类: 一览
+数据来源: jobs
+
+输入:
+  job_types:     { 类型: 文本列表, 必填: 否, 个数: "0~20", 长度: 1~64, 说明: 任務の種類(不指定 = 全部), 筛选: job_type 属于 }
+  created_after: { 类型: 时间, 必填: 否, 说明: 作成時刻の下限(含), 筛选: created_at 大于等于 }
+
+固定条件:
+  - status = 2          # FAILED(固定条件は数据库值で書く: JobStatus の 数据库值)
+
+输出:
+  id:          任務 id
+  job_type:    任務の種類
+  created_at:  作成時刻
+  finished_at: 失敗した時刻
+
+排序: [created_at 新到旧, id 大到小]
+分页: { 默认每页: 20, 每页最多: 100 }
+输出行名: FailedJob
+
+例子:
+  准备数据:
+    jobs:
+      - { id: 1, job_type: export, status: FAILED,    created_at: 2026-11-01 09:00, finished_at: 2026-11-01 09:01 }
+      - { id: 2, job_type: import, status: SUCCEEDED, created_at: 2026-11-02 09:00, finished_at: 2026-11-02 09:03 }
+      - { id: 3, job_type: import, status: FAILED,    created_at: 2026-11-03 09:00, finished_at: 2026-11-03 09:02 }
+      - { id: 4, job_type: export, status: PENDING,   created_at: 2026-11-04 09:00, finished_at: null }
+      - { id: 5, job_type: export, status: FAILED,    created_at: 2026-11-05 09:00, finished_at: 2026-11-05 09:10 }
+  用例:
+    - 说明: 失敗した任務だけ、新しい順
+      输入: {}
+      结果: { jobs: [5, 3, 1] }
+    - 说明: 種類で絞る
+      输入: { job_types: [export] }
+      结果: { jobs: [5, 1] }
+    - 说明: 作成時刻の下限(含)
+      输入: { created_after: 2026-11-03 09:00 }
+      结果: { jobs: [5, 3] }

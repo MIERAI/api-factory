@@ -1,5 +1,10 @@
 # 由设计编译器维护,不要手改。proto 的字段编号对外发布后不能变: 只追加,删掉的字段编号保留(reserved)
 字段编号:
+    FailedJob:
+        created_at: 3
+        finished_at: 4
+        id: 1
+        job_type: 2
     FinishedJob:
         finished_at: 3
         id: 1
@@ -35,6 +40,14 @@
         id: 2
         job_type: 1
         status: 3
+    ListFailedJobsRequest:
+        created_after: 4
+        job_types: 3
+        page_size: 1
+        page_token: 2
+    ListFailedJobsResponse:
+        jobs: 1
+        next_page_token: 2
     ListJobsByTypesRequest:
         job_ids: 4
         job_types: 3
