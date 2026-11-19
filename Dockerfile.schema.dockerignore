@@ -1,4 +1,7 @@
 *
-!db/schema/
+!go.mod
+!go.sum
+!db/embed.go
+!db/migrations/
 !db/seed/
-!deploy/schema-apply.sh
+!cmd/migrate/

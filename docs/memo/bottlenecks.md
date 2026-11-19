@@ -188,6 +188,7 @@ B1 的"第一步"(统计试用分支里 计算 / 自定义 的比例)仍然有�
 ## B4. 新表 / 表结构变更没有迁移的路径
 
 - 设计书 PR 只能用已有的表(`design/<领域>/领域.yaml` + `db/schema/*.sql` 由人维护)
+- **(2026-11-19 已改善)** 带版本号的迁移: goose(db/migrations,cmd/migrate,advisory lock),api-factory 的 init container 执行;CI: 编号递增 / Up+Down / 只追加 / 和 db/schema 无漂移;每日恢复校验后在 prod 副本上排练。以下是改善前的记录
 - 建表是 `deploy/schema-apply.sh` 的幂等 SQL(CREATE … IF NOT EXISTS),**没有带版本号的迁移**:
   改列、加约束、数据迁移都没有路径
 - 真实需求里,新 API 常伴随新表 / 新列

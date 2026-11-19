@@ -100,7 +100,7 @@ gen/acceptance/*.yaml                 [AI 实现] factory ai(模型和角色在 
 
 | 层 | 路径 | 谁来写 |
 |---|---|---|
-| 式样书 / 领域层 | `specs/<domain>/`, `proto/`, `db/schema/<domain>.sql` | 人 |
+| 式样书 / 领域层 | `specs/<domain>/`, `proto/`, `db/schema/<domain>.sql`(当前结构,工厂读)+ `db/migrations/`(goose 迁移,线上执行;CI 检查两者无漂移) | 人 |
 | 确定性生成 | `gen/`, `db/queries/`, `*_gen.go`, `.factory/plan.json` | 工厂(勿手改) |
 | 业务实现 | 清单 `ai_files` 指定的文件(compute 的逻辑函数等) | AI |
 

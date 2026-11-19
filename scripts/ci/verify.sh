@@ -12,6 +12,7 @@ uptodate() {
   fi
 }
 stage "② 生成物是最新的" uptodate
+stage "②' 迁移(编号递增 / Up+Down / 只追加 / 和 db/schema 无漂移)" scripts/ci/migrations-check.sh
 stage "③ 编译 + 单元测试 + 验收(3 个种子)" bash -c "make --no-print-directory accept SEEDS=',s1,s2' 2>&1 | grep -v '^ok\|no test files' | tee .factory/accept.txt; exit \${PIPESTATUS[0]}"
 stage "④ 变异余量(margin)" bash -c "make --no-print-directory margin 2>&1 | tee .factory/margin.txt; exit \${PIPESTATUS[0]}"
 md "" '```' "$(grep -E '✓|✗|seed=' .factory/accept.txt .factory/margin.txt | sed 's/^.factory\///' | tail -12)" '```'
