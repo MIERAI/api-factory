@@ -84,6 +84,8 @@ func main() {
 		err = cmdPerf(args)
 	case "seed-volume":
 		err = cmdSeedVolume(args)
+	case "loadgen":
+		err = cmdLoadgen(args)
 	case "doc":
 		err = cmdDoc(args)
 	default:
@@ -738,6 +740,33 @@ func cmdSeedVolume(args []string) error {
 	}
 	fmt.Printf("✓ %s: 每表 %d 行(脏数据 %v) %s\n", cfg.Database, *rows, *dirty, time.Since(t0).Round(time.Second))
 	return nil
+}
+
+// cmdLoadgen: 压测用的请求(每个 API --per-api 个,参数从 --db 的真实数据抽样)→ JSON(k6 读)。只读。
+func cmdLoadgen(args []string) error {
+	fs := flag.NewFlagSet("loadgen", flag.ExitOnError)
+	db := fs.String("db", "", "抽样用的库(只读)")
+	perAPI := fs.Int("per-api", 40, "每个 API 的请求数")
+	out := fs.String("out", "-", "输出文件(- = 标准输出)")
+	_ = fs.Parse(args)
+	plan, err := ir.Load(ir.DefaultPath)
+	if err != nil {
+		return fmt.Errorf("IR not found (run factory prepare first): %w", err)
+	}
+	reqs, err := perf.LoadRequests(context.Background(), plan, *db, *perAPI)
+	if err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(reqs, "", " ")
+	if err != nil {
+		return err
+	}
+	if *out == "-" {
+		_, err = os.Stdout.Write(b)
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "✓ %d requests (%d APIs) → %s\n", len(reqs), len(plan.APIs), *out)
+	return os.WriteFile(*out, b, 0o644)
 }
 
 // cmdPerf: 性能闸门(P4)。接近真实的数据量 + EXPLAIN ANALYZE。会清空 --db 里的表,只用专门的性能库。

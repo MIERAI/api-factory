@@ -170,3 +170,26 @@ func checkValues(col, def string) []string {
 	}
 	return out
 }
+
+// textPattern: the request field's string pattern as a value format the generator knows ("" = free text).
+func textPattern(rules string) string {
+	switch {
+	case strings.Contains(rules, `^[0-9]+$`):
+		return "digits"
+	case strings.Contains(rules, `^\\d{3}-\\d{4}$`):
+		return "zip"
+	}
+	return ""
+}
+
+// patternSQL: values in the request field's format (unique: the row number; otherwise ~5000 distinct values).
+func patternSQL(p string, unique bool, salt int) string {
+	n := fmt.Sprintf("((i::int8 * %d) %% 5000)", 104729+salt)
+	if unique {
+		n = "i"
+	}
+	if p == "zip" {
+		return "lpad((" + n + " / 10000 % 1000)::text, 3, '0') || '-' || lpad((" + n + " % 10000)::text, 4, '0')"
+	}
+	return "(" + n + ")::text"
+}

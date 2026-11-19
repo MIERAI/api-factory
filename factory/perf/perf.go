@@ -61,6 +61,7 @@ type table struct {
 	nullable  map[string]bool                 // 物理列可以为空
 	checked   map[string]bool                 // 物理列出现在 CHECK 约束里(脏数据只掺空值)
 	literals  map[string][]string             // CHECK 的取值列表(SQL 字面量): 轮流取
+	pattern   map[string]string               // 文本列(物理列名或 JSON 键) → 请求字段的格式(digits / zip): API 能查到的值
 	dirty     bool
 }
 
@@ -142,7 +143,7 @@ func Run(ctx context.Context, plan *ir.Plan, opt Options) ([]Report, error) {
 
 func newTable(name string, cols []core.NamedType) *table {
 	return &table{name: name, cols: cols, unique: map[string]bool{}, composite: map[string][2]int{}, json: map[string]map[string]core.Kind{},
-		nkKeys: map[string][2]int{}, delKey: map[string]string{}, enums: map[string][]int64{}, nullable: map[string]bool{}, checked: map[string]bool{}, literals: map[string][]string{}}
+		nkKeys: map[string][2]int{}, delKey: map[string]string{}, enums: map[string][]int64{}, nullable: map[string]bool{}, checked: map[string]bool{}, literals: map[string][]string{}, pattern: map[string]string{}}
 }
 
 // loadKeys: 主键 / 唯一约束(单列 → unique,多列 → composite)。
@@ -188,6 +189,21 @@ func collect(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, api *ir.API, ta
 		for _, c := range scan.Columns {
 			if !slices.ContainsFunc(t.cols, func(x core.NamedType) bool { return x.Name == c.Name }) {
 				t.cols = append(t.cols, c)
+			}
+		}
+	}
+	for _, f := range api.Filters { // 请求字段有格式(数字 / 邮编): 数据也用这个格式,否则压测的请求全是校验错误
+		if fld := api.Request.Field(f.Field); fld != nil && fld.Rules != nil {
+			if p := textPattern(string(fld.Rules.Raw)); p != "" {
+				col := f.Column
+				if st := plan.Storage(api.Table); st != nil {
+					for _, sf := range st.Fields {
+						if sf.Name == f.Column && sf.Column == "" {
+							col = sf.Key
+						}
+					}
+				}
+				t.pattern[col] = p
 			}
 		}
 	}
@@ -346,6 +362,16 @@ func fill(ctx context.Context, conn *pgx.Conn, t *table, n int) error {
 			var parts []string
 			for j, k := range names {
 				v := jsonSQL(keys[k], salt*31+j, t.nkKeys[k], n)
+				if p := t.pattern[k]; p != "" && keys[k] == core.Text {
+					if nk := t.nkKeys[k]; nk[1] > 0 {
+						v = "(" + mixedRadix("(i / 5)", nk, n/5) + ")::text" // 自然键: 和 jsonSQL 同样的值,只是不加前缀
+						if p == "zip" {
+							v = "lpad(((" + mixedRadix("(i / 5)", nk, n/5) + ") / 10000 % 1000)::text, 3, '0') || '-' || lpad(((" + mixedRadix("(i / 5)", nk, n/5) + ") % 10000)::text, 4, '0')"
+						}
+					} else {
+						v = patternSQL(p, false, salt*31+j)
+					}
+				}
 				if en, ok := t.enums[k]; ok {
 					v = enumSQL(en, j)
 				}
@@ -365,6 +391,11 @@ func fill(ctx context.Context, conn *pgx.Conn, t *table, n int) error {
 			e = "timestamptz '2024-01-01 00:00:00+00' + make_interval(secs => i)"
 		case !t.unique[c.Name] && t.composite[c.Name][1] > 1:
 			e = compositeSQL(c.Type.Kind, t.composite[c.Name], n)
+			if c.Type.Kind == core.Text && t.pattern[c.Name] == "digits" { // same tuple values, without the prefix
+				e = "(" + mixedRadix("i", t.composite[c.Name], n) + ")::text"
+			}
+		case c.Type.Kind == core.Text && t.pattern[c.Name] != "":
+			e = patternSQL(t.pattern[c.Name], t.unique[c.Name], salt)
 		default:
 			e = valueSQL(c.Type.Kind, salt, t.unique[c.Name])
 			if t.dirty && !t.unique[c.Name] && t.composite[c.Name][1] == 0 {
