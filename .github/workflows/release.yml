@@ -27,7 +27,7 @@ jobs:
     with:
       app: api-factory
       images: >-
-        ghcr.io/mierai/api-factory=${{ needs.image-api.outputs.tag }}
-        ghcr.io/mierai/api-factory-schema=${{ needs.image-schema.outputs.tag }}
+        ${{ needs.image-api.outputs.name }}=${{ needs.image-api.outputs.tag }}
+        ${{ needs.image-schema.outputs.name }}=${{ needs.image-schema.outputs.tag }}
     secrets:
       MANIFESTS_DEPLOY_KEY: ${{ secrets.MANIFESTS_DEPLOY_KEY }}
