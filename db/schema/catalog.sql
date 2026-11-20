@@ -19,3 +19,6 @@ CREATE TABLE IF NOT EXISTS product_label_events (
     registered_by TEXT        NOT NULL DEFAULT 'factory',
     registered_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- 按自然键查最新版本(db/migrations/00002): 默认排序规则 — WHERE 用它比较,COLLATE "C" 的索引用不上
+CREATE INDEX IF NOT EXISTS product_label_events_key_idx
+    ON product_label_events ((data ->> 'product_code'), (data ->> 'label_code'), registered_at DESC, id DESC);
