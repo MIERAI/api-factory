@@ -16,7 +16,7 @@ import (
 //	AUTH_MODE=token  请求要带 Authorization: Bearer <令牌>。服务器只保存令牌的 SHA-256(AUTH_TOKEN_SHA256,逗号隔开,可以多个: 轮换用)
 //	AUTH_MODE=none   服务器不认证: 由平台负责(Cloud Run 的 IAM「需要认证」/ 网关),或者本地测试
 //
-// /healthz 不需要认证(平台的健康检查)。
+// 探针(/livez /readyz /healthz)不需要认证(平台的健康检查)。
 type auth struct {
 	mode   string
 	hashes [][]byte
@@ -49,13 +49,15 @@ func loadAuth() (*auth, error) {
 	return nil, fmt.Errorf("AUTH_MODE=%q: must be token or none", a.mode)
 }
 
-// wrap: 除了 /healthz,都检查令牌。
+var probePaths = map[string]bool{"/livez": true, "/readyz": true, "/healthz": true}
+
+// wrap: 除了探针(/livez /readyz /healthz),都检查令牌。
 func (a *auth) wrap(next http.Handler) http.Handler {
 	if a.mode == "none" {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/healthz" || a.ok(r.Header.Get("Authorization")) {
+		if probePaths[r.URL.Path] || a.ok(r.Header.Get("Authorization")) {
 			next.ServeHTTP(w, r)
 			return
 		}

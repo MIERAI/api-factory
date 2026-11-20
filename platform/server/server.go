@@ -1,6 +1,6 @@
 // Package server 是运行时模板的启动部分。所有生成出来的服务共用,AI 不可修改。
 //
-// 提供: 配置读取 / DB 连接池 / 拦截器链(日志→错误清洗→超时→校验) / healthz / 优雅停机
+// 提供: 配置读取 / DB 连接池 / 拦截器链(日志→错误清洗→超时→校验) / livez・readyz・healthz / 优雅停机
 package server
 
 import (
@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -21,8 +22,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"apifactory/platform/anomaly"
-	"apifactory/platform/metrics"
 	"apifactory/platform/apierr"
+	"apifactory/platform/metrics"
 	"apifactory/platform/paging"
 	"apifactory/platform/shard"
 )
@@ -156,6 +157,13 @@ func run(log *slog.Logger, build Builder) error {
 		}()
 		defer ms.Close()
 	}
+	// 探针(依赖不进 liveness / readiness): 数据库挂了,重启进程或把所有 pod 摘出 Service 都修不好它,只会让用户
+	// 拿到连接被拒绝、让 pod 内的 SLI 什么都数不到。进程照常接请求,对数据库失败快速返回 unavailable(计入 SLO)。
+	//   /livez  进程能回答 → liveness
+	//   /readyz 准备好接流量(停机开始后 503,先被摘出 Service)→ readiness
+	//   /healthz 深度检查(数据库能 ping 通): 外部探针 SLO、部署后的 smoke test
+	var stopping atomic.Bool
+	addProbes(mux, &stopping)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		pingCtx, cancel := context.WithTimeout(r.Context(), time.Second)
 		defer cancel()
@@ -188,10 +196,23 @@ func run(log *slog.Logger, build Builder) error {
 	case err := <-errCh:
 		return err
 	case <-ctx.Done():
+		stopping.Store(true)
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		return srv.Shutdown(shutdownCtx)
 	}
+}
+
+// addProbes: /livez 和 /readyz,都不碰数据库(见 Run 里的说明)。
+func addProbes(mux *http.ServeMux, stopping *atomic.Bool) {
+	mux.HandleFunc("/livez", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
+		if stopping.Load() {
+			http.Error(w, "shutting down", http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write([]byte("ok"))
+	})
 }
 
 func newLoggingInterceptor(log *slog.Logger) connect.UnaryInterceptorFunc {

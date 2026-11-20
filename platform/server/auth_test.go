@@ -44,6 +44,8 @@ func TestAuth(t *testing.T) {
 		{"/x.v1.S/M", "Bearer new", 200},
 		{"/x.v1.S/M", "Bearer old", 200},
 		{"/healthz", "", 200},
+		{"/livez", "", 200},
+		{"/readyz", "", 200},
 		{"/metrics", "", 401},
 	} {
 		r := httptest.NewRequest("POST", c.path, nil)
