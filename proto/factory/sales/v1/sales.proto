@@ -428,6 +428,10 @@ message StorePriceWithName {
 message ListStorePriceNamesRequest {
   // 店舗コード
   int32 store_code = 1 [(buf.validate.field).int32.gt = 0];
+  // 商品コードの先頭(省略 = 全商品)
+  optional string product_prefix = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 20];
+  // 商品名(店舗の商品マスタの表示名と一致。省略 = 絞らない)
+  optional string product_name = 3 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 40];
 }
 
 // 店舗を指定して、売価(有効期間つき)を商品名つきで商品コード順に返す

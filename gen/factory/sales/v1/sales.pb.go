@@ -2274,7 +2274,11 @@ func (x *StorePriceWithName) GetPrice() string {
 type ListStorePriceNamesRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 店舗コード
-	StoreCode     int32 `protobuf:"varint,1,opt,name=store_code,json=storeCode,proto3" json:"store_code,omitempty"`
+	StoreCode int32 `protobuf:"varint,1,opt,name=store_code,json=storeCode,proto3" json:"store_code,omitempty"`
+	// 商品コードの先頭(省略 = 全商品)
+	ProductPrefix *string `protobuf:"bytes,2,opt,name=product_prefix,json=productPrefix,proto3,oneof" json:"product_prefix,omitempty"`
+	// 商品名(店舗の商品マスタの表示名と一致。省略 = 絞らない)
+	ProductName   *string `protobuf:"bytes,3,opt,name=product_name,json=productName,proto3,oneof" json:"product_name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2314,6 +2318,20 @@ func (x *ListStorePriceNamesRequest) GetStoreCode() int32 {
 		return x.StoreCode
 	}
 	return 0
+}
+
+func (x *ListStorePriceNamesRequest) GetProductPrefix() string {
+	if x != nil && x.ProductPrefix != nil {
+		return *x.ProductPrefix
+	}
+	return ""
+}
+
+func (x *ListStorePriceNamesRequest) GetProductName() string {
+	if x != nil && x.ProductName != nil {
+		return *x.ProductName
+	}
+	return ""
 }
 
 // 店舗を指定して、売価(有効期間つき)を商品名つきで商品コード順に返す
@@ -3893,10 +3911,14 @@ const file_factory_sales_v1_sales_proto_rawDesc = "" +
 	"\bvalid_to\x18\x04 \x01(\tH\x01R\avalidTo\x88\x01\x01\x12\x14\n" +
 	"\x05price\x18\x05 \x01(\tR\x05priceB\x0f\n" +
 	"\r_product_nameB\v\n" +
-	"\t_valid_to\"D\n" +
+	"\t_valid_to\"\xd2\x01\n" +
 	"\x1aListStorePriceNamesRequest\x12&\n" +
 	"\n" +
-	"store_code\x18\x01 \x01(\x05B\a\xbaH\x04\x1a\x02 \x00R\tstoreCode\"f\n" +
+	"store_code\x18\x01 \x01(\x05B\a\xbaH\x04\x1a\x02 \x00R\tstoreCode\x125\n" +
+	"\x0eproduct_prefix\x18\x02 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18\x14H\x00R\rproductPrefix\x88\x01\x01\x121\n" +
+	"\fproduct_name\x18\x03 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18(H\x01R\vproductName\x88\x01\x01B\x11\n" +
+	"\x0f_product_prefixB\x0f\n" +
+	"\r_product_name\"f\n" +
 	"\x1bListStorePriceNamesResponse\x12G\n" +
 	"\fstore_prices\x18\x01 \x03(\v2$.factory.sales.v1.StorePriceWithNameR\vstorePrices\"\x92\x01\n" +
 	"\x1eListStorePricesByPrefixRequest\x12&\n" +
@@ -4205,6 +4227,7 @@ func file_factory_sales_v1_sales_proto_init() {
 	file_factory_sales_v1_sales_proto_msgTypes[28].OneofWrappers = []any{}
 	file_factory_sales_v1_sales_proto_msgTypes[32].OneofWrappers = []any{}
 	file_factory_sales_v1_sales_proto_msgTypes[34].OneofWrappers = []any{}
+	file_factory_sales_v1_sales_proto_msgTypes[35].OneofWrappers = []any{}
 	file_factory_sales_v1_sales_proto_msgTypes[37].OneofWrappers = []any{}
 	file_factory_sales_v1_sales_proto_msgTypes[39].OneofWrappers = []any{}
 	file_factory_sales_v1_sales_proto_msgTypes[42].OneofWrappers = []any{}

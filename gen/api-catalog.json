@@ -2770,6 +2770,26 @@
         }
       },
       {
+        "name": "商品コードの先頭と商品名で絞る(商品名で絞ると商品マスタに無い商品は出ない)",
+        "request": {
+          "product_name": "お茶 500ml",
+          "product_prefix": "4",
+          "store_code": 1
+        },
+        "response": {
+          "store_prices": [
+            {
+              "product_code": "4901",
+              "valid_from": "2026-12-01"
+            },
+            {
+              "product_code": "4901",
+              "valid_from": "2026-11-01"
+            }
+          ]
+        }
+      },
+      {
         "name": "別の店舗(別の DB)でも同じ商品マスタの行がある",
         "request": {
           "store_code": 3

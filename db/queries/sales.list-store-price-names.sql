@@ -7,6 +7,8 @@ FROM (
     FROM store_prices AS t1
     LEFT JOIN local_products AS t2 ON t1.product_code = t2.product_code
     WHERE (t1.store_code = sqlc.arg(store_code)::int4)
+      AND ((sqlc.narg(product_prefix)::text IS NULL) OR (t1.product_code LIKE replace(replace(replace(sqlc.narg(product_prefix)::text, '\', '\\'), '%', '\%'), '_', '\_') || '%'))
+      AND ((sqlc.narg(product_name)::text IS NULL) OR (t2.name = sqlc.narg(product_name)::text))
 ) AS t3
 ORDER BY t3.product_code COLLATE "C", t3.valid_from DESC
 LIMIT 301;

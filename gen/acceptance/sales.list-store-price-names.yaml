@@ -3,6 +3,8 @@
 spec: specs/sales/list-store-price-names/spec.yaml
 coverage:
     - 'validation: store_code(int32 范围/in)'
+    - 'validation: product_prefix(string 长度)'
+    - 'validation: product_name(string 长度)'
     - '差分测试(运行时): 随机数据 + 核心代数的参考求值器,覆盖筛选 / 排序 / 字段映射 / 多条的出口'
     - '差分测试(运行时): 不合法的随机请求(protovalidate)→ INVALID_ARGUMENT'
 suites:
@@ -17,6 +19,70 @@ suites:
           steps: []
         - name: store_code = 1(gt 0 的边界,合法)
           request:
+            store_code: 1
+          expect:
+            code: '!INVALID_ARGUMENT'
+            response: {}
+          steps: []
+        - name: product_prefix 长度 0(min_len 1 的边界,违反)
+          request:
+            product_prefix: ""
+            store_code: 1
+          expect:
+            code: INVALID_ARGUMENT
+            response: {}
+          steps: []
+        - name: product_prefix 长度 1(min_len 1 的边界,合法)
+          request:
+            product_prefix: a
+            store_code: 1
+          expect:
+            code: '!INVALID_ARGUMENT'
+            response: {}
+          steps: []
+        - name: product_prefix 长度 21(max_len 20 的边界,违反)
+          request:
+            product_prefix: aaaaaaaaaaaaaaaaaaaaa
+            store_code: 1
+          expect:
+            code: INVALID_ARGUMENT
+            response: {}
+          steps: []
+        - name: product_prefix 长度 20(max_len 20 的边界,合法)
+          request:
+            product_prefix: aaaaaaaaaaaaaaaaaaaa
+            store_code: 1
+          expect:
+            code: '!INVALID_ARGUMENT'
+            response: {}
+          steps: []
+        - name: product_name 长度 0(min_len 1 的边界,违反)
+          request:
+            product_name: ""
+            store_code: 1
+          expect:
+            code: INVALID_ARGUMENT
+            response: {}
+          steps: []
+        - name: product_name 长度 1(min_len 1 的边界,合法)
+          request:
+            product_name: a
+            store_code: 1
+          expect:
+            code: '!INVALID_ARGUMENT'
+            response: {}
+          steps: []
+        - name: product_name 长度 41(max_len 40 的边界,违反)
+          request:
+            product_name: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+            store_code: 1
+          expect:
+            code: INVALID_ARGUMENT
+            response: {}
+          steps: []
+        - name: product_name 长度 40(max_len 40 的边界,合法)
+          request:
+            product_name: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             store_code: 1
           expect:
             code: '!INVALID_ARGUMENT'

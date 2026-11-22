@@ -18,7 +18,9 @@ import (
 func (h *Handler) ListStorePriceNames(ctx context.Context, req *connect.Request[salesv1.ListStorePriceNamesRequest]) (*connect.Response[salesv1.ListStorePriceNamesResponse], error) {
 	m := req.Msg
 	rows, err := h.at(int64(m.GetStoreCode())).ListStorePriceNames(ctx, db.ListStorePriceNamesParams{
-		StoreCode: m.GetStoreCode(),
+		StoreCode:     m.GetStoreCode(),
+		ProductPrefix: m.ProductPrefix,
+		ProductName:   m.ProductName,
 	})
 	if err != nil {
 		return nil, err

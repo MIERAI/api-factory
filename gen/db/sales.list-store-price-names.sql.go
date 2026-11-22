@@ -14,13 +14,17 @@ FROM (
     FROM store_prices AS t1
     LEFT JOIN local_products AS t2 ON t1.product_code = t2.product_code
     WHERE (t1.store_code = $1::int4)
+      AND (($2::text IS NULL) OR (t1.product_code LIKE replace(replace(replace($2::text, '\', '\\'), '%', '\%'), '_', '\_') || '%'))
+      AND (($3::text IS NULL) OR (t2.name = $3::text))
 ) AS t3
 ORDER BY t3.product_code COLLATE "C", t3.valid_from DESC
 LIMIT 301
 `
 
 type ListStorePriceNamesParams struct {
-	StoreCode int32
+	StoreCode     int32
+	ProductPrefix *string
+	ProductName   *string
 }
 
 type ListStorePriceNamesRow struct {
@@ -32,7 +36,7 @@ type ListStorePriceNamesRow struct {
 }
 
 func (q *Queries) ListStorePriceNames(ctx context.Context, arg ListStorePriceNamesParams) ([]ListStorePriceNamesRow, error) {
-	rows, err := q.db.Query(ctx, listStorePriceNames, arg.StoreCode)
+	rows, err := q.db.Query(ctx, listStorePriceNames, arg.StoreCode, arg.ProductPrefix, arg.ProductName)
 	if err != nil {
 		return nil, err
 	}

@@ -16,7 +16,9 @@ API: ListStorePriceNames
   product: { 表: local_products, 条件: [product_code = product_code], 列: { product_name: name } }
 
 输入:
-  store_code: { 类型: 整数32, 必填: 是, 范围: "> 0", 说明: 店舗コード, 筛选: store_code 等于 }
+  store_code:     { 类型: 整数32, 必填: 是, 范围: "> 0", 说明: 店舗コード, 筛选: store_code 等于 }
+  product_prefix: { 类型: 文本, 必填: 否, 长度: 1~20, 说明: 商品コードの先頭(省略 = 全商品), 筛选: product_code 前缀匹配 }
+  product_name:   { 类型: 文本, 必填: 否, 长度: 1~40, 说明: 商品名(店舗の商品マスタの表示名と一致。省略 = 絞らない), 筛选: product_name 等于 }
 
 输出:
   product_code: 商品コード
@@ -52,6 +54,9 @@ API: ListStorePriceNames
           - { product_code: "4901", product_name: お茶 500ml, valid_from: 2026-12-01 }
           - { product_code: "4901", product_name: お茶 500ml, valid_from: 2026-11-01 }
           - { product_code: "5001", product_name: 不设置 }
+    - 说明: 商品コードの先頭と商品名で絞る(商品名で絞ると商品マスタに無い商品は出ない)
+      输入: { store_code: 1, product_prefix: "4", product_name: お茶 500ml }
+      结果: { store_prices: [{ product_code: "4901", valid_from: 2026-12-01 }, { product_code: "4901", valid_from: 2026-11-01 }] }
     - 说明: 別の店舗(別の DB)でも同じ商品マスタの行がある
       输入: { store_code: 3 }
       结果: { store_prices: [{ product_code: "4901", product_name: お茶 500ml, price: "99" }] }

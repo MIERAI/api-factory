@@ -114,6 +114,8 @@
     ListRecentSnapshotsResponse:
         snapshots: 1
     ListStorePriceNamesRequest:
+        product_name: 3
+        product_prefix: 2
         store_code: 1
     ListStorePriceNamesResponse:
         store_prices: 1

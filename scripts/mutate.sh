@@ -23,7 +23,8 @@ run() { # $1=名称 $2=文件 $3=perl 替换式
   cp /tmp/mut.bak "$2"
 }
 # PLAN=1: 只列出变异(名称 \0 文件 \0 替换式 \0),由 scripts/mutate-par.py 并行执行
-if [[ -n ${PLAN:-} ]]; then run() { printf '%s\0%s\0%s\0' "$1" "$2" "$3"; }; fi
+# MUT_ONLY=正则: 只列出名字匹配的变异(调一个变异的余量时用;margin.py 的个数检查不适用)
+if [[ -n ${PLAN:-} ]]; then run() { [[ -n ${MUT_ONLY:-} && ! $1 =~ $MUT_ONLY ]] && return; printf '%s\0%s\0%s\0' "$1" "$2" "$3"; }; fi
 Q=gen/db/jobs.list-jobs.sql.go
 H=internal/handler/jobs/list_jobs_gen.go
 run "游标比较 < 改成 <="           $Q 's/\(t2\.created_at, t2\.id\) < \(/(t2.created_at, t2.id) <= (/'

@@ -274,8 +274,8 @@ func (e *diffEnv) collect() {
 	if len(e.nkCols) > 0 {
 		space := 1
 		for col := range e.nkCols {
-			if e.pinCols[col] && e.groupCols[col] { // 请求固定的列: 密集(3 个值),不扩大
-				space *= min(3, e.domainSize(col))
+			if e.pinCols[col] && e.groupCols[col] { // 请求固定的列: 密集(6 个值),不扩大
+				space *= min(6, e.domainSize(col))
 				continue
 			}
 			space *= e.domainSize(col)
@@ -882,11 +882,15 @@ func (e *diffEnv) scalarFor(col string, kind core.Kind, unique bool, i int) any 
 				}
 			}
 		}
+		dense := 3
+		if e.nkCols[col] { // 请求固定的自然键的列: 6 个值(请求的种类不至于太少;每个值仍有很多行)
+			dense = 6
+		}
 		if d, ok := e.domains[col]; ok {
-			return d.Values[e.rnd.Intn(min(3, len(d.Values)))]
+			return d.Values[e.rnd.Intn(min(dense, len(d.Values)))]
 		}
 		if t, ok := kinds.ByCore(kind); ok && len(t.Domain) >= 2 {
-			return t.Domain[e.rnd.Intn(min(3, len(t.Domain)))] // 有约束的列走上面的 domains
+			return t.Domain[e.rnd.Intn(min(dense, len(t.Domain)))] // 有约束的列走上面的 domains
 		}
 	}
 	if cs := e.constFor[col]; len(cs) > 0 && !unique {

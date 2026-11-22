@@ -23,6 +23,12 @@ pattern:
 datasource:
     table: store_prices
     filters:
+        product_name:
+            column: product_name
+            op: eq
+        product_prefix:
+            column: product_code
+            op: prefix
         store_code:
             column: store_code
             op: eq
@@ -84,6 +90,20 @@ acceptance:
                       valid_from: "2026-11-01"
                     - product_code: "5001"
                       product_name: $absent
+          steps: []
+        - name: 商品コードの先頭と商品名で絞る(商品名で絞ると商品マスタに無い商品は出ない)
+          request:
+            product_name: お茶 500ml
+            product_prefix: "4"
+            store_code: 1
+          expect:
+            code: OK
+            response:
+                store_prices:
+                    - product_code: "4901"
+                      valid_from: "2026-12-01"
+                    - product_code: "4901"
+                      valid_from: "2026-11-01"
           steps: []
         - name: 別の店舗(別の DB)でも同じ商品マスタの行がある
           request:
