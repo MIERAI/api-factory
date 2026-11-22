@@ -19,7 +19,9 @@
 
 - **只读**的查询 API(Connect / proto),**一个请求只访问一个** PostgreSQL 数据库
 - 按店铺等**分库**的表(2026-11-17 决定算内): 分库键由必填的「等于」固定,平台按 FACTORY_SHARDS 选连接(DRC 检查)
-- 查询 = 基本元件的流水线: scan → filter → project → pick_per_key → sort → limit,出口 one / all(≤N)/ page
+- 查询 = 基本元件的流水线: scan → filter → project → pick_per_key → group → rank → sort → limit,出口 one / all(≤N)/ top_n / page
+- **顶层的分组聚合**(2026-11-22,R2-4 起算内): `分组` = GROUP BY + 件数 / 合计 / 最小 / 最大,`排名` = RANK()。
+  以前只能走逃生口(手写 SQL)或 AI 纯函数(计算);现在有元件认证 + 差分测试 + 变异(少一个分组键、合计 ↔ 件数、NULL 的键分成多组、RANK → DENSE_RANK / ROW_NUMBER)
 - 类型: int32 / int64 / text / bool / decimal / date / timestamp(+ json 作为输入)
 - 结果有上限(all 必须有 max,page 有 size 上限)—— 无上限的查询 DRC 直接拒绝
 - 输入校验: proto 的 buf.validate 规则(单字段 + 输入之间的 CEL)
@@ -29,7 +31,7 @@
 
 | 逃生口 | 什么时候用 | 仍然有的保证 | 失去的保证 |
 |---|---|---|---|
-| 手写 SQL | 需要 join、窗口函数、聚合、复杂表达式,且只出现一次 | sqlc 分析(能解析、类型)、人写例子、分页包装 | 差分测试、元件认证、DRC 的语义检查 |
+| 手写 SQL | 需要 join、窗口函数(RANK 以外)、分组聚合以外的聚合(HAVING、count(distinct)、平均 …)、复杂表达式,且只出现一次 | sqlc 分析(能解析、类型)、人写例子、分页包装 | 差分测试、元件认证、DRC 的语义检查 |
 | AI 纯函数 | 业务计算(汇总、判定、格式化) | 签名闸门、路径闸门、计算例子、审查 | 差分测试(只验证例子覆盖到的情况) |
 
 **规则**: 同一种逃生在 2 个以上 API 出现 → 评审能否变成单元(只用现有元件)或新元件(要认证)。

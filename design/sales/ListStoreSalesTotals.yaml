@@ -1,0 +1,46 @@
+# ============================================================================
+# ListStoreSalesTotals: 店別の明細の合計(分组 + 分页: 分组したあとの行をページ送り)
+# ============================================================================
+API: ListStoreSalesTotals
+说明: 明細を店別に集計して、店舗コード順にページ単位で返す(部門で絞り込める)
+背景: 全店の集計一覧。店舗数が多いのでページ送りする(ページの位置は店舗コード)
+负责人: sales-team
+风险: 低
+
+种类: 一览
+数据来源: sales_lines
+
+输入:
+  category: { 类型: 文本, 必填: 否, 说明: 部門(不指定 = 全部門), 筛选: category 等于 }
+
+分组: { 键: [store_code], 计算: { total: 合计(amount), lines: 件数, first_date: 最小(sales_date), max_discount: 最大(discount) } }
+
+输出:
+  store_code:   店舗コード
+  total:        売上金額の合計
+  lines:        明細の件数
+  first_date:   最初の売上日
+  max_discount: 値引き額の最大(値引きがなければ設定しない)
+
+排序: [store_code 小到大]
+分页: { 默认每页: 20, 每页最多: 100 }
+输出行名: StoreSalesTotal
+输出列表名: stores
+
+例子:
+  准备数据:
+    sales_lines:
+      - { line_id: 1, sales_date: 2026-11-01, store_code: 1, category: food,  quantity: 1, amount: 10,   discount: null }
+      - { line_id: 2, sales_date: 2026-11-03, store_code: 1, category: drink, quantity: 1, amount: 2.5,  discount: 0.5 }
+      - { line_id: 3, sales_date: 2026-11-02, store_code: 2, category: food,  quantity: 2, amount: 7,    discount: null }
+      - { line_id: 4, sales_date: 2026-11-01, store_code: 3, category: food,  quantity: 1, amount: 1.25, discount: 1 }
+  用例:
+    - 说明: 店別に合計(店舗コード順)
+      输入: {}
+      结果: { stores: [{ store_code: 1, total: "12.5", lines: 2, first_date: 2026-11-01, max_discount: "0.5" }, { store_code: 2, total: "7", lines: 1, first_date: 2026-11-02, max_discount: 不设置 }, { store_code: 3, total: "1.25", lines: 1, first_date: 2026-11-01, max_discount: "1" }] }
+    - 说明: 部門で絞ってから合計する
+      输入: { category: food }
+      结果: { stores: [{ store_code: 1, total: "10", lines: 1, max_discount: 不设置 }, { store_code: 2, total: "7", lines: 1 }, { store_code: 3, total: "1.25", lines: 1 }] }
+    - 说明: 該当なし
+      输入: { category: toys }
+      结果: { stores: [] }

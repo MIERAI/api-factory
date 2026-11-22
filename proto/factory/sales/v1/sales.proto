@@ -17,6 +17,9 @@ service SaleService {
   // 店舗と指示日を指定して、売価変更の指示を分類して件数を数え、変化率の平均・最大の値上げ率・警告を返す
   rpc GetPriceChangeSummary(GetPriceChangeSummaryRequest) returns (GetPriceChangeSummaryResponse);
 
+  // 明細を店舗・部門ごとに集計する(合計・件数・値引き額の最小と最大)。部門が空の明細は「未分類」として 1 つにまとめる
+  rpc ListCategorySales(ListCategorySalesRequest) returns (ListCategorySalesResponse);
+
   // 店舗の全商品について、基準日までに始まった売価のうち最新の 1 件をページごとに返す
   rpc ListCurrentPrices(ListCurrentPricesRequest) returns (ListCurrentPricesResponse);
 
@@ -35,6 +38,9 @@ service SaleService {
   // 店舗の、基準日に有効な売価を返す
   rpc ListPricesAsOf(ListPricesAsOfRequest) returns (ListPricesAsOfResponse);
 
+  // 明細の件数で店舗に順位をつけて返す(件数が同じ店は同じ順位。次の順位は飛ばす。例 1, 2, 2, 4)
+  rpc ListStoreLineRanking(ListStoreLineRankingRequest) returns (ListStoreLineRankingResponse);
+
   // 店舗を指定して、商品コードの前方一致で売価(有効期間つき)を返す
   rpc ListStorePricesByPrefix(ListStorePricesByPrefixRequest) returns (ListStorePricesByPrefixResponse);
 
@@ -44,8 +50,14 @@ service SaleService {
   // 店舗と期間を指定して、日別の売上を新しい日から返す
   rpc ListStoreSalesByPeriod(ListStoreSalesByPeriodRequest) returns (ListStoreSalesByPeriodResponse);
 
+  // 明細を店別に集計して、店舗コード順にページ単位で返す(部門で絞り込める)
+  rpc ListStoreSalesTotals(ListStoreSalesTotalsRequest) returns (ListStoreSalesTotalsResponse);
+
   // 売上日を指定して、値引きのあった店舗のうち値引き額の大きい店舗を上位 2 件返す
   rpc ListTopDiscountStores(ListTopDiscountStoresRequest) returns (ListTopDiscountStoresResponse);
+
+  // 売上日を指定して、明細の売上金額を店別に合計し、合計の多い上位 5 店を返す(明細の件数つき)
+  rpc ListTopLineStores(ListTopLineStoresRequest) returns (ListTopLineStoresResponse);
 
   // 売上金額の多い順に、日別・店別の売上を返す
   rpc ListTopSales(ListTopSalesRequest) returns (ListTopSalesResponse);
@@ -113,6 +125,34 @@ message GetPriceChangeSummaryResponse {
   optional double max_increase_rate = 9;
   // 警告 NONE / LARGE_CHANGE / NO_DATA
   string alert = 10;
+}
+
+// 売上明細(1 行 = レシートの 1 明細)。分组 / 排名 の例
+message CategorySale {
+  // 店舗コード
+  int32 store_code = 1;
+  // 部門(未分類は設定しない)
+  optional string category = 2;
+  // 売上金額の合計
+  string total = 3;
+  // 明細の件数
+  int64 lines = 4;
+  // 値引き額の最小(値引きのない明細は数えない。全部ないときは設定しない)
+  optional string min_discount = 5;
+  // 値引き額の最大(同上)
+  optional string max_discount = 6;
+}
+
+// 明細を店舗・部門ごとに集計する(合計・件数・値引き額の最小と最大)。部門が空の明細は「未分類」として 1 つにまとめる
+message ListCategorySalesRequest {
+  // 店舗コード(不指定 = 全店)(空列表 = 不按这个条件筛选)
+  repeated int32 store_codes = 1;
+}
+
+// 明細を店舗・部門ごとに集計する(合計・件数・値引き額の最小と最大)。部門が空の明細は「未分類」として 1 つにまとめる
+message ListCategorySalesResponse {
+  // 最多 100 件;超过时返回错误(不会截断)
+  repeated CategorySale categories = 1;
 }
 
 // 店別の売価(有効期間つき)。店舗ごとの DB に分かれている
@@ -288,6 +328,30 @@ message ListPricesAsOfResponse {
   repeated StorePrice store_prices = 1;
 }
 
+// 売上明細(1 行 = レシートの 1 明細)。分组 / 排名 の例
+message StoreLineRank {
+  // 店舗コード
+  int32 store_code = 1;
+  // 明細の件数
+  int64 lines = 2;
+  // 数量の合計
+  int64 quantity = 3;
+  // 順位(件数の多い順。同じ件数は同じ順位)
+  int64 rank = 4;
+}
+
+// 明細の件数で店舗に順位をつけて返す(件数が同じ店は同じ順位。次の順位は飛ばす。例 1, 2, 2, 4)
+message ListStoreLineRankingRequest {
+  // 売上日の下限(含;不指定 = 全期間)
+  optional string date_from = 1 [(buf.validate.field).string.pattern = "^\\d{4}-\\d{2}-\\d{2}$"];
+}
+
+// 明細の件数で店舗に順位をつけて返す(件数が同じ店は同じ順位。次の順位は飛ばす。例 1, 2, 2, 4)
+message ListStoreLineRankingResponse {
+  // 最多 50 件;超过时返回错误(不会截断)
+  repeated StoreLineRank stores = 1;
+}
+
 // 店舗を指定して、商品コードの前方一致で売価(有効期間つき)を返す
 message ListStorePricesByPrefixRequest {
   // 店舗コード
@@ -359,6 +423,37 @@ message ListStoreSalesByPeriodResponse {
   repeated StoreDaySale daily_sales = 1;
 }
 
+// 売上明細(1 行 = レシートの 1 明細)。分组 / 排名 の例
+message StoreSalesTotal {
+  // 店舗コード
+  int32 store_code = 1;
+  // 売上金額の合計
+  string total = 2;
+  // 明細の件数
+  int64 lines = 3;
+  // 最初の売上日
+  string first_date = 4;
+  // 値引き額の最大(値引きがなければ設定しない)
+  optional string max_discount = 5;
+}
+
+// 明細を店別に集計して、店舗コード順にページ単位で返す(部門で絞り込める)
+message ListStoreSalesTotalsRequest {
+  // 每页件数。0 = 默认 20,最多 100
+  int32 page_size = 1 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
+  // 上一页返回的 next_page_token(不透明的字符串)
+  string page_token = 2;
+  // 部門(不指定 = 全部門)
+  optional string category = 3;
+}
+
+// 明細を店別に集計して、店舗コード順にページ単位で返す(部門で絞り込める)
+message ListStoreSalesTotalsResponse {
+  repeated StoreSalesTotal stores = 1;
+  // 还有下一页时不为空
+  string next_page_token = 2;
+}
+
 // 日别・店别の売上(一天一店一行)
 message TopDiscountStore {
   // 店舗コード
@@ -379,6 +474,28 @@ message ListTopDiscountStoresRequest {
 message ListTopDiscountStoresResponse {
   // 按排序取前 2 件(不足时全部)
   repeated TopDiscountStore daily_sales = 1;
+}
+
+// 売上明細(1 行 = レシートの 1 明細)。分组 / 排名 の例
+message StoreLineTotal {
+  // 店舗コード
+  int32 store_code = 1;
+  // 売上金額の合計
+  string total = 2;
+  // 明細の件数
+  int64 lines = 3;
+}
+
+// 売上日を指定して、明細の売上金額を店別に合計し、合計の多い上位 5 店を返す(明細の件数つき)
+message ListTopLineStoresRequest {
+  // 売上日
+  string sales_date = 1 [(buf.validate.field).string.pattern = "^\\d{4}-\\d{2}-\\d{2}$"];
+}
+
+// 売上日を指定して、明細の売上金額を店別に合計し、合計の多い上位 5 店を返す(明細の件数つき)
+message ListTopLineStoresResponse {
+  // 按排序取前 5 件(不足时全部)
+  repeated StoreLineTotal stores = 1;
 }
 
 // 日别・店别の売上(一天一店一行)

@@ -844,6 +844,84 @@
     ]
   },
   {
+    "id": "sales.list-category-sales",
+    "method": "ListCategorySales",
+    "summary": "明細を店舗・部門ごとに集計する(合計・件数・値引き額の最小と最大)。部門が空の明細は「未分類」として 1 つにまとめる",
+    "path": "/factory.sales.v1.SaleService/ListCategorySales",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "部門の空は 1 グループ(最後)。Food と food は別(バイト順で Food が先)。値引きの空は最小・最大に数えない",
+        "request": {},
+        "response": {
+          "categories": [
+            {
+              "category": "Food",
+              "lines": 1,
+              "max_discount": "$absent",
+              "min_discount": "$absent",
+              "store_code": 1,
+              "total": "5"
+            },
+            {
+              "category": "food",
+              "lines": 2,
+              "max_discount": "1",
+              "min_discount": "1",
+              "store_code": 1,
+              "total": "150"
+            },
+            {
+              "category": "$absent",
+              "lines": 2,
+              "max_discount": "2.5",
+              "min_discount": "2.5",
+              "store_code": 1,
+              "total": "50"
+            },
+            {
+              "category": "drink",
+              "lines": 2,
+              "max_discount": "1.5",
+              "min_discount": "0.5",
+              "store_code": 2,
+              "total": "10"
+            }
+          ]
+        }
+      },
+      {
+        "name": "店舗を指定",
+        "request": {
+          "store_codes": [
+            2
+          ]
+        },
+        "response": {
+          "categories": [
+            {
+              "category": "drink",
+              "lines": 2,
+              "store_code": 2,
+              "total": "10"
+            }
+          ]
+        }
+      },
+      {
+        "name": "明細のない店は空",
+        "request": {
+          "store_codes": [
+            9
+          ]
+        },
+        "response": {
+          "categories": []
+        }
+      }
+    ]
+  },
+  {
     "id": "sales.list-current-prices",
     "method": "ListCurrentPrices",
     "summary": "店舗の全商品について、基準日までに始まった売価のうち最新の 1 件をページごとに返す",
@@ -1142,6 +1220,84 @@
     ]
   },
   {
+    "id": "sales.list-store-line-ranking",
+    "method": "ListStoreLineRanking",
+    "summary": "明細の件数で店舗に順位をつけて返す(件数が同じ店は同じ順位。次の順位は飛ばす。例 1, 2, 2, 4)",
+    "path": "/factory.sales.v1.SaleService/ListStoreLineRanking",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "件数 3, 2, 2, 1 → 順位 1, 2, 2, 4(同じ件数は同じ順位、次は 3 を飛ばして 4)",
+        "request": {},
+        "response": {
+          "stores": [
+            {
+              "lines": 3,
+              "quantity": 4,
+              "rank": 1,
+              "store_code": 1
+            },
+            {
+              "lines": 2,
+              "quantity": 5,
+              "rank": 2,
+              "store_code": 2
+            },
+            {
+              "lines": 2,
+              "quantity": 5,
+              "rank": 2,
+              "store_code": 3
+            },
+            {
+              "lines": 1,
+              "quantity": 1,
+              "rank": 4,
+              "store_code": 4
+            }
+          ]
+        }
+      },
+      {
+        "name": "全店 1 件ずつ → 全店 1 位",
+        "request": {
+          "date_from": "2026-11-02"
+        },
+        "response": {
+          "stores": [
+            {
+              "lines": 1,
+              "quantity": 1,
+              "rank": 1,
+              "store_code": 1
+            },
+            {
+              "lines": 1,
+              "quantity": 2,
+              "rank": 1,
+              "store_code": 2
+            },
+            {
+              "lines": 1,
+              "quantity": 4,
+              "rank": 1,
+              "store_code": 3
+            }
+          ]
+        }
+      },
+      {
+        "name": "明細がなければ空",
+        "request": {
+          "date_from": "2026-11-03"
+        },
+        "response": {
+          "stores": []
+        }
+      }
+    ]
+  },
+  {
     "id": "sales.list-store-prices-by-prefix",
     "method": "ListStorePricesByPrefix",
     "summary": "店舗を指定して、商品コードの前方一致で売価(有効期間つき)を返す",
@@ -1277,6 +1433,79 @@
     ]
   },
   {
+    "id": "sales.list-store-sales-totals",
+    "method": "ListStoreSalesTotals",
+    "summary": "明細を店別に集計して、店舗コード順にページ単位で返す(部門で絞り込める)",
+    "path": "/factory.sales.v1.SaleService/ListStoreSalesTotals",
+    "pattern": "list_keyset",
+    "cases": [
+      {
+        "name": "店別に合計(店舗コード順)",
+        "request": {},
+        "response": {
+          "stores": [
+            {
+              "first_date": "2026-11-01",
+              "lines": 2,
+              "max_discount": "0.5",
+              "store_code": 1,
+              "total": "12.5"
+            },
+            {
+              "first_date": "2026-11-02",
+              "lines": 1,
+              "max_discount": "$absent",
+              "store_code": 2,
+              "total": "7"
+            },
+            {
+              "first_date": "2026-11-01",
+              "lines": 1,
+              "max_discount": "1",
+              "store_code": 3,
+              "total": "1.25"
+            }
+          ]
+        }
+      },
+      {
+        "name": "部門で絞ってから合計する",
+        "request": {
+          "category": "food"
+        },
+        "response": {
+          "stores": [
+            {
+              "lines": 1,
+              "max_discount": "$absent",
+              "store_code": 1,
+              "total": "10"
+            },
+            {
+              "lines": 1,
+              "store_code": 2,
+              "total": "7"
+            },
+            {
+              "lines": 1,
+              "store_code": 3,
+              "total": "1.25"
+            }
+          ]
+        }
+      },
+      {
+        "name": "該当なし",
+        "request": {
+          "category": "toys"
+        },
+        "response": {
+          "stores": []
+        }
+      }
+    ]
+  },
+  {
     "id": "sales.list-top-discount-stores",
     "method": "ListTopDiscountStores",
     "summary": "売上日を指定して、値引きのあった店舗のうち値引き額の大きい店舗を上位 2 件返す",
@@ -1297,6 +1526,85 @@
             {
               "discount": "9",
               "store_code": 4
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "sales.list-top-line-stores",
+    "method": "ListTopLineStores",
+    "summary": "売上日を指定して、明細の売上金額を店別に合計し、合計の多い上位 5 店を返す(明細の件数つき)",
+    "path": "/factory.sales.v1.SaleService/ListTopLineStores",
+    "pattern": "top_n",
+    "cases": [
+      {
+        "name": "店別に合計して上位 5 店。10.75 は 9 より大きい(数値で比べる)。6 位以下は返さない",
+        "request": {
+          "sales_date": "2026-11-01"
+        },
+        "response": {
+          "stores": [
+            {
+              "lines": 2,
+              "store_code": 1,
+              "total": "120.5"
+            },
+            {
+              "lines": 1,
+              "store_code": 2,
+              "total": "120.25"
+            },
+            {
+              "lines": 2,
+              "store_code": 4,
+              "total": "10.75"
+            },
+            {
+              "lines": 1,
+              "store_code": 3,
+              "total": "9"
+            },
+            {
+              "lines": 1,
+              "store_code": 7,
+              "total": "0.5"
+            }
+          ]
+        }
+      },
+      {
+        "name": "1 店だけの日",
+        "request": {
+          "sales_date": "2026-11-02"
+        },
+        "response": {
+          "stores": [
+            {
+              "lines": 1,
+              "store_code": 1,
+              "total": "999"
+            }
+          ]
+        }
+      },
+      {
+        "name": "合計が同じ店は店舗コードの小さい順",
+        "request": {
+          "sales_date": "2026-11-03"
+        },
+        "response": {
+          "stores": [
+            {
+              "lines": 1,
+              "store_code": 5,
+              "total": "10"
+            },
+            {
+              "lines": 2,
+              "store_code": 6,
+              "total": "10"
             }
           ]
         }

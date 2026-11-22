@@ -380,7 +380,7 @@ func loadAPI(path string) (*API, error) {
 		Path: path, Name: str(root, "API"), Desc: str(root, "说明"), Background: str(root, "背景"),
 		Owner: str(root, "负责人"), Source: str(root, "数据来源"), UseColumns: strList(get(root, "使用的列")),
 		InputRules: strList(get(root, "输入之间的规则")), Where: strList(get(root, "固定条件")),
-		ItemName:   str(root, "输出行名"), ListField: str(root, "输出列表名"),
+		ItemName: str(root, "输出行名"), ListField: str(root, "输出列表名"),
 		Fixtures: get(get(root, "例子"), "准备数据"),
 	}
 	if a.Name == "" {
@@ -567,7 +567,8 @@ func (r designReader) Node(key string) *yaml.Node { return get(r.root, key) }
 func (r designReader) Order(key string) ([]string, []bool, error) {
 	return parseOrder(strList(get(r.root, key)))
 }
-func (r designReader) Err(format string, args ...any) { r.e.add(r.root.Line, format, args...) }
+func (r designReader) OrderList(items []string) ([]string, []bool, error) { return parseOrder(items) }
+func (r designReader) Err(format string, args ...any)                     { r.e.add(r.root.Line, format, args...) }
 
 // tableReader: 来源读领域里一张表的写法(sources.Domain)。
 type tableReader struct {

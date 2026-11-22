@@ -39,3 +39,15 @@
       new_price:    新売価(未定は空)
       old_price:    旧売価(新規は空)
       deal_id:      取引ID(空 = 通常の売変。99999999 = 強制送信)
+  sales_lines:
+    说明: 売上明細(1 行 = レシートの 1 明細)。分组 / 排名 の例
+    主键: [line_id]
+    更新方式: 可以更新
+    列:
+      line_id:    明細ID
+      sales_date: 売上日
+      store_code: 店舗コード
+      category:   部門(未分類は空)
+      quantity:   数量
+      amount:     売上金額(十进制)
+      discount:   値引き額(値引きなしは空)

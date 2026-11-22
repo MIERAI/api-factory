@@ -144,6 +144,10 @@ var cmpOps = map[string]bool{"=": true, "<>": true, "<": true, "<=": true, ">": 
 //	pick_per_key  Keys: 每个键(NULL 视为相等)按 Order 取第一行
 //	sort          Order: 文本按字节;NULL 在 ASC 时最后、DESC 时最前
 //	limit         N;或者 Param = 参数名(必填的整数参数,例如分页的 row_limit)
+//	group         Keys + Aggs: 按 Keys 分组(NULL 视为同一组),每组输出一行 = 键的值 + 聚合值(agg.go)。
+//	              没有输入行 → 没有输出行。输出的列 = Keys(原来的类型)+ Aggs(AggType)。一条流水线只能有一个
+//	rank          Order + As: 按 Order 的名次(SQL 的 RANK(): 并列同名次,下一个名次跳过),加一列 As(int64)。
+//	              只能在 group 之后。文本按字节;NULL 的位置和 sort 一样
 type Step struct {
 	Kind    string      `json:"kind"`
 	Table   string      `json:"table,omitempty"`
@@ -154,6 +158,8 @@ type Step struct {
 	Order   []SortKey   `json:"order,omitempty"`
 	N       int         `json:"n,omitempty"`
 	Param   string      `json:"param,omitempty"` // limit: 行数来自参数
+	Aggs    []Agg       `json:"aggs,omitempty"`  // group: 聚合
+	As      string      `json:"as,omitempty"`    // rank: 名次的列名
 	From    string      `json:"from,omitempty"`  // 来自哪个单元 / 设计稿哪一行(审查和报错用)
 }
 
@@ -183,6 +189,10 @@ func PickPerKey(keys []string, order ...SortKey) Step {
 func Sort(order ...SortKey) Step { return Step{Kind: "sort", Order: order} }
 func Limit(n int) Step           { return Step{Kind: "limit", N: n} }
 func LimitParam(p string) Step   { return Step{Kind: "limit", Param: p} }
+func Group(keys []string, aggs ...Agg) Step {
+	return Step{Kind: "group", Keys: keys, Aggs: aggs}
+}
+func Rank(as string, order ...SortKey) Step { return Step{Kind: "rank", As: as, Order: order} }
 
 // Pipeline: 一条查询。Params = 请求参数的类型(列表参数 List = true)。
 type Pipeline struct {

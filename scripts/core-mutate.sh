@@ -36,6 +36,19 @@ mutate "参考: 空列表 → 不是 absent"     $E 's|return len(l) == 0|return
 mutate "SQL: 组属于没有按下标对齐"       $S 's|conds = append(conds, fmt.Sprintf("tup%d.n = tup1.n", i+1))|_ = 0|'
 mutate "SQL: 组属于用 IN(三值)"          $S 's|return fmt.Sprintf("EXISTS (SELECT 1 FROM %s WHERE %s)", strings.Join(from, ", "), strings.Join(conds, " AND ")), nil|return fmt.Sprintf("(CASE WHEN EXISTS (SELECT 1 FROM %s WHERE %s) THEN TRUE WHEN %s IS NULL THEN NULL ELSE FALSE END)", strings.Join(from, ", "), strings.Join(conds, " AND "), "NULL::bool"), nil|'
 mutate "参考: 组属于列为 NULL → UNKNOWN"  $E '/case "in_tuples":/,/vals\[i\] = v/s|return false, nil|return nil, nil|'
+A=factory/core/agg.go
+mutate "聚合 SQL: 空集合的 sum 返回 NULL"   $A 's|return fmt.Sprintf("coalesce(sum(%s), 0)", x)|return fmt.Sprintf("sum(%s)", x)|'
+mutate "聚合 SQL: 整数 sum 没有 cast"       $A 's|return fmt.Sprintf("coalesce(sum(%s), 0)::int8", x)|return fmt.Sprintf("coalesce(sum(%s), 0)", x)|'
+mutate "聚合 SQL: min/max 去掉 COLLATE C"   $A 's|x += ` COLLATE "C"`|x += ""|'
+mutate "聚合 参考: sum 不忽略 NULL(当 0 以外)" $A 's|if v != nil {\n\t\t\t\t\ts.Add(s, v.(\*big.Rat))|&|; s|s.Add(s, v.(\*big.Rat))|s.Add(s, v.(*big.Rat)); s.Add(s, big.NewRat(1, 100))|'
+mutate "聚合 参考: min ↔ max"               $A 's|(a.Func == "min" \&\& c < 0)|(a.Func == "min" \&\& c > 0)|'
+mutate "聚合 参考: 整数溢出不报错"           $A 's|if !s.IsInt64() {|if false {|'
+# GROUP BY 去掉 COLLATE "C" 是等价变异: 确定性的排序规则下相等 = 按字节相等(Postgres 用 strcmp 决胜),分组结果不变。
+# 写 COLLATE "C" 是为了和 sort / DISTINCT ON 的写法一致(设计稿 §2.4),不是为了正确性。
+mutate "SQL: rank → dense_rank"             $S 's|"rank() OVER (ORDER BY "|"dense_rank() OVER (ORDER BY "|'
+mutate "SQL: rank → row_number"             $S 's|"rank() OVER (ORDER BY "|"row_number() OVER (ORDER BY "|'
+mutate "参考: NULL 的键每个一组"             $E '/func evalGroup/,/^}/s|k := keyString(r, st.Keys)|k := keyString(r, st.Keys); if strings.Contains(k, "∅") { k += fmt.Sprint(len(groups)) }|'
+mutate "参考: 名次不跳号(dense_rank)"        $E '/func evalRank/,/^}/s|if compareRows(o, r, st.Order) < 0 {|if compareRows(o, r, st.Order) < 0 \&\& false {|'
 echo "变异: 抓到 $caught / $total"
 for m in "${missed[@]:-}"; do if [ -n "$m" ]; then echo "  - $m"; fi; done
 [ "$caught" -eq "$total" ]

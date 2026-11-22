@@ -30,7 +30,8 @@ type Field struct {
 type Design interface {
 	Str(key string) string
 	Node(key string) *yaml.Node
-	Order(key string) (cols []string, desc []bool, err error) // 排序: [a 小到大, b 大到小](每列一个方向)
+	Order(key string) (cols []string, desc []bool, err error)         // 排序: [a 小到大, b 大到小](每列一个方向)
+	OrderList(items []string) (cols []string, desc []bool, err error) // 同上,写在别的键里面(排名.排序)
 	Err(format string, args ...any)
 }
 

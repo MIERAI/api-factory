@@ -77,7 +77,9 @@ sqlc 不再是类型的来源(见 §9 决定 1)。
 | `pick_per_key(keys, order)` | 每个键按 order 取第一行(DISTINCT ON)。keys 必须 NOT NULL |
 | `sort(keys)` | 每个键带方向;**NULL 位置显式**(ASC NULLS LAST / DESC NULLS FIRST),SQL 也显式写出 |
 | `limit(n)` | 前 n 行 |
-| (以后)`join` | trial 的 10 本不需要,出现 2 个以上需求再加 |
+| `group(keys, aggs)` | (R2-4,2026-11-22)按 keys 分组,每组一行 = 键 + 聚合。NULL 的键是一组;没有输入行 → 没有输出行。聚合 `count()` / `sum(列)` / `min(列)` / `max(列)` 的类型和 NULL 规则只在 `core/agg.go` 定义一次(child_agg 共用): count → int64;sum(整数) → int64(溢出 → 查询失败),sum(十进制) → 十进制(精确);sum / min / max 忽略 NULL,全部为 NULL → sum 0、min / max NULL;min / max 的文本按字节。SQL: `GROUP BY`(文本键 `COLLATE "C"`)。一条流水线一个 |
+| `rank(order, as)` | (R2-4)SQL `RANK()` 的名次: 并列同名次,下一个名次跳过(1, 2, 2, 4)。只能在 group 之后;NULL 的位置 / 文本按字节和 `sort` 相同 |
+| (以后)`join` | trial 的 10 本不需要,出现 2 个以上需求再加(R2-1 的 lookup / R2-2 的 nest 见 r2-relations.md) |
 
 ### 4.3 出口(行集 → 响应)
 
@@ -122,6 +124,8 @@ JSON版本:
 - 列存在;表达式两边类型一致(decimal 和 text 不能比较,**根除 §1 的字典序问题**)
 - `pick_per_key` 的键、`page` 的排序列: NOT NULL;`page` 的排序列组合必须唯一(含主键)
 - `one` 的筛选必须覆盖一个唯一键
+- `group`: 至少一个键,键 / 聚合的列存在,聚合的类型合法(sum 只用于整数 / 十进制,min / max 不用于 bool / json);
+  之后的 `sort` 必须包含全部分组键(分组之后唯一的只有分组键: 前N条 / 分页的顺序才是全序);`rank` 只能在 `group` 之后
 - `all` 必须有 max;`page` 的 size/max 有界
 - 每个请求参数都被使用;必填/可选与 `absent` 一致
 - (性能,先做警告)筛选/排序的前导列没有索引 → 警告;以后接 EXPLAIN 闸门(§9 决定 4)

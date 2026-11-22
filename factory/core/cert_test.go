@@ -62,11 +62,20 @@ var certDomain = map[string][]any{
 const certRows = 60
 
 type certEnv struct {
-	t    *testing.T
-	ctx  context.Context
-	conn *pgx.Conn
-	rows []Row
-	n    int
+	t     *testing.T
+	ctx   context.Context
+	conn  *pgx.Conn
+	rows  []Row
+	extra map[string][]Row // 另外的表(group 的精度 / 溢出用)
+	n     int
+}
+
+func (e *certEnv) tables() map[string][]Row {
+	m := map[string][]Row{"c": e.rows}
+	for k, v := range e.extra {
+		m[k] = v
+	}
+	return m
 }
 
 func TestCertification(t *testing.T) {
@@ -338,6 +347,8 @@ func TestCertification(t *testing.T) {
 	for _, ps := range []Params{{}, {"cg": int64(1)}, {"cg": int64(2)}, {"cg": int64(3)}} {
 		env.check(fmt.Sprintf("两层每组取一条 + 游标 %v", ps), two, ps)
 	}
+	// 13. group(分组聚合)/ rank(名次)。聚合的规则在 agg.go(child_agg 共用)
+	certGroup(env, all)
 	// 12. 格式错 → 两边都报错
 	env.insert(Row{"k": int64(1000), "g": int64(1), "t": "a", "j": `{"n": "abc", "d": "x", "b": "maybe", "dt": "2026/13/01"}`})
 	for _, f := range []struct {
@@ -475,7 +486,7 @@ func canonicalText(s *string, k Kind) string {
 func (e *certEnv) check(name string, p *Pipeline, params Params) {
 	e.t.Helper()
 	e.n++
-	want, werr := Eval(p, map[string][]Row{"c": e.rows}, params)
+	want, werr := Eval(p, e.tables(), params)
 	got, q, gerr := e.run(p, params)
 	if errors.Is(werr, ErrAmbiguous) {
 		e.t.Fatalf("%s: 认证数据有并列(认证本身的问题): %v", name, werr)
@@ -505,7 +516,7 @@ func (e *certEnv) check(name string, p *Pipeline, params Params) {
 func (e *certEnv) checkError(name string, p *Pipeline) {
 	e.t.Helper()
 	e.n++
-	_, werr := Eval(p, map[string][]Row{"c": e.rows}, nil)
+	_, werr := Eval(p, e.tables(), nil)
 	_, q, gerr := e.run(p, nil)
 	if werr == nil || gerr == nil {
 		e.t.Errorf("%s: 两边都应该报错: 参考求值器 err=%v / SQL err=%v\n%s", name, werr, gerr, q.Text)

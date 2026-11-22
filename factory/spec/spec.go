@@ -70,6 +70,27 @@ type Pattern struct {
 	MaxRows         int32          `yaml:"max_rows,omitempty"`       // list_all: 最多返回的件数(超过时报错,不悄悄截断)
 	Params          map[string]any `yaml:"params,omitempty"`         // 出口自己的参数(新出口不用改 spec)
 	PickPerGroup    *PickPerGroup  `yaml:"pick_per_group,omitempty"` // list_all: 筛选之后每组取一条
+	Group           *GroupBy       `yaml:"group,omitempty"`          // 多条 / 前N条 / 一览: 筛选之后分组聚合(之后的列 = 键 + 聚合)
+	Rank            *RankBy        `yaml:"rank,omitempty"`           // 分组之后的名次(RANK(): 并列同名次,下一个名次跳过)
+}
+
+// GroupBy: 按 keys 分组(NULL 是一组),每组一行 = 键 + 聚合。没有输入行 → 没有输出行。
+type GroupBy struct {
+	Keys []string `yaml:"keys"`
+	Aggs []Agg    `yaml:"aggs,omitempty"`
+}
+
+// Agg: 输出名 = func(column)。func: count(不写 column)/ sum / min / max(规则: factory/core/agg.go)。
+type Agg struct {
+	Name   string `yaml:"name"`
+	Func   string `yaml:"func"`
+	Column string `yaml:"column,omitempty"`
+}
+
+// RankBy: 按 order("total desc")的名次,输出列 as。
+type RankBy struct {
+	Order []string `yaml:"order"`
+	As    string   `yaml:"as"`
 }
 
 // PickPerGroup: 按 by 分组,组内按 order(列 + 方向)取第一行。

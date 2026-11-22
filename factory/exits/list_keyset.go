@@ -16,7 +16,7 @@ const diffPageSize = 3
 func init() {
 	Register(&Exit{
 		Kind: "list_keyset", Name: "一览", Cardinality: "many", Cell: "分页", Rows: true, EmptyRequest: true, NotNullOrder: true,
-		DesignKeys: []string{"排序", "分页", "每组取一条"},
+		DesignKeys: append([]string{"排序", "分页", "每组取一条"}, GroupKeys...),
 		Parse: func(d Design, p *spec.Pattern) {
 			cols, desc, err := d.Order("排序")
 			if err != nil {
@@ -26,7 +26,8 @@ func init() {
 			if p.Direction == "mixed" { // 游标按整组比较(行比较),方向必须一致
 				d.Err("一览: 排序的方向必须一致(分页的游标按整组比较);方向混在一起请用 多条 / 前N条")
 			}
-			p.PickPerGroup = parsePick(d) // 每组取一条之后再分页(游标在取完之后的行上)
+			p.PickPerGroup = parsePick(d)   // 每组取一条之后再分页(游标在取完之后的行上)
+			p.Group, p.Rank = parseGroup(d) // 分组之后再分页(排序必须包含全部分组键: 核心的 DRC)
 			pg := d.Node("分页")
 			if _, err := fmt.Sscan(nodeStr(pg, "默认每页"), &p.PageSize.Default); err != nil {
 				d.Err("一览: 分页.默认每页 必须是整数")
@@ -49,7 +50,7 @@ func init() {
 			if regexp.MustCompile(`(?i)\b(order\s+by|limit|offset)\b`).MatchString(s.Datasource.SQL) {
 				errs = append(errs, "pattern list_keyset: sql must not contain ORDER BY / LIMIT / OFFSET (the factory adds them)")
 			}
-			return errs
+			return append(errs, checkGroup("list_keyset", s)...)
 		},
 		Request: func(p spec.Pattern) []Field {
 			return []Field{
@@ -95,6 +96,7 @@ func init() {
 			parts.Cursor = core.TupleAfter(s.Pattern.OrderBy, params, s.Pattern.Direction != "asc")
 			parts.Rows = "row_limit"
 			parts.Group = pickStep(s.Pattern.PickPerGroup)
+			parts.Aggregate, parts.Rank = groupStep(s.Pattern.Group), rankStep(s.Pattern.Rank)
 			p.Params = append(p.Params, core.ParamDecl{Name: "row_limit", Type: core.Type{Kind: core.Int32}, Required: true})
 			return nil
 		},
