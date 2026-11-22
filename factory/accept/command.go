@@ -32,6 +32,9 @@ func runCommand(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.
 	if api.Command.IsHandler() { // 消息处理器(R4): 进程内投递(message.go)
 		return runHandler(ctx, d, url, plan, api, s)
 	}
+	if api.Command.IsMachine() { // 状态机(R5): 投递 + 超时(machine.go)
+		return runMachine(ctx, d, url, plan, api, s)
+	}
 	var results []Result
 	tables, err := commandTables(ctx, d.main, api, s.Acceptance.Fixtures, s.Acceptance.Cases)
 	if err != nil {

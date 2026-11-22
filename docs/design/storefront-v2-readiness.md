@@ -1,6 +1,6 @@
 # 工厂就绪度：以 storefront v2 为验收标准
 
-> 版本 v0.6（2026-11-22）· 状态：**已批准** · 进度：**R4 完成（19 / 28）**
+> 版本 v0.6（2026-11-22）· 状态：**已批准** · 进度：**R5 完成（27 / 28,过关线）**
 > 决定（2026-11-22，用户）：**先利其器**。工厂能生成 storefront v2 所需 API 的 **95% 以上**之后，再开始开发 storefront v2。
 > storefront v2 的设计书：MIERAI/storefront `docs/design/v2-microservices.md`（PR #8）
 
@@ -52,7 +52,7 @@
 | W2 | catalog | 调整价格 | 按键更新（乐观锁：带版本号） | ✅ R3-1（`按键更新` + `乐观锁`：UpdatePrice） |
 | W3 | catalog | 下架商品 | 按键更新状态 | ✅ R3-1（`按键更新` + `设置: { status: DISCONTINUED }` + 乐观锁：DiscontinueProduct） |
 | W4 | inventory | 调整库存数量（入库、盘点） | 按键更新 + 写审计记录 | ✅ R3-2（`组合命令`：条件更新 `available + delta >= 0` / INSUFFICIENT_STOCK + 审计记录：AdjustStock） |
-| W5 | order | 下单 | 多表插入（订单 + 明细）+ **事件**（`order.created`）+ 启动 saga | ❌（C2、C4、C6） |
+| W5 | order | 下单 | 多表插入（订单 + 明细）+ **事件**（`order.created`）+ 启动 saga | ✅ R5（`组合命令` + 操作的 `每项` + `项.qty * 项.price` 累加金额 + `发出 inventory.reserve` = 状态机的 `开始`：PlaceOrder;`order.created` 没有消费方,不发） |
 
 ### 2.3 消息处理器（RabbitMQ，12 个）
 
@@ -61,7 +61,7 @@
 | M1 | inventory | `inventory.reserve` | **条件更新**（库存够才扣）+ 写预留记录 + 发 reserved 或 failed | ✅ R4（`消息处理` + `每项` + 幂等新建 + `仅当: 预留.新建` + 条件更新 + 墓碑的结果 RELEASED：ReserveStock） |
 | M2 | inventory | `inventory.commit` | 确认预留：预留数减少，预留记录标为已确认 | ✅ R4（`不满足: 跳过` + `仅当: 确认.已更新` + `处理: 死信` 的 ALREADY_RELEASED：CommitStock） |
 | M3 | inventory | `inventory.release` | 补偿：库存加回，预留记录标为已释放 | ✅ R4（墓碑 = 幂等新建 RELEASED + 跳过 + 仅当 已更新：ReleaseStock） |
-| M4–M9 | order | reserved / reservation_failed / payment.succeeded / payment.failed / committed / released | **saga 的 6 个状态转移**：检查当前状态 → 改状态 → 发下一条命令或事件 | ❌（C6） |
+| M4–M9 | order | reserved / reservation_failed / payment.succeeded / payment.failed / committed / released | **saga 的 6 个状态转移**：检查当前状态 → 改状态 → 发下一条命令或事件 | ✅ R5（`状态机` OrderSaga 的 6 条转移,一个消息类型一个生成的处理器;守卫 `消息.amount = 实体.total`） |
 | M10 | payment | `payment.charge` | **幂等插入**（订单号唯一）+ 模拟支付 + 发 succeeded 或 failed | ✅ R4（幂等新建 + `如果 消息.amount > 100000 则 FAILED 否则 SUCCEEDED` + 按存下来的结果分支：ChargePayment） |
 | M11 | notification | `order.confirmed` | 去重后写通知记录 | ✅ R4（以 `信封.id` 为主键的幂等新建：RecordOrderConfirmed;契约归 order） |
 | M12 | notification | `order.cancelled` | 同上 | ✅ R4（RecordOrderCancelled） |
@@ -71,16 +71,18 @@
 | # | 服务 | 任务 | 形状 | 现状 |
 |---|---|---|---|---|
 | J1 | inventory | 释放过期的预留 | 按条件批量更新（每次有上限）+ 发事件 | ❌（C7） |
-| J2 | order | 卡住订单的超时处理（重发命令或进入补偿） | 状态机的超时转移 | ❌（C6） |
+| J2 | order | 卡住订单的超时处理（重发命令或进入补偿） | 状态机的超时转移 | ✅ R5（OrderSaga 的 `超时` / `重发间隔` / RESERVING 的 `期限: 15 分钟 → RELEASING`;运行时 `sm.Scanner`） |
 
 ### 2.5 现状小结
 
 | | 个数 | 占比 |
 |---|---|---|
-| ✅ 能生成并通过验证 | 19 | 68%（R1 + R2 + R3 + R4 完成，2026-11-22） |
-| ❌ 需要新能力 | 9 | 32%（W5 + saga 的状态机 M4–M9 + 任务 J1 / J2：R5–R6） |
+| ✅ 能生成并通过验证 | 27 | 96%（R1 + R2 + R3 + R4 + R5 完成，2026-11-23）—— **过关线** |
+| ❌ 需要新能力 | 1 | 4%（任务 J1：R6，或者手写的 5%） |
 
 （v0.1 写的"只差 F0 的 7 个"实际是 6 个：Q7 需要相对时间筛选，属于 R2。）
+
+**R5 的产出**（设计 `docs/design/r5-state-machines.md`，⚖️ S1–S8 按推荐;和设计稿不同的地方见设计稿的"实现记录"）：种类 `状态机`：`实体` / `状态列`（枚举的值名 = 状态）/ `进入时间列` / `版本列` / `重发计数列` / `创建时间列` / `开始`（初始转移 = 同一个领域的组合命令）/ `状态`（`命令` / `超时` / `重发间隔` / `期限` / `期限后`，`终态`）/ `载入`（发出的消息要用的子行）/ `转移`（`从` / `收到` / `守卫` / `到` / `发出`）；状态图的 DRC（可达、能到达终态、等待状态有命令和超时、终态没有出边、主体 = 实体的键、别的写接口不能写状态 / 进入时间 / 重发计数）；`machines.lock.yaml`（删除 / 改名状态要部署前确认实例数 = 0）。生成：每个收到的消息类型一个转移处理器（条件更新 `WHERE 状态 = 从 [AND 守卫]`，不满足时按状态图分类：迟到 → 忽略，守卫为假 / 不可能 / 不存在 → DLQ）+ 超时扫描的 Due / Fire / Stats（`WHERE 版本 = 读到的`）+ wiring 的扫描任务和测试入口。组合命令的操作级 `每项`（`唯一` 的组列表）、值的 `*`、`发出` 原样写请求的列表（只写契约的元素的字段）。运行时 `api-factory-runtime` v0.5.0（`sm`：Scanner / Round / Run（leader + 每 5 秒）/ `POST /factory.test/timeouts`、状态机的指标;`txn.Mul` / `txn.T`）。验证：状态图的解释器（参考模型）vs 生成的处理器 + 超时扫描：转移全覆盖（状态 × 消息的每个格子 4 次 + 重投）、守卫的真 / 假、超时（第 1 / 2 / 3 次重发的刚好未到 / 刚好到、期限、一轮的上限）、随机游走、故障注入（转移 / 超时的第 k 个写）、并发（同一条消息 8 次、同一个回答的 3 份、回答和超时同时、两个扫描同时）、变异 18 个（每个 ≥3 个差分用例 × 3 个种子）。storefront 样例：W5 PlaceOrder、M4–M9 + J2 OrderSaga；工厂仓库自己的中立样例 approvals 领域：SubmitDocument（开始）、DocumentReview（两个等待状态 + 守卫 + 期限 + 载入）。端到端（`examples/storefront-v2/e2e`，手写层）：驱动器不再扮演 order，生成的 order 服务跑 saga（正常 / 库存不足 / 支付失败的补偿 / 迟到 / 重投 / 毒消息，18 步全部通过）。
 
 **R4 的产出**（设计 `docs/design/r4-events-messages.md`，⚖️ E1–E8 按推荐）：消息契约 `design/<领域>/消息.yaml` → 共享目录的 `<type>.v<N>.json`（JSON Schema 2020-12，`x-factory` = 字段的声明）+ 锁文件 `contracts.lock.yaml`（同一个版本里只能新增可选字段）；组合命令的 `发出`（和写操作同一个事务进 outbox）；种类 `消息处理`：`收到` / `每项`（按元素的唯一键排序）/ `仅当: 操作名.新建 | 操作名.已更新` / `不满足: 跳过` / `信封.id` / `如果 … 则 … 否则 …` / `结果`（原因码、`当`（`任一项`）、`处理: 死信`、成功的分支）；可重入的 DRC（E8）；平台表 `db/schema/zz_factory_platform.sql`（E1）；生成的 wiring 带拓扑 / 中继 / 消费循环 / 进程内投递的测试入口。运行时 `api-factory-runtime` v0.4.2（`message.DecodeData` / `EncodeData`、`consume.TestHandler`、跳过时 `Into` = 现在的行、`topology.Ensure`、测试 header `x-factory-fail-attempts`）。验证：进程内投递的状态差分（表 + outbox 的新消息 + 去重表，模型 vs 数据库；重投（同一个 id）/ 重发（新 id）/ 每种结果 / 第 k 项不满足 / 跳过）、故障注入（第 k 个写操作之后失败，含 outbox 的行 → 什么都不变；再投 → 处理一次）、并发（同一条消息 8 次 → 只处理一次；不同的消息 8 条 → 串行的结果）、组合命令的 发出（每个请求的 outbox、回滚 = 没有消息）、真实 RabbitMQ 的场景（`make accept-mq`：中继 + 旁听队列、同一个 id 只处理一次、毒消息 → DLQ + requeue 保留 id、前 1 次失败 → 1s 的重试队列 → 成功）、变异 15 个（每个 ≥3 个差分用例 × 3 个种子）。模型新增 CHECK `列 比较 整数` 的判定。storefront 样例：M1–M3、M10–M12 + 契约（inventory / payment / order）；工厂仓库自己的 ledger 领域：OpenAccount（发出）、RecordAccountOpened、DebitAccounts、ReverseDebits、SettleDebits。W5 的 `order.created` / `inventory.reserve` 已经能用 `发出` 写，W5 整体（启动 saga）在 R5。
 
@@ -190,7 +192,7 @@ R2.5 之后,上面 6 个形状都能用元件表达(已知差异: 名次相同�
 | **R2** | Q-J、Q-A、Q-T | Q5、Q6、Q7 | 9 / 28（32%） |
 | **R3** | 命令工厂设计书 + C1、C2、C3 + 写操作的验证体系 | W1–W4（R3-1：W1–W3；R3-2：W4 ✅ 13 / 28） | 13 / 28（46%） |
 | **R4** | C4（事件、outbox、RabbitMQ）+ C5（消息处理器） | M1–M3、M10–M12 ✅ | 19 / 28（68%） |
-| **R5** | C6（状态机，含超时） | W5、M4–M9、J2 | 27 / 28（96%） |
+| **R5** | C6（状态机，含超时） | W5、M4–M9、J2 ✅ | 27 / 28（96%） |
 | **R6** | C7（批量任务） | J1 | 28 / 28（100%） |
 
 - **过关线（95%）= R5 完成**：28 个里至少 27 个能生成，并通过工厂的验证（差分、并发、幂等、变异余量）。

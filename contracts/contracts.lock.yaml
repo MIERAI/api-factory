@@ -80,3 +80,66 @@ account.settled.v1:
     - name: transfer_id
       type: 整数64
       required: true
+document.expired.v1:
+    - name: doc_id
+      type: 整数64
+      required: true
+document.published.v1:
+    - name: doc_id
+      type: 整数64
+      required: true
+    - name: revision
+      type: 整数32
+      required: true
+document.rejected.v1:
+    - name: doc_id
+      type: 整数64
+      required: true
+    - name: reason
+      type: 文本
+      required: true
+publish.done.v1:
+    - name: doc_id
+      type: 整数64
+      required: true
+publish.request.v1:
+    - name: doc_id
+      type: 整数64
+      required: true
+    - name: revision
+      type: 整数32
+      required: true
+review.approved.v1:
+    - name: doc_id
+      type: 整数64
+      required: true
+    - name: revision
+      type: 整数32
+      required: true
+review.rejected.v1:
+    - name: doc_id
+      type: 整数64
+      required: true
+    - name: reason
+      type: 文本
+      required: true
+review.request.v1:
+    - name: doc_id
+      type: 整数64
+      required: true
+    - name: revision
+      type: 整数32
+      required: true
+    - name: title
+      type: 文本
+      required: true
+    - name: reviewers
+      type: 列表
+      required: true
+      elem:
+        - name: reviewer
+          type: 文本
+          required: true
+        - name: weight
+          type: 整数32
+          required: true

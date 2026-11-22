@@ -27,13 +27,13 @@ are chosen so nothing collides with the factory's own containers:
 | | host port |
 |---|---|
 | RabbitMQ AMQP / management UI (user `e2e`, vhost `e2e`) | 56672 / 56673 |
-| Postgres (databases `inventory`, `payment`, `notification`) | 56432 |
-| inventory / payment / notification API | 58081 / 58082 / 58083 |
-| … their `METRICS_PORT` | 59091 / 59092 / 59093 |
+| Postgres (databases `inventory`, `payment`, `notification`, `order`) | 56432 |
+| inventory / payment / notification / order API | 58081 / 58082 / 58083 / 58084 |
+| … their `METRICS_PORT` | 59091 / 59092 / 59093 / 59094 |
 
-Wall time on an M4 Pro, build cache warm: `make e2e` ≈ 20–23 s (stack up 8–10 s, driver 10.9 s). Most of
-the driver's time is the 2 s quiet periods that show "no second answer". `docker compose build --no-cache`
-of the three images takes 17 s, and each image is about 20 MB.
+Wall time on an M4 Pro, build cache warm: `make e2e` ≈ 32 s with order in the stack (stack up 11 s, driver
+15 s). Most of the driver's time is the 2 s quiet periods that show "no second answer". Each image is about
+20 MB.
 
 ## What is in the stack
 
@@ -41,30 +41,32 @@ of the three images takes 17 s, and each image is about 20 MB.
 - **One Postgres with one database per service.** Services never share tables. Data is on tmpfs.
 - **A one-shot schema loader per database** applies the project's `db/schema/*.sql` with psql, including the
   platform tables in `zz_factory_platform.sql`. The generated projects have no migration image (GAPS G24).
-- **inventory, payment, notification**, built from their generated `Dockerfile`s, unchanged. Each one gets
-  only `DATABASE_URL`, `AMQP_URL`, `AUTH_MODE=none` and `PAGE_TOKEN_KEY`. Each one declares its own topology,
-  runs its outbox relay and runs its consumers.
-- **The driver** (`driver/`, Go) plays the order service. Order's saga is R5, so no generated service drives
-  the flow. The driver uses the runtime's own `message` / `topology` / `consume` packages, so envelopes,
-  exchanges, routing keys and headers are exactly the ones a generated service uses.
+- **inventory, payment, notification, order**, built from their generated `Dockerfile`s, unchanged. Each one
+  gets only `DATABASE_URL`, `AMQP_URL`, `AUTH_MODE=none` and `PAGE_TOKEN_KEY`. Each one declares its own
+  topology, runs its outbox relay and runs its consumers; order also runs the saga's timeout scanner.
+- **The driver** (`driver/`, Go) no longer plays the order service (R5, 2026-11-23): it places orders through
+  order's `PlaceOrder` (W5) and the generated saga (`OrderSaga`: M4–M9, J2) drives inventory and payment. The
+  driver listens to every event and to the saga's commands, injects the odd message by hand (a late answer, a
+  redelivery, poison, inventory's tombstone) and checks state through the services' query APIs. It uses the
+  runtime's own `message` / `topology` / `consume` packages, so envelopes, exchanges, routing keys and headers
+  are exactly the ones a generated service uses.
 
 ## What it proves
 
-All 20 steps go through RabbitMQ across processes (the driver publishes to the exchanges, and the services
-consume, write, emit through the outbox, and the relay publishes). Each step checks state through the
+Every step goes through RabbitMQ across processes (the saga and the driver publish to the exchanges, and the
+services consume, write, emit through the outbox, and the relay publishes). Each step checks state through the
 services' query APIs.
 
 | Step | Checks |
 |---|---|
 | seed | stock rows created with SQL (no API creates them: G18), then `AdjustStock` (W4) over HTTP |
-| M1 `inventory.reserve` | enough stock → `inventory.reserved` (items echoed; source / subject right) with available / reserved moved. Exceeding → `inventory.reservation_failed{INSUFFICIENT_STOCK}`, with all or nothing across SKUs |
-| M2 `inventory.commit` | → `inventory.committed`, and the reserved quantity leaves |
-| M3 `inventory.release` | after a reserve → `inventory.released`, and the stock comes back. **Before** a reserve → tombstone, so the late reserve gets `reservation_failed{RELEASED}` |
-| M10 `payment.charge` | 4500.50 → `payment.succeeded`. 100000.01 → `payment.failed{LIMIT_EXCEEDED}`. Both are checked through `GetPaymentByOrder` |
-| M11 / M12 `order.confirmed` / `order.cancelled` | notification records one row per event (event id = envelope id), seen through `ListNotificationsByOrder` |
-| redelivery, same id | payment / inventory / notification each count it as `duplicate` (`factory_messages_total`): no second reply and state unchanged |
-| re-send, new id | `payment.charge` for the same order with a different amount answers the **first** result, and there is still one payment |
-| poison | each of these ends in `<queue>.dlq` with `x-factory-outcome: poison` and no reply: a body that is not an envelope, a contract violation (qty 0), a missing stock row, an unknown contract version. Checked with the runtime's DLQ tooling (`consume.DLQList`) |
+| saga, happy path (W5, M1, M4, M10, M6, M2, M8, M11) | `PlaceOrder` (3 × 1000.10 + 2 × 250) → the saga sends `inventory.reserve` (source order, the lines' SKU / qty) → `inventory.reserved` → `payment.charge` (amount = the order total 3500.30) → `payment.succeeded` → `inventory.commit` → `inventory.committed` → `order.confirmed` (customer, total); `GetOrder` = CONFIRMED, stock committed, one payment, one notification |
+| saga, not enough stock (M1 failure, M5, M12) | → `reservation_failed{INSUFFICIENT_STOCK}` → CANCELLED with that reason; nothing charged; all or nothing across SKUs; notification records the cancellation |
+| saga, payment refused (M10 failure, M7, M3, M9) | 100000.01 → `payment.failed{LIMIT_EXCEEDED}` → `inventory.release` → `inventory.released` → CANCELLED `{COMPENSATED}`; the stock comes back, nothing committed |
+| M3 tombstone (by hand) | release **before** a reserve → tombstone, so the late reserve gets `reservation_failed{RELEASED}`. Both answers also reach the saga for an order it does not know → order's DLQ (rejected: not found) |
+| redelivery, same id | payment / the saga / notification each count it as `duplicate` (`factory_messages_total`): no second reply or command, state unchanged |
+| late answer, new id | `inventory.reserved` again for a confirmed order → the saga ignores it (`outcome="business"`), no second charge. `payment.charge` re-sent with a different amount → payment answers the **first** result, the saga ignores that `payment.succeeded`, still one payment and one commit |
+| poison | each of these ends in `<queue>.dlq` with `x-factory-outcome: poison` and no reply: a body that is not an envelope, a contract violation (qty 0), a missing stock row, an unknown contract version, an impossible answer for the saga (`inventory.committed` for a cancelled order). Checked with the runtime's DLQ tooling (`consume.DLQList`) |
 | I1 / I6 | every outbox is drained at the end, and every DLQ is empty once the injected poison is taken off |
 
 No generated file was hand-patched. The contracts and the topology agree across the three services. Every
@@ -73,15 +75,15 @@ friction found while building this is in `../GAPS.md` (G18–G25).
 
 ## What it does NOT prove yet
 
-- **The order saga (R5).** Nothing here decides "reserved + paid → commit → confirmed" or compensation. The
-  driver sends each command by hand and checks each answer separately. W5 and M4–M9 are not exercised, so
-  timeouts, stuck orders and the saga's 60-second budget are not either.
+- **The saga's timeouts and outages.** The driver never waits 30 s, so no resend, no RESERVING deadline and no
+  "inventory / payment down for 10 minutes, then everything finishes" (R5 §5.3, S-I1 / S-I2) run here yet. The
+  saga's timeouts are proven by the factory's differential tests with the test clock (GAPS G26).
 - **Crashes and broker outages across processes.** Kill -9 between commit and ack, a relay crash, and
   `docker pause rabbitmq` for 30 s are covered by the runtime's integration tests and `make accept-mq`, not
   here (R4 §7.3).
 - **The retry path** (transient failure → `.retry.N` → success / exhausted). It needs `FACTORY_TEST_FAULTS=1`
   in the services, and this stack runs them as in production.
-- **catalog and order as containers.** catalog has no messages yet (G18). Only order's queries exist.
+- **catalog as a container.** catalog has no messages yet (G18).
 - **Concurrency and load**, for example a hot SKU with many reserves at once. That is the factory's
   differential tests (R4 §7.4) and the platform's load tests.
 - **The platform.** k8s manifests, per-service database roles, TLS to RabbitMQ, the vhost per environment, and

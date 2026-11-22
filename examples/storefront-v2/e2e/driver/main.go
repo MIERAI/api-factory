@@ -1,6 +1,8 @@
-// Command driver plays the order service (its saga is R5, not built yet) against the running e2e stack
-// (compose.yaml): it publishes the commands / events order would publish, through the real RabbitMQ, and checks
-// what inventory / payment / notification answer (events on factory.events) and store (their query APIs).
+// Command driver runs the storefront v2 system end to end against the running e2e stack (compose.yaml): orders are
+// placed through the generated order service (W5 PlaceOrder) and the generated order saga (R5: OrderSaga) drives
+// inventory and payment through the real RabbitMQ. The driver only places orders, injects the odd message (a late
+// answer, a redelivery, poison) and checks what the services answer (events and commands on the exchanges) and
+// store (their query APIs).
 //
 // Envelopes, exchanges, routing keys and headers are the runtime's (api-factory-runtime message / topology): the
 // driver uses the same packages a generated service uses, so a mismatch shows up here as a failed step.
@@ -34,12 +36,12 @@ import (
 )
 
 type cfg struct {
-	amqp                                      string
-	inventory, payment, notification          string // API base URLs
-	inventoryMet, paymentMet, notificationMet string // metrics base URLs (METRICS_PORT)
-	inventoryDB, paymentDB, notificationDB    string
-	wait                                      time.Duration // how long to wait for an answer
-	quiet                                     time.Duration // how long "no answer" must hold
+	amqp                                                string
+	inventory, payment, notification, order             string // API base URLs
+	inventoryMet, paymentMet, notificationMet, orderMet string // metrics base URLs (METRICS_PORT)
+	inventoryDB, paymentDB, notificationDB, orderDB     string
+	wait                                                time.Duration // how long to wait for an answer
+	quiet                                               time.Duration // how long "no answer" must hold
 }
 
 func env(k, def string) string {
@@ -56,12 +58,15 @@ func config() cfg {
 		inventory:       env("E2E_INVENTORY_URL", "http://127.0.0.1:58081"),
 		payment:         env("E2E_PAYMENT_URL", "http://127.0.0.1:58082"),
 		notification:    env("E2E_NOTIFICATION_URL", "http://127.0.0.1:58083"),
+		order:           env("E2E_ORDER_URL", "http://127.0.0.1:58084"),
 		inventoryMet:    env("E2E_INVENTORY_METRICS", "http://127.0.0.1:59091"),
 		paymentMet:      env("E2E_PAYMENT_METRICS", "http://127.0.0.1:59092"),
 		notificationMet: env("E2E_NOTIFICATION_METRICS", "http://127.0.0.1:59093"),
+		orderMet:        env("E2E_ORDER_METRICS", "http://127.0.0.1:59094"),
 		inventoryDB:     db + "/inventory?sslmode=disable",
 		paymentDB:       db + "/payment?sslmode=disable",
 		notificationDB:  db + "/notification?sslmode=disable",
+		orderDB:         db + "/order?sslmode=disable",
 		wait:            15 * time.Second,
 		quiet:           2 * time.Second,
 	}
@@ -72,7 +77,12 @@ var consumedQueues = []string{
 	"inventory.inventory.reserve", "inventory.inventory.commit", "inventory.inventory.release",
 	"payment.payment.charge",
 	"notification.order.confirmed", "notification.order.cancelled",
+	"order.inventory.reserved", "order.inventory.reservation_failed", "order.inventory.committed", "order.inventory.released",
+	"order.payment.succeeded", "order.payment.failed",
 }
+
+// The commands the order saga sends (the driver also listens to them: which command, when, with which data).
+var sagaCommands = []string{"inventory.reserve", "inventory.commit", "inventory.release", "payment.charge"}
 
 func main() {
 	start := time.Now()
@@ -107,7 +117,7 @@ type driver struct {
 	invDB  *pgx.Conn
 
 	mu     sync.Mutex
-	events []message.Envelope // everything published on factory.events (a "#" listener)
+	events []message.Envelope // everything published on factory.events (a "#" listener) + the saga's commands
 
 	run_   string // this run's id: SKUs and order ids are unique per run (the stack can be reused)
 	order  int64
@@ -128,8 +138,8 @@ func newDriver(ctx context.Context, c cfg) (*driver, error) {
 	if d.conn, err = amqp.Dial(c.amqp); err != nil {
 		return nil, fmt.Errorf("amqp: %w", err)
 	}
-	// listener: a private queue bound to every event (the order service is not running, so nobody else consumes
-	// inventory.reserved etc.; events without a subscriber are dropped — bind before publishing anything)
+	// listener: a private queue bound to every event and to the commands the saga sends (a direct exchange delivers
+	// a command to every bound queue: the executing service's and this one) — bind before publishing anything
 	lch, err := d.conn.Channel()
 	if err != nil {
 		return nil, err
@@ -144,6 +154,11 @@ func newDriver(ctx context.Context, c cfg) (*driver, error) {
 	if err := lch.QueueBind(q.Name, "#", topology.DefaultExchanges.Events, false, nil); err != nil {
 		return nil, err
 	}
+	for _, c := range sagaCommands {
+		if err := lch.QueueBind(q.Name, c, topology.DefaultExchanges.Commands, false, nil); err != nil {
+			return nil, err
+		}
+	}
 	deliveries, err := lch.Consume(q.Name, "e2e-listener", true, true, false, false, nil)
 	if err != nil {
 		return nil, err
@@ -152,7 +167,7 @@ func newDriver(ctx context.Context, c cfg) (*driver, error) {
 		for dl := range deliveries {
 			env, err := message.Decode(dl.Body)
 			if err != nil {
-				fmt.Printf("  ! undecodable event on factory.events: %v\n", err)
+				fmt.Printf("  ! undecodable message on %s: %v\n", dl.Exchange, err)
 				continue
 			}
 			if dl.MessageId != env.ID || dl.Type != env.Type {
@@ -190,7 +205,7 @@ func (d *driver) close() {
 // it is 200 as soon as HTTP listens, before the topology is declared and the consumers subscribed (GAPS G19).
 func (d *driver) waitReady(ctx context.Context) error {
 	deadline := time.Now().Add(90 * time.Second)
-	for _, u := range []string{d.c.inventory, d.c.payment, d.c.notification} {
+	for _, u := range []string{d.c.inventory, d.c.payment, d.c.notification, d.c.order} {
 		for {
 			resp, err := http.Get(u + "/readyz")
 			if err == nil {
@@ -279,172 +294,156 @@ func (d *driver) run(ctx context.Context) {
 		return d.expectStock(a, 10, 0)
 	})
 
-	// ── M1 inventory.reserve ──
-	o1 := d.nextOrder()
-	var reserve1 message.Envelope
-	d.step("M1 reserve (enough stock) → inventory.reserved", func() error {
-		reserve1 = d.envelope("inventory.reserve", o1, map[string]any{"order_id": str(o1), "items": itemsJSON(item{a, 3}, item{b, 2})})
-		if err := d.publish(message.Command, reserve1, nil); err != nil {
+	// ── the saga, happy path: PlaceOrder → reserve → charge → commit → CONFIRMED (M1, M10, M2, M4, M6, M8, M11) ──
+	var o1 int64
+	var confirmed1, charge1, reserved1 message.Envelope
+	d.step("W5 + saga: enough stock, paid → CONFIRMED", func() error {
+		var err error
+		if o1, err = d.placeOrder(line{1, a, 3, "1000.10"}, line{2, b, 2, "250"}); err != nil {
 			return err
 		}
-		ev, err := d.await("inventory.reserved", o1)
+		if err := d.expectOrder(o1, "ORDER_STATUS_CONFIRMED"); err != nil {
+			return err
+		}
+		reserve, err := d.await("inventory.reserve", o1)
 		if err != nil {
 			return err
 		}
 		var data struct{ Items []item }
-		if err := json.Unmarshal(ev.Data, &data); err != nil {
+		if err := json.Unmarshal(reserve.Data, &data); err != nil {
 			return err
 		}
-		if len(data.Items) != 2 || data.Items[0] != (item{a, 3}) || data.Items[1] != (item{b, 2}) {
-			return fmt.Errorf("inventory.reserved items = %+v", data.Items)
+		if reserve.Source != "order" || len(data.Items) != 2 || data.Items[0] != (item{a, 3}) || data.Items[1] != (item{b, 2}) {
+			return fmt.Errorf("inventory.reserve from %q items %+v", reserve.Source, data.Items)
 		}
-		if ev.Source != "inventory" || ev.Subject != str(o1) {
-			return fmt.Errorf("envelope source %q subject %q", ev.Source, ev.Subject)
-		}
-		if err := d.expectStock(a, 7, 3); err != nil {
+		if reserved1, err = d.await("inventory.reserved", o1); err != nil {
 			return err
 		}
-		return d.expectStock(b, 3, 2)
-	})
-
-	o2 := d.nextOrder()
-	d.step("M1 reserve (exceeds stock) → reservation_failed INSUFFICIENT_STOCK", func() error {
-		if err := d.publish(message.Command, d.envelope("inventory.reserve", o2,
-			map[string]any{"order_id": str(o2), "items": itemsJSON(item{a, 1}, item{b, 100})}), nil); err != nil {
+		if charge1, err = d.await("payment.charge", o1); err != nil {
 			return err
 		}
-		ev, err := d.await("inventory.reservation_failed", o2)
-		if err != nil {
+		if amt := field(charge1, "amount"); amt != "3500.3" && amt != "3500.30" {
+			return fmt.Errorf("payment.charge amount %q, want the order total 3 × 1000.10 + 2 × 250 = 3500.30", amt)
+		}
+		for _, t := range []string{"payment.succeeded", "inventory.commit", "inventory.committed"} {
+			if _, err := d.await(t, o1); err != nil {
+				return err
+			}
+		}
+		if confirmed1, err = d.await("order.confirmed", o1); err != nil {
 			return err
 		}
-		if r := field(ev, "reason"); r != "INSUFFICIENT_STOCK" {
-			return fmt.Errorf("reason = %q", r)
-		}
-		return d.expectStock(a, 7, 3) // all or nothing: a's 1 rolled back with b
-	})
-
-	// ── M2 inventory.commit ──
-	d.step("M2 commit → inventory.committed, reserved stock leaves", func() error {
-		if err := d.publish(message.Command, d.envelope("inventory.commit", o1,
-			map[string]any{"order_id": str(o1), "items": itemsJSON(item{a, 3}, item{b, 2})}), nil); err != nil {
-			return err
-		}
-		if _, err := d.await("inventory.committed", o1); err != nil {
-			return err
+		if c := field(confirmed1, "customer_id"); c != "42" {
+			return fmt.Errorf("order.confirmed customer_id %q", c)
 		}
 		if err := d.expectStock(a, 7, 0); err != nil {
 			return err
 		}
-		return d.expectStock(b, 3, 0)
+		if err := d.expectStock(b, 3, 0); err != nil {
+			return err
+		}
+		if err := d.expectPayment(o1, "PAYMENT_STATUS_SUCCEEDED", ""); err != nil {
+			return err
+		}
+		return d.expectNotifications(o1, []string{confirmed1.ID}, "NOTIFICATION_KIND_ORDER_CONFIRMED")
 	})
 
-	// ── M3 inventory.release ──
-	o3 := d.nextOrder()
-	d.step("M3 reserve then release → inventory.released, stock back", func() error {
-		if err := d.publish(message.Command, d.envelope("inventory.reserve", o3,
-			map[string]any{"order_id": str(o3), "items": itemsJSON(item{a, 2})}), nil); err != nil {
+	// ── not enough stock: reserve fails → CANCELLED (M1 failure, M5, M12) ──
+	d.step("W5 + saga: not enough stock → reservation_failed → CANCELLED", func() error {
+		o, err := d.placeOrder(line{1, a, 1, "10"}, line{2, b, 100, "10"})
+		if err != nil {
 			return err
 		}
-		if _, err := d.await("inventory.reserved", o3); err != nil {
+		if err := d.expectOrder(o, "ORDER_STATUS_CANCELLED"); err != nil {
 			return err
 		}
-		if err := d.expectStock(a, 5, 2); err != nil {
+		ev, err := d.await("order.cancelled", o)
+		if err != nil {
 			return err
 		}
-		if err := d.publish(message.Command, d.envelope("inventory.release", o3,
-			map[string]any{"order_id": str(o3), "items": itemsJSON(item{a, 2})}), nil); err != nil {
+		if r := field(ev, "reason"); r != "INSUFFICIENT_STOCK" {
+			return fmt.Errorf("order.cancelled reason %q", r)
+		}
+		if n := d.count("payment.charge", o); n != 0 {
+			return fmt.Errorf("charged a cancelled order (%d payment.charge)", n)
+		}
+		if err := d.expectStock(a, 7, 0); err != nil { // all or nothing: a's 1 rolled back with b
 			return err
 		}
-		if _, err := d.await("inventory.released", o3); err != nil {
-			return err
-		}
-		return d.expectStock(a, 7, 0)
+		return d.expectNotifications(o, []string{ev.ID}, "NOTIFICATION_KIND_ORDER_CANCELLED")
 	})
 
+	// ── payment refused: charge fails → release the stock → CANCELLED (M10 failure, M7, M3, M9) ──
+	d.step("W5 + saga: above the payment limit → payment.failed → release → CANCELLED", func() error {
+		o, err := d.placeOrder(line{1, a, 1, "100000.01"})
+		if err != nil {
+			return err
+		}
+		if err := d.expectOrder(o, "ORDER_STATUS_CANCELLED"); err != nil {
+			return err
+		}
+		for _, t := range []string{"inventory.reserved", "payment.failed", "inventory.release", "inventory.released"} {
+			if _, err := d.await(t, o); err != nil {
+				return err
+			}
+		}
+		ev, err := d.await("order.cancelled", o)
+		if err != nil {
+			return err
+		}
+		if r := field(ev, "reason"); r != "COMPENSATED" {
+			return fmt.Errorf("order.cancelled reason %q", r)
+		}
+		if n := d.count("inventory.commit", o); n != 0 {
+			return fmt.Errorf("committed the stock of a cancelled order")
+		}
+		if err := d.expectPayment(o, "PAYMENT_STATUS_FAILED", "LIMIT_EXCEEDED"); err != nil {
+			return err
+		}
+		return d.expectStock(a, 7, 0) // released: back where it was
+	})
+
+	// ── inventory's tombstone, driven by hand (the saga reaches it only after RESERVING's 15-minute deadline):
+	// the answers reach the order saga too, for an order it does not know → its DLQ (rejected: not found) ──
 	o4 := d.nextOrder()
 	d.step("M3 release before reserve (tombstone) → reserve fails RELEASED", func() error {
-		if err := d.publish(message.Command, d.envelope("inventory.release", o4,
-			map[string]any{"order_id": str(o4), "items": itemsJSON(item{a, 1})}), nil); err != nil {
+		rel := d.envelope("inventory.release", o4, map[string]any{"order_id": str(o4), "items": itemsJSON(item{a, 1})})
+		if err := d.publish(message.Command, rel, nil); err != nil {
 			return err
 		}
-		if _, err := d.await("inventory.released", o4); err != nil {
+		released, err := d.await("inventory.released", o4)
+		if err != nil {
 			return err
 		}
 		if err := d.publish(message.Command, d.envelope("inventory.reserve", o4,
 			map[string]any{"order_id": str(o4), "items": itemsJSON(item{a, 1})}), nil); err != nil {
 			return err
 		}
-		ev, err := d.await("inventory.reservation_failed", o4)
+		failed, err := d.await("inventory.reservation_failed", o4)
 		if err != nil {
 			return err
 		}
-		if r := field(ev, "reason"); r != "RELEASED" {
+		if r := field(failed, "reason"); r != "RELEASED" {
 			return fmt.Errorf("reason = %q", r)
 		}
-		return d.expectStock(a, 7, 0)
-	})
-
-	// ── M10 payment.charge ──
-	o5, o6 := d.nextOrder(), d.nextOrder()
-	var charge5 message.Envelope
-	d.step("M10 charge 4500.50 → payment.succeeded", func() error {
-		charge5 = d.envelope("payment.charge", o5, map[string]any{"order_id": str(o5), "amount": "4500.50"})
-		if err := d.publish(message.Command, charge5, nil); err != nil {
+		if err := d.expectStock(a, 7, 0); err != nil {
 			return err
 		}
-		ev, err := d.await("payment.succeeded", o5)
-		if err != nil {
-			return err
+		if err := d.expectDLQ("order.inventory.released", released.ID, "poison"); err != nil {
+			return fmt.Errorf("the saga on an unknown order: %w", err)
 		}
-		if amt := field(ev, "amount"); amt != "4500.50" {
-			return fmt.Errorf("amount = %q", amt)
-		}
-		return d.expectPayment(o5, "PAYMENT_STATUS_SUCCEEDED", "")
-	})
-	d.step("M10 charge 100000.01 (above the limit) → payment.failed", func() error {
-		if err := d.publish(message.Command, d.envelope("payment.charge", o6,
-			map[string]any{"order_id": str(o6), "amount": "100000.01"}), nil); err != nil {
-			return err
-		}
-		ev, err := d.await("payment.failed", o6)
-		if err != nil {
-			return err
-		}
-		if r := field(ev, "reason"); r != "LIMIT_EXCEEDED" {
-			return fmt.Errorf("reason = %q", r)
-		}
-		return d.expectPayment(o6, "PAYMENT_STATUS_FAILED", "LIMIT_EXCEEDED")
-	})
-
-	// ── M11 / M12 notification ──
-	var confirmed1 message.Envelope
-	d.step("M11 order.confirmed → notification recorded", func() error {
-		confirmed1 = d.envelope("order.confirmed", o1, map[string]any{"order_id": str(o1), "customer_id": "42", "total": "4500.50"})
-		if err := d.publish(message.Event, confirmed1, nil); err != nil {
-			return err
-		}
-		return d.expectNotifications(o1, []string{confirmed1.ID}, "NOTIFICATION_KIND_ORDER_CONFIRMED")
-	})
-	d.step("M12 order.cancelled → notification recorded", func() error {
-		ev := d.envelope("order.cancelled", o2, map[string]any{"order_id": str(o2), "customer_id": "42"})
-		if err := d.publish(message.Event, ev, nil); err != nil {
-			return err
-		}
-		return d.expectNotifications(o2, []string{ev.ID}, "NOTIFICATION_KIND_ORDER_CANCELLED")
+		return d.expectDLQ("order.inventory.reservation_failed", failed.ID, "poison")
 	})
 
 	// ── redelivery: the same message id is processed once ──
 	d.step("redeliver payment.charge (same id) → duplicate, no second reply", func() error {
-		return d.redeliver(charge5, message.Command, d.c.paymentMet, "payment.payment.charge", "payment.succeeded", o5, func() error {
-			return d.expectPayment(o5, "PAYMENT_STATUS_SUCCEEDED", "")
+		return d.redeliver(charge1, message.Command, d.c.paymentMet, "payment.payment.charge", "payment.succeeded", o1, func() error {
+			return d.expectPayment(o1, "PAYMENT_STATUS_SUCCEEDED", "")
 		})
 	})
-	d.step("redeliver inventory.reserve (same id) → duplicate, stock unchanged", func() error {
-		return d.redeliver(reserve1, message.Command, d.c.inventoryMet, "inventory.inventory.reserve", "inventory.reserved", o1, func() error {
-			if err := d.expectStock(a, 7, 0); err != nil {
-				return err
-			}
-			return d.expectStock(b, 3, 0)
+	d.step("redeliver inventory.reserved (same id) → saga: duplicate, no second command", func() error {
+		return d.redeliver(reserved1, message.Event, d.c.orderMet, "order.inventory.reserved", "payment.charge", o1, func() error {
+			return d.expectOrder(o1, "ORDER_STATUS_CONFIRMED")
 		})
 	})
 	d.step("redeliver order.confirmed (same id) → still one notification", func() error {
@@ -452,20 +451,47 @@ func (d *driver) run(ctx context.Context) {
 			return d.expectNotifications(o1, []string{confirmed1.ID}, "NOTIFICATION_KIND_ORDER_CONFIRMED")
 		})
 	})
-	d.step("re-send payment.charge (new id, same order) → first result, one payment", func() error {
-		before := d.count("payment.succeeded", o5)
-		if err := d.publish(message.Command, d.envelope("payment.charge", o5,
-			map[string]any{"order_id": str(o5), "amount": "999999"}), nil); err != nil { // different amount: still the first answer
+	// ── late answers: the same content with a new id (a resend's second answer) is ignored by the saga ──
+	d.step("late inventory.reserved (new id) for a confirmed order → ignored", func() error {
+		before, err := metric(d.c.orderMet, "factory_messages_total", map[string]string{"handler": "order.inventory.reserved", "outcome": "business"})
+		if err != nil {
 			return err
 		}
-		if err := d.awaitCount("payment.succeeded", o5, before+1); err != nil {
+		charges := d.count("payment.charge", o1)
+		late := d.envelope("inventory.reserved", o1, map[string]any{"order_id": str(o1), "items": itemsJSON(item{a, 3}, item{b, 2})})
+		if err := d.publish(message.Event, late, nil); err != nil {
 			return err
 		}
-		ev := d.last("payment.succeeded", o5)
-		if amt := field(ev, "amount"); amt != "4500.50" {
-			return fmt.Errorf("the re-sent charge answered amount %q, want the first charge's 4500.50", amt)
+		if err := d.awaitMetric(d.c.orderMet, "factory_messages_total", map[string]string{"handler": "order.inventory.reserved", "outcome": "business"}, before+1); err != nil {
+			return err
 		}
-		return d.expectPayment(o5, "PAYMENT_STATUS_SUCCEEDED", "")
+		time.Sleep(d.c.quiet)
+		if n := d.count("payment.charge", o1); n != charges {
+			return fmt.Errorf("the late answer charged again: %d → %d", charges, n)
+		}
+		return d.expectOrder(o1, "ORDER_STATUS_CONFIRMED")
+	})
+	d.step("re-send payment.charge (new id, same order) → first result, saga ignores it", func() error {
+		before := d.count("payment.succeeded", o1)
+		if err := d.publish(message.Command, d.envelope("payment.charge", o1,
+			map[string]any{"order_id": str(o1), "amount": "999999"}), nil); err != nil { // different amount: still the first answer
+			return err
+		}
+		if err := d.awaitCount("payment.succeeded", o1, before+1); err != nil {
+			return err
+		}
+		ev := d.last("payment.succeeded", o1)
+		if amt := field(ev, "amount"); amt != field(charge1, "amount") {
+			return fmt.Errorf("the re-sent charge answered amount %q, want the first charge's %s", amt, field(charge1, "amount"))
+		}
+		if err := d.expectPayment(o1, "PAYMENT_STATUS_SUCCEEDED", ""); err != nil {
+			return err
+		}
+		time.Sleep(d.c.quiet)
+		if n := d.count("inventory.commit", o1); n != 1 {
+			return fmt.Errorf("the late payment.succeeded made the saga commit again (%d inventory.commit)", n)
+		}
+		return d.expectOrder(o1, "ORDER_STATUS_CONFIRMED")
 	})
 
 	// ── poison messages end in the DLQ ──
@@ -513,10 +539,28 @@ func (d *driver) run(ctx context.Context) {
 		}
 		return d.expectNone("payment.", o)
 	})
+	d.step("saga: an impossible answer (inventory.committed for a cancelled order) → DLQ", func() error {
+		// inventory.committed can only follow CONFIRMING; a cancelled order never was there → rejected (impossible)
+		o, err := d.placeOrder(line{1, a, 1, "10"}, line{2, b, 100, "10"})
+		if err != nil {
+			return err
+		}
+		if err := d.expectOrder(o, "ORDER_STATUS_CANCELLED"); err != nil {
+			return err
+		}
+		ev := d.envelope("inventory.committed", o, map[string]any{"order_id": str(o)})
+		if err := d.publish(message.Event, ev, nil); err != nil {
+			return err
+		}
+		if err := d.expectDLQ("order.inventory.committed", ev.ID, "poison"); err != nil {
+			return err
+		}
+		return d.expectOrder(o, "ORDER_STATUS_CANCELLED")
+	})
 
 	// ── invariants at the end ──
 	d.step("I1 outboxes drained (every committed message published)", func() error {
-		for _, u := range []string{d.c.inventoryDB, d.c.paymentDB, d.c.notificationDB} {
+		for _, u := range []string{d.c.inventoryDB, d.c.paymentDB, d.c.notificationDB, d.c.orderDB} {
 			n, err := pendingOutbox(ctx, u)
 			if err != nil {
 				return err
@@ -539,6 +583,80 @@ func (d *driver) run(ctx context.Context) {
 		}
 		return nil
 	})
+	d.step("S-I3 at most one payment per order; CONFIRMED ⇔ paid", func() error {
+		return d.expectPayment(o1, "PAYMENT_STATUS_SUCCEEDED", "")
+	})
+}
+
+// ─── the order service (W5 + the saga) ─────────────────────────────────────────────────────────────────────
+
+type line struct {
+	no    int32
+	sku   string
+	qty   int32
+	price string
+}
+
+// placeOrder: W5 PlaceOrder (customer 42). Returns the order id the service generated.
+func (d *driver) placeOrder(lines ...line) (int64, error) {
+	var items []map[string]any
+	for _, l := range lines {
+		items = append(items, map[string]any{"line_no": l.no, "sku": l.sku, "qty": l.qty, "price": l.price})
+	}
+	var out struct {
+		OrderID string `json:"orderId"`
+		Status  string
+	}
+	if err := d.call(d.c.order, "order.order.v1.OrderService/PlaceOrder", map[string]any{"customer_id": "42", "items": items}, &out); err != nil {
+		return 0, err
+	}
+	if out.Status != "ORDER_STATUS_RESERVING" {
+		return 0, fmt.Errorf("PlaceOrder status %q, want ORDER_STATUS_RESERVING", out.Status)
+	}
+	return strconv.ParseInt(out.OrderID, 10, 64)
+}
+
+// expectOrder: GetOrder reaches this status within the wait (the saga is asynchronous).
+func (d *driver) expectOrder(order int64, status string) error {
+	var out struct{ Status string }
+	deadline := time.Now().Add(d.c.wait)
+	for {
+		if err := d.call(d.c.order, "order.order.v1.OrderService/GetOrder", map[string]any{"id": str(order)}, &out); err != nil {
+			return err
+		}
+		if out.Status == status {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			d.mu.Lock()
+			var seen []string
+			for _, e := range d.events {
+				if e.Subject == str(order) {
+					seen = append(seen, e.Type)
+				}
+			}
+			d.mu.Unlock()
+			return fmt.Errorf("order %d is %s, want %s within %s (messages seen: %v)", order, out.Status, status, d.c.wait, seen)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func (d *driver) awaitMetric(base, name string, labels map[string]string, want float64) error {
+	deadline := time.Now().Add(d.c.wait)
+	for {
+		n, err := metric(base, name, labels)
+		if err != nil {
+			return err
+		}
+		if n >= want {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("%s%v stayed at %v (want %v)", name, labels, n, want)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 // ─── messages ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -649,11 +767,14 @@ func (d *driver) awaitCount(typ string, subject int64, n int) error {
 	return fmt.Errorf("no %d× %s for order %d within %s (seen for this order: %v)", n, typ, subject, d.c.wait, seen)
 }
 
-// expectNone: no event whose type starts with prefix for subject, during the quiet period.
+// expectNone: no message (from a service: the driver's own commands are heard too) whose type starts with prefix
+// for subject, during the quiet period.
 func (d *driver) expectNone(prefix string, subject int64) error {
 	time.Sleep(d.c.quiet)
-	if m := d.matching(prefix, subject); len(m) > 0 {
-		return fmt.Errorf("unexpected %s for order %d", m[0].Type, subject)
+	for _, m := range d.matching(prefix, subject) {
+		if m.Source != "e2e-driver" {
+			return fmt.Errorf("unexpected %s from %s for order %d", m.Type, m.Source, subject)
+		}
 	}
 	return nil
 }

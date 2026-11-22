@@ -176,7 +176,11 @@ func messagingIR(s *spec.Spec, api *ir.API, cat *catalog, md protoreflect.Method
 					if tree.Op != "input" || api.Request.Field(tree.Name) == nil || !api.Request.Field(tree.Name).List {
 						return nil, fmt.Errorf("emit %s.%s: a list field takes a request list as is", e.Type, v.Column)
 					}
-					em.Values = append(em.Values, ir.EmitVal{Field: v.Column, List: true, Expr: tree})
+					var elem []string
+					for _, f := range cf.Elem {
+						elem = append(elem, f.Name)
+					}
+					em.Values = append(em.Values, ir.EmitVal{Field: v.Column, List: true, Expr: tree, Elem: elem})
 					continue
 				}
 				want, err := sqlOf(cf.Type)

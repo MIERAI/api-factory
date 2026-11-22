@@ -159,7 +159,7 @@ func (cg *cmdGen) contract(typ string) (*ir.Contract, error) {
 func (cg *cmdGen) emits(list []ir.CommandEmit, indent string) (string, error) {
 	g := cg.g
 	if len(list) == 0 {
-		return indent + "return nil\n", nil
+		return indent + "return " + cg.ret + "nil\n", nil
 	}
 	g.use(runtimeModule+"/message", "")
 	g.use("fmt", "")
@@ -189,13 +189,16 @@ func (cg *cmdGen) emits(list []ir.CommandEmit, indent string) (string, error) {
 		fmt.Fprintf(&b, "%sd%d := &%s{ // %s v%d 的 data\n%s\n%s}\n", indent, i+1, g.pbType(&ct.Message), em.Type, ct.Version, strings.Join(fields, "\n"), indent)
 		msgs = append(msgs, fmt.Sprintf("emitMsg(%s, %q, %d, fmt.Sprint(d%d.Get%s()), d%d)", kind, em.Type, ct.Version, i+1, goCamelCase(ct.Subject), i+1))
 	}
-	fmt.Fprintf(&b, "%sreturn h.emit(ctx, tx,\n%s,\n%s)\n", indent, strings.Join(msgs, ",\n"), indent)
+	fmt.Fprintf(&b, "%sreturn %sh.emit(ctx, tx,\n%s,\n%s)\n", indent, cg.ret, strings.Join(msgs, ",\n"), indent)
 	return b.String(), nil
 }
 
 // emitValue: data 的一个字段 ← 表达式(请求的字段 / 操作的返回值 / 常量 / 现在 / 消息的 id;列表 = 逐个元素复制)。
 func (cg *cmdGen) emitValue(v ir.EmitVal, cf *ir.Field) (string, error) {
 	g, x := cg.g, v.Expr
+	if v.List && x.Op == "ref" && x.Ref == "载入" { // 状态机: 载入的子行(machine.go)
+		return cg.loadValue(x.Name, cf)
+	}
 	if v.List {
 		src := g.api.Request.Field(x.Name)
 		if src == nil || src.Message == nil || cf.Message == nil {
@@ -218,6 +221,10 @@ func (cg *cmdGen) emitValue(v ir.EmitVal, cf *ir.Field) (string, error) {
 		if f.Optional {
 			return "m." + goCamelCase(f.Name), nil
 		}
+		if cf.Optional { // 必填的值写进可选的字段(R5: 收到的原因 → 发出的可选的原因)
+			g.use(runtimeModule+"/conv", "")
+			return fmt.Sprintf("conv.Ptr(m.Get%s())", goCamelCase(f.Name)), nil
+		}
 		return fmt.Sprintf("m.Get%s()", goCamelCase(f.Name)), nil
 	case "ref":
 		n := cg.idx[x.Ref]
@@ -238,7 +245,12 @@ func (cg *cmdGen) emitValue(v ir.EmitVal, cf *ir.Field) (string, error) {
 	case "env":
 		return "env.ID", nil
 	case "const":
-		return constLit(x)
+		lit, err := constLit(x)
+		if err == nil && cf.Optional && !cf.List { // 常量写进可选的字段
+			g.use(runtimeModule+"/conv", "")
+			lit = "conv.Ptr(" + lit + ")"
+		}
+		return lit, err
 	}
 	return "", fmt.Errorf("%s cannot be emitted (输入 / 操作名.列 / 常量 / 现在 / 信封.id)", x.Op)
 }
@@ -442,6 +454,8 @@ func resultName(r ir.CommandResult) string {
 	}
 	return r.Name
 }
+
+func formatExpr(x *ir.CmdExpr) string { return command.Format(x) }
 
 func formatCond(r ir.CommandResult) string {
 	if r.When == nil {

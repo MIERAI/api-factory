@@ -162,5 +162,47 @@
         }
       }
     ]
+  },
+  {
+    "id": "order.order-saga",
+    "method": "OrderSaga",
+    "summary": "下单的 saga。按状态发命令给 inventory / payment、收它们的回答、失败时释放库存再取消订单(状态机: 收到 inventory.committed / inventory.released / inventory.reservation_failed / inventory.reserved / payment.failed / payment.succeeded;超时由扫描任务驱动)",
+    "path": "/order.order.v1.OrderMessageHandlerService/OrderSaga",
+    "pattern": "machine",
+    "cases": []
+  },
+  {
+    "id": "order.place-order",
+    "method": "PlaceOrder",
+    "summary": "下单。订单和明细一起写进去(订单金额 = 明细金额之和),订单进入 RESERVING,同时发出 inventory.reserve",
+    "path": "/order.order.v1.OrderService/PlaceOrder",
+    "pattern": "command",
+    "cases": [
+      {
+        "name": "下单 → 订单 + 明细,金额 = 明细之和,发出 inventory.reserve",
+        "request": {
+          "customer_id": 7,
+          "items": [
+            {
+              "line_no": 1,
+              "price": "1000.50",
+              "qty": 2,
+              "sku": "BEAN-001"
+            },
+            {
+              "line_no": 2,
+              "price": "0.25",
+              "qty": 1,
+              "sku": "TEA-001"
+            }
+          ]
+        },
+        "response": {
+          "created_at": "2026-11-22T01:00:00Z",
+          "order_id": 1,
+          "status": "ORDER_STATUS_RESERVING"
+        }
+      }
+    ]
   }
 ]

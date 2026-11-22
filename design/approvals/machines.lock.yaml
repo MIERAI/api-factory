@@ -1,0 +1,8 @@
+# 由设计编译器维护: 部署过的状态机的状态(只能新增;删除 / 改名的状态要先确认在途的实例数 = 0,再写进 已下线)
+DocumentReview:
+    状态:
+        EXPIRED: 5
+        PUBLISHED: 3
+        PUBLISHING: 2
+        REJECTED: 4
+        REVIEWING: 1

@@ -5,8 +5,10 @@
 package order
 
 import (
+	"github.com/MIERAI/api-factory-runtime/outbox"
 	"github.com/MIERAI/api-factory-runtime/paging"
 	"github.com/MIERAI/api-factory-runtime/shard"
+	"github.com/MIERAI/api-factory-runtime/txn"
 	"github.com/MIERAI/storefront/services/order/gen/db"
 	"github.com/MIERAI/storefront/services/order/gen/order/order/v1/orderv1connect"
 )
@@ -18,10 +20,12 @@ type Handler struct {
 	q      *db.Queries
 	pager  *paging.Pager
 	shards *shard.Router
+	tx     *txn.Executor  // 命令(写入)的事务执行器
+	out    *outbox.Writer // 发出的消息(R4: 写进 outbox,和写操作同一个事务)
 }
 
-func New(q *db.Queries, pager *paging.Pager, shards *shard.Router) *Handler {
-	return &Handler{q: q, pager: pager, shards: shards}
+func New(q *db.Queries, pager *paging.Pager, shards *shard.Router, tx *txn.Executor, out *outbox.Writer) *Handler {
+	return &Handler{q: q, pager: pager, shards: shards, tx: tx, out: out}
 }
 
 // at: 分库的表 —— 按分库键(店铺代码等)选连接。没有配置分库时就是主库

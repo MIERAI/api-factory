@@ -259,6 +259,13 @@ func Compile(specs []*spec.Spec) (*ir.Plan, error) {
 // Write: 最终的 SQL → db/queries,IR → path。
 // specTables: 式样书用到的表(数据来源;组合命令 = 操作写的表)。
 func specTables(s *spec.Spec) []string {
+	if c := s.Pattern.Command; c != nil && c.Machine != nil { // 状态机: 实体 + 载入的表
+		out := []string{c.Machine.Entity}
+		for _, l := range c.Machine.Loads {
+			out = append(out, l.Table)
+		}
+		return out
+	}
 	if c := s.Pattern.Command; c != nil && len(c.Ops) > 0 {
 		var out []string
 		seen := map[string]bool{}

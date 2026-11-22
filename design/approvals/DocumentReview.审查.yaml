@@ -1,0 +1,52 @@
+# ============================================================================
+# 审查记录: 这个文件由工厂写入,不用自己写(factory answer)。
+# ============================================================================
+问答:
+
+  - 问题: "文档已经批准、进入 PUBLISHING 之后,又收到评审人的回答(review.approved 或 review.rejected),要忽略还是拒绝(进 DLQ)?"
+    选项: ["批准忽略,驳回拒绝", "都忽略", "都拒绝(保持例子 5 的规则)"]
+    回答: "都忽略"
+    补充规则: { 情况: "文档在 PUBLISHING 时又收到 review.approved / review.rejected", 结果: "忽略(不改文档,不发消息)" }
+    来自: "DocumentReview 的审查 2026-11-23 20261123-005619-default-approvals.document-review"
+
+  - 问题: "提交已经超过 1 小时、才到的批准(例: 10:59 提交 → 11:59:30 收到 review.approved)怎么处理?"
+    选项: ["保持现在的行为", "已经过期的文档收到回答 → 拒绝(进 DLQ)", "超过期限一律不接受(改成 AI 实现)"]
+    回答: "保持现在的行为"
+    补充规则: { 情况: "提交超过 1 小时后才收到 review.approved / review.rejected", 结果: "文档还在 REVIEWING(期限的扫描还没处理)→ 按正常转移处理;已经是 EXPIRED → 忽略(不改文档,不发消息)" }
+    来自: "DocumentReview 的审查 2026-11-23 20261123-005619-default-approvals.document-review"
+
+  - 问题: "文档在审批中、评审人(document_reviewers)被改掉时,重发的 review.request 用哪些评审人?评审人被删到 0 人时怎么办?"
+    选项: ["保持现在的行为", "提交之后评审人不能改"]
+    回答: "提交之后评审人不能改"
+    补充规则: { 情况: "文档已经提交", 结果: "document_reviewers 是只追加的表(工厂不生成更新 / 删除它的写接口),只由 SubmitDocument 和文档一起写入;重发的 review.request 用提交时的评审人(按评审人 id 的顺序),一定是 1~10 人" }
+    来自: "DocumentReview 的审查 2026-11-23 20261123-005619-default-approvals.document-review"
+
+  - 问题: "文档已经不在 REVIEWING(例: 已经是 PUBLISHING、REJECTED 或 EXPIRED)时,收到版本不一致的批准(例: 文档 revision 2,收到 review.approved revision 1),要忽略还是拒绝(进 DLQ)?"
+    选项: ["保持现在的行为(只有审批中才检查版本)", "任何状态下版本不一致都拒绝"]
+    回答: "保持现在的行为(只有审批中才检查版本)"
+    补充规则: { 情况: "文档不在 REVIEWING 时收到 review.approved,版本和文档不同", 结果: "忽略(不改文档,不发消息);版本只在 REVIEWING 时检查,背景里「不能自动吞掉」只针对审批中的文档" }
+    来自: "DocumentReview 的审查 2026-11-23 20261123-012014-claude-approvals.document-review"
+
+  - 问题: "一个文档有多个评审人(例: alice 1 票、bob 2 票)时,收到的一条 review.approved / review.rejected 是评审服务按票数汇总之后的最终结论,还是某一个评审人的意见?"
+    选项: ["保持现在的行为(消息是汇总后的结论)", "改设计: 在这里按票数汇总"]
+    回答: "保持现在的行为(消息是汇总后的结论)"
+    补充规则: { 情况: "收到 review.approved / review.rejected", 结果: "这条消息是评审服务按 review.request 里的评审人和票数汇总之后的最终结论(这里不按票数汇总);审批中的文档按第一条能转移的结论(版本一致的批准 / 驳回)转移,之后到的回答忽略" }
+    来自: "DocumentReview 的审查 2026-11-23 20261123-012014-claude-approvals.document-review"
+
+  - 问题: "上一轮决定「PUBLISHING 的文档又收到 review.approved / review.rejected → 忽略」,但「转移」里没有写这条,而例子「审批中收到 publish.done → 拒绝」说明:等待中的状态收到没有转移的消息时是拒绝(进 DLQ)。这条忽略要怎么写进状态机?例:文档 2(PUBLISHING)收到 review.approved { doc_id: 2, revision: 1 }。"
+    选项: ["在 PUBLISHING 写明忽略这两种回答", "通用规则:已经过去的阶段的回答忽略"]
+    回答: "通用规则:已经过去的阶段的回答忽略"
+    补充规则: { 情况: "收到的消息在文档现在的状态没有转移", 结果: "按状态图自动分类(状态机不逐个写): 有这个消息的转移的状态在现在的状态之前(从它能走到现在的状态: REVIEWING → PUBLISHING / PUBLISHED / REJECTED / EXPIRED,PUBLISHING → PUBLISHED)→ 忽略(不改文档,不发消息);否则 → 拒绝(进 DLQ)。例: PUBLISHING / PUBLISHED / REJECTED / EXPIRED 收到 review.approved / review.rejected → 忽略;PUBLISHED 收到 publish.done → 忽略;REVIEWING / REJECTED / EXPIRED 收到 publish.done → 拒绝" }
+    来自: "DocumentReview 的审查 2026-11-23 20261123-012251-claude-approvals.document-review"
+
+  - 问题: "评审人批准了错的版本(进 DLQ、等人处理)之后,文档还在审批中,现在会继续每 2 分钟重发 review.request,到提交 1 小时还会变成 EXPIRED。这是想要的吗?例: 09:59 提交 revision 2,10:05 收到 review.approved revision 1 → 进 DLQ;10:06、10:08…继续重发,10:59 文档过期。"
+    选项: ["保持现在的行为", "改设计: 版本不一致时停在单独的状态"]
+    回答: "保持现在的行为"
+    补充规则: { 情况: "审批中的文档收到版本不一致的批准(进 DLQ)之后", 结果: "文档不变: 继续按间隔重发 review.request,提交 1 小时还没有结论 → EXPIRED,发出 document.expired;处理 DLQ 的人要在期限内处理" }
+    来自: "DocumentReview 的审查 2026-11-23 20261123-012823-claude-approvals.document-review"
+
+  - 问题: "审批中的文档收到版本不一致的批准进 DLQ 之后会继续重发 review.request。评审服务对重发再回答一次同样的错版本批准时,要再进一次 DLQ,还是按「重发引起的第二个回答 → 忽略」忽略?例: 09:59 提交 revision 2,10:05 收到 review.approved revision 1 → 进 DLQ;10:06 重发,10:06:10 又收到 review.approved revision 1。"
+    选项: ["保持现在的行为(每一条都进 DLQ)", "改成 AI 实现: 同一个文档的错版本批准只进 DLQ 一次"]
+    回答: "保持现在的行为(每一条都进 DLQ)"
+    补充规则: { 情况: "审批中的文档收到版本不一致的批准,包括重发 review.request 引起的第二条、第三条", 结果: "每一条都拒绝(进 DLQ),文档不变。「重发引起的第二个回答 → 忽略」只适用于文档已经离开 REVIEWING 之后才到的回答" }
+    来自: "DocumentReview 的审查 2026-11-23 20261123-013308-claude-approvals.document-review"

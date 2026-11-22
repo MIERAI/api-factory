@@ -165,7 +165,7 @@ func checkCommand(kind string, s *spec.Spec) []string {
 var OpKinds = map[string]string{"新建": "insert", "幂等新建": "insert_idempotent", "更新": "update", "删除": "delete"}
 
 // OpKeys: 一个操作可以写的键(除了种类本身)。
-var OpKeys = []string{"键", "值", "设置", "条件", "不满足", "乐观锁", "找不到时", "仅当"}
+var OpKeys = []string{"键", "值", "设置", "条件", "不满足", "乐观锁", "找不到时", "仅当", "每项"}
 
 // SkipWord: 不满足: 跳过(R4: 条件不成立不是错误,这个操作不做)。UpdatedWord: 仅当 操作名.已更新(前面的更新真的更新了)。
 const (
@@ -247,6 +247,12 @@ func parseOps(d Design, p *spec.Pattern) {
 				op.Only = strings.TrimSpace(v.Value)
 			case "找不到时":
 				op.NotFound = v.Value
+			case "每项":
+				list, ok := strings.CutPrefix(strings.TrimSpace(v.Value), "输入.")
+				if !ok || list == "" {
+					d.Err("操作 %s: 每项 写成 输入.列表(组列表的输入)", name)
+				}
+				op.Each = list
 			default:
 				d.Err("操作 %s: 不认识的键 %s(可以写: 新建 / 幂等新建 / 更新 / 删除 + %s)", name, k, strings.Join(OpKeys, " / "))
 			}

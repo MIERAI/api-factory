@@ -1,5 +1,5 @@
 # storefront v2 end-to-end stack: RabbitMQ + one Postgres (one database per service) + inventory / payment /
-# notification built from their generated Dockerfiles. Hand-written (boundaries.md §8: the system's layer, not the
+# notification / order built from their generated Dockerfiles. Hand-written (boundaries.md §8: the system's layer, not the
 # factory's). `make e2e` in this directory runs it; see README.md.
 #
 # Dedicated project name and non-default host ports: other containers on the same machine are never touched.
@@ -73,6 +73,10 @@ services:
     <<: *schema
     environment: { <<: *pg-env, DB: notification }
     volumes: ["../notification/db/schema:/schema:ro"]
+  schema-order:
+    <<: *schema
+    environment: { <<: *pg-env, DB: order }
+    volumes: ["../order/db/schema:/schema:ro"]
 
   inventory:
     build: { context: ../inventory }
@@ -97,4 +101,14 @@ services:
     ports: ["58083:8080", "59093:9090"]
     depends_on:
       schema-notification: { condition: service_completed_successfully }
+      rabbitmq: { condition: service_healthy }
+  # order: W5 PlaceOrder + the order saga (R5). With AMQP_URL its timeout scanner runs too (real clock: resends
+  # after 30 s; nothing in the driver waits that long)
+  order:
+    build: { context: ../order }
+    image: sf2-e2e/order:local
+    environment: { <<: *service-env, DATABASE_URL: "postgres://e2e:e2e@postgres:5432/order?sslmode=disable" }
+    ports: ["58084:8080", "59094:9090"]
+    depends_on:
+      schema-order: { condition: service_completed_successfully }
       rabbitmq: { condition: service_healthy }
