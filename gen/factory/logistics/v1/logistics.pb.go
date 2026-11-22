@@ -482,7 +482,7 @@ type ListZonedShipmentsRequest struct {
 	PageToken string `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
 	// 倉庫コード(空文字は参数错误)
 	WarehouseCode string `protobuf:"bytes,3,opt,name=warehouse_code,json=warehouseCode,proto3" json:"warehouse_code,omitempty"`
-	// 区画の表示名(不指定 = 絞り込まない。空文字は参数错误)
+	// 区画の表示名(同じ表示名の区画はすべて対象。不指定 = 絞り込まない。空文字は参数错误)
 	ZoneLabel     *string `protobuf:"bytes,4,opt,name=zone_label,json=zoneLabel,proto3,oneof" json:"zone_label,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

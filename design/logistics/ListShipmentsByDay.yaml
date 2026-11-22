@@ -44,11 +44,13 @@ API: ListShipmentsByDay
     carriers:
       - { carrier_id: 1, name: 山川運輸, partner_code: P01 }
       - { carrier_id: 2, name: 自社便,   partner_code: null }
+      - { carrier_id: 3, name: 空コード便, partner_code: "" }
     shipments:
       - { id: 1, warehouse_code: W1, zone_no: 1,    partner_code: P01,  shipped_on: 2026-11-20, weight: 12.5 }
       - { id: 2, warehouse_code: W9, zone_no: null, partner_code: null, shipped_on: 2026-11-20, weight: 3 }
       - { id: 3, warehouse_code: W2, zone_no: 2,    partner_code: P99,  shipped_on: 2026-11-20, weight: 0.25 }
       - { id: 4, warehouse_code: W1, zone_no: 1,    partner_code: P01,  shipped_on: 2026-11-21, weight: 1 }
+      - { id: 5, warehouse_code: W1, zone_no: null, partner_code: "",   shipped_on: 2026-11-23, weight: 2 }
   用例:
     - 说明: 倉庫マスタに無い倉庫(W9)・業者マスタに無いコード(P99)の出荷も返す。名前は不设置
       输入: { shipped_on: 2026-11-20 }
@@ -63,6 +65,9 @@ API: ListShipmentsByDay
     - 说明: 倉庫で絞り込む
       输入: { shipped_on: 2026-11-21, warehouse_codes: [W1, W2] }
       结果: { shipments: [{ id: 4, warehouse_name: 東倉庫, carrier_name: 山川運輸 }] }
+    - 说明: 取引先コードが空文字 "" の出荷は "" のまま返し、取引先コード "" の業者と結びつく(空(NULL)とは区別する)
+      输入: { shipped_on: 2026-11-23 }
+      结果: { shipments: [{ id: 5, partner_code: "", carrier_name: 空コード便 }] }
     - 说明: 該当なし
       输入: { shipped_on: 2026-11-22 }
       结果: { shipments: [] }

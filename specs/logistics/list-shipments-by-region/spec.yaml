@@ -5,7 +5,7 @@ api:
     rpc: factory.logistics.v1.LogisticService/ListShipmentsByRegion
     owner: logistics-team
     risk_level: low
-    description: 地域別の配車計画。地域は倉庫マスタ経由で引く(出荷 → 倉庫 → 地域)。地域名順、同じ地域名なら地域コード順。地域が未設定・地域マスタに無い出荷は地域名が空で末尾に並ぶ
+    description: 地域別の配車計画。1 日の出荷は全社で 30 件程度の前提。50 件を超えたら黙って切り捨てずエラー(FAILED_PRECONDITION)にし、地域を指定して絞り込んでもらう。地域は倉庫マスタ経由で引く(出荷 → 倉庫 → 地域)。地域名順、同じ地域名なら地域コード順。地域が未設定・地域マスタに無い出荷は地域名が空で末尾に並ぶ
 pattern:
     kind: list_all
     not_found_message: ""
@@ -48,7 +48,9 @@ datasource:
               from: name
           missing: keep
     sql: ""
-behavior: []
+behavior:
+    - when: 当日の出荷が 50 件を超える
+      then: エラー(FAILED_PRECONDITION)。一部だけ返すことはしない
 acceptance:
     fixtures:
         regions:
@@ -56,6 +58,8 @@ acceptance:
               region_code: R1
             - name: 九州
               region_code: R2
+            - name: 関東
+              region_code: R5
         shipments:
             - id: 1
               partner_code: null
@@ -93,6 +97,18 @@ acceptance:
               warehouse_code: W1
               weight: "1"
               zone_no: null
+            - id: 7
+              partner_code: null
+              shipped_on: "2026-11-21"
+              warehouse_code: W5
+              weight: "1"
+              zone_no: null
+            - id: 8
+              partner_code: null
+              shipped_on: "2026-11-21"
+              warehouse_code: W1
+              weight: "1"
+              zone_no: null
         warehouses:
             - name: 東倉庫
               region_code: R1
@@ -106,6 +122,9 @@ acceptance:
             - name: 旧倉庫
               region_code: R9
               warehouse_code: W4
+            - name: 北倉庫
+              region_code: R5
+              warehouse_code: W5
     cases:
         - name: 地域名順(文字コード順)。地域名が空の出荷は末尾で、その中は地域コード順(地域マスタに無い R9 → 地域が空の W3・倉庫マスタに無い W9)
           request:
@@ -134,6 +153,21 @@ acceptance:
                       region_code: $absent
                       region_name: $absent
                       warehouse_name: $absent
+          steps: []
+        - name: 同じ地域名(関東)の別の地域コードは地域コード順に分けて並ぶ(R1 の出荷 6, 8 → R5 の出荷 7)
+          request:
+            shipped_on: "2026-11-21"
+          expect:
+            code: OK
+            response:
+                shipments:
+                    - id: 6
+                      region_code: R1
+                    - id: 8
+                      region_code: R1
+                    - id: 7
+                      region_code: R5
+                      region_name: 関東
           steps: []
         - name: 地域で絞り込む(倉庫マスタの地域コード)
           request:
@@ -167,7 +201,11 @@ acceptance:
           steps: []
 logic_examples: []
 review_decisions:
-    - question: region_code 传了空字符串("")时,应该怎么处理?
+    - question: region_code 传了空字符串("")时,应该怎么处理?例如画面上地域选择框没选,但调用方仍然把 region_code 以 "" 传了过来。
       decision: 已经直接修改了设计书
     - question: 地域マスタ里有两个不同的地域コード用了同一个地域名时(例如 R1 和 R5 都叫「関東」),它们的出荷要不要按地域分开排列?
+      decision: 已经直接修改了设计书
+    - question: 排序改成了「地域名 → 地域コード → 出荷 ID」,但例子里没有两个地域同名的情况。地域マスタ里真的会出现不同地域コード用同一个地域名(例如 R1 和 R5 都叫「関東」)吗?
+      decision: 已经直接修改了设计书
+    - question: 不指定地域时会返回当天所有地域的出荷。如果某个出荷日全公司有 51 件以上出荷(例如繁忙期一天 80 件),现在整个请求会报错、一件都不返回。这是想要的行为吗?
       decision: 已经直接修改了设计书

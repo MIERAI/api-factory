@@ -853,6 +853,29 @@
         }
       },
       {
+        "name": "同じ地域名(関東)の別の地域コードは地域コード順に分けて並ぶ(R1 の出荷 6, 8 → R5 の出荷 7)",
+        "request": {
+          "shipped_on": "2026-11-21"
+        },
+        "response": {
+          "shipments": [
+            {
+              "id": 6,
+              "region_code": "R1"
+            },
+            {
+              "id": 8,
+              "region_code": "R1"
+            },
+            {
+              "id": 7,
+              "region_code": "R5",
+              "region_name": "関東"
+            }
+          ]
+        }
+      },
+      {
         "name": "地域で絞り込む(倉庫マスタの地域コード)",
         "request": {
           "region_code": "R1",
@@ -863,21 +886,6 @@
             {
               "id": 1,
               "region_name": "関東"
-            }
-          ]
-        }
-      },
-      {
-        "name": "地域マスタに無い地域コードでも絞り込める(地域名は空)",
-        "request": {
-          "region_code": "R9",
-          "shipped_on": "2026-11-20"
-        },
-        "response": {
-          "shipments": [
-            {
-              "id": 4,
-              "region_name": "$absent"
             }
           ]
         }

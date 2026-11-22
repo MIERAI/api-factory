@@ -99,7 +99,7 @@ message ListZonedShipmentsRequest {
   string page_token = 2;
   // 倉庫コード(空文字は参数错误)
   string warehouse_code = 3 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 8];
-  // 区画の表示名(不指定 = 絞り込まない。空文字は参数错误)
+  // 区画の表示名(同じ表示名の区画はすべて対象。不指定 = 絞り込まない。空文字は参数错误)
   optional string zone_label = 4 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 40];
 }
 

@@ -58,6 +58,9 @@ acceptance:
             - carrier_id: 2
               name: 自社便
               partner_code: null
+            - carrier_id: 3
+              name: 空コード便
+              partner_code: ""
         shipments:
             - id: 1
               partner_code: P01
@@ -83,6 +86,12 @@ acceptance:
               warehouse_code: W1
               weight: "1"
               zone_no: 1
+            - id: 5
+              partner_code: ""
+              shipped_on: "2026-11-23"
+              warehouse_code: W1
+              weight: "2"
+              zone_no: null
         warehouses:
             - name: 東倉庫
               region_code: R1
@@ -140,6 +149,17 @@ acceptance:
                       id: 4
                       warehouse_name: 東倉庫
           steps: []
+        - name: 取引先コードが空文字 "" の出荷は "" のまま返し、取引先コード "" の業者と結びつく(空(NULL)とは区別する)
+          request:
+            shipped_on: "2026-11-23"
+          expect:
+            code: OK
+            response:
+                shipments:
+                    - carrier_name: 空コード便
+                      id: 5
+                      partner_code: ""
+          steps: []
         - name: 該当なし
           request:
             shipped_on: "2026-11-22"
@@ -152,5 +172,7 @@ logic_examples: []
 review_decisions:
     - question: 'ある出荷日の出荷が 50 件を超えたとき(例: 2026-11-20 に 51 件、倉庫を指定しない場合)、一覧はエラーになりますが、それでよいですか?'
       decision: 已经直接修改了设计书
-    - question: EDI から取引先コードが空文字("")のまま届いた出荷は「取引先コードが空」として扱いますか?
+    - question: EDI から取引先コードが空文字("")のまま届いた出荷は「取引先コードが空」として扱いますか?(現在は "" も一つのコードとして扱い、partner_code は "" で返り、業者マスタに取引先コード "" の業者があればその業者名が付きます)
+      decision: 已经直接修改了设计书
+    - question: 取引先コードが空文字 "" で届いた出荷は、partner_code が "" のまま返り(不设置ではない)、業者マスタに取引先コード "" の業者があればその業者名が付きます。この動作のままでよいですか?
       decision: 已经直接修改了设计书

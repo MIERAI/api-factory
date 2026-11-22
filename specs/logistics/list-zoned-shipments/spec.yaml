@@ -149,7 +149,9 @@ acceptance:
           steps: []
 logic_examples: []
 review_decisions:
-    - question: 倉庫コード(warehouse_code)传空字符串 "" 时,是返回错误,还是照常查询?
+    - question: '倉庫コード(warehouse_code)传空字符串 "" 时,是返回错误,还是照常查询?例: 请求 { warehouse_code: "" } 现在不报错,而是去找倉庫コード为空的出荷,通常返回空列表。'
       decision: 已经直接修改了设计书
-    - question: 区画の表示名(zone_label)传空字符串 "" 时,应该怎么处理?
+    - question: '区画の表示名(zone_label)传空字符串 "" 时,应该怎么处理?例: 画面上的筛选框没填就发送了 { warehouse_code: W1, zone_label: "" },现在会只找表示名为空的区画,结果通常是空列表,而不是"不筛选"。'
+      decision: 已经直接修改了设计书
+    - question: '同一个倉庫里有两个区画用了同一个表示名时(例: W1 的区画 1 和区画 5 都叫「A棚」),用 { warehouse_code: W1, zone_label: A棚 } 筛选,是否应该把这两个区画的出荷都返回?'
       decision: 已经直接修改了设计书
