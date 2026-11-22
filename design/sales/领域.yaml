@@ -28,6 +28,15 @@
       valid_from:   適用開始日(含)
       valid_to:     適用終了日(含;空 = 期限なし)
       price:        売価
+  price_snapshots:
+    说明: 店別・商品別の売価スナップショット(旧システムから取り込んだ表。日付は整数 YYYYMMDD)
+    主键: [store_code, product_code, snap_ymd]
+    更新方式: 可以更新
+    列:
+      store_code:   店舗コード
+      product_code: 商品コード
+      snap_ymd:     { 说明: スナップショット日(YYYYMMDD の整数。取込のバグで存在しない日付が混ざることがある), 编码: YYYYMMDD }
+      price:        売価
   price_changes:
     说明: 売価変更の指示(店舗 × 商品 × 指示日)
     主键: [store_code, product_code, proc_date]

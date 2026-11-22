@@ -30,7 +30,8 @@ type derivedCmp struct {
 	node *core.Expr // cmp 节点
 	col  string
 	expr *core.Expr // 时间运算的一边
-	kind core.Kind  // 列的类型(日期 / 时间)
+	kind core.Kind  // 列的类型(日期 / 时间;整数编码的日期 = 日期)
+	ymd  bool       // 列是整数编码的日期(条件里是 ymd(列))
 }
 
 // timeState: 派生参数的状态(没有时间运算的 API 为空,随机数的消耗和以前完全一样)。
@@ -39,7 +40,9 @@ type timeState struct {
 	inputs  []core.ParamDecl // 派生参数的输入(请求参数,但不是直接的筛选)
 	usesNow bool
 	zone    string
-	probes  []core.Params // 每组: NowParam(用到 now 时)+ 输入
+	probes  []core.Params   // 每组: NowParam(用到 now 时)+ 输入
+	ymdIn   map[string]bool // 整数编码的日期的输入(派生参数里是 ymd(参数))
+	ymdCol  map[string]bool // 整数编码的日期的列(和派生参数比较)
 }
 
 func isTimeExpr(x *core.Expr) bool {
@@ -56,7 +59,7 @@ func isTimeExpr(x *core.Expr) bool {
 // collectDerived: 找出派生参数的比较和输入,定下探针(用自己的随机数: 不影响别的数据)。
 func (e *diffEnv) collectDerived() {
 	p := e.api.Pipeline
-	e.tm = timeState{}
+	e.tm = timeState{ymdIn: map[string]bool{}, ymdCol: map[string]bool{}}
 	inputs := map[string]bool{}
 	var walkIn func(x *core.Expr)
 	walkIn = func(x *core.Expr) {
@@ -65,6 +68,9 @@ func (e *diffEnv) collectDerived() {
 		}
 		if x.Op == "param" {
 			inputs[x.Name] = true
+		}
+		if x.Op == "ymd" && len(x.Args) == 1 && x.Args[0].Op == "param" {
+			e.tm.ymdIn[x.Args[0].Name] = true
 		}
 		if x.Op == "now" {
 			e.tm.usesNow = true
@@ -93,6 +99,11 @@ func (e *diffEnv) collectDerived() {
 				if a.Op == "col" && isTimeExpr(b) {
 					t, _ := e.colType(a.Name)
 					e.tm.cmps = append(e.tm.cmps, derivedCmp{step: i, node: x, col: a.Name, expr: b, kind: t.Kind})
+					walkIn(b)
+				}
+				if a.Op == "ymd" && a.Args[0].Op == "col" && isTimeExpr(b) { // 整数编码的日期的列
+					e.tm.cmps = append(e.tm.cmps, derivedCmp{step: i, node: x, col: a.Args[0].Name, expr: b, kind: core.Date, ymd: true})
+					e.tm.ymdCol[a.Args[0].Name] = true
 					walkIn(b)
 				}
 			}
@@ -199,7 +210,15 @@ func unitsIn(x *core.Expr, day, month *bool) {
 }
 
 // inputCandidates: 派生参数的输入的候选。整数 = 约束的值域;日期 = 月末(31 / 30 / 2 月末 / 闰年)+ 值域;时间 = 值域 + 日界线。
+// 整数编码的日期: 日期的候选写成 YYYYMMDD + 一个不合法的日期(请求不合法: 参数错误)。
 func (e *diffEnv) inputCandidates(d core.ParamDecl) []any {
+	if e.tm.ymdIn[d.Name] {
+		var out []any
+		for _, v := range e.inputCandidates(core.ParamDecl{Name: "\x00", Type: core.Type{Kind: core.Date}}) {
+			out = append(out, core.YMDInt(v.(time.Time)))
+		}
+		return append(out, int64(20260230))
+	}
 	switch d.Type.Kind {
 	case core.Int32, core.Int64:
 		if dom := constraints.DomainOf(e.api.Request.Field(d.Name)); dom != nil && len(dom.Values) > 0 {
@@ -325,6 +344,15 @@ func (e *diffEnv) boundaryValue(col string) any {
 		return nil
 	}
 	off := []int{-1, 0, 0, 1}[e.rnd.Intn(4)] // 正好在边界上的行多一些(< 和 <= 只在这里不同)
+	if c.ymd {                               // 整数编码的日期: 边界 −1 / 正好 / +1 天的整数;约 1/4 是边界那个月附近的不合法的整数
+		// (那个月的 0 日 / 最后一天 + 1 / 13 月: 不检查就按日历进位的实现会把它们读成边界前后的日期)
+		if e.rnd.Intn(4) == 0 {
+			y, m := int64(b.Year()), int64(b.Month())
+			last := int64(time.Date(b.Year(), b.Month()+1, 0, 0, 0, 0, 0, time.UTC).Day())
+			return []int64{y*10000 + m*100, y*10000 + m*100 + last + 1, y*10000 + 1300 + int64(b.Day())}[e.rnd.Intn(3)]
+		}
+		return core.YMDInt(b.AddDate(0, 0, off))
+	}
 	if c.kind == core.Date {
 		return b.AddDate(0, 0, off)
 	}
@@ -336,6 +364,7 @@ func (e *diffEnv) boundaryValue(col string) any {
 func (e *diffEnv) timeTargets() []sensTarget {
 	var out []sensTarget
 	flip := map[string]string{"<": "<=", "<=": "<", ">": ">=", ">=": ">"}
+	looseDone := map[string]bool{}
 	for _, c := range e.tm.cmps {
 		c := c
 		if f, ok := flip[c.node.Name]; ok {
@@ -346,6 +375,17 @@ func (e *diffEnv) timeTargets() []sensTarget {
 		if zoneSensitive(c.expr, e) {
 			out = append(out, sensTarget{desc: fmt.Sprintf("派生参数 %s 的时区(换成 UTC)", c.col), mutate: func(p *core.Pipeline) *core.Pipeline {
 				return replaceIn(p, c.step, c.expr, rezone(c.expr, "UTC"))
+			}})
+		}
+		if c.ymd && !looseDone[c.col] { // 整数编码的日期: 不合法的整数按日历进位(20260230 → 3/2)的实现要看得出来
+			looseDone[c.col] = true // 一列一个: 这一列的全部比较一起换(期间的两端都按进位读,进位后的日期才会落在期间里)
+			out = append(out, sensTarget{desc: fmt.Sprintf("整数编码的日期 %s: 不合法的值按日历进位", c.col), mutate: func(p *core.Pipeline) *core.Pipeline {
+				mut := *p
+				mut.Steps = append([]core.Step(nil), p.Steps...)
+				for i := range mut.Steps {
+					mut.Steps[i].Pred = looseYMD(mut.Steps[i].Pred, c.col)
+				}
+				return &mut
 			}})
 		}
 		if core.UsesNow(c.expr) {
@@ -430,4 +470,20 @@ func nowText(v any) string {
 		return t.UTC().Format(time.RFC3339Nano)
 	}
 	return strings.TrimSpace(fmt.Sprint(v))
+}
+
+// looseYMD: 条件里的 ymd(列 col) 换成按日历进位的错误实现。
+func looseYMD(x *core.Expr, col string) *core.Expr {
+	if x == nil {
+		return nil
+	}
+	c := *x
+	if x.Op == "ymd" && len(x.Args) == 1 && x.Args[0].Op == "col" && x.Args[0].Name == col {
+		c.Loose = true
+	}
+	c.Args = nil
+	for _, a := range x.Args {
+		c.Args = append(c.Args, looseYMD(a, col))
+	}
+	return &c
 }

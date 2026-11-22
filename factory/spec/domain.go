@@ -71,8 +71,10 @@ func (f StorageField) JSONKey() string {
 }
 
 type ColumnMeta struct {
-	Enum      *EnumMeta `yaml:"enum"`
-	OnUnknown string    `yaml:"on_unknown"` // unspecified
+	Enum      *EnumMeta `yaml:"enum,omitempty"`
+	OnUnknown string    `yaml:"on_unknown,omitempty"` // unspecified
+	// Encoding: 整数列里的日期的编码(YYYYMMDD)。和日期比较时列按 ymd 读成日期(不合法的整数 → 不命中),SQL 按整数比较
+	Encoding string `yaml:"encoding,omitempty"`
 }
 
 type EnumMeta struct {

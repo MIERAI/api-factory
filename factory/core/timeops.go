@@ -148,3 +148,28 @@ func localToInstant(loc *time.Location, y int, m time.Month, d, hh, mm, ss, ns i
 	}
 	return tb // 不存在的时刻: 用切换前的偏移
 }
+
+// YMDDate: YYYYMMDD 的整数 → 日期(UTC 零点)。不是合法的日期(年 1000~9999、月 1~12、日 1~那个月的天数)→ nil。
+// loose(差分测试的错误实现): 年月日拆开后交给 time.Date(不合法的日 / 月按日历进位)。
+func YMDDate(n int64, loose bool) any {
+	y, m, d := n/10000, n/100%100, n%100
+	if loose {
+		if n <= 0 {
+			return nil
+		}
+		return time.Date(int(y), time.Month(m), int(d), 0, 0, 0, 0, time.UTC)
+	}
+	if n < 10000101 || n > 99991231 || m < 1 || m > 12 || d < 1 {
+		return nil
+	}
+	t := time.Date(int(y), time.Month(m), int(d), 0, 0, 0, 0, time.UTC)
+	if t.Day() != int(d) { // 那个月没有这一天(time.Date 进位到了下个月)
+		return nil
+	}
+	return t
+}
+
+// YMDInt: 日期 → YYYYMMDD 的整数。
+func YMDInt(t time.Time) int64 {
+	return int64(t.Year())*10000 + int64(t.Month())*100 + int64(t.Day())
+}

@@ -1,0 +1,75 @@
+# ============================================================================
+# SearchProductsByName: 商品名の部分一致で商品マスタを探す(包含 = 部分一致の筛选。% _ は文字として扱う)
+# ============================================================================
+API: SearchProductsByName
+说明: 商品名に指定の文字列を含む商品(現在の値)を、カテゴリで絞って返す
+背景: 店頭端末の商品検索。入力は商品名の一部(どこに含まれていてもよい)。% や _ は普通の文字として探す
+  (「50%」は「50%オフ」に一致し、「50円」には一致しない)。大文字・小文字は区別する。
+  部分一致は btree の索引が使えない(全件を見る)ので、カテゴリ(必須)で件数を絞ってから探す。商品数はカテゴリあたり数千件以下の前提
+负责人: catalog-team
+风险: 低
+
+种类: 多条
+数据来源: product_master
+
+输入:
+  category: { 类型: 文本, 必填: 是, 长度: 1~20, 说明: カテゴリ, 筛选: category 等于 }
+  keyword:  { 类型: 文本, 必填: 是, 长度: 1~40, 说明: 商品名に含まれる文字列(部分一致。% _ は文字として扱う), 筛选: name 包含 }
+
+输出:
+  product_code: 商品コード
+  name:         商品名
+  price:        標準売価
+
+排序: [product_code 小到大]
+上限: 100
+输出行名: ProductHit
+输出列表名: products
+
+业务规则:
+  - 情况: 商品名の一部に一致
+    结果: 先頭・途中・末尾のどこに含まれていても返す(前方一致ではない)
+  - 情况: "% や _ を含むキーワード"
+    结果: 文字として探す(ワイルドカードにしない)
+  - 情况: 商品名が空(未登録)の商品
+    结果: 一致しない
+  - 情况: 削除・論理削除された商品、古い版の商品名
+    结果: 一致しない(現在の値だけを探す)
+  - 情况: 一致が 100 件を超える
+    结果: エラー(FAILED_PRECONDITION)。途中で切り捨てない(キーワードを長くして絞ってもらう)
+
+例子:
+  准备数据:
+    product_master:   # 上から順に登録された(後の行が新しい)
+      - { product_code: "1", name: 青りんご,        category: fruit, price: 100, launched_on: null }
+      - { product_code: "2", name: りんごジュース,  category: fruit, price: 150, launched_on: null }
+      - { product_code: "3", name: 50%オフりんご,   category: fruit, price: 50,  launched_on: null }
+      - { product_code: "4", name: 50円みかん,      category: fruit, price: 50,  launched_on: null }
+      - { product_code: "5", name: a_b,             category: fruit, price: 10,  launched_on: null }
+      - { product_code: "6", name: axb,             category: fruit, price: 10,  launched_on: null }
+      - { product_code: "7", name: りんご飴,        category: sweets, price: 200, launched_on: null }
+      - { product_code: "8", name: 旧りんご,        category: fruit, price: 80,  launched_on: null }
+      - { product_code: "8", name: なし,            category: fruit, price: 80,  launched_on: null }   # 8 の新しい版(りんごではなくなった)
+      - { product_code: "9", name: 紅りんご,        category: fruit, price: 90,  launched_on: null }
+      - { product_code: "9", 操作: 删除 }
+      - { product_code: "10", name: null,           category: fruit, price: 1,   launched_on: null }   # 商品名が空
+      - { product_code: "11", name: Apple,          category: fruit, price: 120, launched_on: null }
+  用例:
+    - 说明: 先頭・途中・末尾のどこに含まれても一致。8 は今の名前が「なし」なので出ない、9 は削除済み、7 はカテゴリが違う
+      输入: { category: fruit, keyword: りんご }
+      结果: { products: [{ product_code: "1", name: 青りんご, price: "100" }, { product_code: "2", name: りんごジュース, price: "150" }, { product_code: "3", name: 50%オフりんご, price: "50" }] }
+    - 说明: "% は文字として探す(50円みかん には一致しない)"
+      输入: { category: fruit, keyword: "50%" }
+      结果: { products: [{ product_code: "3", name: 50%オフりんご }] }
+    - 说明: "_ も文字として探す(axb には一致しない)"
+      输入: { category: fruit, keyword: a_b }
+      结果: { products: [{ product_code: "5", name: a_b }] }
+    - 说明: 大文字・小文字は区別する(apple は Apple に一致しない)
+      输入: { category: fruit, keyword: apple }
+      结果: { products: [] }
+    - 说明: 末尾に一致
+      输入: { category: fruit, keyword: みかん }
+      结果: { products: [{ product_code: "4", name: 50円みかん, price: "50" }] }
+    - 说明: キーワードが空は参数错误(長さ 1 以上)
+      输入: { category: fruit, keyword: "" }
+      结果: 参数错误

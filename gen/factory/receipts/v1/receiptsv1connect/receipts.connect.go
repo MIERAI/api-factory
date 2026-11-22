@@ -42,6 +42,9 @@ const (
 	// ReceiptServiceListStoreLineRankingProcedure is the fully-qualified name of the ReceiptService's
 	// ListStoreLineRanking RPC.
 	ReceiptServiceListStoreLineRankingProcedure = "/factory.receipts.v1.ReceiptService/ListStoreLineRanking"
+	// ReceiptServiceListStoreRankingTopNProcedure is the fully-qualified name of the ReceiptService's
+	// ListStoreRankingTopN RPC.
+	ReceiptServiceListStoreRankingTopNProcedure = "/factory.receipts.v1.ReceiptService/ListStoreRankingTopN"
 	// ReceiptServiceListStoreSalesTotalsProcedure is the fully-qualified name of the ReceiptService's
 	// ListStoreSalesTotals RPC.
 	ReceiptServiceListStoreSalesTotalsProcedure = "/factory.receipts.v1.ReceiptService/ListStoreSalesTotals"
@@ -56,6 +59,8 @@ type ReceiptServiceClient interface {
 	ListCategorySales(context.Context, *connect.Request[v1.ListCategorySalesRequest]) (*connect.Response[v1.ListCategorySalesResponse], error)
 	// 明細の件数で店舗に順位をつけて、全店を返す(件数が同じ店は同じ順位。次の順位は飛ばす。例 1, 2, 2, 4)
 	ListStoreLineRanking(context.Context, *connect.Request[v1.ListStoreLineRankingRequest]) (*connect.Response[v1.ListStoreLineRankingResponse], error)
+	// 売上日を指定して、明細の売上金額を店別に合計し、合計の順位が N 位以内の店をすべて返す(同順位の店は全部含めるので、N 店を超えることがある)
+	ListStoreRankingTopN(context.Context, *connect.Request[v1.ListStoreRankingTopNRequest]) (*connect.Response[v1.ListStoreRankingTopNResponse], error)
 	// 明細を店別に集計して、店舗コード順にページ単位で返す(売上日の下限で絞り込める)
 	ListStoreSalesTotals(context.Context, *connect.Request[v1.ListStoreSalesTotalsRequest]) (*connect.Response[v1.ListStoreSalesTotalsResponse], error)
 	// 売上日を指定して、明細の売上金額を店別に合計し、合計の多い上位 5 店を返す(明細の件数つき)
@@ -85,6 +90,12 @@ func NewReceiptServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(receiptServiceMethods.ByName("ListStoreLineRanking")),
 			connect.WithClientOptions(opts...),
 		),
+		listStoreRankingTopN: connect.NewClient[v1.ListStoreRankingTopNRequest, v1.ListStoreRankingTopNResponse](
+			httpClient,
+			baseURL+ReceiptServiceListStoreRankingTopNProcedure,
+			connect.WithSchema(receiptServiceMethods.ByName("ListStoreRankingTopN")),
+			connect.WithClientOptions(opts...),
+		),
 		listStoreSalesTotals: connect.NewClient[v1.ListStoreSalesTotalsRequest, v1.ListStoreSalesTotalsResponse](
 			httpClient,
 			baseURL+ReceiptServiceListStoreSalesTotalsProcedure,
@@ -104,6 +115,7 @@ func NewReceiptServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 type receiptServiceClient struct {
 	listCategorySales    *connect.Client[v1.ListCategorySalesRequest, v1.ListCategorySalesResponse]
 	listStoreLineRanking *connect.Client[v1.ListStoreLineRankingRequest, v1.ListStoreLineRankingResponse]
+	listStoreRankingTopN *connect.Client[v1.ListStoreRankingTopNRequest, v1.ListStoreRankingTopNResponse]
 	listStoreSalesTotals *connect.Client[v1.ListStoreSalesTotalsRequest, v1.ListStoreSalesTotalsResponse]
 	listTopLineStores    *connect.Client[v1.ListTopLineStoresRequest, v1.ListTopLineStoresResponse]
 }
@@ -116,6 +128,11 @@ func (c *receiptServiceClient) ListCategorySales(ctx context.Context, req *conne
 // ListStoreLineRanking calls factory.receipts.v1.ReceiptService.ListStoreLineRanking.
 func (c *receiptServiceClient) ListStoreLineRanking(ctx context.Context, req *connect.Request[v1.ListStoreLineRankingRequest]) (*connect.Response[v1.ListStoreLineRankingResponse], error) {
 	return c.listStoreLineRanking.CallUnary(ctx, req)
+}
+
+// ListStoreRankingTopN calls factory.receipts.v1.ReceiptService.ListStoreRankingTopN.
+func (c *receiptServiceClient) ListStoreRankingTopN(ctx context.Context, req *connect.Request[v1.ListStoreRankingTopNRequest]) (*connect.Response[v1.ListStoreRankingTopNResponse], error) {
+	return c.listStoreRankingTopN.CallUnary(ctx, req)
 }
 
 // ListStoreSalesTotals calls factory.receipts.v1.ReceiptService.ListStoreSalesTotals.
@@ -134,6 +151,8 @@ type ReceiptServiceHandler interface {
 	ListCategorySales(context.Context, *connect.Request[v1.ListCategorySalesRequest]) (*connect.Response[v1.ListCategorySalesResponse], error)
 	// 明細の件数で店舗に順位をつけて、全店を返す(件数が同じ店は同じ順位。次の順位は飛ばす。例 1, 2, 2, 4)
 	ListStoreLineRanking(context.Context, *connect.Request[v1.ListStoreLineRankingRequest]) (*connect.Response[v1.ListStoreLineRankingResponse], error)
+	// 売上日を指定して、明細の売上金額を店別に合計し、合計の順位が N 位以内の店をすべて返す(同順位の店は全部含めるので、N 店を超えることがある)
+	ListStoreRankingTopN(context.Context, *connect.Request[v1.ListStoreRankingTopNRequest]) (*connect.Response[v1.ListStoreRankingTopNResponse], error)
 	// 明細を店別に集計して、店舗コード順にページ単位で返す(売上日の下限で絞り込める)
 	ListStoreSalesTotals(context.Context, *connect.Request[v1.ListStoreSalesTotalsRequest]) (*connect.Response[v1.ListStoreSalesTotalsResponse], error)
 	// 売上日を指定して、明細の売上金額を店別に合計し、合計の多い上位 5 店を返す(明細の件数つき)
@@ -159,6 +178,12 @@ func NewReceiptServiceHandler(svc ReceiptServiceHandler, opts ...connect.Handler
 		connect.WithSchema(receiptServiceMethods.ByName("ListStoreLineRanking")),
 		connect.WithHandlerOptions(opts...),
 	)
+	receiptServiceListStoreRankingTopNHandler := connect.NewUnaryHandler(
+		ReceiptServiceListStoreRankingTopNProcedure,
+		svc.ListStoreRankingTopN,
+		connect.WithSchema(receiptServiceMethods.ByName("ListStoreRankingTopN")),
+		connect.WithHandlerOptions(opts...),
+	)
 	receiptServiceListStoreSalesTotalsHandler := connect.NewUnaryHandler(
 		ReceiptServiceListStoreSalesTotalsProcedure,
 		svc.ListStoreSalesTotals,
@@ -177,6 +202,8 @@ func NewReceiptServiceHandler(svc ReceiptServiceHandler, opts ...connect.Handler
 			receiptServiceListCategorySalesHandler.ServeHTTP(w, r)
 		case ReceiptServiceListStoreLineRankingProcedure:
 			receiptServiceListStoreLineRankingHandler.ServeHTTP(w, r)
+		case ReceiptServiceListStoreRankingTopNProcedure:
+			receiptServiceListStoreRankingTopNHandler.ServeHTTP(w, r)
 		case ReceiptServiceListStoreSalesTotalsProcedure:
 			receiptServiceListStoreSalesTotalsHandler.ServeHTTP(w, r)
 		case ReceiptServiceListTopLineStoresProcedure:
@@ -196,6 +223,10 @@ func (UnimplementedReceiptServiceHandler) ListCategorySales(context.Context, *co
 
 func (UnimplementedReceiptServiceHandler) ListStoreLineRanking(context.Context, *connect.Request[v1.ListStoreLineRankingRequest]) (*connect.Response[v1.ListStoreLineRankingResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.receipts.v1.ReceiptService.ListStoreLineRanking is not implemented"))
+}
+
+func (UnimplementedReceiptServiceHandler) ListStoreRankingTopN(context.Context, *connect.Request[v1.ListStoreRankingTopNRequest]) (*connect.Response[v1.ListStoreRankingTopNResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.receipts.v1.ReceiptService.ListStoreRankingTopN is not implemented"))
 }
 
 func (UnimplementedReceiptServiceHandler) ListStoreSalesTotals(context.Context, *connect.Request[v1.ListStoreSalesTotalsRequest]) (*connect.Response[v1.ListStoreSalesTotalsResponse], error) {

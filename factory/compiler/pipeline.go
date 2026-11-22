@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	"google.golang.org/protobuf/reflect/protoreflect"
+
 	"apifactory/factory/cells"
 	"apifactory/factory/core"
 	"apifactory/factory/exits"
@@ -71,11 +73,25 @@ func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []re
 				p.Params = append(p.Params, core.ParamDecl{Name: m, Type: core.Type{Kind: ct.Kind}, Required: !f.Presence, List: true})
 			}
 		} else {
-			p.Params = append(p.Params, core.ParamDecl{Name: f.Name, Type: core.Type{Kind: t.Kind}, Required: !f.Presence, List: f.List})
+			k := t.Kind
+			if k == core.Int64 && f.Field != nil && f.Field.Kind() == protoreflect.Int32Kind { // 整数32 的输入和整数64 的列(名次 / 件数)比较: 参数按输入的类型
+				k = core.Int32
+			}
+			if ymdInput(s, table, f) { // 日期的输入筛选整数编码的日期的列: 参数是日期
+				k = core.Date
+			}
+			p.Params = append(p.Params, core.ParamDecl{Name: f.Name, Type: core.Type{Kind: k}, Required: !f.Presence, List: f.List})
 		}
 		e, err := lib.Filter(cell, cols, f.Name, members...)
 		if err != nil {
 			return nil, fmt.Errorf("筛选 %s: %w", f.Name, err)
+		}
+		if ymdInput(s, table, f) {
+			e = ymdColumn(e, f.Column.Name)
+		}
+		if f.Grouped { // 分组之后的筛选: 接在 rank 之后(模式的 $分组之后)
+			parts.Having = append(parts.Having, e)
+			continue
 		}
 		parts.Filters = append(parts.Filters, e)
 	}
@@ -167,6 +183,9 @@ func derivedFilters(s *spec.Spec, lib *cells.Library, cat *catalog, p *core.Pipe
 		e, err := lib.FilterValue(d.Op, []string{d.Column}, v, optional)
 		if err != nil {
 			return nil, fmt.Errorf("派生参数 %s: %w", name, err)
+		}
+		if encoding(s, ds.Table, d.Column) == ymdEncoding { // 整数编码的日期的列: 按 ymd 读成日期再比较(SQL 按整数比较)
+			e = ymdColumn(e, d.Column)
 		}
 		out = append(out, e)
 	}
@@ -347,4 +366,37 @@ func GroupedColumns(table string, cols []Column, g *spec.GroupBy, r *spec.RankBy
 		return nil, fmt.Errorf("分组: %s", strings.Join(errs, "; "))
 	}
 	return out, nil
+}
+
+// ymdEncoding: 整数编码的日期(领域的列: { 编码: YYYYMMDD })。
+const ymdEncoding = "YYYYMMDD"
+
+// encoding: 领域里列的编码(没有 → "")。
+func encoding(s *spec.Spec, table, col string) string {
+	if m := s.Domain.Column(table, col); m != nil {
+		return m.Encoding
+	}
+	return ""
+}
+
+// ymdInput: 日期的输入(proto 里是文本)筛选整数编码的日期的列。整数的输入照常按整数比较(同一种编码)。
+func ymdInput(s *spec.Spec, table string, f resolvedFilter) bool {
+	return !f.Grouped && len(f.Columns) == 0 && f.Field != nil && f.Field.Kind() == protoreflect.StringKind && !f.List &&
+		encoding(s, table, f.Column.Name) == ymdEncoding
+}
+
+// ymdColumn: 条件里的列 col → ymd(col)。
+func ymdColumn(e *core.Expr, col string) *core.Expr {
+	if e == nil {
+		return nil
+	}
+	if e.Op == "col" && e.Name == col {
+		return core.YMD(e)
+	}
+	c := *e
+	c.Args = nil
+	for _, a := range e.Args {
+		c.Args = append(c.Args, ymdColumn(a, col))
+	}
+	return &c
 }

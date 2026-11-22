@@ -2,7 +2,7 @@ package compiler
 
 // 一对多: 嵌套(datasource.nests → 核心的 nest)和子聚合(datasource.child_aggs → 核心的 child_agg)。
 //
-//   - 子表必须在同一个库里(db/schema 里的普通的表;存储: JSON版本 的逻辑表还不能做子表)
+//   - 子表必须在同一个库里(db/schema 里的普通的表,或 存储: JSON版本 等来源单元展开的逻辑表: 子行 = 每个自然键最新的一行)
 //   - 分库: 父表和子表都分库时,条件里要有「父表的分库键 = 子表的分库键」(子行在同一个库里);只有一边分库 → 编译失败
 //   - 嵌套的顺序: 排序的列 + 条件里子表的列要覆盖子表的主键 / 唯一键(核心的 DRC: 子行的顺序是全序)
 //   - 加的列: 嵌套 = 子行的列表(目录里的类型是 NestType: 只能输出,不能筛选 / 排序);子聚合 = 标量(之后和来源的列一样)
@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"strings"
 
+	"apifactory/factory/cells"
 	"apifactory/factory/core"
 	"apifactory/factory/spec"
 	"apifactory/factory/where"
@@ -20,7 +21,7 @@ import (
 const NestType = "nest"
 
 // childSteps: 嵌套 / 子聚合的步骤,cols(来源 + 关联加的列)上加列。shardCols: 父行里来自分库键的列。
-func childSteps(s *spec.Spec, cat *catalog, keys map[string][][]string, cols []catColumn, shardCols map[string]bool) ([]catColumn, []core.Step, error) {
+func childSteps(s *spec.Spec, cat *catalog, keys map[string][][]string, cols []catColumn, shardCols map[string]bool, lib *cells.Library) ([]catColumn, []core.Step, error) {
 	table := s.Datasource.Table
 	entity := func(t string) spec.Entity {
 		if s.Domain == nil {
@@ -43,8 +44,8 @@ func childSteps(s *spec.Spec, cat *catalog, keys map[string][][]string, cols []c
 		if !ok {
 			return st, nil, fmt.Errorf("%s: 表 %q 不在 db/schema 里", at, child)
 		}
-		if entity(child).Storage != nil {
-			return st, nil, fmt.Errorf("%s: 表 %s 是 存储: %s 的逻辑表,还不能做子表(只能用普通的表)", at, child, entity(child).Storage.Kind)
+		if err := relatedSource(s, &st, cat, lib); err != nil { // 逻辑表: 来源的展开 + 唯一键 = 自然键
+			return st, nil, fmt.Errorf("%s: %w", at, err)
 		}
 		for _, c := range other {
 			t, err := coreType(child, c)
@@ -126,7 +127,8 @@ func childSteps(s *spec.Spec, cat *catalog, keys map[string][][]string, cols []c
 		if has(n.Name) {
 			return nil, nil, fmt.Errorf("%s: 列名 %s 和 %s 的列(或关联加的列)重名", at, n.Name, table)
 		}
-		if err := checkChildOrder(at, st, other); err != nil {
+		logical := s.Domain != nil && s.Domain.Entities[n.Table].Storage != nil
+		if err := checkChildOrder(at, st, other, logical); err != nil {
 			return nil, nil, err
 		}
 		cols = append(cols, catColumn{Name: n.Name, Type: NestType, NotNull: true})
@@ -174,7 +176,8 @@ func childSteps(s *spec.Spec, cat *catalog, keys map[string][][]string, cols []c
 }
 
 // checkChildOrder: 嵌套的顺序是全序(和核心的 DRC 同一条规则,这里用设计稿的说法报错)。
-func checkChildOrder(at string, st core.Step, other []catColumn) error {
+// logical: 子表是逻辑表(唯一键 = 自然键: 可以为空的键列里空值自己是一组,一个父行里最多一行 → 也算全序)。
+func checkChildOrder(at string, st core.Step, other []catColumn, logical bool) error {
 	inOrder, inOn := map[string]bool{}, map[string]bool{}
 	for _, o := range st.Order {
 		inOrder[o.Col] = true
@@ -189,7 +192,7 @@ func checkChildOrder(at string, st core.Step, other []catColumn) error {
 	for _, u := range st.Unique {
 		all := len(u) > 0
 		for _, c := range u {
-			all = all && (inOn[c] || (inOrder[c] && notNull[c]))
+			all = all && (inOn[c] || (inOrder[c] && (notNull[c] || logical)))
 		}
 		if all {
 			return nil

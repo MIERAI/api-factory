@@ -26,6 +26,9 @@ service SaleService {
   // 店舗と指示日を指定して、売価が実際に変わる売価変更の指示を返す
   rpc ListEffectivePriceChanges(ListEffectivePriceChangesRequest) returns (ListEffectivePriceChangesResponse);
 
+  // 店舗と基準日(YYYYMMDD の整数)を指定して、基準日の前月(1 日〜末日)に取ったスナップショットのうち、商品ごとに最後の 1 件を返す
+  rpc ListPrevMonthLastPrices(ListPrevMonthLastPricesRequest) returns (ListPrevMonthLastPricesResponse);
+
   // 店舗と基準日を指定して、基準日の前月(1 日〜末日)の日別売上を古い日から返す
   rpc ListPrevMonthSales(ListPrevMonthSalesRequest) returns (ListPrevMonthSalesResponse);
 
@@ -199,6 +202,30 @@ message ListEffectivePriceChangesRequest {
 message ListEffectivePriceChangesResponse {
   // 最多 1000 件;超过时返回错误(不会截断)
   repeated EffectivePriceChange price_changes = 1;
+}
+
+// 店別・商品別の売価スナップショット(旧システムから取り込んだ表。日付は整数 YYYYMMDD)
+message LastPrice {
+  // 商品コード
+  string product_code = 1;
+  // スナップショット日(YYYYMMDD の整数)
+  int32 snap_ymd = 2;
+  // 売価
+  string price = 3;
+}
+
+// 店舗と基準日(YYYYMMDD の整数)を指定して、基準日の前月(1 日〜末日)に取ったスナップショットのうち、商品ごとに最後の 1 件を返す
+message ListPrevMonthLastPricesRequest {
+  // 店舗コード
+  int32 store_code = 1 [(buf.validate.field).int32.gt = 0];
+  // 基準日(YYYYMMDD の整数。存在しない日付は参数错误)
+  int32 base_ymd = 2 [(buf.validate.field).cel = {id: "base_ymd.ymd", message: "base_ymd must be a valid date (YYYYMMDD)", expression: "this >= 10000101 && this <= 99991231 && (this / 100) % 100 >= 1 && (this / 100) % 100 <= 12 && this % 100 >= 1 && this % 100 <= [31, ((this / 10000) % 4 == 0 && ((this / 10000) % 100 != 0 || (this / 10000) % 400 == 0)) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][(this / 100) % 100 - 1]"}];
+}
+
+// 店舗と基準日(YYYYMMDD の整数)を指定して、基準日の前月(1 日〜末日)に取ったスナップショットのうち、商品ごとに最後の 1 件を返す
+message ListPrevMonthLastPricesResponse {
+  // 最多 500 件;超过时返回错误(不会截断)
+  repeated LastPrice prices = 1;
 }
 
 // 日别・店别の売上(一天一店一行)

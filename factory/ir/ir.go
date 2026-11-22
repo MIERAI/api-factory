@@ -136,11 +136,12 @@ type Filter struct {
 	SQLOp      string   `json:"sql_op"` // = / > / ...
 	Presence   bool     `json:"presence,omitempty"`
 	Columns    []string `json:"columns,omitempty"` // 多列的筛选单元(有效期包含: 开始, 结束)
+	Grouped    bool     `json:"grouped,omitempty"` // 分组之后的筛选(列 = 计算 / 名次的输出名)
 }
 
 type GetByID struct {
-	NotFoundEmpty bool `json:"not_found_empty,omitempty"` // 找不到时 OK + found = false
-	NotFoundMessage string `json:"not_found_message"` // "job not found: {job_id}"
+	NotFoundEmpty   bool   `json:"not_found_empty,omitempty"` // 找不到时 OK + found = false
+	NotFoundMessage string `json:"not_found_message"`         // "job not found: {job_id}"
 }
 
 // ListAll: 多条(不分页)。超过 MaxRows 时报错(查询多取一行来判断)。

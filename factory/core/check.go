@@ -117,10 +117,13 @@ func Check(p *Pipeline) (Schema, error) {
 			}
 			checkOrder(cur, st.Order, at, add)
 		case "lookup":
+			p.checkSource(st, at, add)
 			cur = checkLookup(cur, st, at, add)
 		case "nest":
+			p.checkSource(st, at, add)
 			cur = p.checkNest(cur, st, at, add)
 		case "child_agg":
+			p.checkSource(st, at, add)
 			cur = p.checkChildAgg(cur, st, at, add)
 		case "sort":
 			checkOrder(cur, st.Order, at, add)
@@ -206,7 +209,7 @@ func nullRejects(e *Expr, p *Pipeline) (cols map[string]bool, all bool) {
 	case "cmp": // 任一边 NULL → UNKNOWN
 		col(e.Args[0])
 		col(e.Args[1])
-	case "in_list", "starts_with": // 第一个参数 NULL → UNKNOWN
+	case "in_list", "starts_with", "contains": // 第一个参数 NULL → UNKNOWN
 		col(e.Args[0])
 	case "in_tuples": // 任一列 NULL → FALSE
 		for _, a := range e.Args {
@@ -393,12 +396,15 @@ func (p *Pipeline) checkNest(cur Schema, st Step, at string, add func(string, ..
 		inOn[k.Key] = true
 	}
 	total := false
+	srcKeys := SourceKeys(st.Source) // 逻辑表: 取最新的键(NULL 自己是一组)
 	for _, u := range st.Unique {
 		all := len(u) > 0
+		nullsEq := sameSet(u, srcKeys)
 		for _, c := range u {
 			t, ok := child.Col(c)
 			// 关联的列: 匹配到的子行里 = 父行的值(不为空的常量);顺序的列: 必须不为空
-			all = all && ok && (inOn[c] || (inOrder[c] && !t.Nullable))
+			// (逻辑表的取最新的键: 可以为空也行 —— 空值自己是一组,一个父行里最多一行键为空的子行)
+			all = all && ok && (inOn[c] || (inOrder[c] && (!t.Nullable || nullsEq)))
 		}
 		total = total || all
 	}
@@ -612,7 +618,7 @@ func (p *Pipeline) typeOf(e *Expr, cur Schema) (Type, error) {
 			return Type{}, fmt.Errorf("参数 %s 没有声明", e.Name)
 		}
 		return boolT(false), nil
-	case "in_list", "starts_with":
+	case "in_list", "starts_with", "contains":
 		d := p.Param(e.Name)
 		if d == nil {
 			return Type{}, fmt.Errorf("参数 %s 没有声明", e.Name)
@@ -628,7 +634,7 @@ func (p *Pipeline) typeOf(e *Expr, cur Schema) (Type, error) {
 			return boolT(a.Nullable), nil
 		}
 		if d.List || a.Kind != Text || d.Type.Kind != Text {
-			return Type{}, fmt.Errorf("starts_with: 只能用于文本")
+			return Type{}, fmt.Errorf("%s: 只能用于文本", e.Op)
 		}
 		return boolT(a.Nullable || !d.Required), nil
 	case "json_field":
@@ -673,11 +679,28 @@ func (p *Pipeline) typeOf(e *Expr, cur Schema) (Type, error) {
 			}
 		}
 		return boolT(false), nil
+	case "sql_ref": // SQL 后端内部: 外层查询的列(LATERAL 子查询里的关联条件)。流水线里不会出现
+		if e.Type == nil {
+			return Type{}, fmt.Errorf("sql_ref 需要类型")
+		}
+		return *e.Type, nil
 	case "now":
 		if len(e.Args) != 0 {
 			return Type{}, fmt.Errorf("now 没有参数")
 		}
 		return Type{Kind: Timestamp}, nil
+	case "ymd":
+		if len(e.Args) != 1 {
+			return Type{}, fmt.Errorf("ymd 需要 1 个参数")
+		}
+		x, err := p.typeOf(e.Args[0], cur)
+		if err != nil {
+			return Type{}, err
+		}
+		if x.Kind != Int32 && x.Kind != Int64 {
+			return Type{}, fmt.Errorf("ymd: 只能用于整数(YYYYMMDD),实际是 %s", x.Kind)
+		}
+		return Type{Kind: Date, Nullable: true}, nil // 不合法的整数 → NULL
 	case "add", "trunc":
 		want := 2
 		units := map[string]bool{Minute: true, Hour: true, Day: true, Month: true}
@@ -718,4 +741,107 @@ func (p *Pipeline) typeOf(e *Expr, cur Schema) (Type, error) {
 		return x, nil
 	}
 	return Type{}, fmt.Errorf("不认识的表达式元件 %q", e.Op)
+}
+
+// checkSource: lookup / nest / child_agg 的对方是逻辑表(Source)时: 子流水线本身合法、只用来源的元件、
+// 不引用请求参数,输出的列和 Columns 一致(名字、类型;Columns 说不为空的列子流水线里也不为空)。
+func (p *Pipeline) checkSource(st Step, at string, add func(string, ...any)) {
+	if len(st.Source) == 0 {
+		return
+	}
+	for _, s := range st.Source {
+		switch s.Kind {
+		case "scan", "project", "filter", "pick_per_key":
+		default:
+			add("%s: 对方的来源里不能有 %s(只能是 scan / project / filter / pick_per_key)", at, s.Kind)
+			return
+		}
+		for _, x := range s.Project {
+			if refersRequest(x.Expr) {
+				add("%s: 对方的来源不能引用请求参数", at)
+				return
+			}
+		}
+		if refersRequest(s.Pred) {
+			add("%s: 对方的来源不能引用请求参数", at)
+			return
+		}
+	}
+	sub, err := Check(&Pipeline{Steps: st.Source, Params: p.Params})
+	if err != nil {
+		add("%s: 对方的来源: %v", at, err)
+		return
+	}
+	if len(sub) != len(st.Columns) {
+		add("%s: 对方的列(%d 列)和来源的输出(%d 列)不一致", at, len(st.Columns), len(sub))
+		return
+	}
+	for i, c := range st.Columns {
+		s := sub[i]
+		if s.Name != c.Name || s.Type.Kind != c.Type.Kind || (s.Type.Nullable && !c.Type.Nullable) {
+			add("%s: 对方的列 %s %s(可空 %v)和来源的输出 %s %s(可空 %v)不一致", at, c.Name, c.Type.Kind, c.Type.Nullable, s.Name, s.Type.Kind, s.Type.Nullable)
+		}
+	}
+}
+
+// refersRequest: 表达式里有没有请求参数 / now(来源不能依赖请求)。
+func refersRequest(e *Expr) bool {
+	if e == nil {
+		return false
+	}
+	switch e.Op {
+	case "param", "absent", "in_list", "starts_with", "contains", "tuple_after", "in_tuples", "now":
+		return true
+	}
+	for _, a := range e.Args {
+		if refersRequest(a) {
+			return true
+		}
+	}
+	return false
+}
+
+// SourceKeys: 来源(子流水线)的取最新的键在输出里的列名(最后一个 pick_per_key 的键,跟着之后的改名;被丢掉 → nil)。
+func SourceKeys(steps []Step) []string {
+	var keys []string
+	for _, s := range steps {
+		switch s.Kind {
+		case "pick_per_key":
+			keys = append([]string(nil), s.Keys...)
+		case "project":
+			if keys == nil {
+				continue
+			}
+			next := make([]string, len(keys))
+			for i, k := range keys {
+				for _, x := range s.Project {
+					if x.Expr.Op == "col" && x.Expr.Name == k {
+						next[i] = x.Name
+						break
+					}
+				}
+				if next[i] == "" {
+					return nil
+				}
+			}
+			keys = next
+		}
+	}
+	return keys
+}
+
+func sameSet(a, b []string) bool {
+	if len(a) == 0 || len(a) != len(b) {
+		return false
+	}
+	in := map[string]bool{}
+	for _, x := range b {
+		in[x] = true
+	}
+	for _, x := range a {
+		if !in[x] {
+			return false
+		}
+	}
+	return true
 }

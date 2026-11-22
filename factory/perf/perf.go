@@ -597,7 +597,7 @@ func explain(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, api *ir.API, va
 	}
 	tupleRow := map[string][]any{} // 组属于: 一个组(同一行)的样本
 	var args []any
-	var requiredCols, givenCols []string
+	var requiredCols, givenCols, containsCols []string
 	for _, d := range q.Params {
 		var v any
 		switch {
@@ -610,6 +610,9 @@ func explain(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, api *ir.API, va
 			required := required(api, d)
 			if !ok || (!required && !all && d.Name != variant && tuple[d.Name].Field != variant) {
 				break
+			}
+			if f.Op == "contains" && !slices.Contains(containsCols, f.Column) { // 包含: btree 用不上
+				containsCols = append(containsCols, f.Column)
 			}
 			if required && !slices.Contains(requiredCols, f.Column) {
 				requiredCols = append(requiredCols, f.Column)
@@ -632,7 +635,7 @@ func explain(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, api *ir.API, va
 			} else if x, err = sample(ctx, conn, plan, api, f.Column, d.Type.Kind, opt.Rows, quantile(f.Op)); err != nil {
 				return r, fmt.Errorf("参数 %s: %w", d.Name, err)
 			}
-			if s, isText := x.(string); isText && f.Op == "prefix" {
+			if s, isText := x.(string); isText && (f.Op == "prefix" || f.Op == "contains") {
 				x = string([]rune(s)[:min(2, len([]rune(s)))])
 			}
 			v = x
@@ -685,6 +688,9 @@ func explain(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, api *ir.API, va
 		if typ == "Seq Scan" && len(requiredCols) > 0 {
 			if t, ok := tables[rel]; ok && opt.Rows > 10000 && t != nil {
 				r.Warn = append(r.Warn, fmt.Sprintf("有必填的筛选条件却全表扫描 %s(%d 行);考虑索引 (%s)", rel, opt.Rows, strings.Join(requiredCols, ", ")))
+				if len(containsCols) > 0 {
+					r.Warn = append(r.Warn, fmt.Sprintf("包含(部分一致)的筛选 %s 用不上 btree 索引;需要的话建 pg_trgm 的 GIN 索引(USING gin (列 gin_trgm_ops)),或改用 前缀匹配", strings.Join(containsCols, ", ")))
+				}
 			}
 		}
 		if kids, ok := n["Plans"].([]any); ok {

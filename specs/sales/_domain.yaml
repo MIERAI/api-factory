@@ -17,6 +17,16 @@ entities:
         policy: mutable
         columns: {}
         invariants: []
+    price_snapshots:
+        natural_key:
+            - store_code
+            - product_code
+            - snap_ymd
+        policy: mutable
+        columns:
+            snap_ymd:
+                encoding: YYYYMMDD
+        invariants: []
     store_prices:
         natural_key:
             - store_code

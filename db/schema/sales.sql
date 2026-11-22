@@ -32,3 +32,15 @@ CREATE TABLE IF NOT EXISTS price_changes (
     deal_id      BIGINT,
     PRIMARY KEY (store_code, product_code, proc_date)
 );
+
+-- 店別・商品別の売価スナップショット(旧システムから取り込んだ表)。日付は整数 YYYYMMDD(整数编码的日期の例)。
+-- 取込のバグで 20260230 のような存在しない日付が混ざることがある(CHECK はかけない: 旧システムの値をそのまま持つ)
+CREATE TABLE IF NOT EXISTS price_snapshots (
+    store_code   INTEGER NOT NULL CHECK (store_code > 0),
+    product_code TEXT    NOT NULL,
+    snap_ymd     INTEGER NOT NULL,
+    price        NUMERIC NOT NULL CHECK (price >= 0),
+    PRIMARY KEY (store_code, product_code, snap_ymd)
+);
+-- 店舗 + 期間(整数のまま範囲で引く: 日付として比べる条件も整数の比較に直して使う)
+CREATE INDEX IF NOT EXISTS price_snapshots_store_ymd_idx ON price_snapshots (store_code, snap_ymd);

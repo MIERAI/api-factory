@@ -259,6 +259,7 @@ type Parts struct {
 	Group     *core.Step       // $每组(可选: pick_per_key)
 	Aggregate *core.Step       // $分组(可选: group)
 	Rank      *core.Step       // $排名(可选: rank)
+	Having    []*core.Expr     // $分组之后(分组 / 名次之后的筛选: 每个一个 filter;没有 → 省略)
 }
 
 // Pattern: 模式 → 关系元件的流水线(不含 scan)。
@@ -274,6 +275,13 @@ func (l *Library) Pattern(name string, parts Parts) ([]core.Step, error) {
 			switch kind + " " + part {
 			case "filter $筛选":
 				for _, f := range parts.Filters {
+					steps = append(steps, core.Step{Kind: "filter", Pred: f, From: from})
+				}
+			case "filter $分组之后":
+				if len(parts.Having) > 0 && parts.Aggregate == nil {
+					return nil, fmt.Errorf("模式 %s: 分组之后的筛选需要分组", name)
+				}
+				for _, f := range parts.Having {
 					steps = append(steps, core.Step{Kind: "filter", Pred: f, From: from})
 				}
 			case "project $输出列":

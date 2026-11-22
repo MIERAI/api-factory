@@ -150,6 +150,27 @@ run "now: 读了系统时钟(不是请求开始的时刻)"      $SJH 's/FactoryN
 PM=gen/db/sales.list-prev-month-sales.sql.go
 run "月的加法: 月末没有截到最后一天"              $PM 's/\(\(\$2::date \+ make_interval\(months => \(-1\)\)\)::date\)/((date_trunc(\x27month\x27, \$2::date) + make_interval(months => (-1)))::date + (extract(day from \$2::date)::int - 1))/'
 run "派生参数: 前月の末日を含まない(<= → <)"      $PM 's/t1\.sales_date <= \(\(date_trunc/t1.sales_date < ((date_trunc/'
+# R2.5 T1: 关联 / 嵌套 / 子聚合的对方是逻辑表(JSON版本)
+LP=gen/db/catalog.list-labels-with-product.sql.go
+run "逻辑表の关联: 取了最旧的版本"                $LP 's/t6\._o_registered_at DESC, t6\._o_id DESC/t6._o_registered_at ASC, t6._o_id ASC/'
+run "逻辑表の关联: 不处理删除"                    $LP 's/\(t7\._action <> 1::int4\) AND //'
+run "逻辑表の链: 末端不处理逻辑删除"              $LP "s/ AND \(\(t11\._logical_delete IS NULL\) OR \(t11\._logical_delete <> '1'::text\)\)//"
+run "逻辑表の关联: 按物理表的行(不取最新)"       $LP 's/SELECT DISTINCT ON \(t6\.product_code COLLATE "C"\) /SELECT /'
+CP2=gen/db/catalog.list-category-products.sql.go
+run "逻辑表の嵌套: 子行取了最旧的版本"            $CP2 's/t10\._o_registered_at DESC, t10\._o_id DESC/t10._o_registered_at ASC, t10._o_id ASC/'
+run "逻辑表の子聚合: 删除的子行也数"              $CP2 's/\(t17\._action <> 1::int4\) AND //'
+# R2.5 T2: 分组 / 排名之后的筛选
+RT=gen/db/receipts.list-store-ranking-top-n.sql.go
+run "名次 ≤ N: RANK 写成 ROW_NUMBER(并列被截断)" $RT 's/rank\(\) OVER/row_number() OVER/'
+run "名次 ≤ N: <= 写成 <"                        $RT 's/\(t3\.rank <= \$2::int4\)/(t3.rank < \$2::int4)/'
+# R2.5 T3: 整数编码的日期
+YM=gen/db/sales.list-prev-month-last-prices.sql.go
+run "整数日期: 前月の末日を含まない(<= → <)"     $YM 's/\(\(t1\.snap_ymd <= \(to_char/((t1.snap_ymd < (to_char/'
+run "整数日期: 前月ではなく当月(月初 - 1 个月 が抜けた)" $YM 's/ \+ make_interval\(months => \(-1\)\)//'
+# R2.5 T4: 包含
+SN=gen/db/catalog.search-products-by-name.sql.go
+run "包含: 前缀匹配になった"                      $SN "s/LIKE '%' \|\| replace/LIKE replace/"
+run "包含: % の转义なし(通配符)"                 $SN "s/, '%', '\\\\%'\)/, '%', '%')/"
 # 命令工厂(R3-1): 生成的写代码。每个变异都要被 ≥3 个状态差分的请求抓到(factory/accept/command_diff.go)
 UJ=internal/handler/schedules/update_job_schedule_gen.go
 SE=internal/handler/schedules/commands_gen.go

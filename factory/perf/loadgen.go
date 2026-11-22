@@ -55,7 +55,7 @@ func apiRequests(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, api *ir.API
 	var fs []ir.Filter
 	for _, f := range api.Filters {
 		switch f.Op {
-		case "eq", "ne", "in", "prefix", "gt", "gte", "lt", "lte":
+		case "eq", "ne", "in", "prefix", "contains", "gt", "gte", "lt", "lte":
 			if api.Request.Field(f.Field) != nil {
 				fs = append(fs, f)
 			}
@@ -121,7 +121,7 @@ func apiRequests(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, api *ir.API
 			switch f.Op {
 			case "eq", "ne":
 				v = a[j]
-			case "prefix":
+			case "prefix", "contains":
 				v = string([]rune(a[j])[:min(2, len([]rune(a[j])))])
 			case "gt", "gte":
 				v = lo

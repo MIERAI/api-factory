@@ -104,10 +104,17 @@ func Eval(p *Pipeline, tables map[string][]Row, params Params) (*Result, error) 
 			}
 			rows = out
 		case "lookup":
-			schema, rows = evalLookup(st, schema, rows, tables[st.Table])
+			other, err := p.related(st, tables, params)
+			if err != nil {
+				return nil, err
+			}
+			schema, rows = evalLookup(st, schema, rows, other)
 		case "nest", "child_agg":
-			var err error
-			schema, rows, err = p.evalChildren(st, schema, rows, tables[st.Table], params)
+			child, err := p.related(st, tables, params)
+			if err != nil {
+				return nil, err
+			}
+			schema, rows, err = p.evalChildren(st, schema, rows, child, params)
 			if err != nil {
 				return nil, err
 			}
@@ -149,6 +156,18 @@ func Eval(p *Pipeline, tables map[string][]Row, params Params) (*Result, error) 
 		}
 	}
 	return &Result{Columns: schema, Rows: rows, Ordered: ordered}, nil
+}
+
+// related: lookup / nest / child_agg 的对方的行。逻辑表(Source)= 子流水线在同一组物理表上的结果。
+func (p *Pipeline) related(st Step, tables map[string][]Row, params Params) ([]Row, error) {
+	if len(st.Source) == 0 {
+		return tables[st.Table], nil
+	}
+	res, err := Eval(&Pipeline{Steps: st.Source, Params: p.Params}, tables, params)
+	if err != nil {
+		return nil, fmt.Errorf("%s 的来源: %w", st.Table, err)
+	}
+	return res.Rows, nil
 }
 
 // evalGroup: 按键的规范文本分组(NULL = "∅",和任何文本的规范写法都不同: 文本带引号)。
@@ -393,6 +412,12 @@ func (p *Pipeline) eval(e *Expr, r Row, schema Schema, params Params) (any, erro
 			return nil, err
 		}
 		return strings.HasPrefix(a.(string), params[e.Name].(string)), nil
+	case "contains":
+		a, err := p.eval(e.Args[0], r, schema, params)
+		if err != nil || a == nil || absent(params, e.Name) {
+			return nil, err
+		}
+		return strings.Contains(a.(string), params[e.Name].(string)), nil
 	case "json_field":
 		a, err := p.eval(e.Args[0], r, schema, params)
 		if err != nil || a == nil {
@@ -452,6 +477,12 @@ func (p *Pipeline) eval(e *Expr, r Row, schema Schema, params Params) (any, erro
 			return nil, fmt.Errorf("now(): 参数 %s 没有给(测试要固定请求开始的时刻)", NowParam)
 		}
 		return t.UTC(), nil
+	case "ymd":
+		x, err := p.eval(e.Args[0], r, schema, params)
+		if err != nil || x == nil {
+			return nil, err
+		}
+		return YMDDate(x.(int64), e.Loose), nil
 	case "add", "trunc":
 		t, err := p.typeOf(e.Args[0], schema)
 		if err != nil {

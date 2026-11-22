@@ -45,7 +45,7 @@ var certDomain = map[string][]any{
 	"t":  {"a", "B", "b", "ab", "A"},
 	"i":  {nil, int64(1), int64(2), int64(10)},
 	"d":  {nil, rat("1.5"), rat("9"), rat("10"), rat("-2")},
-	"s":  {nil, "a", "b", "B", "a%", "a_", "ab", "", "é", "a%c", "abc"},
+	"s":  {nil, "a", "b", "B", "a%", "a_", "ab", "", "é", "a%c", "abc", `a\c`},
 	"b":  {nil, true, false},
 	"dt": {nil, day("2026-01-01"), day("2026-01-02"), day("2025-12-31")},
 	"ts": {nil, ts("2026-01-01T00:00:00Z"), ts("2026-01-01T09:00:00Z"), ts("2025-12-31T23:59:59Z")},
@@ -208,6 +208,17 @@ func TestCertification(t *testing.T) {
 		}
 		p := &Pipeline{Params: []ParamDecl{opt("p", Text)}, Steps: all(Project(NamedExpr{"k", Col("k")}, NamedExpr{"v", StartsWith(Col("s"), "p")}), Sort(byK))}
 		env.check(fmt.Sprintf("starts_with %v", pre), p, ps)
+	}
+	// 6b. contains(任何位置,按字面): % _ \ 在开头 / 中间 / 结尾、空字符串(→ TRUE)、大小写、非 ASCII、不传
+	for _, sub := range []any{"a", "b", "%", "_", "%c", "a%", "a_", "_", "", "B", "é", "bc", `\`, "abc", "zz", "<absent>"} {
+		ps := Params{}
+		if sub != "<absent>" {
+			ps["p"] = sub
+		}
+		p := &Pipeline{Params: []ParamDecl{opt("p", Text)}, Steps: all(Project(NamedExpr{"k", Col("k")}, NamedExpr{"v", Contains(Col("s"), "p")}), Sort(byK))}
+		env.check(fmt.Sprintf("contains %v", sub), p, ps)
+		p = &Pipeline{Params: []ParamDecl{opt("p", Text)}, Steps: all(Filter(Or(Absent("p"), Contains(Col("t"), "p"))), Sort(byK))}
+		env.check(fmt.Sprintf("包含(不传 = 不筛选) t %v", sub), p, ps)
 	}
 	// 7. json_field
 	for _, f := range []struct {
