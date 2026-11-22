@@ -767,11 +767,14 @@ func (d *driver) awaitCount(typ string, subject int64, n int) error {
 	return fmt.Errorf("no %d× %s for order %d within %s (seen for this order: %v)", n, typ, subject, d.c.wait, seen)
 }
 
-// expectNone: no event whose type starts with prefix for subject, during the quiet period.
+// expectNone: no message (from a service: the driver's own commands are heard too) whose type starts with prefix
+// for subject, during the quiet period.
 func (d *driver) expectNone(prefix string, subject int64) error {
 	time.Sleep(d.c.quiet)
-	if m := d.matching(prefix, subject); len(m) > 0 {
-		return fmt.Errorf("unexpected %s for order %d", m[0].Type, subject)
+	for _, m := range d.matching(prefix, subject) {
+		if m.Source != "e2e-driver" {
+			return fmt.Errorf("unexpected %s from %s for order %d", m.Type, m.Source, subject)
+		}
 	}
 	return nil
 }

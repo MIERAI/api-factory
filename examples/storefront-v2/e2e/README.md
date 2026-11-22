@@ -31,9 +31,9 @@ are chosen so nothing collides with the factory's own containers:
 | inventory / payment / notification / order API | 58081 / 58082 / 58083 / 58084 |
 | … their `METRICS_PORT` | 59091 / 59092 / 59093 / 59094 |
 
-Wall time on an M4 Pro, build cache warm: `make e2e` ≈ 20–23 s (stack up 8–10 s, driver 10.9 s). Most of
-the driver's time is the 2 s quiet periods that show "no second answer". `docker compose build --no-cache`
-of the three images takes 17 s, and each image is about 20 MB.
+Wall time on an M4 Pro, build cache warm: `make e2e` ≈ 32 s with order in the stack (stack up 11 s, driver
+15 s). Most of the driver's time is the 2 s quiet periods that show "no second answer". Each image is about
+20 MB.
 
 ## What is in the stack
 
