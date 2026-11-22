@@ -5,7 +5,7 @@ api:
     rpc: factory.jobs.v1.JobService/ListStalePendingJobs
     owner: platform-team
     risk_level: low
-    description: 滞留アラート。「今日」は領域の時区(Asia/Tokyo)の日付。現在時刻はサーバーの時計で、 リクエストには含めない(テストでは例子の 现在 で固定する)
+    description: 滞留アラート。滞留の長さは作成時刻(created_at)から測る(この表には状態の更新時刻がない)。 「今日」は領域の時区(Asia/Tokyo)の日付。現在時刻はサーバーの時計で、リクエストには含めない(テストでは例子の 现在 で固定する)。 stale_minutes が「今日 0 時から現在までの分数」以上なら結果は必ず空(今日の任務だけが対象。範囲 1~1440 はそのまま許す)。 上限 200 件。平常時の滞留は数件。200 件を超えるのは処理系の停止(障害)なので、件数を絞った一覧ではなくエラーで気づかせる
 pattern:
     kind: list_all
     not_found_message: ""
@@ -16,7 +16,7 @@ pattern:
     page_size:
         default: 0
         max: 0
-    max_rows: 50
+    max_rows: 200
 datasource:
     table: jobs
     filters: {}
@@ -37,7 +37,11 @@ datasource:
             op: gte
             time_zone: Asia/Tokyo
     sql: ""
-behavior: []
+behavior:
+    - when: 状態が SUCCEEDED / FAILED なのに finished_at が空の任務(書き込み側の不具合。領域の規則「成功・失敗の任務には必ず finished_at がある」はデータベースでは保証されない)
+      then: 終わっていない任務として返す(finished_at だけで判断する)。状態はそのまま返すので、監視画面で不整合に気づける
+    - when: 条件に合う任務が 200 件を超える
+      then: エラー(FAILED_PRECONDITION)。一部だけを返すと滞留の規模を見誤るため
 acceptance:
     fixtures:
         jobs:
@@ -66,8 +70,13 @@ acceptance:
               id: 5
               job_type: export
               status: JOB_STATUS_PENDING
+            - created_at: "2026-11-02T00:00:00Z"
+              finished_at: null
+              id: 6
+              job_type: import
+              status: JOB_STATUS_FAILED
     cases:
-        - name: 30 分以上たった今日の任務(ちょうど 30 分前に作成されたものは含まない;昨日の任務は含まない)
+        - name: 作成から 30 分を超えた今日の任務(ちょうど 30 分前に作成された 3 は含まない;昨日の任務は含まない;FAILED でも finished_at が空の 6 は含む)
           request:
             stale_minutes: 30
           expect:
@@ -75,6 +84,8 @@ acceptance:
             response:
                 jobs:
                     - id: 2
+                    - id: 6
+                      status: JOB_STATUS_FAILED
           steps: []
           now: "2026-11-02T01:00:00Z"
         - name: 29 分にすると、30 分前の任務も入る
@@ -85,6 +96,7 @@ acceptance:
             response:
                 jobs:
                     - id: 2
+                    - id: 6
                     - id: 3
           steps: []
           now: "2026-11-02T01:00:00Z"

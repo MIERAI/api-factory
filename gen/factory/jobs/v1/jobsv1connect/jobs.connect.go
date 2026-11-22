@@ -81,7 +81,7 @@ type JobServiceClient interface {
 	ListLatestJobPerType(context.Context, *connect.Request[v1.ListLatestJobPerTypeRequest]) (*connect.Response[v1.ListLatestJobPerTypeResponse], error)
 	// まだ終わっていない任務を古い順に返す(分页)
 	ListPendingJobs(context.Context, *connect.Request[v1.ListPendingJobsRequest]) (*connect.Response[v1.ListPendingJobsResponse], error)
-	// 今日作成されて、指定した分数以上たっても終わっていない任務を古い順に返す
+	// 今日作成されて、作成から指定した分数を超えても終わっていない任務を古い順に返す(ちょうど N 分前に作成された任務は含まない)
 	ListStalePendingJobs(context.Context, *connect.Request[v1.ListStalePendingJobsRequest]) (*connect.Response[v1.ListStalePendingJobsResponse], error)
 }
 
@@ -229,7 +229,7 @@ type JobServiceHandler interface {
 	ListLatestJobPerType(context.Context, *connect.Request[v1.ListLatestJobPerTypeRequest]) (*connect.Response[v1.ListLatestJobPerTypeResponse], error)
 	// まだ終わっていない任務を古い順に返す(分页)
 	ListPendingJobs(context.Context, *connect.Request[v1.ListPendingJobsRequest]) (*connect.Response[v1.ListPendingJobsResponse], error)
-	// 今日作成されて、指定した分数以上たっても終わっていない任務を古い順に返す
+	// 今日作成されて、作成から指定した分数を超えても終わっていない任務を古い順に返す(ちょうど N 分前に作成された任務は含まない)
 	ListStalePendingJobs(context.Context, *connect.Request[v1.ListStalePendingJobsRequest]) (*connect.Response[v1.ListStalePendingJobsResponse], error)
 }
 

@@ -732,12 +732,12 @@
   {
     "id": "jobs.list-stale-pending-jobs",
     "method": "ListStalePendingJobs",
-    "summary": "今日作成されて、指定した分数以上たっても終わっていない任務を古い順に返す",
+    "summary": "今日作成されて、作成から指定した分数を超えても終わっていない任務を古い順に返す(ちょうど N 分前に作成された任務は含まない)",
     "path": "/factory.jobs.v1.JobService/ListStalePendingJobs",
     "pattern": "list_all",
     "cases": [
       {
-        "name": "30 分以上たった今日の任務(ちょうど 30 分前に作成されたものは含まない;昨日の任務は含まない)",
+        "name": "作成から 30 分を超えた今日の任務(ちょうど 30 分前に作成された 3 は含まない;昨日の任務は含まない;FAILED でも finished_at が空の 6 は含む)",
         "request": {
           "stale_minutes": 30
         },
@@ -745,6 +745,10 @@
           "jobs": [
             {
               "id": 2
+            },
+            {
+              "id": 6,
+              "status": "JOB_STATUS_FAILED"
             }
           ]
         }
@@ -758,6 +762,9 @@
           "jobs": [
             {
               "id": 2
+            },
+            {
+              "id": 6
             },
             {
               "id": 3

@@ -1486,10 +1486,10 @@ func (x *StalePendingJob) GetCreatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
-// 今日作成されて、指定した分数以上たっても終わっていない任務を古い順に返す
+// 今日作成されて、作成から指定した分数を超えても終わっていない任務を古い順に返す(ちょうど N 分前に作成された任務は含まない)
 type ListStalePendingJobsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// 作成からこの分数以上終わっていなければ滞留
+	// 作成からこの分数を超えて終わっていなければ滞留(ちょうどこの分数は含まない)
 	StaleMinutes  int32 `protobuf:"varint,1,opt,name=stale_minutes,json=staleMinutes,proto3" json:"stale_minutes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1532,10 +1532,10 @@ func (x *ListStalePendingJobsRequest) GetStaleMinutes() int32 {
 	return 0
 }
 
-// 今日作成されて、指定した分数以上たっても終わっていない任務を古い順に返す
+// 今日作成されて、作成から指定した分数を超えても終わっていない任務を古い順に返す(ちょうど N 分前に作成された任務は含まない)
 type ListStalePendingJobsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// 最多 50 件;超过时返回错误(不会截断)
+	// 最多 200 件;超过时返回错误(不会截断)
 	Jobs          []*StalePendingJob `protobuf:"bytes,1,rep,name=jobs,proto3" json:"jobs,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

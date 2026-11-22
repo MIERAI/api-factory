@@ -17,7 +17,7 @@ FROM (
       AND (t1.finished_at IS NULL)
 ) AS t2
 ORDER BY t2.created_at, t2.id
-LIMIT 51
+LIMIT 201
 `
 
 type ListStalePendingJobsParams struct {

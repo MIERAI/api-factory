@@ -5,7 +5,7 @@ api:
     rpc: order.order.v1.OrderService/ListStuckOrders
     owner: storefront
     risk_level: low
-    description: saga 的超时监视(J2 的输入)。卡住的订单要重发命令或进入补偿。"现在"是服务器的时钟(请求开始的时刻), 不由调用方给;测试时由例子的 现在 固定
+    description: saga 的超时监视(J2 的输入)。卡住的订单要重发命令或进入补偿。"现在"是服务器的时钟(请求开始的时刻), 不由调用方给;测试时由例子的 现在 固定。停留时间从最后一次状态转移(updated_at)算起,正好 N 分钟不算(超过才算)。 上限 100 件。平时卡住的订单是个位数,超过 100 件说明下游(库存 / 支付)停了,返回错误让人注意,而不是只处理一部分
 pattern:
     kind: list_all
     not_found_message: ""
@@ -32,7 +32,9 @@ datasource:
                 stuck_minutes: int32
             time_zone: Asia/Tokyo
     sql: ""
-behavior: []
+behavior:
+    - when: 卡住的订单超过 100 件
+      then: 返回错误(FAILED_PRECONDITION),不截断(只返回一部分会让超时处理漏掉订单)
 acceptance:
     fixtures:
         orders:

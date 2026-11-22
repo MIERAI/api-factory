@@ -15,7 +15,7 @@ import (
 	jobsv1 "apifactory/gen/factory/jobs/v1"
 )
 
-// ListStalePendingJobs 今日作成されて、指定した分数以上たっても終わっていない任務を古い順に返す
+// ListStalePendingJobs 今日作成されて、作成から指定した分数を超えても終わっていない任務を古い順に返す(ちょうど N 分前に作成された任務は含まない)
 func (h *Handler) ListStalePendingJobs(ctx context.Context, req *connect.Request[jobsv1.ListStalePendingJobsRequest]) (*connect.Response[jobsv1.ListStalePendingJobsResponse], error) {
 	m := req.Msg
 	rows, err := h.q.ListStalePendingJobs(ctx, db.ListStalePendingJobsParams{
@@ -25,8 +25,8 @@ func (h *Handler) ListStalePendingJobs(ctx context.Context, req *connect.Request
 	if err != nil {
 		return nil, err
 	}
-	if len(rows) > 50 {
-		return nil, apierr.FailedPrecondition("too many results (more than 50); narrow the conditions")
+	if len(rows) > 200 {
+		return nil, apierr.FailedPrecondition("too many results (more than 200); narrow the conditions")
 	}
 	res := &jobsv1.ListStalePendingJobsResponse{Jobs: make([]*jobsv1.StalePendingJob, 0, len(rows))}
 	for _, r := range rows {
