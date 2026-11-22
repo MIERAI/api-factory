@@ -1212,6 +1212,19 @@
           "transfer_id": 6
         },
         "response": {}
+      },
+      {
+        "name": "已经结算过、现在的 held 比金额少 → 照样成功(已结算的不看 held)",
+        "request": {
+          "lines": [
+            {
+              "account_id": "ACC-002",
+              "amount": 7
+            }
+          ],
+          "transfer_id": 3
+        },
+        "response": {}
       }
     ]
   },

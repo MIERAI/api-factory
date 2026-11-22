@@ -121,7 +121,7 @@ pattern:
               kind: event
               version: 1
               subject: transfer_id
-              desc: 扣款失败(一个账户都没扣)
+              desc: 扣款失败(这条命令没有新扣任何账户;同一笔转账以前记过的扣款不变)
               proto: AccountDebitFailedV1
               fields:
                 - name: transfer_id
@@ -200,6 +200,8 @@ behavior:
       then: 数据不一致,不提交,进 DLQ(AMOUNT_MISMATCH),不回答 account.debit_failed(REVERSED)
     - when: 同一笔转账再来,命令里有还没记过的账户
       then: 已经记过的账户不再扣,没记过的账户照常检查余额并扣款;都成功时发出 account.debited(lines = 这条命令的 lines)
+    - when: 同一笔转账再来,新的账户余额不够(INSUFFICIENT_FUNDS)
+      then: 这条命令写的东西全部回滚,发出 account.debit_failed(INSUFFICIENT_FUNDS);之前的命令已经记过的账户不受影响,仍然是 HELD。转账的流程收到 debit_failed 后,需要对这笔转账发撤销(account.reverse),把之前扣下的退回
 acceptance:
     fixtures:
         accounts:
@@ -364,6 +366,60 @@ acceptance:
           after:
             unchanged: true
           emitted: []
+        - name: 金额不一致的账户(id 在前)和余额不够的账户 → 余额不够立刻回滚(INSUFFICIENT_FUNDS)
+          request:
+            lines:
+                - account_id: ACC-001
+                  amount: 41
+                - account_id: ACC-002
+                  amount: 101
+            transfer_id: 6
+          expect:
+            code: INSUFFICIENT_FUNDS
+            response: {}
+          steps: []
+          now: "2026-11-22T01:00:00Z"
+          after:
+            unchanged: true
+          emitted:
+            - type: account.debit_failed
+              data:
+                reason: INSUFFICIENT_FUNDS
+                transfer_id: 6
+        - name: lines 里不存在的账户在前、按账户 id 余额不够的账户在前 → 按账户 id 的顺序(INSUFFICIENT_FUNDS)
+          request:
+            lines:
+                - account_id: NONE-1
+                  amount: 1
+                - account_id: ACC-002
+                  amount: 101
+            transfer_id: 8
+          expect:
+            code: INSUFFICIENT_FUNDS
+            response: {}
+          steps: []
+          now: "2026-11-22T01:00:00Z"
+          after:
+            unchanged: true
+          emitted:
+            - type: account.debit_failed
+              data:
+                reason: INSUFFICIENT_FUNDS
+                transfer_id: 8
+        - name: 墓碑上的金额和命令不同 → 死信(AMOUNT_MISMATCH),不回答 REVERSED
+          request:
+            lines:
+                - account_id: ACC-001
+                  amount: 35
+            transfer_id: 9
+          expect:
+            code: DLQ:AMOUNT_MISMATCH
+            response: {}
+          steps: []
+          now: "2026-11-22T01:00:00Z"
+          after:
+            unchanged: true
+          emitted: []
         - name: 账户不存在 → 毒消息,什么都不写
           request:
             lines:
@@ -396,3 +452,5 @@ review_decisions:
       decision: 进 DLQ(保持现在的行为)
     - question: '同一笔转账再来一条命令,但账户和记过的不一样(多了一个账户)时,新的账户照扣吗?例: 已经记过 transfer 6 / ACC-001 扣 40,新命令写 transfer 6 [ACC-001 扣 40, ACC-002 扣 10]'
       decision: 新的账户照扣(保持现在的行为)
+    - question: '同一笔转账再来、多出来的新账户余额不够时,会发出 account.debit_failed(INSUFFICIENT_FUNDS),但之前已经记过的账户仍然是扣下的状态。这和 account.debit_failed 的说明「一个账户都没扣」矛盾,该怎么定?例: 已经记过 transfer 6 / ACC-001 扣 40(HELD),新命令写 transfer 6 [ACC-001 扣 40, ACC-002 扣 101(余额只有 100)]'
+      decision: 保持现在的行为,改 account.debit_failed 的说明

@@ -187,7 +187,7 @@ func (x *DebitAccountsLine) GetAmount() int64 {
 	return 0
 }
 
-// 消息 account.debit_failed v1 的 data(扣款失败(一个账户都没扣))
+// 消息 account.debit_failed v1 的 data(扣款失败(这条命令没有新扣任何账户;同一笔转账以前记过的扣款不变))
 type AccountDebitFailedV1 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 转账号

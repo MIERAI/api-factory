@@ -115,6 +115,23 @@ API: DebitAccounts
       结果: AMOUNT_MISMATCH
       发出: []
       之后: 不变
+    - 说明: 金额不一致的账户(id 在前)和余额不够的账户 → 余额不够立刻回滚(INSUFFICIENT_FUNDS)
+      消息: { transfer_id: 6, lines: [ { account_id: "ACC-001", amount: 41 }, { account_id: "ACC-002", amount: 101 } ] }
+      结果: INSUFFICIENT_FUNDS
+      发出:
+        - account.debit_failed: { transfer_id: 6, reason: INSUFFICIENT_FUNDS }
+      之后: 不变
+    - 说明: lines 里不存在的账户在前、按账户 id 余额不够的账户在前 → 按账户 id 的顺序(INSUFFICIENT_FUNDS)
+      消息: { transfer_id: 8, lines: [ { account_id: "NONE-1", amount: 1 }, { account_id: "ACC-002", amount: 101 } ] }
+      结果: INSUFFICIENT_FUNDS
+      发出:
+        - account.debit_failed: { transfer_id: 8, reason: INSUFFICIENT_FUNDS }
+      之后: 不变
+    - 说明: 墓碑上的金额和命令不同 → 死信(AMOUNT_MISMATCH),不回答 REVERSED
+      消息: { transfer_id: 9, lines: [ { account_id: "ACC-001", amount: 35 } ] }
+      结果: AMOUNT_MISMATCH
+      发出: []
+      之后: 不变
     - 说明: 账户不存在 → 毒消息,什么都不写
       消息: { transfer_id: 8, lines: [ { account_id: "NONE-1", amount: 1 } ] }
       结果: 毒消息

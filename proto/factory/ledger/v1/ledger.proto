@@ -57,7 +57,7 @@ message DebitAccountsLine {
   int64 amount = 2 [(buf.validate.field).int64.gte = 1, (buf.validate.field).int64.lte = 1000000];
 }
 
-// 消息 account.debit_failed v1 的 data(扣款失败(一个账户都没扣))
+// 消息 account.debit_failed v1 的 data(扣款失败(这条命令没有新扣任何账户;同一笔转账以前记过的扣款不变))
 message AccountDebitFailedV1 {
   // 转账号
   int64 transfer_id = 1;
