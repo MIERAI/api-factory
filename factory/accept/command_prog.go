@@ -1158,6 +1158,12 @@ func (e *progEnv) burst(name string, aim progAim, spread bool) Result {
 	best := -1
 	for i := 0; i < 20; i++ {
 		cand := e.find(aim)
+		if cand == nil && req == nil && i == 10 { // 状态里没有合适的行了(前面的场景用完了): 新的随机初始状态
+			if err := e.load(); err != nil {
+				return fail("初始状态: %v", err)
+			}
+			cand = e.find(aim)
+		}
 		if cand == nil {
 			continue
 		}
