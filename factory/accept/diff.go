@@ -71,9 +71,23 @@ type diffEnv struct {
 	pickCols  map[string]bool                // API 部分的每组取一条的键
 	nkSeen    []map[string]any               // 已经生成的行的自然键(JSON 的键 → 值;自然键空间很大时沿用,造出版本)
 	groupCols map[string]bool                // API 部分"每组取一条"的分组列: 值域缩小到 2 个,组里才有多个候选
+	aggKeys   map[string]bool                // 分组(group)的键: 一半的行取池里的值(组的大小有分布)
 	tuples    []tupleGroup                   // 组的列表(组属于): 每个字段是一个列表参数,请求 / 求值前按下标对齐(align)
 	keySets   [][]string                     // 唯一的列的组合(主键 / 唯一约束 / 多版本来源的自然键);nil = 还没查
 	ties      [][2]string                    // 条件里互相比较的两列(固定条件: 税込 = 旧税込): 数据里要经常相等
+	others    []*otherTable                  // 关联的表(多表: 被引用的在前,按生成的顺序;difflookup.go)
+	fks       map[string][]fkRef             // 表 → 它的外键(关联条件推出来的: 这些列的值要从对方的键里取)
+	view      core.Schema                    // 来源 + 关联之后的列(筛选的列可能是关联加的列)
+	children  []*childTable                  // 嵌套 / 子聚合的子表(在来源的表之后造;diffnest.go)
+	tm        timeState                      // 派生参数(时间运算): 探针、边界(diff_time.go)
+}
+
+// rawCol: 投影成的列 → 物理列(没有投影 → 原样)。
+func rawCol(rawOf map[string]string, c string) string {
+	if r, ok := rawOf[c]; ok {
+		return r
+	}
+	return c
 }
 
 // tupleGroup: 一个组的列表输入。members[i] = 第 i 个字段的参数名(ir.MemberParam),cols[i] = 它的列。
@@ -94,6 +108,7 @@ func (e *diffEnv) collect() {
 	var walk func(x *core.Expr)
 	e.keyCol = map[string]string{}
 	e.constFor, e.nkCols, e.groupCols, e.pickCols = map[string][]any{}, map[string]bool{}, map[string]bool{}, map[string]bool{}
+	e.aggKeys = map[string]bool{}
 	rawOf := map[string]string{} // 投影成的列 → 物理列(col(x) 的投影)
 	for _, st := range e.api.Pipeline.Steps {
 		for _, x := range st.Project {
@@ -110,6 +125,13 @@ func (e *diffEnv) collect() {
 		if st.Kind == "pick_per_key" && strings.HasPrefix(st.From, "来源 ") {
 			for _, k := range st.Keys {
 				e.nkCols[k] = true
+			}
+		}
+		// 分组键: 一半的行值域小(大的组),一半的行从一个中等大小的池里取(1 行 / 2 行 / 3 行 … 的组: 件数并列、名次跳号)
+		if st.Kind == "group" {
+			for _, k := range st.Keys {
+				e.groupCols[rawCol(rawOf, k)] = true
+				e.aggKeys[rawCol(rawOf, k)] = true
 			}
 		}
 		// 条件里的 cmp(列, 常量) → 这一列的数据要能碰到这个常量(来源的删除值 / 固定条件的常量);
@@ -235,7 +257,7 @@ func (e *diffEnv) collect() {
 // invalid: 请求按 proto 的校验规则(protovalidate,和服务器同一套规则)是否不合法。
 // 随机请求会违反输入之间的规则(例如 created_after < created_before),这时期待 INVALID_ARGUMENT。
 func (e *diffEnv) invalid(req map[string]any) (bool, error) {
-	b, err := json.Marshal(req)
+	b, err := json.Marshal(withoutNow(req))
 	if err != nil {
 		return false, err
 	}
@@ -288,9 +310,13 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 	}
 	env.input = md.Input()
 	env.collect()
+	if err := env.initOthers(); err != nil {
+		return fail("关联: %v", err)
+	}
 	if env.out, err = core.Check(p); err != nil {
 		return fail("流水线: %v", err)
 	}
+	env.collectDerived()
 	if _, err := conn.Exec(ctx, "SET TimeZone = 'UTC'"); err != nil {
 		return fail("%v", err)
 	}
@@ -323,7 +349,7 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 
 	// 没有输入的 API: 只有一种请求,能变的只有数据 → 跑好几份数据,覆盖条件累计起来判定
 	// (例: 前N条 取最新的 1 行,"最新的那一行被删除"在一份数据里很难碰到)
-	if len(env.userParams()) == 0 {
+	if len(env.userParams()) == 0 && len(env.tm.probes) == 0 {
 		var results []Result
 		var total coverage
 		for k := 0; k < 6; k++ {
@@ -369,7 +395,7 @@ func (e *diffEnv) injectRemoval(req core.Params, mode int) error {
 		return nil
 	}
 	req = e.align(req)
-	res, err := core.Eval(e.api.Pipeline, map[string][]core.Row{e.table: e.rowsFor(req)}, req)
+	res, err := core.Eval(e.api.Pipeline, e.evalTables(req), req)
 	if err != nil || len(res.Rows) == 0 {
 		return err
 	}
@@ -799,6 +825,17 @@ func (e *diffEnv) jsonKeyOf(jsonCol, col string) string {
 
 // scalarFor: 某一列的值(这一列有范围值域时从里面取)。
 func (e *diffEnv) scalarFor(col string, kind core.Kind, unique bool, i int) any {
+	if e.aggKeys[col] && !e.nkCols[col] && !unique && e.rnd.Intn(2) == 0 { // 分组键: 池的大小 = 8 × 数据的倍数
+		if v := e.poolValue(col, kind, e.rnd.Intn(8*max(e.scale, 1))); v != nil {
+			return v
+		}
+	}
+	// 和派生参数比较的列: 约 2/3 的行落在某个探针的边界上(−1 / 正好 / +1)。唯一列也这样(重复的行被数据库拒绝、跳过)
+	if len(e.tm.cmps) > 0 && (kind == core.Date || kind == core.Timestamp) && e.rnd.Intn(3) != 0 {
+		if v := e.boundaryValue(col); v != nil {
+			return v
+		}
+	}
 	if e.groupCols[col] && !e.nkCols[col] && !unique { // 密集的列: 3 个值(多版本来源的自然键除外: 键要多样)
 		// 每组取一条的键: 约 1/4 的行用独有的值(组里只有一行)。只看"组存不存在"的 API(只输出键)里,
 		// 删除 / 逻辑删除只有在组里只剩这一行时才看得出来(试用: 按 code 去重的存在检查)
@@ -879,6 +916,30 @@ func (e *diffEnv) scalarFor(col string, kind core.Kind, unique bool, i int) any 
 	return e.scalar(kind, unique, i)
 }
 
+// poolValue: 分组键的池里第 x 个值(和值域里的 3 个密集的值不同)。有约束 / 枚举的列: 约束里扩大,扩大不了 → nil。
+func (e *diffEnv) poolValue(col string, kind core.Kind, x int) any {
+	if d, ok := e.domains[col]; ok {
+		if d.Expand != nil {
+			return d.Expand(2000 + x)
+		}
+		return nil
+	}
+	if e.plan.Enum(e.table, col) != nil {
+		return nil
+	}
+	switch kind {
+	case core.Int32, core.Int64:
+		return int64(100 + x)
+	case core.Text:
+		return fmt.Sprintf("g%02d", x)
+	case core.Decimal:
+		return big.NewRat(int64(100+x), 4)
+	case core.Date, core.Timestamp:
+		return e.scalar(kind, true, 10+x)
+	}
+	return nil
+}
+
 func (e *diffEnv) scalar(kind core.Kind, unique bool, i int) any {
 	if cs := e.consts[kind]; len(cs) > 0 && !unique && e.rnd.Intn(8) == 0 {
 		return cs[e.rnd.Intn(len(cs))] // 流水线里的常量
@@ -939,16 +1000,26 @@ func (e *diffEnv) load() (int, int, error) {
 			return 0, 0, err
 		}
 	}
+	if err := e.loadOthers(); err != nil { // 关联的表先造(外键的值从它们的键里取)
+		return 0, 0, err
+	}
 	// 分库键在物理行里的值: 普通的表 = 列;其他来源由来源决定(JSON版本 = JSON 里的键)
 	st := e.plan.Storage(e.api.Table)
 	var src *sources.Source
 	if st != nil {
 		src, _ = sources.ByKind(st.Kind)
 	}
+	gen, err := e.generatedCols(e.table) // 生成列不插入(值由数据库算)
+	if err != nil {
+		return 0, 0, err
+	}
 	var names, holders []string
-	for i, c := range e.cols {
+	for _, c := range e.cols {
+		if gen[c.Name] {
+			continue
+		}
 		names = append(names, pgx.Identifier{c.Name}.Sanitize())
-		holders = append(holders, fmt.Sprintf("$%d::%s", i+1, c.Type.Kind.SQLType()))
+		holders = append(holders, fmt.Sprintf("$%d::%s", len(holders)+1, c.Type.Kind.SQLType()))
 	}
 	insert := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", ident, strings.Join(names, ", "), strings.Join(holders, ", "))
 	rejected := 0
@@ -971,8 +1042,11 @@ func (e *diffEnv) load() (int, int, error) {
 				physical[t[1]] = physical[t[0]]
 			}
 		}
+		e.applyFKs(e.table, e.cols, physical, unique, i)
 		for _, c := range e.cols {
-			args = append(args, sqlValue(physical[c.Name]))
+			if !gen[c.Name] {
+				args = append(args, sqlValue(physical[c.Name]))
+			}
 		}
 		if sh != nil { // 分库: 写进分库键对应的库
 			key := physical[sh.Column]
@@ -1023,6 +1097,9 @@ func (e *diffEnv) load() (int, int, error) {
 		if err := rows.Err(); err != nil {
 			return 0, 0, err
 		}
+	}
+	if err := e.loadChildren(); err != nil { // 嵌套 / 子聚合的子表: 父行(来源的表)读回之后造
+		return 0, 0, err
 	}
 	return len(e.rows), rejected, nil
 }
@@ -1147,7 +1224,8 @@ func (e *diffEnv) requests() []core.Params {
 		out = append(out, ps)
 	}
 	out = append(out, e.sweep(seen)...)
-	return append(out, e.directed(out, seen)...)
+	out = append(out, e.directed(out, seen)...)
+	return e.spreadProbes(out) // 派生参数: 每个请求带一组探针(now + 输入)
 }
 
 func (e *diffEnv) describe(ps core.Params) string {
@@ -1207,6 +1285,9 @@ func (e *diffEnv) colType(name string) (core.Type, bool) {
 	if t, ok := e.out.Col(name); ok {
 		return t, true
 	}
+	if t, ok := e.view.Col(name); ok {
+		return t, true
+	}
 	return core.Schema(e.cols).Col(name)
 }
 
@@ -1233,9 +1314,18 @@ func (e *diffEnv) request(ps core.Params) map[string]any {
 		}
 	}
 	for k, v := range ps {
-		if !member[k] {
-			req[k] = e.present(e.filter[k].Column, v)
+		if member[k] {
+			continue
 		}
+		if k == core.NowParam { // now: 请求头 X-Factory-Now(不是请求字段)
+			req[NowKey] = nowText(v)
+			continue
+		}
+		if x, ok := e.presentInput(k, v); ok { // 派生参数的输入: 按参数的类型表示(没有对应的列)
+			req[k] = x
+			continue
+		}
+		req[k] = e.present(e.filter[k].Column, v)
 	}
 	return req
 }
@@ -1244,6 +1334,7 @@ func (e *diffEnv) request(ps core.Params) map[string]any {
 // 和已知的字段都相等的第一行(现存的行优先,再找旧版本);找不到时用数据里不存在的值。
 // 随机 / 扫描 / 定向生成的请求只设了部分字段时也能变成合法的组。
 func (e *diffEnv) align(ps core.Params) core.Params {
+	ps = e.complete(ps) // 派生参数: 缺少探针的请求补上一组(确定的)
 	if len(e.tuples) == 0 {
 		return ps
 	}
@@ -1318,6 +1409,11 @@ func (e *diffEnv) align(ps core.Params) core.Params {
 func (e *diffEnv) item(r core.Row, msg *ir.Message) map[string]any {
 	out := map[string]any{}
 	for _, f := range msg.Fields {
+		if c, ok := r[f.Name].(core.Children); ok && f.Message != nil { // 嵌套的子行(diffnest.go)
+			t, _ := e.colType(f.Name)
+			out[f.Name] = childItems(c, t, f.Message)
+			continue
+		}
 		v := e.present(f.Name, r[f.Name])
 		if v == nil {
 			if f.Presence {
@@ -1385,7 +1481,7 @@ func (e *diffEnv) Eval(ps core.Params) ([]core.Row, error) {
 			evalParams[k] = v
 		}
 	}
-	res, err := core.Eval(e.api.Pipeline, map[string][]core.Row{e.table: e.rowsFor(ps)}, evalParams)
+	res, err := core.Eval(e.api.Pipeline, e.evalTables(ps), evalParams)
 	if err != nil {
 		return nil, err
 	}
@@ -1415,7 +1511,8 @@ func (e *diffEnv) rowsFor(ps core.Params) []core.Row {
 func (e *diffEnv) loadAnchors() error {
 	src := &core.Pipeline{Params: e.api.Pipeline.Params}
 	for _, st := range e.api.Pipeline.Steps {
-		if st.From != "datasource.table" && !strings.HasPrefix(st.From, "来源 ") {
+		// 关联也算来源: 筛选的列可能是关联加的列,请求的值要从关联之后的行里取
+		if st.From != "datasource.table" && !strings.HasPrefix(st.From, "来源 ") && st.Kind != "lookup" {
 			break
 		}
 		src.Steps = append(src.Steps, st)
@@ -1886,6 +1983,10 @@ type sensTarget struct {
 	mutate func(p *core.Pipeline) *core.Pipeline
 	// falseNode: 把 node 换成恒假(「或者」的一个分支)
 	falseNode bool
+	// custom: 错误的实现的结果(规范文本),不能写成流水线的改动时(分组 / 名次: diff_group.go)
+	custom func(ps core.Params) string
+	// cond: 不是错误的实现,而是请求要满足的条件(分组: 有多行的组 …);满足的请求数 = 起作用的请求数
+	cond func(ps core.Params) bool
 }
 
 // onlyKeysOut: 第 i 步(每组取一条)之后的投影只输出分组键。
@@ -2037,6 +2138,7 @@ func (e *diffEnv) sensTargets() []sensTarget {
 			}})
 		}
 	}
+	out = append(out, e.groupTargets()...)
 	for i, st := range p.Steps {
 		if st.Kind != "pick_per_key" {
 			continue
@@ -2079,7 +2181,7 @@ func (e *diffEnv) sensTargets() []sensTarget {
 			}
 		}
 	}
-	return out
+	return append(append(append(out, e.lookupTargets()...), e.nestTargets()...), e.timeTargets()...) // 关联 / 嵌套 / 派生参数
 }
 
 // refersParam: 表达式里有没有请求参数(param / absent / 列表参数的元件)。
@@ -2088,7 +2190,7 @@ func refersParam(x *core.Expr) bool {
 		return false
 	}
 	switch x.Op {
-	case "param", "absent", "in_list", "starts_with", "tuple_after", "in_tuples":
+	case "param", "absent", "in_list", "starts_with", "tuple_after", "in_tuples", "now":
 		return true
 	}
 	for _, a := range x.Args {
@@ -2138,6 +2240,9 @@ func (e *diffEnv) uniquePrefix(order []core.SortKey) bool {
 			if st.Kind == "pick_per_key" {
 				e.keySets = append(e.keySets, st.Keys)
 			}
+		}
+		if gi := groupIndex(e.api.Pipeline, "group"); gi >= 0 { // 分组之后: 唯一的只有分组键(表的主键已经不在输出里)
+			e.keySets = [][]string{e.api.Pipeline.Steps[gi].Keys}
 		}
 	}
 	for _, set := range e.keySets {
@@ -2324,10 +2429,22 @@ func (e *diffEnv) sensCounts(reqs []core.Params) (descs []string, counts []int, 
 		seen[string(b)] = true
 	}
 	for _, t := range targets {
-		mut := t.mutated(p)
+		var mut *core.Pipeline
+		if t.custom == nil && t.cond == nil {
+			mut = t.mutated(p)
+		}
 		n := 0
 		for i, ps := range valid {
-			if e.evalCanon(mut, ps) != base[i] {
+			switch {
+			case t.cond != nil:
+				if t.cond(ps) {
+					n++
+				}
+			case t.custom != nil:
+				if t.custom(ps) != base[i] {
+					n++
+				}
+			case e.evalCanon(mut, ps) != base[i]:
 				n++
 			}
 		}
@@ -2375,7 +2492,7 @@ func (e *diffEnv) evalCanon(pl *core.Pipeline, ps core.Params) string {
 			params[k] = v
 		}
 	}
-	res, err := core.Eval(pl, map[string][]core.Row{e.table: e.rowsFor(ps)}, params)
+	res, err := core.Eval(pl, e.evalTables(ps), params)
 	if err != nil {
 		return "error"
 	}
@@ -2383,6 +2500,9 @@ func (e *diffEnv) evalCanon(pl *core.Pipeline, ps core.Params) string {
 	for _, r := range res.Rows {
 		for _, c := range res.Columns {
 			b.WriteString(core.Canonical(r[c.Name]) + "|")
+		}
+		if core.Overflow(r) { // 子行超过上限: 出口返回 FAILED_PRECONDITION(上限差一的实现要看得出来)
+			b.WriteString("!over")
 		}
 		b.WriteString("\n")
 	}
@@ -2396,6 +2516,12 @@ func (e *diffEnv) sensitive(ps core.Params, step int, node *core.Expr) bool {
 
 // sensitiveTo: 这个请求能不能把正确的结果和 t 对应的错误实现区分开。
 func (e *diffEnv) sensitiveTo(ps core.Params, t sensTarget) bool {
+	switch {
+	case t.cond != nil:
+		return t.cond(ps)
+	case t.custom != nil:
+		return t.custom(ps) != e.evalCanon(e.api.Pipeline, ps)
+	}
 	return e.evalCanon(t.mutated(e.api.Pipeline), ps) != e.evalCanon(e.api.Pipeline, ps)
 }
 
@@ -2433,7 +2559,7 @@ func (e *diffEnv) pickReduced(reqs []core.Params) (int, bool) {
 		for k, v := range ps {
 			evalParams[k] = v
 		}
-		res, err := core.Eval(&core.Pipeline{Steps: steps[:upto], Params: e.api.Pipeline.Params}, map[string][]core.Row{e.table: e.rowsFor(ps)}, evalParams)
+		res, err := core.Eval(&core.Pipeline{Steps: steps[:upto], Params: e.api.Pipeline.Params}, e.evalTables(ps), evalParams)
 		if err != nil {
 			return -1
 		}
@@ -2454,7 +2580,7 @@ func (e *diffEnv) pickReduced(reqs []core.Params) (int, bool) {
 // evalPerDB: 不依赖请求的求值(来源部分): 分库时每个库分别算,结果合在一起(版本的选择在各个库里分别进行)。
 func (e *diffEnv) evalPerDB(p *core.Pipeline) (*core.Result, error) {
 	if e.api.Shard == nil {
-		return core.Eval(p, map[string][]core.Row{e.table: e.rows}, core.Params{})
+		return core.Eval(p, e.tablesIn(nil, e.rows), core.Params{})
 	}
 	parts := map[*pgx.Conn][]core.Row{}
 	var order []*pgx.Conn
@@ -2467,7 +2593,7 @@ func (e *diffEnv) evalPerDB(p *core.Pipeline) (*core.Result, error) {
 	}
 	out := &core.Result{}
 	for _, c := range order {
-		res, err := core.Eval(p, map[string][]core.Row{e.table: parts[c]}, core.Params{})
+		res, err := core.Eval(p, e.tablesIn(c, parts[c]), core.Params{})
 		if err != nil {
 			return nil, err
 		}
@@ -2584,7 +2710,7 @@ func (e *diffEnv) rowsBeforeLimit(ps core.Params) (int, error) {
 			params[k] = v
 		}
 	}
-	res, err := core.Eval(&core.Pipeline{Steps: steps, Params: e.api.Pipeline.Params}, map[string][]core.Row{e.table: e.rowsFor(ps)}, params)
+	res, err := core.Eval(&core.Pipeline{Steps: steps, Params: e.api.Pipeline.Params}, e.evalTables(ps), params)
 	if err != nil {
 		return 0, err
 	}

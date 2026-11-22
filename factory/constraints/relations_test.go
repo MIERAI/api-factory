@@ -18,6 +18,8 @@ var relFields = map[string]RelField{
 	"codes":  {Name: "codes", Kind: "string", List: true},
 	"req":    {Name: "req", Kind: "string", Required: true},
 	"plain":  {Name: "plain", Kind: "int"}, // 不能区分"没有指定"
+	"d1":     {Name: "d1", Kind: "date", Required: true},
+	"d2":     {Name: "d2", Kind: "date", Optional: true},
 	"amount": {Name: "amount", Kind: "int", Optional: true},
 }
 
@@ -33,6 +35,7 @@ func TestCompileRelation(t *testing.T) {
 		{"from 早于 to", "before.from.to", "!has(this.from) || !has(this.to) || this.from < this.to"},
 		{"start 早于 end", "before.start.end", "this.start < this.end"}, // 都必填: 不需要放行
 		{"from 到 to 不超过 7 天", "within.from.to.7", "!has(this.from) || !has(this.to) || this.to - this.from <= duration('168h')"},
+		{"d1 到 d2 不超过 62 天", "within.d1.d2.62", "!has(this.d2) || !this.d1.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') || !this.d2.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') || timestamp(this.d2 + 'T00:00:00Z') - timestamp(this.d1 + 'T00:00:00Z') <= duration('1488h')"},
 		{"cat、codes 至少指定一个", "at_least_one.cat.codes", "has(this.cat) || size(this.codes) > 0"},
 		{"cat 和 codes 和 amount 至少指定一个", "at_least_one.cat.codes.amount", "has(this.cat) || size(this.codes) > 0 || has(this.amount)"},
 	} {
@@ -44,7 +47,8 @@ func TestCompileRelation(t *testing.T) {
 	for _, c := range []struct{ text, err string }{
 		{"from 等于 to", "无法识别"},
 		{"from 早于 nope", "不是输入"},
-		{"cat 到 to 不超过 3 天", "只能用于时间"},
+		{"cat 到 to 不超过 3 天", "只能用于两个时间或两个日期"},
+		{"d1 到 to 不超过 3 天", "只能用于两个时间或两个日期"},
 		{"cat、req 至少指定一个", "必填"},
 		{"cat、plain 至少指定一个", "不能区分"},
 	} {

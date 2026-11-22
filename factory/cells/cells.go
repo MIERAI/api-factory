@@ -159,6 +159,61 @@ func (l *Library) Filter(name string, columns []string, param string, members ..
 	return e, nil
 }
 
+// FilterValue: 派生参数的筛选: 单元的 值 = 表达式 value(例: add(now(), -n, minute)),不是请求参数。
+// absent(值) = absent(派生参数用到的可选参数里的任何一个)(没有可选参数 → 恒为 FALSE,SQL 里化简掉):
+// 派生参数的输入没有指定时值是 NULL,和普通的参数一样"不传 = 不筛选"。
+func (l *Library) FilterValue(name string, columns []string, value *core.Expr, optional []string) (*core.Expr, error) {
+	const hole = "\x00derived"
+	e, err := l.Filter(name, columns, hole)
+	if err != nil {
+		return nil, err
+	}
+	var absent *core.Expr
+	switch len(optional) {
+	case 0:
+		absent = core.Const(false, core.Type{Kind: core.Bool})
+	case 1:
+		absent = core.Absent(optional[0])
+	default:
+		var xs []*core.Expr
+		for _, p := range optional {
+			xs = append(xs, core.Absent(p))
+		}
+		absent = core.Or(xs...)
+	}
+	var subst func(x *core.Expr) (*core.Expr, error)
+	subst = func(x *core.Expr) (*core.Expr, error) {
+		switch {
+		case x.Op == "param" && x.Name == hole:
+			return value, nil
+		case x.Op == "absent" && x.Name == hole:
+			return absent, nil
+		case x.Name == hole || contains(x.Params, hole):
+			return nil, fmt.Errorf("筛选单元 %s: 值 只能用在比较 / 不传 里(派生参数不是请求参数,不能用于 %s)", name, x.Op)
+		}
+		c := *x
+		c.Args = nil
+		for _, a := range x.Args {
+			r, err := subst(a)
+			if err != nil {
+				return nil, err
+			}
+			c.Args = append(c.Args, r)
+		}
+		return &c, nil
+	}
+	return subst(e)
+}
+
+func contains(xs []string, x string) bool {
+	for _, v := range xs {
+		if v == x {
+			return true
+		}
+	}
+	return false
+}
+
 // FilterID: 筛选单元的名字(或内部名)→ 内部名。spec / IR 里只用内部名。
 func (l *Library) FilterID(name string) (string, bool) {
 	if id, ok := l.ids[name]; ok {
@@ -195,13 +250,15 @@ func (l *Library) names() []string {
 
 // Parts: 模式里 $部件 的实际内容(编译器提供)。
 type Parts struct {
-	Filters []*core.Expr     // $筛选
-	Output  []core.NamedExpr // $输出列
-	Cursor  *core.Expr       // $游标
-	Order   []core.SortKey   // $排序
-	Rows    string           // $行数(参数名)
-	Limit   int              // $上限(常数)
-	Group   *core.Step       // $每组(可选: pick_per_key)
+	Filters   []*core.Expr     // $筛选
+	Output    []core.NamedExpr // $输出列
+	Cursor    *core.Expr       // $游标
+	Order     []core.SortKey   // $排序
+	Rows      string           // $行数(参数名)
+	Limit     int              // $上限(常数)
+	Group     *core.Step       // $每组(可选: pick_per_key)
+	Aggregate *core.Step       // $分组(可选: group)
+	Rank      *core.Step       // $排名(可选: rank)
 }
 
 // Pattern: 模式 → 关系元件的流水线(不含 scan)。
@@ -235,6 +292,18 @@ func (l *Library) Pattern(name string, parts Parts) ([]core.Step, error) {
 					g := *parts.Group
 					g.From = from
 					steps = append(steps, g)
+				}
+			case "group $分组":
+				if parts.Aggregate != nil {
+					g := *parts.Aggregate
+					g.From = from
+					steps = append(steps, g)
+				}
+			case "rank $排名":
+				if parts.Rank != nil {
+					r := *parts.Rank
+					r.From = from
+					steps = append(steps, r)
 				}
 			case "limit $上限":
 				steps = append(steps, core.Step{Kind: "limit", N: parts.Limit, From: from})

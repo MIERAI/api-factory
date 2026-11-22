@@ -16,7 +16,7 @@ const diffPageSize = 3
 func init() {
 	Register(&Exit{
 		Kind: "list_keyset", Name: "一览", Cardinality: "many", Cell: "分页", Rows: true, EmptyRequest: true, NotNullOrder: true,
-		DesignKeys: []string{"排序", "分页", "每组取一条"},
+		DesignKeys: append([]string{"排序", "分页", "每组取一条"}, GroupKeys...),
 		Parse: func(d Design, p *spec.Pattern) {
 			cols, desc, err := d.Order("排序")
 			if err != nil {
@@ -26,7 +26,8 @@ func init() {
 			if p.Direction == "mixed" { // 游标按整组比较(行比较),方向必须一致
 				d.Err("一览: 排序的方向必须一致(分页的游标按整组比较);方向混在一起请用 多条 / 前N条")
 			}
-			p.PickPerGroup = parsePick(d) // 每组取一条之后再分页(游标在取完之后的行上)
+			p.PickPerGroup = parsePick(d)   // 每组取一条之后再分页(游标在取完之后的行上)
+			p.Group, p.Rank = parseGroup(d) // 分组之后再分页(排序必须包含全部分组键: 核心的 DRC)
 			pg := d.Node("分页")
 			if _, err := fmt.Sscan(nodeStr(pg, "默认每页"), &p.PageSize.Default); err != nil {
 				d.Err("一览: 分页.默认每页 必须是整数")
@@ -49,7 +50,7 @@ func init() {
 			if regexp.MustCompile(`(?i)\b(order\s+by|limit|offset)\b`).MatchString(s.Datasource.SQL) {
 				errs = append(errs, "pattern list_keyset: sql must not contain ORDER BY / LIMIT / OFFSET (the factory adds them)")
 			}
-			return errs
+			return append(errs, checkGroup("list_keyset", s)...)
 		},
 		Request: func(p spec.Pattern) []Field {
 			return []Field{
@@ -95,6 +96,7 @@ func init() {
 			parts.Cursor = core.TupleAfter(s.Pattern.OrderBy, params, s.Pattern.Direction != "asc")
 			parts.Rows = "row_limit"
 			parts.Group = pickStep(s.Pattern.PickPerGroup)
+			parts.Aggregate, parts.Rank = groupStep(s.Pattern.Group), rankStep(s.Pattern.Rank)
 			p.Params = append(p.Params, core.ParamDecl{Name: "row_limit", Type: core.Type{Kind: core.Int32}, Required: true})
 			return nil
 		},
@@ -127,6 +129,10 @@ func init() {
 				if start > 0 {
 					stepReq["page_token"] = "$prev.next_page_token"
 				}
+				if nestOver(rows[start:end]) { // 这一页里有子行超过上限的行: 这一页报错,不再往后翻
+					steps = append(steps, spec.Step{Request: stepReq, Expect: spec.Expect{Code: "FAILED_PRECONDITION", MessageContains: "too many"}})
+					break
+				}
 				token := any("$absent")
 				if end < n {
 					token = "$nonempty"
@@ -154,7 +160,7 @@ func pageExitCases(x DiffCtx) []Case {
 			continue
 		}
 		r, err := x.Eval(ps)
-		if err == nil && len(r) >= 5 && (base == nil || len(r) > len(rows)) { // 结果最多的(默认件数的用例要能翻页)
+		if err == nil && len(r) >= 5 && !nestOver(r[:5]) && (base == nil || len(r) > len(rows)) { // 结果最多的(默认件数的用例要能翻页)
 			base, rows = ps, r
 		}
 	}
@@ -229,9 +235,23 @@ func defaultPageCases(x DiffCtx, base core.Params, rows []core.Row, list func([]
 		token = "$nonempty"
 	}
 	firstPage := map[string]any{k.ItemsField: list(first), "next_page_token": token}
+	if nestOver(first) { // 默认件数的第一页里有子行超过上限的行(嵌套): 这一页报错
+		over := spec.Expect{Code: "FAILED_PRECONDITION", MessageContains: "too many"}
+		return []Case{
+			{Name: "分页出口: 不传 page_size → 默认件数(子行超过上限)", Case: spec.Case{Request: with(nil), Expect: over}},
+			{Name: "分页出口: page_size = 0 → 默认件数(子行超过上限)", Case: spec.Case{Request: with(map[string]any{"page_size": 0}), Expect: over}},
+		}
+	}
 	out := []Case{
 		{Name: "分页出口: 不传 page_size → 默认件数", Case: spec.Case{Request: with(nil), Expect: spec.Expect{Code: "OK", Response: firstPage}}},
 		{Name: "分页出口: page_size = 0 → 默认件数", Case: spec.Case{Request: with(map[string]any{"page_size": 0}), Expect: spec.Expect{Code: "OK", Response: firstPage}}},
+	}
+	if more && nestOver(rows[def:min(2*def, len(rows))]) {
+		out = append(out, Case{Name: "分页出口: 不传 page_size 翻到第 2 页(子行超过上限)", Case: spec.Case{Steps: []spec.Step{
+			{Request: with(nil), Expect: spec.Expect{Code: "OK", Response: firstPage}},
+			{Request: with(map[string]any{"page_token": "$prev.next_page_token"}), Expect: spec.Expect{Code: "FAILED_PRECONDITION", MessageContains: "too many"}},
+		}}})
+		return out
 	}
 	if more {
 		second := rows[def:min(2*def, len(rows))]

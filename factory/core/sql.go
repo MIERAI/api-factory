@@ -33,7 +33,16 @@ type sqlLevel struct {
 	dOrder   []SortKey
 	order    []SortKey
 	limit    string
+	group    []string // GROUP BY 的键(group)
+	aggs     []Agg
+	rank     *Step // rank() OVER (ORDER BY …)
 	out      Schema
+	refs     map[string]string // lookup 加的列 → SQL 里的写法(t2.name);其他列 = 别名.列
+}
+
+// busy: 这一层已经有 SELECT 列表 / DISTINCT / ORDER BY / LIMIT / GROUP BY / 窗口函数 → 后面的步骤要包一层子查询。
+func (lv *sqlLevel) busy() bool {
+	return lv.project != nil || lv.distinct != nil || lv.order != nil || lv.limit != "" || lv.group != nil || lv.rank != nil
 }
 
 type sqlGen struct {
@@ -83,7 +92,7 @@ func ToSQL(p *Pipeline, opt Options) (*SQL, error) {
 		case "scan":
 			lv = g.newLevel(quoteIdent(st.Table), Schema(st.Columns))
 		case "filter":
-			if lv.project != nil || lv.distinct != nil || lv.order != nil || lv.limit != "" {
+			if lv.busy() {
 				lv = g.wrap(lv, false)
 			}
 			w, err := g.expr(st.Pred, lv)
@@ -92,7 +101,7 @@ func ToSQL(p *Pipeline, opt Options) (*SQL, error) {
 			}
 			lv.where = append(lv.where, w)
 		case "project":
-			if lv.project != nil || lv.distinct != nil || lv.order != nil || lv.limit != "" {
+			if lv.busy() {
 				lv = g.wrap(lv, false)
 			}
 			lv.project = st.Project
@@ -106,15 +115,78 @@ func ToSQL(p *Pipeline, opt Options) (*SQL, error) {
 			}
 			lv.out = s
 		case "pick_per_key":
-			if lv.project != nil || lv.distinct != nil || lv.order != nil || lv.limit != "" {
+			if lv.busy() {
 				lv = g.wrap(lv, false)
 			}
 			lv.distinct, lv.dOrder = st.Keys, st.Order
-		case "sort":
+		case "lookup": // LEFT JOIN(drop: JOIN)接在这一层的 FROM 后面。WHERE 只引用之前的列,和连接的先后无关,不用包
 			if lv.project != nil || lv.distinct != nil || lv.order != nil || lv.limit != "" {
 				lv = g.wrap(lv, false)
 			}
+			g.n++
+			alias := fmt.Sprintf("t%d", g.n)
+			var conds []string
+			for _, k := range st.On {
+				conds = append(conds, fmt.Sprintf("%s = %s.%s", g.col(lv, k.Col), alias, quoteIdent(k.Key)))
+			}
+			join := "LEFT JOIN"
+			if st.Missing == "drop" {
+				join = "JOIN"
+			}
+			lv.from += fmt.Sprintf("\n%s %s AS %s ON %s", join, quoteIdent(st.Table), alias, strings.Join(conds, " AND "))
+			if lv.refs == nil {
+				lv.refs = map[string]string{}
+			}
+			for _, t := range st.Take {
+				lv.refs[t.Name] = alias + "." + quoteIdent(t.Col)
+			}
+			lv.in = checkLookup(lv.in, st, "", func(string, ...any) {})
+			lv.out = lv.in
+		case "nest", "child_agg": // LEFT JOIN LATERAL (子查询) ON true 接在这一层的 FROM 后面(和 lookup 一样不用包)
+			if lv.project != nil || lv.distinct != nil || lv.order != nil || lv.limit != "" {
+				lv = g.wrap(lv, false)
+			}
+			sub, err := g.childSQL(lv, st)
+			if err != nil {
+				return nil, err
+			}
+			g.n++
+			alias := fmt.Sprintf("t%d", g.n)
+			lv.from += fmt.Sprintf("\nLEFT JOIN LATERAL (\n%s\n) AS %s ON TRUE", indent(sub), alias)
+			if lv.refs == nil {
+				lv.refs = map[string]string{}
+			}
+			if st.Kind == "nest" {
+				lv.refs[st.As] = alias + ".v"
+				lv.in = p.checkNest(lv.in, st, "", func(string, ...any) {})
+			} else {
+				for _, a := range st.Aggs {
+					lv.refs[a.Name] = alias + "." + quoteIdent(a.Name)
+				}
+				lv.in = p.checkChildAgg(lv.in, st, "", func(string, ...any) {})
+			}
+			lv.out = lv.in
+		case "sort":
+			if lv.busy() {
+				lv = g.wrap(lv, false)
+			}
 			lv.order = st.Order
+		case "group": // 同一层: SELECT 键, 聚合 FROM … WHERE … GROUP BY 键
+			if lv.busy() {
+				lv = g.wrap(lv, false)
+			}
+			out, err := groupSchema(lv.in, st)
+			if err != nil {
+				return nil, err
+			}
+			lv.group, lv.aggs, lv.out = st.Keys, st.Aggs, out
+		case "rank": // 总是包一层: 窗口函数的 ORDER BY 引用 group 的输出列
+			if lv.busy() {
+				lv = g.wrap(lv, false)
+			}
+			r := st
+			lv.rank = &r
+			lv.out = append(append(Schema(nil), lv.in...), NamedType{st.As, Type{Kind: Int64}})
 		case "limit":
 			if lv.limit != "" {
 				lv = g.wrap(lv, false)
@@ -131,6 +203,83 @@ func ToSQL(p *Pipeline, opt Options) (*SQL, error) {
 		return nil, err
 	}
 	return &SQL{Text: text, Params: g.params, Columns: out}, nil
+}
+
+// childSQL: nest / child_agg 的 LATERAL 子查询。子表的行: 关联条件(当前行的列 = 子表的列;任一边 NULL → 不相等)+ 子表上的条件。
+//
+//	nest:      SELECT coalesce(jsonb_agg(jsonb_build_object(…) ORDER BY …), '[]') AS v
+//	           FROM (SELECT 用到的列 FROM 子表 WHERE … ORDER BY … LIMIT N+1) AS w
+//	           (多取一行: 超过上限由出口判定;值按核心的 API 表示写进 JSON: jsonValueSQL)
+//	child_agg: SELECT 聚合(agg.go 的 aggSQL) AS 名字, … FROM 子表 WHERE …(没有 GROUP BY: 永远一行,空集合也有)
+func (g *sqlGen) childSQL(lv *sqlLevel, st Step) (string, error) {
+	g.n++
+	child := &sqlLevel{alias: fmt.Sprintf("t%d", g.n), in: Schema(st.Columns), out: Schema(st.Columns)}
+	var where []string
+	for _, k := range st.On {
+		where = append(where, fmt.Sprintf("%s = %s", g.col(child, k.Key), g.col(lv, k.Col)))
+	}
+	if st.Pred != nil {
+		w, err := g.expr(st.Pred, child)
+		if err != nil {
+			return "", err
+		}
+		where = append(where, w)
+	}
+	from := fmt.Sprintf("FROM %s AS %s\nWHERE %s", quoteIdent(st.Table), child.alias, strings.Join(where, "\n  AND "))
+	if st.Kind == "child_agg" {
+		var sel []string
+		for _, a := range st.Aggs {
+			x, t := "", Type{}
+			if a.Col != "" {
+				x = g.col(child, a.Col)
+				t, _ = child.in.Col(a.Col)
+			}
+			sel = append(sel, aggSQL(a, x, t)+" AS "+quoteIdent(a.Name))
+		}
+		return "SELECT " + strings.Join(sel, ", ") + "\n" + from, nil
+	}
+	// nest: 内层取用到的列(子行的列 + 顺序的列),外层按同样的顺序聚合成 JSON
+	var cols []string
+	seen := map[string]bool{}
+	for _, c := range append(takeCols(st.Take), orderNames(st.Order)...) {
+		if !seen[c] {
+			seen[c] = true
+			cols = append(cols, g.col(child, c))
+		}
+	}
+	inner := fmt.Sprintf("SELECT %s\n%s\nORDER BY %s\nLIMIT %d", strings.Join(cols, ", "), from, strings.Join(g.orderItems(child, st.Order), ", "), st.N+1)
+	g.n++
+	w := &sqlLevel{alias: fmt.Sprintf("t%d", g.n), in: child.in, out: child.in}
+	var obj []string
+	for _, t := range st.Take {
+		ct, _ := child.in.Col(t.Col)
+		obj = append(obj, quoteLit(t.Name), jsonValueSQL(g.col(w, t.Col), ct.Kind))
+	}
+	return fmt.Sprintf("SELECT coalesce(jsonb_agg(jsonb_build_object(%s) ORDER BY %s), '[]'::jsonb) AS v\nFROM (\n%s\n) AS %s",
+		strings.Join(obj, ", "), strings.Join(g.orderItems(w, st.Order), ", "), indent(inner), w.alias), nil
+}
+
+func takeCols(t []TakeCol) []string {
+	var out []string
+	for _, x := range t {
+		out = append(out, x.Col)
+	}
+	return out
+}
+
+// jsonValueSQL: 子行的值在 JSON 里的写法 = 核心的 API 表示(参考求值器 ChildRowsFromJSON、适配器的扫描用同一种):
+// 十进制 → 文本(numeric::text,不经过 JSON 数字: 不丢精度);时间 → UTC 的 RFC3339 文本(不受会话时区影响);
+// 日期 → YYYY-MM-DD(不受 DateStyle 影响)。整数 / bool / 文本是 JSON 本来的类型。NULL → JSON null。
+func jsonValueSQL(x string, k Kind) string {
+	switch k {
+	case Decimal:
+		return x + "::text"
+	case Date:
+		return "to_char(" + x + ", 'YYYY-MM-DD')"
+	case Timestamp:
+		return "to_char(" + x + ` AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`
+	}
+	return x
 }
 
 func (g *sqlGen) newLevel(from string, in Schema) *sqlLevel {
@@ -157,14 +306,44 @@ func (g *sqlGen) render(lv *sqlLevel, textOutput bool) (string, error) {
 			}
 			sel = append(sel, e+" AS "+quoteIdent(x.Name))
 		}
-	} else {
-		for _, c := range lv.out {
-			e := lv.alias + "." + quoteIdent(c.Name)
+	} else if lv.group != nil { // 键 + 聚合(聚合的规则在 agg.go)
+		for _, k := range g.groupKeys(lv) {
+			e := k.expr
 			if textOutput {
+				e = "(" + e + ")::text"
+			}
+			sel = append(sel, e+" AS "+k.name)
+		}
+		for _, a := range lv.aggs {
+			col, _ := lv.in.Col(a.Col)
+			e := aggSQL(a, g.col(lv, a.Col), col)
+			if textOutput {
+				e = "(" + e + ")::text"
+			}
+			sel = append(sel, e+" AS "+quoteIdent(a.Name))
+		}
+	} else {
+		cols := lv.out
+		if lv.rank != nil { // 输入的列 + 名次
+			cols = lv.in
+		}
+		for _, c := range cols {
+			e := g.col(lv, c.Name) // lookup 加的列在别的表别名下(refs)
+			switch {
+			case textOutput:
 				sel = append(sel, e+"::text AS "+quoteIdent(c.Name))
-			} else {
+			case e != lv.alias+"."+quoteIdent(c.Name): // lookup 加的列: 改名
+				sel = append(sel, e+" AS "+quoteIdent(c.Name))
+			default:
 				sel = append(sel, e)
 			}
+		}
+		if lv.rank != nil { // NULL 的位置 / 文本按字节: 和 sort 同样的写法(orderItems)
+			e := "rank() OVER (ORDER BY " + strings.Join(g.orderItems(lv, lv.rank.Order), ", ") + ")"
+			if textOutput {
+				e = "(" + e + ")::text"
+			}
+			sel = append(sel, e+" AS "+quoteIdent(lv.rank.As))
 		}
 	}
 	var b strings.Builder
@@ -176,6 +355,13 @@ func (g *sqlGen) render(lv *sqlLevel, textOutput bool) (string, error) {
 	b.WriteString("\nFROM " + lv.from)
 	if len(lv.where) > 0 {
 		b.WriteString("\nWHERE " + strings.Join(lv.where, "\n  AND "))
+	}
+	if lv.group != nil {
+		var ks []string
+		for _, k := range g.groupKeys(lv) {
+			ks = append(ks, k.expr)
+		}
+		b.WriteString("\nGROUP BY " + strings.Join(ks, ", "))
 	}
 	var order []string
 	if lv.distinct != nil {
@@ -192,12 +378,28 @@ func (g *sqlGen) render(lv *sqlLevel, textOutput bool) (string, error) {
 	return b.String(), nil
 }
 
+type groupKey struct{ expr, name string }
+
+// groupKeys: GROUP BY 的键。文本键用 COLLATE "C"(按字节,和参考求值器一致;SELECT 里写同一个表达式)。
+// NULL 自己是一组(GROUP BY 的语义)。
+func (g *sqlGen) groupKeys(lv *sqlLevel) []groupKey {
+	var out []groupKey
+	for _, k := range lv.group {
+		e := g.col(lv, k) // 分组键也可以是 lookup 加的列
+		if t, _ := lv.in.Col(k); t.Kind == Text {
+			e += ` COLLATE "C"`
+		}
+		out = append(out, groupKey{e, quoteIdent(k)})
+	}
+	return out
+}
+
 // distinctKeys: 每组取一条的分组键。文本键也用 COLLATE "C"(分组不受影响: 确定性排序规则的相等就是按字节相等),
 // 这样组的顺序和后面按键排序(COLLATE "C")一致,配上表达式索引,数据库可以边读索引边输出,读够 LIMIT 就停。
 func (g *sqlGen) distinctKeys(lv *sqlLevel) []string {
 	var ks []string
 	for _, k := range lv.distinct {
-		e := lv.alias + "." + quoteIdent(k)
+		e := g.col(lv, k)
 		if t, _ := lv.in.Col(k); t.Kind == Text {
 			e += ` COLLATE "C"`
 		}
@@ -209,7 +411,7 @@ func (g *sqlGen) distinctKeys(lv *sqlLevel) []string {
 func (g *sqlGen) orderItems(lv *sqlLevel, order []SortKey) []string {
 	var out []string
 	for _, o := range order {
-		e := lv.alias + "." + quoteIdent(o.Col)
+		e := g.col(lv, o.Col)
 		if t, _ := lv.in.Col(o.Col); t.Kind == Text {
 			e += ` COLLATE "C"`
 		}
@@ -221,8 +423,19 @@ func (g *sqlGen) orderItems(lv *sqlLevel, order []SortKey) []string {
 	return out
 }
 
+// col: 列在这一层的写法。一律带表别名(lookup 加的列 = 对方的表的别名.列)。
+func (g *sqlGen) col(lv *sqlLevel, name string) string {
+	if r, ok := lv.refs[name]; ok {
+		return r
+	}
+	return lv.alias + "." + quoteIdent(name)
+}
+
 func (g *sqlGen) param(name string) (string, *ParamDecl) {
 	d := g.p.Param(name)
+	if d == nil && name == NowParam { // now(): 不是请求参数,由适配器接到运行时的时钟
+		d = &ParamDecl{Name: NowParam, Type: Type{Kind: Timestamp}, Required: true}
+	}
 	i, ok := g.index[name]
 	if !ok {
 		g.params = append(g.params, *d)
@@ -244,7 +457,7 @@ func (g *sqlGen) expr(e *Expr, lv *sqlLevel) (string, error) {
 	sub := func(x *Expr) (string, error) { return g.expr(x, lv) }
 	switch e.Op {
 	case "col":
-		return lv.alias + "." + quoteIdent(e.Name), nil
+		return g.col(lv, e.Name), nil
 	case "const":
 		return constSQL(e.Value, e.Type.Kind)
 	case "param":
@@ -367,8 +580,73 @@ func (g *sqlGen) expr(e *Expr, lv *sqlLevel) (string, error) {
 			}
 		}
 		return fmt.Sprintf("EXISTS (SELECT 1 FROM %s WHERE %s)", strings.Join(from, ", "), strings.Join(conds, " AND ")), nil
+	case "now":
+		s, _ := g.param(NowParam)
+		return s, nil
+	case "add":
+		x, err := sub(e.Args[0])
+		if err != nil {
+			return "", err
+		}
+		n, err := g.intArg(e.Args[1], lv)
+		if err != nil {
+			return "", err
+		}
+		t, _ := g.p.typeOf(e.Args[0], lv.in)
+		sign := "+"
+		if e.Neg {
+			sign = "-"
+		}
+		field := map[string]string{Minute: "mins", Hour: "hours", Day: "days", Month: "months"}[e.Name]
+		iv := fmt.Sprintf("make_interval(%s => %s)", field, n)
+		switch {
+		case t.Kind == Date && e.Name == Day: // date ± int → date
+			return fmt.Sprintf("(%s %s %s)", x, sign, n), nil
+		case t.Kind == Date: // date ± interval → timestamp(没有时区)→ 日期
+			return fmt.Sprintf("((%s %s %s)::date)", x, sign, iv), nil
+		case e.Name == Minute || e.Name == Hour: // 绝对时长(和时区无关)
+			return fmt.Sprintf("(%s %s %s)", x, sign, iv), nil
+		}
+		// 天 / 月: 在领域的时区的日历上加(不受会话时区影响)
+		z := quoteLit(zoneName(e.Zone))
+		return fmt.Sprintf("(((%s AT TIME ZONE %s) %s %s) AT TIME ZONE %s)", x, z, sign, iv, z), nil
+	case "trunc":
+		x, err := sub(e.Args[0])
+		if err != nil {
+			return "", err
+		}
+		t, _ := g.p.typeOf(e.Args[0], lv.in)
+		if t.Kind == Date { // timestamp(没有时区)上截: 不受会话时区影响
+			return fmt.Sprintf("(date_trunc(%s, (%s)::timestamp)::date)", quoteLit(e.Name), x), nil
+		}
+		z := quoteLit(zoneName(e.Zone))
+		return fmt.Sprintf("(date_trunc(%s, (%s AT TIME ZONE %s)) AT TIME ZONE %s)", quoteLit(e.Name), x, z, z), nil
 	}
 	return "", fmt.Errorf("sql: unknown expr %q", e.Op)
+}
+
+func zoneName(z string) string {
+	if z == "" {
+		return "UTC"
+	}
+	return z
+}
+
+// intArg: add 的个数(make_interval 的参数是 int4)。常量直接写数字;int8 的表达式 cast 成 int4(超出范围 → 查询失败,和参考求值器一致)。
+func (g *sqlGen) intArg(e *Expr, lv *sqlLevel) (string, error) {
+	if e.Op == "const" {
+		if v, ok := e.Value.(int64); ok {
+			return fmt.Sprintf("(%d)", v), nil
+		}
+	}
+	s, err := g.expr(e, lv)
+	if err != nil {
+		return "", err
+	}
+	if t, _ := g.p.typeOf(e, lv.in); t.Kind == Int64 {
+		s = "(" + s + ")::int4"
+	}
+	return s, nil
 }
 
 func constSQL(v any, k Kind) (string, error) {

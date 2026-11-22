@@ -36,6 +36,9 @@ func resolveFilters(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalog
 		if ex, ok := exits.ByKind(s.PatternKind()); ok && ex.RequestNames(s.Pattern)[name] { // 出口加的字段(page_size …)不是筛选条件
 			continue
 		}
+		if ds.DerivedInputs()[name] { // 派生参数的输入(例: N 分钟)不直接筛选列
+			continue
+		}
 		f, ok := ds.Filters[name]
 		if !ok {
 			f, ok = conventionFilter(name, table, cat)
@@ -87,10 +90,24 @@ func resolveFilters(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalog
 // selectColumns: 显式的 datasource.columns,否则从响应字段推导。
 func selectColumns(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalog) ([]string, error) {
 	table := s.Datasource.Table
+	grouped, err := GroupedColumns(table, cat.tables[table], s.Pattern.Group, s.Pattern.Rank)
+	if err != nil {
+		return nil, err
+	}
 	check := func(names []string, origin string) error {
 		for _, n := range names {
 			if src, ok := s.Datasource.Rename[n]; ok { // 改名的响应字段: 查来源的列
 				n = src
+			}
+			if grouped != nil { // 分组之后: 只有分组键 / 聚合 / 名次
+				found := false
+				for _, c := range grouped {
+					found = found || c.Name == n
+				}
+				if !found {
+					return fmt.Errorf("%s: %q 不是分组之后的列(分组键 / 计算 / 排名的输出)", origin, n)
+				}
+				continue
 			}
 			if _, ok := cat.column(table, n); !ok {
 				return fmt.Errorf("%s: column %q is not in table %s (declare datasource.columns or use datasource.sql)", origin, n, table)

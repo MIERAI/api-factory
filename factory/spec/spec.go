@@ -61,15 +61,36 @@ type ReviewDecision struct {
 //   - custom      : AI 写整个 handler(逃生口)
 type Pattern struct {
 	Kind            string         `yaml:"kind"`
-	NotFoundMessage string         `yaml:"not_found_message"` // get_by_id: "job not found: {job_id}"
+	NotFoundMessage string         `yaml:"not_found_message"`         // get_by_id: "job not found: {job_id}"
 	NotFoundEmpty   bool           `yaml:"not_found_empty,omitempty"` // get_by_id: 找不到时返回 OK + found = false(不是 NOT_FOUND)
-	OrderBy         []string       `yaml:"order_by"`          // list_keyset: 游标列,最后一列必须唯一
-	Direction       string         `yaml:"direction"`         // desc / asc / mixed(每列的方向在 directions;分页不能 mixed)
-	Directions      []string       `yaml:"directions,omitempty"` // direction = mixed 时: 每列的方向(和 order_by 一一对应)
+	OrderBy         []string       `yaml:"order_by"`                  // list_keyset: 游标列,最后一列必须唯一
+	Direction       string         `yaml:"direction"`                 // desc / asc / mixed(每列的方向在 directions;分页不能 mixed)
+	Directions      []string       `yaml:"directions,omitempty"`      // direction = mixed 时: 每列的方向(和 order_by 一一对应)
 	PageSize        PageSize       `yaml:"page_size"`
 	MaxRows         int32          `yaml:"max_rows,omitempty"`       // list_all: 最多返回的件数(超过时报错,不悄悄截断)
 	Params          map[string]any `yaml:"params,omitempty"`         // 出口自己的参数(新出口不用改 spec)
 	PickPerGroup    *PickPerGroup  `yaml:"pick_per_group,omitempty"` // list_all: 筛选之后每组取一条
+	Group           *GroupBy       `yaml:"group,omitempty"`          // 多条 / 前N条 / 一览: 筛选之后分组聚合(之后的列 = 键 + 聚合)
+	Rank            *RankBy        `yaml:"rank,omitempty"`           // 分组之后的名次(RANK(): 并列同名次,下一个名次跳过)
+}
+
+// GroupBy: 按 keys 分组(NULL 是一组),每组一行 = 键 + 聚合。没有输入行 → 没有输出行。
+type GroupBy struct {
+	Keys []string `yaml:"keys"`
+	Aggs []Agg    `yaml:"aggs,omitempty"`
+}
+
+// Agg: 输出名 = func(column)。func: count(不写 column)/ sum / min / max(规则: factory/core/agg.go)。
+type Agg struct {
+	Name   string `yaml:"name"`
+	Func   string `yaml:"func"`
+	Column string `yaml:"column,omitempty"`
+}
+
+// RankBy: 按 order("total desc")的名次,输出列 as。
+type RankBy struct {
+	Order []string `yaml:"order"`
+	As    string   `yaml:"as"`
 }
 
 // PickPerGroup: 按 by 分组,组内按 order(列 + 方向)取第一行。
@@ -97,9 +118,76 @@ type Datasource struct {
 	Rename map[string]string `yaml:"rename,omitempty"`
 	// Where: 固定条件(不来自请求;factory/where 的写法,列名是来源的列),和筛选一起作用
 	Where []string `yaml:"where,omitempty"`
+	// Lookups: 多对一查找(核心的 lookup),按顺序接在来源之后。加的列和来源的列一样,可以用在筛选 / 输出 / 排序里
+	Lookups []Lookup `yaml:"lookups,omitempty"`
+	// Nests: 一对多嵌套(核心的 nest),接在关联之后: 每一行加一列子行的列表
+	Nests []Nest `yaml:"nests,omitempty"`
+	// ChildAggs: 按父行聚合(核心的 child_agg),接在嵌套之后: 每一行加一列子行的聚合值
+	ChildAggs []ChildAgg `yaml:"child_aggs,omitempty"`
+	// Derived: 派生参数(不出现在请求里): 值由 now() 和请求参数计算(核心代数的时间运算),和筛选一样作用在来源的列上
+	Derived map[string]Derived `yaml:"derived,omitempty"`
 	// SQL: 逃生口(JOIN / 聚合 / 复杂条件)。写了 sql 就不写 filters/columns;
 	// table 可以写,表示结果列来自哪张表(用于查领域层的 enum 映射)
 	SQL string `yaml:"sql"`
+}
+
+// Lookup: 按键取另一张表(同一个库)的一行的列。On: "当前行的列 = 对方的键列"(多列 = 多项)。
+// 对方的键列必须是主键或唯一约束(编译器的 DRC)。
+type Lookup struct {
+	Name    string    `yaml:"name"`              // 设计稿里的名字(报错 / 审查用)
+	Table   string    `yaml:"table"`             // 对方的表
+	On      []string  `yaml:"on"`                // "customer_id = id"
+	Columns []TakeCol `yaml:"columns"`           // 加的列(新列名 ← 对方的列),按书写顺序
+	Missing string    `yaml:"missing,omitempty"` // keep(默认): 加的列为空;drop: 丢弃这一行
+}
+
+// Nest: 子表(同一个库)里关联的行,作为子行的列表加一列 Name。On: "当前行的列 = 子表的列"(多列 = 多项)。
+// OrderBy: "列 asc|desc",加上 On 的子表的列要覆盖子表的主键 / 唯一键(子行的顺序是全序;核心的 DRC)。
+// Max: 子行的上限(超过 → FAILED_PRECONDITION,不截断)。
+type Nest struct {
+	Name    string    `yaml:"name"`            // 输出的列名(子行的列表)
+	Table   string    `yaml:"table"`           // 子表
+	On      []string  `yaml:"on"`              // "id = order_id"
+	Where   []string  `yaml:"where,omitempty"` // 子表上的固定条件(factory/where 的写法,子表的列名)
+	OrderBy []string  `yaml:"order_by"`        // "line_no asc"
+	Max     int       `yaml:"max"`
+	Columns []TakeCol `yaml:"columns"` // 子行的列(列名 ← 子表的列)
+}
+
+// ChildAgg: 关联的子行(经过 Where)的一个聚合,加一列 Name。Func: count / sum / min / max(count 没有 Column)。
+type ChildAgg struct {
+	Name   string   `yaml:"name"`
+	Table  string   `yaml:"table"`
+	On     []string `yaml:"on"`
+	Where  []string `yaml:"where,omitempty"`
+	Func   string   `yaml:"func"`
+	Column string   `yaml:"column,omitempty"`
+}
+
+type TakeCol struct {
+	Name string `yaml:"name"`
+	From string `yaml:"from"`
+}
+
+// Derived: 一个派生参数。Expr 是核心代数的表达式(core.ParseExpr 的写法: now() / add(x, n, 单位) / trunc(x, 单位),
+// 名字 = Inputs 里的请求参数);Column + Op 和筛选一样(Op = 筛选单元的内部名)。
+type Derived struct {
+	Expr     string            `yaml:"expr"`
+	Column   string            `yaml:"column"`
+	Op       string            `yaml:"op"`
+	Inputs   map[string]string `yaml:"inputs,omitempty"`    // 用到的请求参数 → 核心类型(int32 / int64 / date / timestamp)
+	TimeZone string            `yaml:"time_zone,omitempty"` // 时间的天 / 月、截到天 / 月按这个时区(领域的时区)
+}
+
+// DerivedInputs: 派生参数用到的请求参数(这些请求字段不是筛选条件)。
+func (d Datasource) DerivedInputs() map[string]bool {
+	out := map[string]bool{}
+	for _, x := range d.Derived {
+		for n := range x.Inputs {
+			out[n] = true
+		}
+	}
+	return out
 }
 
 type Filter struct {
@@ -135,6 +223,9 @@ type Case struct {
 	Expect  Expect         `yaml:"expect"`
 	// Steps 用于多步用例(如翻页)。request 里的 "$prev.<field>" 会被替换成上一步响应的字段
 	Steps []Step `yaml:"steps"`
+	// Now: 请求开始的时刻(RFC 3339)。用到 now() 的 API 的用例必须固定它: 验收执行器发请求头 X-Factory-Now,
+	// 服务器只在 FACTORY_TEST_CLOCK=1(测试环境)时认这个头
+	Now string `yaml:"now,omitempty"`
 }
 
 type Step struct {
@@ -322,7 +413,7 @@ func (s *Spec) Check() []string {
 	// datasource: 声明式 / 逃生口 二选一
 	ds := s.Datasource
 	// 逃生口(sql)也可以写 table: 表示结果列来自哪张表(用于查领域层的 enum 等)
-	declarative := len(ds.Filters) > 0 || len(ds.Columns) > 0
+	declarative := len(ds.Filters) > 0 || len(ds.Columns) > 0 || len(ds.Derived) > 0
 	switch {
 	case ds.SQL != "" && declarative:
 		add("datasource: filters/columns are for the declarative form; with sql, write the conditions in sql (table is allowed as metadata)")
@@ -338,6 +429,14 @@ func (s *Spec) Check() []string {
 		}
 		if _, ok := FilterOps[f.Op]; !ok && f.Op == "" {
 			add("datasource.filters.%s: op is required (eq/gt/gte/lt/lte/prefix,或单元库里的筛选单元名)", field)
+		}
+	}
+	for name, d := range ds.Derived {
+		if d.Expr == "" || d.Column == "" || d.Op == "" {
+			add("datasource.derived.%s: expr, column and op are required", name)
+		}
+		if _, dup := ds.Filters[name]; dup {
+			add("datasource.derived.%s: also a filter (a derived parameter is not a request field)", name)
 		}
 	}
 	if s.PatternKind() == "compute" && ds.SQL == "" && len(ds.Columns) == 0 {
@@ -377,10 +476,47 @@ func (s *Spec) Check() []string {
 		}
 	}
 	if ds.Table != "" && ds.SQL == "" {
+		allowed := map[string]bool{ds.Table: true}
+		for _, l := range ds.Lookups { // 关联的表也可以(而且应该)准备数据
+			allowed[l.Table] = true
+		}
+		for _, n := range ds.Nests { // 嵌套 / 子聚合的子表也是
+			allowed[n.Table] = true
+		}
+		for _, a := range ds.ChildAggs {
+			allowed[a.Table] = true
+		}
 		for table := range s.Acceptance.Fixtures {
-			if table != ds.Table {
-				add("acceptance.fixtures: table %s is not datasource.table (%s)", table, ds.Table)
+			if !allowed[table] {
+				add("acceptance.fixtures: table %s is not datasource.table (%s) or a lookup table", table, ds.Table)
 			}
+		}
+	}
+	for i, n := range ds.Nests {
+		if n.Name == "" || n.Table == "" || len(n.On) == 0 || len(n.OrderBy) == 0 || n.Max <= 0 || len(n.Columns) == 0 {
+			add("datasource.nests[%d]: name / table / on / order_by / max (> 0) / columns are required", i)
+		}
+		if ds.SQL != "" {
+			add("datasource.nests[%d]: nests need a declarative datasource (not sql)", i)
+		}
+	}
+	for i, a := range ds.ChildAggs {
+		if a.Name == "" || a.Table == "" || len(a.On) == 0 || a.Func == "" {
+			add("datasource.child_aggs[%d]: name / table / on / func are required", i)
+		}
+		if ds.SQL != "" {
+			add("datasource.child_aggs[%d]: child_aggs need a declarative datasource (not sql)", i)
+		}
+	}
+	for i, l := range ds.Lookups {
+		if l.Name == "" || l.Table == "" || len(l.On) == 0 || len(l.Columns) == 0 {
+			add("datasource.lookups[%d]: name / table / on / columns are required", i)
+		}
+		if l.Missing != "" && l.Missing != "keep" && l.Missing != "drop" {
+			add("datasource.lookups[%d]: missing must be keep or drop", i)
+		}
+		if ds.SQL != "" {
+			add("datasource.lookups[%d]: lookups need a declarative datasource (not sql)", i)
 		}
 	}
 

@@ -1,0 +1,52 @@
+# ============================================================================
+# ListPrevMonthSales: 指定日の前月の売上(多条 + 派生参数: 日付パラメータから前月の期間を計算)
+# ============================================================================
+API: ListPrevMonthSales
+说明: 店舗と基準日を指定して、基準日の前月(1 日〜末日)の日別売上を古い日から返す
+背景: 月次の振り返り画面。「前月」= 基準日の 1 か月前の日が属する月(3/31 → 2/1〜2/28。月末の扱いは Postgres と同じ。
+  1 か月前に同じ日がなければその月の末日)。期間はリクエストに含めず、基準日から計算する
+负责人: sales-team
+风险: 低
+
+种类: 多条
+数据来源: daily_sales
+
+输入:
+  store_code: { 类型: 整数32, 必填: 是, 范围: "> 0", 说明: 店舗コード, 筛选: store_code 等于 }
+  base_date:  { 类型: 日期, 必填: 是, 说明: 基準日(この日の前月を返す) }
+
+派生参数:
+  month_start: { 计算: 月初(base_date - 1 个月), 筛选: sales_date 大于等于, 说明: 前月の 1 日 }
+  month_end:   { 计算: 月初(base_date) - 1 天, 筛选: sales_date 小于等于, 说明: 前月の末日 }
+
+输出:
+  sales_date: 売上日
+  amount:     売上金額
+  discount:   値引き額
+
+排序: [sales_date 旧到新]
+上限: 31
+输出行名: PrevMonthSale
+
+例子:
+  准备数据:
+    daily_sales:
+      - { sales_date: 2026-01-31, store_code: 1, amount: 100, discount: null, closed_on: null }
+      - { sales_date: 2026-02-01, store_code: 1, amount: 110, discount: 5,    closed_on: null }
+      - { sales_date: 2026-02-15, store_code: 1, amount: 120, discount: null, closed_on: null }
+      - { sales_date: 2026-02-28, store_code: 1, amount: 130, discount: null, closed_on: null }
+      - { sales_date: 2026-03-01, store_code: 1, amount: 140, discount: null, closed_on: null }
+      - { sales_date: 2026-02-10, store_code: 2, amount: 90,  discount: null, closed_on: null }
+  用例:
+    - 说明: 3/31 の前月 = 2/1〜2/28(1 か月前に 31 日がない → 2 月の末日)
+      输入: { store_code: 1, base_date: 2026-03-31 }
+      结果: { daily_sales: [{ sales_date: 2026-02-01, amount: "110", discount: "5" }, { sales_date: 2026-02-15 }, { sales_date: 2026-02-28 }] }
+    - 说明: 月初の日でも前月全体
+      输入: { store_code: 1, base_date: 2026-03-01 }
+      结果: { daily_sales: [{ sales_date: 2026-02-01 }, { sales_date: 2026-02-15 }, { sales_date: 2026-02-28 }] }
+    - 说明: 2/28 の前月 = 1 月(1/31 だけ)
+      输入: { store_code: 1, base_date: 2026-02-28 }
+      结果: { daily_sales: [{ sales_date: 2026-01-31 }] }
+    - 说明: 基準日がない
+      输入: { store_code: 1 }
+      结果: 参数错误

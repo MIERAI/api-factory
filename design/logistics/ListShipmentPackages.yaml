@@ -1,0 +1,102 @@
+# ============================================================================
+# ListShipmentPackages: 出荷日の出荷 + 封緘済みの梱包(嵌套)+ 梱包の集計(子聚合)
+# ============================================================================
+API: ListShipmentPackages
+说明: 出荷日の出荷を、封緘済みの梱包(重い順)と梱包の集計つきで返す
+背景: 出荷場の積み込み確認。封緘済みの梱包だけを重い順に積む。1 出荷の封緘済みの梱包は最大 3 個の運用で、それを超える出荷はデータの誤り → 黙って切り捨てず、その出荷が入るページの要求をエラーにして気づかせる(前のページは通常どおり)
+负责人: logistics-team
+风险: 低
+
+种类: 一览
+数据来源: shipments
+
+嵌套:
+  packages:
+    表: packages
+    条件: [id = shipment_id]
+    固定条件: sealed_at 不为空
+    排序: [weight 大到小, package_no 小到大]
+    上限: 3
+    列: [package_no, label, weight, sealed_at]
+    行名: ShipmentPackage
+
+子聚合:
+  package_count:   { 表: packages, 条件: [id = shipment_id], 计算: 件数 }
+  sealed_weight:   { 表: packages, 条件: [id = shipment_id], 固定条件: sealed_at 不为空, 计算: 合计(weight) }
+  first_sealed_at: { 表: packages, 条件: [id = shipment_id], 计算: 最小(sealed_at) }
+  last_sealed_at:  { 表: packages, 条件: [id = shipment_id], 计算: 最大(sealed_at) }
+
+输入:
+  shipped_on:     { 类型: 日期, 必填: 是, 说明: 出荷日, 筛选: shipped_on 等于 }
+  warehouse_code: { 类型: 文本, 必填: 否, 长度: 1~8, 说明: 倉庫コード(不指定 = 全倉庫。空文字は参数错误), 筛选: warehouse_code 等于 }
+
+输出:
+  id:              出荷 ID
+  warehouse_code:  倉庫コード
+  packages:        封緘済みの梱包(重い順、同じ重さは梱包番号順。最大 3 個。超える出荷が入るページはエラー、前のページは通常どおり)
+  package_count:   梱包の数(未封緘も含む。梱包なし = 0)
+  sealed_weight:   封緘済みの梱包の重量の合計 kg(なし = 0)
+  first_sealed_at: 最初の封緘時刻(封緘済みの梱包が無いときは不设置)
+  last_sealed_at:  最後の封緘時刻(封緘済みの梱包が無いときは不设置)
+
+排序: [id 小到大]
+分页: { 默认每页: 20, 每页最多: 100 }
+输出行名: PackedShipment
+
+业务规则:
+  - 情况: ある出荷の封緘済みの梱包が 3 個を超える(運用上の上限。超えるのはデータの誤り)
+    结果: その出荷が入るページの要求だけが FAILED_PRECONDITION になる(梱包を切り捨てて返さない。積み込み確認で梱包を見落とさないため)。それより前のページは通常どおり返る(「次のページあり」も通常どおり)。倉庫を指定しても同じ出荷が含まれれば同じくエラー。運用は梱包データを直してから再取得する
+  - 情况: 封緘前の梱包
+    结果: packages には出さない(積み込み対象外)。package_count には含める
+
+例子:
+  准备数据:
+    shipments:
+      - { id: 1, warehouse_code: W1, zone_no: null, partner_code: null, shipped_on: 2026-11-20, weight: 15 }
+      - { id: 2, warehouse_code: W1, zone_no: null, partner_code: null, shipped_on: 2026-11-20, weight: 1 }
+      - { id: 3, warehouse_code: W1, zone_no: null, partner_code: null, shipped_on: 2026-11-20, weight: 2 }
+      - { id: 4, warehouse_code: W1, zone_no: null, partner_code: null, shipped_on: 2026-11-21, weight: 8 }
+      - { id: 5, warehouse_code: W2, zone_no: null, partner_code: null, shipped_on: 2026-11-20, weight: 0.5 }
+    packages:
+      # 出荷 1: 封緘済み 3 個(ちょうど上限)+ 未封緘 1 個。2.5 kg が 2 個(梱包番号順)
+      - { shipment_id: 1, package_no: 1, label: YT000001, weight: 2.5, sealed_at: "2026-11-20 09:10" }
+      - { shipment_id: 1, package_no: 2, label: YT000002, weight: 2.5, sealed_at: "2026-11-20 09:05" }
+      - { shipment_id: 1, package_no: 3, label: YT000003, weight: 10,  sealed_at: "2026-11-20 09:30" }
+      - { shipment_id: 1, package_no: 4, label: YT000004, weight: 1,   sealed_at: null }
+      # 出荷 3: 梱包はあるが全部未封緘
+      - { shipment_id: 3, package_no: 1, label: SG100001, weight: 1, sealed_at: null }
+      - { shipment_id: 3, package_no: 2, label: SG100002, weight: 1, sealed_at: null }
+      # 出荷 4: 封緘済み 4 個(上限を超える)
+      - { shipment_id: 4, package_no: 1, label: YT000011, weight: 2, sealed_at: "2026-11-21 10:00" }
+      - { shipment_id: 4, package_no: 2, label: YT000012, weight: 2, sealed_at: "2026-11-21 10:01" }
+      - { shipment_id: 4, package_no: 3, label: YT000013, weight: 2, sealed_at: "2026-11-21 10:02" }
+      - { shipment_id: 4, package_no: 4, label: YT000014, weight: 2, sealed_at: "2026-11-21 10:03" }
+      # 出荷 5: 1 個。出荷が無い梱包(出荷 99)は誰にも付かない
+      - { shipment_id: 5, package_no: 1, label: SG200001, weight: 0.5, sealed_at: "2026-11-20 08:00" }
+      - { shipment_id: 99, package_no: 1, label: SG900001, weight: 3, sealed_at: "2026-11-20 08:00" }
+  用例:
+    - 说明: ちょうど上限(3 個)の出荷・梱包なしの出荷(空の一覧、件数 0、合計 0)・未封緘だけの出荷
+      输入: { shipped_on: 2026-11-20 }
+      结果:
+        shipments:
+          - id: 1
+            packages:
+              - { package_no: 3, label: YT000003, weight: "10", sealed_at: "2026-11-20 09:30" }
+              - { package_no: 1, label: YT000001, weight: "2.5", sealed_at: "2026-11-20 09:10" }
+              - { package_no: 2, label: YT000002, weight: "2.5", sealed_at: "2026-11-20 09:05" }
+            package_count: 4
+            sealed_weight: "15.0"           # 数値の合計(2.5 + 2.5 + 10)。桁数はデータベースの numeric の結果のまま
+            first_sealed_at: "2026-11-20 09:05"
+            last_sealed_at: "2026-11-20 09:30"
+          - { id: 2, packages: [], package_count: 0, sealed_weight: "0", first_sealed_at: 不设置, last_sealed_at: 不设置 }
+          - { id: 3, packages: [], package_count: 2, sealed_weight: "0", first_sealed_at: 不设置, last_sealed_at: 不设置 }
+          - { id: 5, packages: [{ package_no: 1, label: SG200001, weight: "0.5" }], package_count: 1, sealed_weight: "0.5" }
+    - 说明: 倉庫で絞り込む
+      输入: { shipped_on: 2026-11-20, warehouse_code: W2 }
+      结果: { shipments: [{ id: 5, warehouse_code: W2, package_count: 1 }] }
+    - 说明: 封緘済みの梱包が上限(3 個)を超える出荷がある → 切り捨てずにエラー
+      输入: { shipped_on: 2026-11-21 }
+      结果: 超过上限
+    - 说明: 該当なし
+      输入: { shipped_on: 2026-11-22 }
+      结果: { shipments: [] }

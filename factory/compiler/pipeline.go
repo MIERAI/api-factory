@@ -4,6 +4,7 @@ package compiler
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"apifactory/factory/cells"
@@ -37,7 +38,9 @@ func WhereTypes(cols []Column) func(string) (core.Type, bool) {
 	}
 }
 
-func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []resolvedFilter, cat *catalog) (*core.Pipeline, error) {
+// cat: schema 的目录(来源的扫描用);view: 加了关联列的目录(筛选 / 输出 / 固定条件用);lookups: 关联的步骤(接在来源之后)。
+// inputs: 请求字段名 → 有没有 presence(派生参数的输入: 没有 presence = 必填)。
+func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []resolvedFilter, cat, view *catalog, lookups []core.Step, inputs map[string]bool) (*core.Pipeline, error) {
 	table := s.Datasource.Table
 	p := &core.Pipeline{}
 	source, err := sourceSteps(s, lib, cat)
@@ -58,7 +61,7 @@ func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []re
 		var members []string
 		if f.Op == "in_tuples" { // 组的列表: 每个字段一个列表参数(类型 = 列的类型)
 			for _, c := range cols {
-				cc, _ := cat.column(table, c)
+				cc, _ := view.column(table, c)
 				ct, err := coreType(table, cc)
 				if err != nil {
 					return nil, err
@@ -76,8 +79,13 @@ func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []re
 		}
 		parts.Filters = append(parts.Filters, e)
 	}
+	derived, err := derivedFilters(s, lib, view, p, inputs) // view: 派生参数也可以和关联加的列比较
+	if err != nil {
+		return nil, err
+	}
+	parts.Filters = append(parts.Filters, derived...)
 	for _, w := range s.Datasource.Where { // 固定条件: 和筛选一样作用在来源的列上
-		e, err := where.Parse(w, WhereTypes(cat.tables[table]))
+		e, err := where.Parse(w, WhereTypes(view.tables[table]))
 		if err != nil {
 			return nil, err
 		}
@@ -94,8 +102,12 @@ func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []re
 	if !ok || ex.Cell == "" {
 		return nil, fmt.Errorf("模式 %s 没有对应的套装", s.PatternKind())
 	}
+	grouped, err := GroupedColumns(table, view.tables[table], s.Pattern.Group, s.Pattern.Rank) // 分组键可以是关联加的列
+	if err != nil {
+		return nil, err
+	}
 	if ex.Parts != nil {
-		if err := ex.Parts(s, partsCtx{table, cat}, &parts, p); err != nil {
+		if err := ex.Parts(s, partsCtx{table, view, grouped}, &parts, p); err != nil { // view: 加了关联 / 子聚合的列
 			return nil, err
 		}
 	}
@@ -104,7 +116,7 @@ func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []re
 	if err != nil {
 		return nil, err
 	}
-	p.Steps = append(source, steps...)
+	p.Steps = append(append(source, lookups...), steps...)
 	if _, err := core.Check(p); err != nil {
 		return nil, fmt.Errorf("设计规则检查:\n%w", err)
 	}
@@ -112,6 +124,53 @@ func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []re
 		return nil, fmt.Errorf("设计规则检查:\n%w", err)
 	}
 	return p, nil
+}
+
+// derivedFilters: 派生参数(datasource.derived)→ 筛选。值 = 核心代数的时间运算(now / add / trunc),
+// 名字 = 请求参数(派生参数的输入,加进流水线的参数;必填 = proto 里没有 presence)。按名字排序(SQL 确定)。
+func derivedFilters(s *spec.Spec, lib *cells.Library, cat *catalog, p *core.Pipeline, presence map[string]bool) ([]*core.Expr, error) {
+	ds := s.Datasource
+	names := make([]string, 0, len(ds.Derived))
+	for n := range ds.Derived {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	var out []*core.Expr
+	for _, name := range names {
+		d := ds.Derived[name]
+		var optional []string
+		for id := range d.Inputs {
+			if _, ok := presence[id]; !ok {
+				return nil, fmt.Errorf("派生参数 %s: 输入 %s 不是请求字段", name, id)
+			}
+		}
+		v, err := core.ParseExpr(d.Expr, func(id string) (*core.Expr, bool) {
+			k, ok := d.Inputs[id]
+			if !ok {
+				return nil, false
+			}
+			if p.Param(id) == nil {
+				p.Params = append(p.Params, core.ParamDecl{Name: id, Type: core.Type{Kind: core.Kind(k)}, Required: !presence[id]})
+			}
+			if !p.Param(id).Required && !contains(optional, id) {
+				optional = append(optional, id)
+			}
+			return core.Param(id), true
+		})
+		if err != nil {
+			return nil, fmt.Errorf("派生参数 %s: %w", name, err)
+		}
+		core.SetZone(v, d.TimeZone)
+		if _, ok := cat.column(ds.Table, d.Column); !ok {
+			return nil, fmt.Errorf("派生参数 %s: 列 %s 不在 %s 里", name, d.Column, ds.Table)
+		}
+		e, err := lib.FilterValue(d.Op, []string{d.Column}, v, optional)
+		if err != nil {
+			return nil, fmt.Errorf("派生参数 %s: %w", name, err)
+		}
+		out = append(out, e)
+	}
+	return out, nil
 }
 
 // checkPickUnique: 每组取一条(API 部分)的 分组键 + 组内的排序 必须覆盖一个唯一键,否则组内可能并列,
@@ -207,15 +266,85 @@ func sqlKind(sqlType string) (core.Kind, bool) {
 
 // partsCtx: 出口生成流水线部件时用(exits.PartsCtx)。
 type partsCtx struct {
-	table string
-	cat   *catalog
+	table   string
+	cat     *catalog
+	grouped []catColumn // 分组之后的列(没有分组 → nil): 出口看到的列是这些
 }
 
 func (x partsCtx) ColumnKind(col string) (core.Kind, error) {
+	if x.grouped != nil {
+		for _, c := range x.grouped {
+			if c.Name == col {
+				t, err := coreType(x.table, c)
+				return t.Kind, err
+			}
+		}
+		return "", fmt.Errorf("列 %s 不在分组之后的列里(分组键 / 聚合 / 名次)", col)
+	}
 	c, ok := x.cat.column(x.table, col)
 	if !ok {
 		return "", fmt.Errorf("列 %s 不在 %s 里", col, x.table)
 	}
 	t, err := coreType(x.table, c)
 	return t.Kind, err
+}
+
+// GroupedColumns: 分组(+ 名次)之后的列 = 分组键(表的列)+ 聚合(类型由核心决定: core.AggType)+ 名次(int8)。
+// 没有分组 → nil。设计编译器(响应字段的类型)和编译器(SELECT 的列 / 游标的类型)共用。
+func GroupedColumns(table string, cols []Column, g *spec.GroupBy, r *spec.RankBy) ([]Column, error) {
+	if g == nil {
+		return nil, nil
+	}
+	find := func(name string) (Column, bool) {
+		for _, c := range cols {
+			if c.Name == name {
+				return c, true
+			}
+		}
+		return Column{}, false
+	}
+	var out []Column
+	var errs []string
+	for _, k := range g.Keys {
+		c, ok := find(k)
+		if !ok {
+			errs = append(errs, fmt.Sprintf("分组键 %s 不是 %s 的列", k, table))
+			continue
+		}
+		out = append(out, c)
+	}
+	for _, a := range g.Aggs {
+		var col *core.Type
+		if a.Column != "" {
+			c, ok := find(a.Column)
+			if !ok {
+				errs = append(errs, fmt.Sprintf("%s: 列 %s 不是 %s 的列", a.Name, a.Column, table))
+				continue
+			}
+			t, err := coreType(table, c)
+			if err != nil {
+				errs = append(errs, fmt.Sprintf("%s: %v", a.Name, err))
+				continue
+			}
+			col = &t
+		}
+		t, err := core.AggType(a.Func, col, false)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", a.Name, err))
+			continue
+		}
+		typ := t.Kind.SQLType()
+		if a.Func != "sum" && a.Column != "" { // min / max: 原列的类型(派生的类型、varchar 等保持原样)
+			c, _ := find(a.Column)
+			typ = c.Type
+		}
+		out = append(out, Column{Name: a.Name, Type: typ, NotNull: !t.Nullable})
+	}
+	if r != nil {
+		out = append(out, Column{Name: r.As, Type: "int8", NotNull: true})
+	}
+	if len(errs) > 0 {
+		return nil, fmt.Errorf("分组: %s", strings.Join(errs, "; "))
+	}
+	return out, nil
 }

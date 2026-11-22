@@ -3,7 +3,7 @@ package design
 // 例子的值: 中文式样书的写法 → 机器用的写法。
 //   时间: "2026-11-01 09:00"(领域的时区)→ "2026-11-01T00:00:00Z"
 //   枚举: SUCCEEDED / 未指定 → JOB_STATUS_SUCCEEDED / JOB_STATUS_UNSPECIFIED
-//   结果: 参数错误 / 找不到 / 成功 → INVALID_ARGUMENT / NOT_FOUND / OK;不设置 → $absent
+//   结果: 参数错误 / 找不到 / 超过上限 / 成功 → INVALID_ARGUMENT / NOT_FOUND / FAILED_PRECONDITION / OK;不设置 → $absent
 //   一览的结果: [4, 3, 2] → [{id: 4}, {id: 3}, {id: 2}]
 //   重复: 一行写 N 行(id: 1~19、"<时间> 起每行 +1分钟"、"<列> +60秒")
 
@@ -20,7 +20,7 @@ import (
 	"apifactory/factory/spec"
 )
 
-var resultCodes = map[string]string{"成功": "OK", "参数错误": "INVALID_ARGUMENT", "找不到": "NOT_FOUND"}
+var resultCodes = map[string]string{"成功": "OK", "参数错误": "INVALID_ARGUMENT", "找不到": "NOT_FOUND", "超过上限": "FAILED_PRECONDITION"}
 
 var timeLayouts = []string{"2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05", "2006-01-02 15:04", "2006-01-02"}
 
@@ -236,7 +236,7 @@ func (c *ctx) expect(resp *message, itemKey string, n *yaml.Node) (spec.Expect, 
 	if n.Kind == yaml.ScalarNode {
 		code, ok := resultCodes[strings.TrimSpace(n.Value)]
 		if !ok {
-			return spec.Expect{}, fmt.Errorf("第 %d 行: 结果 %q 无法识别(成功 / 参数错误 / 找不到,或者写出输出的值)", n.Line, n.Value)
+			return spec.Expect{}, fmt.Errorf("第 %d 行: 结果 %q 无法识别(成功 / 参数错误 / 找不到 / 超过上限,或者写出输出的值)", n.Line, n.Value)
 		}
 		return spec.Expect{Code: code}, nil
 	}
@@ -259,16 +259,9 @@ func (c *ctx) expect(resp *message, itemKey string, n *yaml.Node) (spec.Expect, 
 					}
 					m[itemKey] = v
 				} else {
-					for _, q := range pairs(it) {
-						qf := fieldOf(item, q.Key)
-						if qf == nil {
-							return spec.Expect{}, fmt.Errorf("第 %d 行: %s 不是 %s 的字段", q.Line, q.Key, item.Name)
-						}
-						v, err := c.value(qf.kind, q.Val)
-						if err != nil {
-							return spec.Expect{}, fmt.Errorf("第 %d 行 %s: %v", q.Line, q.Key, err)
-						}
-						m[q.Key] = v
+					var err error
+					if m, err = c.expectItem(item, it); err != nil {
+						return spec.Expect{}, err
 					}
 				}
 				list = append(list, m)
@@ -285,8 +278,38 @@ func (c *ctx) expect(resp *message, itemKey string, n *yaml.Node) (spec.Expect, 
 	return spec.Expect{Code: "OK", Response: resp2}, nil
 }
 
+// expectItem: 一个子消息的期待值(部分一致)。字段本身是子行的列表(嵌套)时递归: [{ 列: 值 }, …]。
+func (c *ctx) expectItem(item *message, n *yaml.Node) (map[string]any, error) {
+	m := map[string]any{}
+	for _, q := range pairs(n) {
+		qf := fieldOf(item, q.Key)
+		if qf == nil {
+			return nil, fmt.Errorf("第 %d 行: %s 不是 %s 的字段", q.Line, q.Key, item.Name)
+		}
+		if qf.Repeated && strings.HasPrefix(qf.kind, "message:") {
+			sub := c.msgByNm[strings.TrimPrefix(qf.kind, "message:")]
+			list := []any{}
+			for _, it := range q.Val.Content {
+				v, err := c.expectItem(sub, it)
+				if err != nil {
+					return nil, err
+				}
+				list = append(list, v)
+			}
+			m[q.Key] = list
+			continue
+		}
+		v, err := c.value(qf.kind, q.Val)
+		if err != nil {
+			return nil, fmt.Errorf("第 %d 行 %s: %v", q.Line, q.Key, err)
+		}
+		m[q.Key] = v
+	}
+	return m, nil
+}
+
 // examples: 例子 / 计算例子 → acceptance / logic_examples
-func (c *ctx) examples(a *API, s *spec.Spec, req, resp *message, itemKey string) error {
+func (c *ctx) examples(a *API, s *spec.Spec, req, resp *message, itemKey string, usesNow bool) error {
 	wrap := func(err error) error { return fmt.Errorf("%s: 例子: %w", a.Path, err) }
 	if a.Fixtures != nil {
 		s.Acceptance.Fixtures = map[string][]map[string]any{}
@@ -310,7 +333,25 @@ func (c *ctx) examples(a *API, s *spec.Spec, req, resp *message, itemKey string)
 		if err != nil {
 			return wrap(err)
 		}
-		s.Acceptance.Cases = append(s.Acceptance.Cases, spec.Case{Name: str(n, "说明"), Request: r, Expect: ex})
+		cs := spec.Case{Name: str(n, "说明"), Request: r, Expect: ex}
+		// 现在: 用到 现在 的 API 的用例必须固定请求开始的时刻(用例的 现在 > 例子的 现在),否则结果随时间变
+		now := str(n, "现在")
+		if now == "" {
+			now = a.Now
+		}
+		switch {
+		case usesNow && now == "":
+			return wrap(fmt.Errorf("用例 %q: 派生参数用到了 现在,例子(或这个用例)要写 现在(例: 现在: \"2026-11-01 09:00\",按领域的时区)", cs.Name))
+		case !usesNow && now != "":
+			return wrap(fmt.Errorf("用例 %q: 写了 现在,但没有派生参数用到 现在", cs.Name))
+		case now != "":
+			t, err := c.parseTime(now)
+			if err != nil {
+				return wrap(fmt.Errorf("用例 %q 的 现在: %v", cs.Name, err))
+			}
+			cs.Now = utc(t)
+		}
+		s.Acceptance.Cases = append(s.Acceptance.Cases, cs)
 	}
 	for _, n := range a.LogicCases {
 		le := spec.LogicExample{Name: str(n, "说明")}

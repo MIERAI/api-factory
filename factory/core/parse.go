@@ -6,7 +6,9 @@ package core
 //	arg   = expr | 运算符(= <> < <= > >=)
 //
 // ident 由调用方绑定(单元的参数: 列 → col(x),值 → param(y))。
-// 元件名: cmp and or not is_null absent in_list starts_with。
+// 元件名: cmp and or not is_null absent in_list starts_with now add trunc。
+// 时间运算(派生参数的值): now()、add(x, n, 单位)、trunc(x, 单位);n = 整数常量(可以带 -)或名字(带 - = 减),
+// 单位 = minute / hour / day / month(写在单位的位置上,不经过 bind)。时区由调用方另外设置(SetZone)。
 
 import (
 	"fmt"
@@ -73,7 +75,30 @@ func (p *parser) arg() (string, *Expr, error) {
 }
 
 func (p *parser) expr() (*Expr, error) {
+	if p.peek('-') { // 负号: 整数常量 → 负数;其他 → add 的"减"(只能用在 add 的个数上)
+		p.pos++
+		x, err := p.expr()
+		if err != nil {
+			return nil, err
+		}
+		if x.Op == "const" {
+			if v, ok := x.Value.(int64); ok {
+				return Const(-v, Type{Kind: Int32}), nil
+			}
+		}
+		return &Expr{Op: "neg", Args: []*Expr{x}}, nil
+	}
 	name := p.token()
+	if name != "" && strings.Trim(name, "0123456789") == "" { // 整数常量
+		var v int64
+		if _, err := fmt.Sscan(name, &v); err != nil {
+			return nil, fmt.Errorf("整数 %s: %v", name, err)
+		}
+		return Const(v, Type{Kind: Int32}), nil
+	}
+	if timeUnits[name] && !p.peek('(') {
+		return &Expr{Op: "unit", Name: name}, nil
+	}
 	if name == "" {
 		return nil, fmt.Errorf("第 %d 个字符: 需要名字", p.pos)
 	}
@@ -161,6 +186,80 @@ func (p *parser) expr() (*Expr, error) {
 			return nil, err
 		}
 		return &Expr{Op: name, Name: n, Args: args[:1]}, nil
+	case "now":
+		if err := need(0); err != nil {
+			return nil, err
+		}
+		return Now(), nil
+	case "add":
+		if err := need(3); err != nil {
+			return nil, err
+		}
+		if args[2].Op != "unit" {
+			return nil, fmt.Errorf("add 的第 3 个参数必须是单位(minute / hour / day / month)")
+		}
+		n, neg := args[1], false
+		if n.Op == "neg" {
+			n, neg = n.Args[0], true
+		}
+		return Add(args[0], n, args[2].Name, neg, ""), nil
+	case "trunc":
+		if err := need(2); err != nil {
+			return nil, err
+		}
+		if args[1].Op != "unit" || (args[1].Name != Day && args[1].Name != Month) {
+			return nil, fmt.Errorf("trunc 的第 2 个参数必须是单位(day / month)")
+		}
+		return Trunc(args[0], args[1].Name, ""), nil
 	}
 	return nil, fmt.Errorf("不认识的元件 %s(单元只能由基本元件组成)", name)
+}
+
+var timeUnits = map[string]bool{Minute: true, Hour: true, Day: true, Month: true}
+
+// SetZone: 表达式里的 add / trunc 用领域的时区(时间的天 / 月按这个时区的日历)。
+func SetZone(e *Expr, zone string) {
+	if e == nil {
+		return
+	}
+	if e.Op == "add" || e.Op == "trunc" {
+		e.Zone = zone
+	}
+	for _, a := range e.Args {
+		SetZone(a, zone)
+	}
+}
+
+// Format: 表达式 → ParseExpr 能读回的文本(派生参数写进式样书用)。只支持时间运算用到的元件: now / param / const / add / trunc。
+func Format(e *Expr) (string, error) {
+	switch e.Op {
+	case "now":
+		return "now()", nil
+	case "param":
+		return e.Name, nil
+	case "const":
+		if v, ok := e.Value.(int64); ok {
+			return fmt.Sprint(v), nil
+		}
+	case "add":
+		x, err := Format(e.Args[0])
+		if err != nil {
+			return "", err
+		}
+		n, err := Format(e.Args[1])
+		if err != nil {
+			return "", err
+		}
+		if e.Neg {
+			n = "-" + n
+		}
+		return fmt.Sprintf("add(%s, %s, %s)", x, n, e.Name), nil
+	case "trunc":
+		x, err := Format(e.Args[0])
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("trunc(%s, %s)", x, e.Name), nil
+	}
+	return "", fmt.Errorf("format: 不支持 %s", e.Op)
 }

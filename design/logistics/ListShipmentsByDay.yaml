@@ -1,0 +1,73 @@
+# ============================================================================
+# ListShipmentsByDay: 出荷日の出荷一覧 + 倉庫名・配送業者名(关联: 找不到时 保留)
+# ============================================================================
+API: ListShipmentsByDay
+说明: 指定した出荷日の出荷を、倉庫名と配送業者名つきで返す(分页なし)
+背景: 出荷場の当日一覧。マスタに無いコード(取り込み前の新しい倉庫・業者)でも出荷は表示し、名前は空にする。1 日の出荷は全倉庫で 30 件程度の前提。50 件を超えたら黙って切り捨てずエラー(FAILED_PRECONDITION)にし、倉庫を指定して絞り込んでもらう(件数が恒常的に増えたら一覧(分页)に変える)
+负责人: logistics-team
+风险: 低
+
+种类: 多条
+数据来源: shipments
+
+关联:
+  warehouse: { 表: warehouses, 条件: [warehouse_code = warehouse_code], 列: { warehouse_name: name }, 找不到时: 保留 }
+  carrier:   { 表: carriers,   条件: [partner_code = partner_code],     列: { carrier_name: name },   找不到时: 保留 }
+
+输入:
+  shipped_on:      { 类型: 日期,     必填: 是, 说明: 出荷日, 筛选: shipped_on 等于 }
+  warehouse_codes: { 类型: 文本列表, 必填: 否, 长度: 1~8, 个数: "0~20", 说明: 倉庫コード(不指定 = 全倉庫), 筛选: warehouse_code 属于 }
+
+输出:
+  id:             出荷 ID
+  warehouse_code: 倉庫コード
+  warehouse_name: 倉庫名(倉庫マスタに無いときは不设置)
+  partner_code:   配送業者の取引先コード(届いたまま。空(NULL)のときは不设置、空文字 "" は "" のまま返す)
+  carrier_name:   配送業者名(取引先コードが空(NULL)/ 業者マスタに無いときは不设置)
+  weight:         重量 kg
+
+业务规则:
+  - 情况: 取引先コードが空文字 "" で届いた出荷
+    结果: 空(NULL)とは区別し、"" という一つのコードとして扱う(業者マスタに取引先コード "" の業者があればその業者名が付く)。EDI の値をそのまま見せ、データの補正はしない
+  - 情况: 当日の出荷が 50 件を超える
+    结果: エラー(FAILED_PRECONDITION)。一部だけ返すことはしない
+
+排序: [id 小到大]
+上限: 50
+输出行名: DayShipment
+
+例子:
+  准备数据:
+    warehouses:
+      - { warehouse_code: W1, name: 東倉庫, region_code: R1 }
+      - { warehouse_code: W2, name: 西倉庫, region_code: null }
+    carriers:
+      - { carrier_id: 1, name: 山川運輸, partner_code: P01 }
+      - { carrier_id: 2, name: 自社便,   partner_code: null }
+      - { carrier_id: 3, name: 空コード便, partner_code: "" }
+    shipments:
+      - { id: 1, warehouse_code: W1, zone_no: 1,    partner_code: P01,  shipped_on: 2026-11-20, weight: 12.5 }
+      - { id: 2, warehouse_code: W9, zone_no: null, partner_code: null, shipped_on: 2026-11-20, weight: 3 }
+      - { id: 3, warehouse_code: W2, zone_no: 2,    partner_code: P99,  shipped_on: 2026-11-20, weight: 0.25 }
+      - { id: 4, warehouse_code: W1, zone_no: 1,    partner_code: P01,  shipped_on: 2026-11-21, weight: 1 }
+      - { id: 5, warehouse_code: W1, zone_no: null, partner_code: "",   shipped_on: 2026-11-23, weight: 2 }
+  用例:
+    - 说明: 倉庫マスタに無い倉庫(W9)・業者マスタに無いコード(P99)の出荷も返す。名前は不设置
+      输入: { shipped_on: 2026-11-20 }
+      结果:
+        shipments:
+          - { id: 1, warehouse_name: 東倉庫, partner_code: P01, carrier_name: 山川運輸, weight: "12.5" }
+          - { id: 2, warehouse_code: W9, warehouse_name: 不设置, partner_code: 不设置, carrier_name: 不设置 }
+          - { id: 3, warehouse_name: 西倉庫, partner_code: P99, carrier_name: 不设置, weight: "0.25" }
+    - 说明: 取引先コードが空の出荷は、取引先コードが空の業者(自社便)とは結びつかない(空どうしは等しくない)
+      输入: { shipped_on: 2026-11-20, warehouse_codes: [W9] }
+      结果: { shipments: [{ id: 2, carrier_name: 不设置 }] }
+    - 说明: 倉庫で絞り込む
+      输入: { shipped_on: 2026-11-21, warehouse_codes: [W1, W2] }
+      结果: { shipments: [{ id: 4, warehouse_name: 東倉庫, carrier_name: 山川運輸 }] }
+    - 说明: 取引先コードが空文字 "" の出荷は "" のまま返し、取引先コード "" の業者と結びつく(空(NULL)とは区別する)
+      输入: { shipped_on: 2026-11-23 }
+      结果: { shipments: [{ id: 5, partner_code: "", carrier_name: 空コード便 }] }
+    - 说明: 該当なし
+      输入: { shipped_on: 2026-11-22 }
+      结果: { shipments: [] }

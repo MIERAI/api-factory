@@ -66,6 +66,9 @@ sqlc 不再是类型的来源(见 §9 决定 1)。
 | `json_field(c, key, type)` | 键不存在或 JSON null → NULL;格式错 → 查询失败(与 SQL cast 一致) |
 | `map(a, {db值 → 名字}, 默认)` | 枚举映射;未知值 → 默认(并记录指标) |
 | `tuple_after(cols, dirs, params)` | 游标之后(keyset)。本可由 and/or 组合,单列为元件是为了 SQL 能用上索引(行比较) |
+| `now()` | 请求开始的时刻(时间,不为 NULL)。不来自请求: SQL 参数 `factory_now`,适配器接运行时的 `clock.Now(ctx)`;参考求值器用 `Params[factory_now]`(测试时两边同一个值)。R2-3 |
+| `add(x, n, 单位)` 单位 ∈ minute hour day month | x(日期 / 时间)加 n 个单位;任一边 NULL → NULL。**月按 Postgres**(1/31 + 1 个月 = 2/28、闰年 2/29);日期只能加 day / month;时间的 day / month 按领域的时区的日历(`AT TIME ZONE`,不受会话时区影响),minute / hour 是绝对时长。n 超出 int4 → 查询失败。R2-3 |
+| `trunc(x, 单位)` 单位 ∈ day month | 截到那一天 / 那个月的开始;时间先换算到领域的时区再截(结果是那个时刻),日期的结果还是日期。夏令时的切换按 Postgres 的规则(不存在的时刻用切换前的偏移,有两个的用切换后的)。R2-3 |
 
 ### 4.2 关系(行集 → 行集)
 
@@ -77,7 +80,13 @@ sqlc 不再是类型的来源(见 §9 决定 1)。
 | `pick_per_key(keys, order)` | 每个键按 order 取第一行(DISTINCT ON)。keys 必须 NOT NULL |
 | `sort(keys)` | 每个键带方向;**NULL 位置显式**(ASC NULLS LAST / DESC NULLS FIRST),SQL 也显式写出 |
 | `limit(n)` | 前 n 行 |
-| (以后)`join` | trial 的 10 本不需要,出现 2 个以上需求再加 |
+| `lookup(table, on, take, missing)` | 多对一查找(R2-1,`docs/design/r2-relations.md` §2.1): 对每一行在 table 里找 on 的键列逐个相等的行,把 take 的列加上。on 的键列必须覆盖 table 的主键或唯一约束(DRC,最多一行匹配);任一边 NULL → 找不到;missing = keep(加的列 NULL,类型可空)/ drop(丢弃这一行 = 内连接);后面的 lookup 可以用前面加的列(链式)。SQL = `LEFT JOIN` / `JOIN`,参考求值器 = 按键建索引(键有 NULL 的行不进索引) |
+| `nest(table, on, pred, order, max, as, take)` | 一对多嵌套(R2-2,`r2-relations.md` §2.2): 对每一行取 table 里 on 的列逐个相等的行(任一边 NULL → 不相等),经过 pred、按 order 排序,把 take 的列作为**子行的列表**加一列 as(核心类型 `rows`,不能比较 / 排序 / 分组)。没有子行 → 空列表(不是 NULL);子行多于 max → 整个请求 FAILED_PRECONDITION(不截断;两个后端都最多取 max+1 行,出口只看响应里的行)。DRC: order + on 的子表的列覆盖子表的一个唯一键(不在 on 里的列不为空)→ 全序;只有一层。SQL = `LEFT JOIN LATERAL (SELECT coalesce(jsonb_agg(jsonb_build_object(…) ORDER BY …), '[]') FROM (… LIMIT max+1)) ON TRUE`;JSON 里的值 = 核心的 API 表示(十进制 `numeric::text`、时间 UTC 的 RFC3339、日期 YYYY-MM-DD),参考求值器 / 适配器的扫描用同一种表示 |
+| `child_agg(table, on, pred, aggs)` | 按父行聚合(R2-2,§2.3): 对每一行关联的子行(经过 pred)计算 aggs,作为标量列加上。聚合的类型和 NULL 的规则只在 `factory/core/agg.go` 定义一次(和 R2-4 的顶层 `group` 共用): count → int64(空 0)、sum(整数) → int64(溢出 → 查询失败)/ sum(十进制) → 精确的十进制,**空集合 / 全部 NULL → 0**、min / max → 列的类型,空集合 → NULL;忽略 NULL。SQL = `LEFT JOIN LATERAL (SELECT count(*), coalesce(sum(x), 0), min(y COLLATE "C") …) ON TRUE`(没有 GROUP BY: 空集合也有一行) |
+| (以后)顶层的 `group` / `rank` | R2-4(`r2-relations.md`) |
+| `group(keys, aggs)` | (R2-4,2026-11-22)按 keys 分组,每组一行 = 键 + 聚合。NULL 的键是一组;没有输入行 → 没有输出行。聚合 `count()` / `sum(列)` / `min(列)` / `max(列)` 的类型和 NULL 规则只在 `core/agg.go` 定义一次(child_agg 共用): count → int64;sum(整数) → int64(溢出 → 查询失败),sum(十进制) → 十进制(精确);sum / min / max 忽略 NULL,全部为 NULL → sum 0、min / max NULL;min / max 的文本按字节。SQL: `GROUP BY`(文本键 `COLLATE "C"`)。一条流水线一个 |
+| `rank(order, as)` | (R2-4)SQL `RANK()` 的名次: 并列同名次,下一个名次跳过(1, 2, 2, 4)。只能在 group 之后;NULL 的位置 / 文本按字节和 `sort` 相同 |
+| (以后)`join` | trial 的 10 本不需要,出现 2 个以上需求再加(R2-1 的 lookup / R2-2 的 nest 见 r2-relations.md) |
 
 ### 4.3 出口(行集 → 响应)
 
@@ -122,6 +131,8 @@ JSON版本:
 - 列存在;表达式两边类型一致(decimal 和 text 不能比较,**根除 §1 的字典序问题**)
 - `pick_per_key` 的键、`page` 的排序列: NOT NULL;`page` 的排序列组合必须唯一(含主键)
 - `one` 的筛选必须覆盖一个唯一键
+- `group`: 至少一个键,键 / 聚合的列存在,聚合的类型合法(sum 只用于整数 / 十进制,min / max 不用于 bool / json);
+  之后的 `sort` 必须包含全部分组键(分组之后唯一的只有分组键: 前N条 / 分页的顺序才是全序);`rank` 只能在 `group` 之后
 - `all` 必须有 max;`page` 的 size/max 有界
 - 每个请求参数都被使用;必填/可选与 `absent` 一致
 - (性能,先做警告)筛选/排序的前导列没有索引 → 警告;以后接 EXPLAIN 闸门(§9 决定 4)
@@ -155,7 +166,7 @@ JSON版本:
 1. **Go 适配器不再用 sqlc 生成行类型**(推荐)。行的类型和可空性由核心决定,适配器自己生成扫描代码;
    sqlc 只留作 DRC 的独立检查(SQL 能否解析、类型是否一致,忽略它的可空性)。代价: 适配器多写约 200 行生成代码。
 2. **单元库的宏能力**: 只做参数替换 / 可选参数 / 列表展开(推荐),不做条件分支和循环。不够用 → 新增基本元件(评审)。
-3. **join**: 等出现 2 个以上需求再加(推荐)。
+3. **join**: 等出现 2 个以上需求再加(推荐)。→ **多对一的 `lookup` 已加**(R2-1,2026-11-22: 两个使用者各有需求;元件认证 + 差分测试的多表造数据 + 变异)。→ **一对多的 `nest` / `child_agg` 已加**(R2-2: storefront v2 Q5 / Q6;元件认证 + 子表的造数据(子行数 0 / 1 / 几个 / 上限 / 上限+1)+ 变异)。顶层的分组聚合按 `r2-relations.md` 的顺序继续。
 4. **性能闸门**: 先只做"前导列无索引"警告;EXPLAIN 闸门另写设计稿。
 
 ## 10. 迁移步骤与验收标准

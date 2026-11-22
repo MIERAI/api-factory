@@ -13,7 +13,7 @@ import (
 func init() {
 	Register(&Exit{
 		Kind: "list_all", Name: "多条", Cardinality: "many", Cell: "多条", Rows: true,
-		DesignKeys: []string{"排序", "上限", "每组取一条"},
+		DesignKeys: append([]string{"排序", "上限", "每组取一条"}, GroupKeys...),
 		ScalarKeys: []string{"上限"},
 		Parse: func(d Design, p *spec.Pattern) {
 			cols, desc, err := d.Order("排序")
@@ -25,6 +25,7 @@ func init() {
 				d.Err("多条: 上限 必须是正整数(超过上限时返回错误,不会悄悄截断)")
 			}
 			p.PickPerGroup = parsePick(d)
+			p.Group, p.Rank = parseGroup(d)
 		},
 		Check: func(s *spec.Spec) []string {
 			var errs []string
@@ -38,7 +39,7 @@ func init() {
 			if s.Datasource.SQL != "" {
 				errs = append(errs, "pattern list_all: 只支持声明式(不能用 datasource.sql)")
 			}
-			return errs
+			return append(errs, checkGroup("list_all", s)...)
 		},
 		RowsDesc: func(p spec.Pattern) string {
 			return fmt.Sprintf("最多 %d 件;超过时返回错误(不会截断)", p.MaxRows)
@@ -56,6 +57,7 @@ func init() {
 			parts.Order = orderFrom(s.Pattern)
 			parts.Limit = int(s.Pattern.MaxRows) + 1
 			parts.Group = pickStep(s.Pattern.PickPerGroup)
+			parts.Aggregate, parts.Rank = groupStep(s.Pattern.Group), rankStep(s.Pattern.Rank)
 			return nil
 		},
 		DiffMulti: true,
@@ -72,6 +74,9 @@ func init() {
 			if n > int(la.MaxRows) { // 多取的那一行: 超过上限 → 报错,不截断
 				return spec.Case{Request: req, Expect: spec.Expect{Code: "FAILED_PRECONDITION", MessageContains: "too many"}},
 					fmt.Sprintf("超过上限(%d 行以上)", n), "over"
+			}
+			if nestOver(rows) {
+				return nestOverCase(req)
 			}
 			msg := x.API().Response.Field(la.ItemsField).Message
 			list := []any{}

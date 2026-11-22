@@ -97,5 +97,58 @@ run "分库: 选错库(店铺代码 +1)"          $SH 's/h\.at\(int64\(m\.GetSto
 T=gen/db/sales.list-top-stores.sql.go
 run "前N条: 取的条数不对(LIMIT 4)"        $T 's/LIMIT 3/LIMIT 4/'
 run "前N条: 排序方向反了"                $T 's/ORDER BY t2\.amount DESC, t2\.store_code DESC/ORDER BY t2.amount, t2.store_code/'
+LD=gen/db/logistics.list-shipments-by-day.sql.go
+run "关联: 保留写成丢弃(LEFT JOIN → JOIN)"     $LD 's/LEFT JOIN warehouses AS t2/JOIN warehouses AS t2/'
+run "关联: NULL 当作相等"                     $LD 's/ON t1\.partner_code = t3\.partner_code/ON t1.partner_code IS NOT DISTINCT FROM t3.partner_code/'
+run "关联: 关联列换成另一列"                   $LD 's/ON t1\.partner_code = t3\.partner_code/ON t1.warehouse_code = t3.partner_code/'
+run "关联: 取错了对方的列"                     $LD 's/t3\.name AS carrier_name/t3.partner_code AS carrier_name/'
+LZ=gen/db/logistics.list-zoned-shipments.sql.go
+run "关联: 丢弃写成保留(JOIN → LEFT JOIN)"     $LZ 's/\n(\s+)JOIN zones AS t2/\n${1}LEFT JOIN zones AS t2/'
+run "关联: 两列的键少比较区画番号"             $LZ 's/ AND t1\.zone_no = t2\.zone_no//'
+run "关联: 两列的键少比较倉庫"                 $LZ 's/ON t1\.warehouse_code = t2\.warehouse_code AND /ON /'
+run "关联: 加的列上的筛选被忽略"               $LZ 's/ OR \(t2\.label = \$2::text\)\)/ OR TRUE)/'
+LR=gen/db/logistics.list-shipments-by-region.sql.go
+run "关联的链: 第二级写成 JOIN"                $LR 's/LEFT JOIN regions AS t3/JOIN regions AS t3/'
+run "关联的链: 第二级从来源的列关联"            $LR 's/ON t2\.region_code = t3\.region_code/ON t1.warehouse_code = t3.region_code/'
+NP=gen/db/logistics.list-shipment-packages.sql.go
+NH=internal/handler/logistics/list_shipment_packages_gen.go
+run "嵌套: 去掉子表的条件"                     $NP 's/\n\s+AND \(NOT \(t2\.sealed_at IS NULL\)\)//'
+run "嵌套: 顺序第 1 列的方向反了"               $NP 's/(t[23])\.weight DESC/$1.weight/g'
+run "嵌套: 顺序第 2 列的方向反了"               $NP 's/(t[23])\.package_no(\)|\n)/$1.package_no DESC$2/g'
+run "嵌套: 关联列换成另一列"                   $NP 's/WHERE t2\.shipment_id = t1\.id/WHERE t2.shipment_id = t1.zone_no/'
+run "嵌套: 没有多取一行(LIMIT 3)"              $NP 's/LIMIT 4\n/LIMIT 3\n/'
+run "嵌套: 上限 > 写成 >="                      $NH 's/len\(r\.Packages\) > 3/len(r.Packages) >= 3/'
+run "嵌套: 超过上限时悄悄截断"                  $NH 's/(\s+)return nil, apierr\.FailedPrecondition\("too many packages[^\n]*/$1r.Packages = r.Packages[:3]/'
+run "嵌套: 空列表返回 NULL"                    $NP "s/SELECT coalesce\(jsonb_agg/SELECT (jsonb_agg/; s/, '\[\]'::jsonb\) AS v/) AS v/"
+run "嵌套: 十进制写成 JSON 数字"                $NP 's/\x27weight\x27, t3\.weight::text/\x27weight\x27, t3.weight/'
+run "嵌套: 子行的字段映射漏掉 label"            $NH 's/\n\s+Label:\s+c\.Label,//'
+run "子聚合: 空集合的合计返回 NULL"             $NP 's/coalesce\(sum\(t7\.weight\), 0\)/sum(t7.weight)/'
+run "子聚合: 件数 = LEFT JOIN 的行数(空 = 1)"  $NP 's/SELECT count\(\*\) AS package_count/SELECT greatest(count(*), 1) AS package_count/'
+run "子聚合: 最小 ↔ 最大"                      $NP 's/SELECT min\(t9\.sealed_at\)/SELECT max(t9.sealed_at)/'
+run "子聚合: 去掉子表的条件"                    $NP 's/\n\s+AND \(NOT \(t7\.sealed_at IS NULL\)\)//'
+run "子聚合: 关联列换成另一列"                  $NP 's/WHERE t5\.shipment_id = t1\.id/WHERE t5.shipment_id = t1.zone_no/'
+GT=gen/db/receipts.list-top-line-stores.sql.go
+run "分组: 合计写成件数"                  $GT 's/coalesce\(sum\(t1\.amount\), 0\) AS total/count(*)::numeric AS total/'
+run "分组+前N条: 排序方向反了"            $GT 's/ORDER BY t3\.total DESC, t3\.store_code/ORDER BY t3.total, t3.store_code/'
+GR=gen/db/receipts.list-store-line-ranking.sql.go
+run "分组: 件数写成合计"                  $GR 's/count\(\*\) AS lines/coalesce(sum(t1.quantity), 0)::int8 AS lines/'
+run "名次: RANK 写成 DENSE_RANK(不跳号)"  $GR 's/rank\(\) OVER/dense_rank() OVER/'
+run "名次: RANK 写成 ROW_NUMBER(并列不同名次)" $GR 's/rank\(\) OVER \(ORDER BY t2\.lines DESC\)/row_number() OVER (ORDER BY t2.lines DESC, t2.store_code)/'
+GC=gen/db/receipts.list-category-sales.sql.go
+run "分组: 少了分组键 category"           $GC 's/t1\.category COLLATE "C" AS category/min(t1.category COLLATE "C") AS category/; s/GROUP BY t1\.store_code, t1\.category COLLATE "C"/GROUP BY t1.store_code/'
+run "分组: 少了分组键 store_code"         $GC 's/SELECT t1\.store_code AS store_code, t1\.category/SELECT min(t1.store_code) AS store_code, t1.category/; s/GROUP BY t1\.store_code, t1\.category/GROUP BY t1.category/'
+run "分组: NULL 的键分成多组"             $GC 's/GROUP BY t1\.store_code, t1\.category COLLATE "C"/GROUP BY t1.store_code, t1.category COLLATE "C", CASE WHEN t1.category IS NULL THEN t1.line_id END/'
+run "分组: 最小 ↔ 最大"                   $GC 's/min\(t1\.discount\) AS min_discount/max(t1.discount) AS min_discount/'
+GP=gen/db/receipts.list-store-sales-totals.sql.go
+run "分组+分页: 全部为空的最大值变成 0"     $GP 's/max\(t1\.discount\) AS max_discount/coalesce(max(t1.discount), 0) AS max_discount/'
+run "分组+分页: 游标 > 写成 >="           $GP 's/\(t3\.store_code\) > \(\$2::int4\)/(t3.store_code) >= (\$2::int4)/'
+SJ=gen/db/jobs.list-stale-pending-jobs.sql.go
+SJH=internal/handler/jobs/list_stale_pending_jobs_gen.go
+run "派生参数: 早于 写成 不晚于(< → <=)"        $SJ 's/t1\.created_at < \(\$1::timestamptz/t1.created_at <= (\$1::timestamptz/'
+run "派生参数: 在 UTC 截日(不是领域的时区)"      $SJ 's/AT TIME ZONE \x27Asia\/Tokyo\x27\)\) AT TIME ZONE \x27Asia\/Tokyo\x27/AT TIME ZONE \x27UTC\x27)) AT TIME ZONE \x27UTC\x27/'
+run "now: 读了系统时钟(不是请求开始的时刻)"      $SJH 's/FactoryNow:(\s+)clock\.Now\(ctx\)/FactoryNow:${1}clock.Now(context.Background())/'
+PM=gen/db/sales.list-prev-month-sales.sql.go
+run "月的加法: 月末没有截到最后一天"              $PM 's/\(\(\$2::date \+ make_interval\(months => \(-1\)\)\)::date\)/((date_trunc(\x27month\x27, \$2::date) + make_interval(months => (-1)))::date + (extract(day from \$2::date)::int - 1))/'
+run "派生参数: 前月の末日を含まない(<= → <)"      $PM 's/t1\.sales_date <= \(\(date_trunc/t1.sales_date < ((date_trunc/'
 [[ -n ${PLAN:-} ]] && exit 0
 go build -o bin/server ./cmd/server; git status --short

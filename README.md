@@ -9,11 +9,11 @@
 
 | 生产线 | 状态 | 对象 |
 |---|---|---|
-| **查询工厂**(本仓库) | 开发中 | 只读、同步请求/响应、单表(以后: 版本化主数据、有限的 JOIN) |
+| **查询工厂**(本仓库) | 开发中 | 只读、同步请求/响应、单表 + 多对一的关联 + 一对多的嵌套 / 子聚合(以后: 分组聚合) |
 | 命令工厂 | 计划 | 写入: 校验 → 业务规则 → 写入操作(操作作为数据返回,平台执行) |
 | IF 工厂 | 候选 | 文件布局 ↔ 表(编码、定长、补零),golden file / 往返判定 |
 
-**查询工厂不适用**: 写入、多表 JOIN 和聚合以外的复杂查询(→ `datasource.sql` 逃生口)、
+**查询工厂不适用**: 写入、多表 JOIN、分组聚合(`分组` / `排名`: 件数 / 合计 / 最小 / 最大 / RANK)以外的复杂查询(→ `datasource.sql` 逃生口)、
 外部 API 调用、流式、算法类逻辑(→ `custom`,AI 辅助人开发)。
 逃生口的使用比例(**逃生率**)由 `factory stats` 显示: 逃生率高说明范围选错了或者缺模式。
 
@@ -104,7 +104,7 @@ factory --project ../shop/services/catalog prepare        # → proto、gen/、i
 
 - `--project DIR`: 工厂切换到项目根目录;工厂自己的资源(factory.yaml 的默认值、适配器)仍从工厂目录读(`factory/proj`)
 - 项目的 `factory.yaml` 只写项目的键(proto 的包名前缀),按键覆盖工厂的;生成代码的模块名 = 项目 go.mod 的 module
-- `examples/` 下的项目(现在: storefront v2 的样例,见 `docs/design/storefront-v2-readiness.md`)由 `make projects` /
+- `examples/` 下的项目(现在: storefront v2 的样例 catalog / inventory / order / payment / notification,见 `docs/design/storefront-v2-readiness.md`)由 `make projects` /
   CI 的 verify ⑤ 检查: 设计 → 生成物是最新的 → 编译 → 用项目自己的数据库验收。工厂遇到做不到的,记在 `examples/storefront-v2/GAPS.md`
 
 ## 架构: 各环节通过文件契约串起来
@@ -159,6 +159,7 @@ gen/acceptance/*.yaml                 [AI 实现] factory ai(模型和角色在 
 | `list_keyset` | 工厂(游标/ORDER BY/LIMIT 追加到查询,token 签名并绑定筛选条件) | 无 | ListJobs |
 | `list_all` | 工厂(多条: 筛选 + 排序 + 上限,超过上限报错) | 无 | ListStoreSales |
 | `top_n` | 工厂(前N条) | 无 | ListTopStores |
+| (多条 / 前N条 / 一览 + `分组` / `排名`) | 工厂(GROUP BY + 件数 / 合计 / 最小 / 最大,RANK()) | 无 | ListTopLineStores、ListStoreLineRanking |
 | `compute` | 工厂(映射 + 查询 + 调用逻辑) | 纯函数 `<method>Logic(req, rows)` | GetJobSummary |
 | `custom` | AI(逃生口) | 整个 handler | — |
 
@@ -182,6 +183,7 @@ gen/acceptance/*.yaml                 [AI 实现] factory ai(模型和角色在 
 | handler 骨架、wiring | `factory prepare` |
 | 请求↔查询↔响应的映射 | `factory prepare`(proto 描述符 + gen/db 的 AST) |
 | 分页(游标、多取一行、token 签名/绑定) | `list_keyset` 插件 + `api-factory-runtime/paging` |
+| 查询里的"现在"(派生参数的 `现在`) | `api-factory-runtime/clock`(请求开始的时刻;测试时 `FACTORY_TEST_CLOCK=1` + 请求头 `X-Factory-Now` 固定) |
 
 ## 模型对照试验
 

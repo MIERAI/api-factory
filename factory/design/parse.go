@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -337,9 +338,48 @@ type API struct {
 	ListField  string       // 一览的列表字段名(默认: 表名)
 	Rules      []Behavior
 	Fixtures   *yaml.Node
+	Now        string     // 例子.现在: 用例的请求开始时刻(用到 现在 的 API 必须固定;用例可以各自写 现在)
+	Derived    []*Derived // 派生参数(不出现在请求里)
 	Cases      []*yaml.Node
 	LogicCases []*yaml.Node
 	Reviewed   []QA // X.审查.yaml
+	Lookups    []*Lookup // 关联(多对一查找),按书写顺序
+	Nests      []*Nest     // 嵌套(一对多: 子行的列表)
+	ChildAggs  []*ChildAgg // 子聚合(按父行聚合)
+}
+
+// Nest: 嵌套的一项。`名字: { 表, 条件: [列 = 子表的列, …], 固定条件?, 排序: [列 小到大, …], 上限: N, 列: {…} | […], 行名? }`
+type Nest struct {
+	Name     string
+	Table    string
+	On       []string
+	Where    []string
+	OrderBy  []string // spec 的写法: "列 asc|desc"
+	Max      int
+	Columns  [][2]string // 子行的列名, 子表的列
+	ItemName string      // 子行的消息名(没写 = 子表名的单数 PascalCase: order_items → OrderItem)
+	Line     int
+}
+
+// ChildAgg: 子聚合的一项。`名字: { 表, 条件, 固定条件?, 计算: 件数 | 合计(列) | 最小(列) | 最大(列) }`
+type ChildAgg struct {
+	Name   string
+	Table  string
+	On     []string
+	Where  []string
+	Func   string // count / sum / min / max
+	Column string
+	Line   int
+}
+
+// Lookup: 关联的一项。`名字: { 表: …, 条件: [列 = 对方的列, …], 列: { 新列名: 对方的列 }, 找不到时: 保留 | 丢弃 }`
+type Lookup struct {
+	Name    string
+	Table   string
+	On      []string
+	Columns [][2]string // 新列名, 对方的列
+	Missing string      // keep / drop
+	Line    int
 }
 
 type Input struct {
@@ -374,14 +414,14 @@ func loadAPI(path string) (*API, error) {
 	}
 	e := &errs{file: path}
 	baseKeys := TopKeys()
-	checkKeys(e, get(root, "例子"), "例子", "准备数据", "用例")
+	checkKeys(e, get(root, "例子"), "例子", "准备数据", "用例", "现在")
 	checkKeys(e, get(root, "分页"), "分页", "默认每页", "每页最多")
 	a := &API{
 		Path: path, Name: str(root, "API"), Desc: str(root, "说明"), Background: str(root, "背景"),
 		Owner: str(root, "负责人"), Source: str(root, "数据来源"), UseColumns: strList(get(root, "使用的列")),
 		InputRules: strList(get(root, "输入之间的规则")), Where: strList(get(root, "固定条件")),
 		ItemName:   str(root, "输出行名"), ListField: str(root, "输出列表名"),
-		Fixtures: get(get(root, "例子"), "准备数据"),
+		Fixtures: get(get(root, "例子"), "准备数据"), Now: str(get(root, "例子"), "现在"),
 	}
 	if a.Name == "" {
 		e.add(root.Line, "缺少 API(API 的英文名,例如 ListJobs)")
@@ -402,6 +442,83 @@ func loadAPI(path string) (*API, error) {
 	}
 	if a.Risk, ok = risks[str(root, "风险")]; !ok {
 		e.add(root.Line, "风险 只能是 低 / 中 / 高")
+	}
+	for _, p := range pairs(get(root, "关联")) {
+		checkKeys(e, p.Val, "关联 "+p.Key, LookupKeys()...)
+		l := &Lookup{Name: p.Key, Table: str(p.Val, "表"), On: strList(get(p.Val, "条件")), Line: p.Line}
+		if l.Table == "" || len(l.On) == 0 {
+			e.add(p.Line, "关联 %s: 要写 表 和 条件(例: 条件: [customer_id = id])", p.Key)
+		}
+		switch cols := get(p.Val, "列"); {
+		case cols != nil && cols.Kind == yaml.MappingNode:
+			for _, c := range pairs(cols) {
+				l.Columns = append(l.Columns, [2]string{c.Key, strings.TrimSpace(c.Val.Value)})
+			}
+		case cols != nil && cols.Kind == yaml.SequenceNode: // [name, …] = 同名
+			for _, c := range strList(cols) {
+				l.Columns = append(l.Columns, [2]string{c, c})
+			}
+		}
+		if len(l.Columns) == 0 {
+			e.add(p.Line, "关联 %s: 要写 列(例: 列: { customer_name: name },新列名: 对方的列)", p.Key)
+		}
+		switch str(p.Val, "找不到时") {
+		case "", "保留":
+			l.Missing = "keep"
+		case "丢弃":
+			l.Missing = "drop"
+		default:
+			e.add(p.Line, "关联 %s: 找不到时 只能是 保留(加的列为空)/ 丢弃(这一行不要)", p.Key)
+		}
+		a.Lookups = append(a.Lookups, l)
+	}
+	for _, p := range pairs(get(root, "嵌套")) {
+		checkKeys(e, p.Val, "嵌套 "+p.Key, NestKeys()...)
+		n := &Nest{Name: p.Key, Table: str(p.Val, "表"), On: strList(get(p.Val, "条件")), Where: strOrList(get(p.Val, "固定条件")),
+			ItemName: str(p.Val, "行名"), Line: p.Line}
+		if n.Table == "" || len(n.On) == 0 {
+			e.add(p.Line, "嵌套 %s: 要写 表 和 条件(例: 条件: [id = order_id])", p.Key)
+		}
+		cols, desc, err := parseOrder(strList(get(p.Val, "排序")))
+		if err != nil {
+			e.add(p.Line, "嵌套 %s: %v", p.Key, err)
+		}
+		for i, c := range cols {
+			n.OrderBy = append(n.OrderBy, c+" "+map[bool]string{false: "asc", true: "desc"}[desc[i]])
+		}
+		if _, err := fmt.Sscan(str(p.Val, "上限"), &n.Max); err != nil || n.Max <= 0 {
+			e.add(p.Line, "嵌套 %s: 上限 必须是正整数(子行多于上限时整个请求返回错误,不会悄悄截断)", p.Key)
+		}
+		switch cs := get(p.Val, "列"); {
+		case cs != nil && cs.Kind == yaml.MappingNode:
+			for _, c := range pairs(cs) {
+				n.Columns = append(n.Columns, [2]string{c.Key, strings.TrimSpace(c.Val.Value)})
+			}
+		case cs != nil && cs.Kind == yaml.SequenceNode:
+			for _, c := range strList(cs) {
+				n.Columns = append(n.Columns, [2]string{c, c})
+			}
+		}
+		if len(n.Columns) == 0 {
+			e.add(p.Line, "嵌套 %s: 要写 列(子行的列,例: 列: [sku, qty, price])", p.Key)
+		}
+		a.Nests = append(a.Nests, n)
+	}
+	for _, p := range pairs(get(root, "子聚合")) {
+		checkKeys(e, p.Val, "子聚合 "+p.Key, ChildAggKeys()...)
+		g := &ChildAgg{Name: p.Key, Table: str(p.Val, "表"), On: strList(get(p.Val, "条件")), Where: strOrList(get(p.Val, "固定条件")), Line: p.Line}
+		if g.Table == "" || len(g.On) == 0 {
+			e.add(p.Line, "子聚合 %s: 要写 表 和 条件(例: 条件: [id = order_id])", p.Key)
+		}
+		calc := strings.TrimSpace(str(p.Val, "计算"))
+		if m := reAggCall.FindStringSubmatch(calc); calc == "件数" {
+			g.Func = "count"
+		} else if m != nil {
+			g.Func, g.Column = aggWords[m[1]], strings.TrimSpace(m[2])
+		} else {
+			e.add(p.Line, "子聚合 %s: 计算 写成 件数 / 合计(列) / 最小(列) / 最大(列),现在是 %q", p.Key, calc)
+		}
+		a.ChildAggs = append(a.ChildAggs, g)
 	}
 	for _, p := range pairs(get(root, "输入")) {
 		checkKeys(e, p.Val, "输入 "+p.Key, append(InputKeys(), constraints.Keys()...)...)
@@ -436,6 +553,14 @@ func loadAPI(path string) (*API, error) {
 			e.add(p.Line, "输入 %s: 类型 %s 要写 组(组里的字段,名字 = 列名)", p.Key, GroupListType)
 		}
 		a.Inputs = append(a.Inputs, in)
+	}
+	for _, p := range pairs(get(root, "派生参数")) {
+		checkKeys(e, p.Val, "派生参数 "+p.Key, DerivedKeys()...)
+		d := &Derived{Name: p.Key, Expr: str(p.Val, "计算"), Filter: str(p.Val, "筛选"), Desc: str(p.Val, "说明"), Line: p.Line}
+		if d.Expr == "" || d.Filter == "" {
+			e.add(p.Line, "派生参数 %s: 要写 计算 和 筛选(例: { 计算: 现在 - 5 分钟, 筛选: updated_at 小于 })", p.Key)
+		}
+		a.Derived = append(a.Derived, d)
 	}
 	for _, p := range pairs(get(root, "输出")) {
 		o := &Output{Name: p.Key, Line: p.Line}
@@ -473,7 +598,7 @@ func loadAPI(path string) (*API, error) {
 	if c := get(get(root, "例子"), "用例"); c != nil {
 		a.Cases = c.Content
 		for _, x := range c.Content {
-			checkKeys(e, x, "用例", "说明", "输入", "结果")
+			checkKeys(e, x, "用例", "说明", "输入", "结果", "现在")
 		}
 	}
 	if c := get(root, "计算例子"); c != nil {
@@ -567,7 +692,8 @@ func (r designReader) Node(key string) *yaml.Node { return get(r.root, key) }
 func (r designReader) Order(key string) ([]string, []bool, error) {
 	return parseOrder(strList(get(r.root, key)))
 }
-func (r designReader) Err(format string, args ...any) { r.e.add(r.root.Line, format, args...) }
+func (r designReader) OrderList(items []string) ([]string, []bool, error) { return parseOrder(items) }
+func (r designReader) Err(format string, args ...any)                     { r.e.add(r.root.Line, format, args...) }
 
 // tableReader: 来源读领域里一张表的写法(sources.Domain)。
 type tableReader struct {
@@ -593,7 +719,7 @@ func (r tableReader) Column(name, desc, enum string) {
 
 // TopKeys: 设计稿顶层的键(所有种类共用;各种类另外的键在出口的注册表里)。
 func TopKeys() []string {
-	return []string{"API", "说明", "背景", "负责人", "风险", "种类", "数据来源", "输入", "输入之间的规则", "固定条件",
+	return []string{"API", "说明", "背景", "负责人", "风险", "种类", "数据来源", "关联", "嵌套", "子聚合", "输入", "输入之间的规则", "固定条件", "派生参数",
 		"输出", "输出行名", "输出列表名", "业务规则", "例子", "计算例子"}
 }
 
@@ -601,6 +727,33 @@ func TopKeys() []string {
 func OutputKeys() []string {
 	return []string{"类型", "说明", "来自", "可以不设置", "每行"}
 }
+
+// NestKeys / ChildAggKeys: 嵌套 / 子聚合的一项可以写的键。
+func NestKeys() []string     { return []string{"表", "条件", "固定条件", "排序", "上限", "列", "行名"} }
+func ChildAggKeys() []string { return []string{"表", "条件", "固定条件", "计算"} }
+
+// aggWords: 子聚合的 计算 的写法 → 聚合(core/agg.go)。件数 = count(没有列)。
+var (
+	aggWords  = map[string]string{"合计": "sum", "最小": "min", "最大": "max"}
+	reAggCall = regexp.MustCompile(`^(合计|最小|最大)\s*[((]\s*([A-Za-z_][A-Za-z0-9_]*)\s*[))]$`)
+)
+
+// strOrList: 一个字符串或字符串的列表(固定条件)。
+func strOrList(n *yaml.Node) []string {
+	if n == nil {
+		return nil
+	}
+	if n.Kind == yaml.ScalarNode {
+		if v := strings.TrimSpace(n.Value); v != "" {
+			return []string{v}
+		}
+		return nil
+	}
+	return strList(n)
+}
+
+// LookupKeys: 关联的一项可以写的键。
+func LookupKeys() []string { return []string{"表", "条件", "列", "找不到时"} }
 
 // InputKeys: 输入可以写的键(约束的键另外由 factory/constraints 决定)。
 func InputKeys() []string { return []string{"类型", "必填", "说明", "筛选", "组"} }

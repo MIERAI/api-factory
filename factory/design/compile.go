@@ -241,6 +241,22 @@ func (c *ctx) columnField(table, col string) (string, string, bool, error) {
 	return p[0], p[1], optional, nil
 }
 
+// groupedField: 分组之后的输出字段。分组键 = 表的列(枚举看领域层);计算 / 排名 = 核心决定的类型。
+func (c *ctx) groupedField(table, col string, groupedCol func(string) (compiler.Column, bool), g *spec.GroupBy) (string, string, bool, error) {
+	gc, ok := groupedCol(col)
+	if !ok {
+		return "", "", false, fmt.Errorf("分组之后只有 分组键 / 计算 / 排名 的列,没有 %s", col)
+	}
+	if contains(g.Keys, col) {
+		return c.columnField(table, col)
+	}
+	k, ok := kinds.BySQL(gc.Type)
+	if !ok {
+		return "", "", false, fmt.Errorf("类型 %s 还不支持", gc.Type)
+	}
+	return k.Proto, k.Value, !gc.NotNull && k.Value != "time", nil
+}
+
 func (c *ctx) inputField(a *API, in *Input, e *errs) *field {
 	if in.Type == GroupListType { // 组的列表: repeated <API><组名>,组里的字段都必须指定
 		name := a.Name + pascal(singular(in.Name))
@@ -336,6 +352,62 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 
 	checkPickUniquePlain(c, a, table, e)
 
+	// ---- 关联: 加的列之后和来源的列一样(筛选 / 输出 / 来自 / 固定条件 / 排序)。例子的准备数据仍然按表的真实的列
+	lookups := c.lookups(a, table, e)
+	nests, childAggs := c.children(a, table, e) // 嵌套 / 子聚合: 加的列同样进目录(嵌套的列只能输出)
+	rawCols := c.cat[table]
+	if len(lookups)+len(nests)+len(childAggs) > 0 && e.err() == nil {
+		view, err := compiler.LookupColumns(&spec.Spec{Domain: c.machineDomain(),
+			Datasource: spec.Datasource{Table: table, Lookups: lookups, Nests: nests, ChildAggs: childAggs}}, c.cat)
+		if err != nil {
+			line := 1
+			switch {
+			case len(a.Lookups) > 0:
+				line = a.Lookups[0].Line
+			case len(a.Nests) > 0:
+				line = a.Nests[0].Line
+			case len(a.ChildAggs) > 0:
+				line = a.ChildAggs[0].Line
+			}
+			e.add(line, "%v", err)
+		} else {
+			c.cat[table] = view
+			defer func() { c.cat[table] = rawCols }()
+		}
+	}
+	// 分组: 之后的列 = 分组键 + 计算 + 排名(输出 / 排序 / 例子的结果都看这些列)
+	var grouped []compiler.Column
+	if a.Pattern.Group != nil && table != "" {
+		var err error
+		if grouped, err = compiler.GroupedColumns(table, c.cat[table], a.Pattern.Group, a.Pattern.Rank); err != nil {
+			e.add(1, "%v", err)
+		}
+		if t := c.d.Tables[table]; t != nil {
+			for _, ag := range a.Pattern.Group.Aggs {
+				if en := t.ColEnum[ag.Column]; en != "" {
+					e.add(1, "分组.计算.%s: 列 %s 是枚举 %s,不能做 合计 / 最小 / 最大(枚举的数据库值没有大小的意义)", ag.Name, ag.Column, en)
+				}
+			}
+		}
+		if grouped != nil {
+			seen := map[string]bool{}
+			for _, gc := range grouped {
+				if seen[gc.Name] {
+					e.add(1, "分组: 输出名 %s 重复(分组键 / 计算 / 排名的输出名不能相同)", gc.Name)
+				}
+				seen[gc.Name] = true
+			}
+		}
+	}
+	groupedCol := func(name string) (compiler.Column, bool) {
+		for _, gc := range grouped {
+			if gc.Name == name {
+				return gc, true
+			}
+		}
+		return compiler.Column{}, false
+	}
+
 	// ---- 请求
 	req := &message{Name: a.Name + "Request", Desc: a.Desc}
 	if a.Exit.Request != nil { // 出口加到请求里的字段(分页: page_size / page_token)
@@ -429,6 +501,8 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 			continue
 		}
 		switch {
+		case a.Pattern.Group != nil:
+			e.add(o.Line, "输出 %s: 分组之后不能写 来自(输出的名字 = 分组键 / 计算 / 排名的输出)", o.Name)
 		case a.Exit.AI:
 			e.add(o.Line, "输出 %s: 来自 只能用于数据来源的列(%s 的输出由 AI 的代码决定)", o.Name, a.Exit.Name)
 		case table == "":
@@ -468,6 +542,16 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 				out = append(out, f)
 				continue
 			}
+			if n := nestNamed(a, col); n != nil && src != "" && o.Type == "" { // 嵌套: repeated 子行的消息
+				item, err := c.nestItem(n)
+				if err != nil {
+					e.add(o.Line, "输出 %s: %v", o.Name, err)
+					continue
+				}
+				f.Type, f.kind, f.Repeated = item.Name, "message:"+item.Name, true
+				out = append(out, f)
+				continue
+			}
 			if o.Type != "" {
 				pt, kind, ok := c.typeOf(o.Type)
 				if !ok {
@@ -478,6 +562,16 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 			} else {
 				if src == "" {
 					e.add(o.Line, "输出 %s: 计算的输出必须写 类型", o.Name)
+					continue
+				}
+				if a.Pattern.Group != nil {
+					pt, kind, opt, err := c.groupedField(src, col, groupedCol, a.Pattern.Group)
+					if err != nil {
+						e.add(o.Line, "输出 %s: %v", o.Name, err)
+						continue
+					}
+					f.Type, f.kind, f.Optional = pt, kind, opt
+					out = append(out, f)
 					continue
 				}
 				pt, kind, opt, err := c.columnField(src, col)
@@ -496,7 +590,11 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 			if r, ok := rename[col]; ok { // 排序用响应字段名;可空性看来源的列
 				col = r
 			}
-			if cc, ok := c.column(table, col); ok && !cc.NotNull {
+			cc, ok := c.column(table, col)
+			if a.Pattern.Group != nil {
+				cc, ok = groupedCol(col)
+			}
+			if ok && !cc.NotNull {
 				e.add(1, "排序的列 %s 可能为空,%s 的排序列必须不为空(翻页的位置记在排序列上)。"+
 					"请改用主键或不为空的列排序;存储: JSON版本 的字段除了主键都可能为空", col, a.Exit.Name)
 			}
@@ -560,7 +658,14 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 	s.API = spec.API{RPC: c.pkg + "." + c.service + "/" + a.Name, Owner: a.Owner, RiskLevel: a.Risk, Description: a.Background}
 	s.Pattern = a.Pattern
 	s.Pattern.Kind = a.Kind
-	s.Datasource = spec.Datasource{Table: table, Filters: filters, Where: a.Where}
+	s.Datasource = spec.Datasource{Table: table, Filters: filters, Where: a.Where, Lookups: lookups, Nests: nests, ChildAggs: childAggs}
+	derived, usesNow := c.compileDerived(a, table, e)
+	if len(derived) > 0 {
+		if a.Exit.AI && a.Kind == "custom" {
+			e.add(1, "派生参数 不能用于 %s(查询由 AI 写)", a.Exit.Name)
+		}
+		s.Datasource.Derived = derived
+	}
 	for _, w := range a.Where { // 固定条件: 写法 / 列名 / 常量的类型在这里就检查
 		if _, err := where.Parse(w, compiler.WhereTypes(c.cat[table])); err != nil {
 			e.add(1, "%v", err)
@@ -581,8 +686,29 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 	for _, qa := range a.Reviewed {
 		s.ReviewDecisions = append(s.ReviewDecisions, spec.ReviewDecision{Question: qa.Question, Decision: qa.Answer})
 	}
-	if err := c.examples(a, s, req, resp, itemKey); err != nil {
+	if len(lookups)+len(nests)+len(childAggs) > 0 { // 例子: 准备数据按表的真实的列
+		c.cat[table] = rawCols
+	}
+	if err := c.examples(a, s, req, resp, itemKey, usesNow); err != nil {
 		return nil, "", err
+	}
+	var related []string // 准备数据里没写的关联 / 嵌套 / 子聚合的表 = 空表(不能留着别的用例的数据)
+	for _, l := range lookups {
+		related = append(related, l.Table)
+	}
+	for _, n := range nests {
+		related = append(related, n.Table)
+	}
+	for _, g := range childAggs {
+		related = append(related, g.Table)
+	}
+	for _, t := range related {
+		if s.Acceptance.Fixtures == nil {
+			s.Acceptance.Fixtures = map[string][]map[string]any{}
+		}
+		if _, ok := s.Acceptance.Fixtures[t]; !ok {
+			s.Acceptance.Fixtures[t] = []map[string]any{}
+		}
 	}
 	return s, fmt.Sprintf("  // %s\n  rpc %s(%s) returns (%s);", oneLine(a.Desc), a.Name, req.Name, resp.Name), nil
 }
@@ -833,6 +959,99 @@ func contains(xs []string, x string) bool {
 		}
 	}
 	return false
+}
+
+// lookups: 设计稿的 关联 → 机器用的式样书。关联的表 / 列是否存在、键是否唯一、分库由编译器检查(factory/compiler/lookup.go);
+// 这里只检查设计稿层面的: 要有数据来源、关联的列不能是枚举(枚举的映射按来源的表查,还不支持别的表的枚举)。
+func (c *ctx) lookups(a *API, table string, e *errs) []spec.Lookup {
+	var out []spec.Lookup
+	for _, l := range a.Lookups {
+		if table == "" || a.Exit.AI {
+			e.add(l.Line, "关联 %s: 只能用于有数据来源的查询(%s 不行)", l.Name, a.Exit.Name)
+			continue
+		}
+		sl := spec.Lookup{Name: l.Name, Table: l.Table, On: l.On, Missing: l.Missing}
+		for _, col := range l.Columns {
+			if t := c.d.Tables[l.Table]; t != nil && t.ColEnum[col[1]] != "" {
+				e.add(l.Line, "关联 %s: 列 %s(%s.%s)是枚举,关联的列还不能是枚举", l.Name, col[0], l.Table, col[1])
+			}
+			sl.Columns = append(sl.Columns, spec.TakeCol{Name: col[0], From: col[1]})
+		}
+		out = append(out, sl)
+	}
+	return out
+}
+
+// children: 设计稿的 嵌套 / 子聚合 → 机器用的式样书。表 / 列 / 键 / 分库 / 顺序的全序由编译器检查(factory/compiler/nest.go);
+// 这里只检查设计稿层面的: 要有数据来源(AI 的出口不行)、子行的列不能是枚举(枚举的映射按来源的表查)。
+func (c *ctx) children(a *API, table string, e *errs) ([]spec.Nest, []spec.ChildAgg) {
+	var nests []spec.Nest
+	var aggs []spec.ChildAgg
+	for _, n := range a.Nests {
+		if table == "" || a.Exit.AI {
+			e.add(n.Line, "嵌套 %s: 只能用于有数据来源的查询(%s 不行)", n.Name, a.Exit.Name)
+			continue
+		}
+		sn := spec.Nest{Name: n.Name, Table: n.Table, On: n.On, Where: n.Where, OrderBy: n.OrderBy, Max: n.Max}
+		for _, col := range n.Columns {
+			if t := c.d.Tables[n.Table]; t != nil && t.ColEnum[col[1]] != "" {
+				e.add(n.Line, "嵌套 %s: 列 %s(%s.%s)是枚举,子行的列还不能是枚举", n.Name, col[0], n.Table, col[1])
+			}
+			sn.Columns = append(sn.Columns, spec.TakeCol{Name: col[0], From: col[1]})
+		}
+		nests = append(nests, sn)
+	}
+	for _, g := range a.ChildAggs {
+		if table == "" || a.Exit.AI {
+			e.add(g.Line, "子聚合 %s: 只能用于有数据来源的查询(%s 不行)", g.Name, a.Exit.Name)
+			continue
+		}
+		if t := c.d.Tables[g.Table]; t != nil && g.Func != "count" && t.ColEnum[g.Column] != "" {
+			e.add(g.Line, "子聚合 %s: 列 %s.%s 是枚举,不能聚合", g.Name, g.Table, g.Column)
+		}
+		aggs = append(aggs, spec.ChildAgg{Name: g.Name, Table: g.Table, On: g.On, Where: g.Where, Func: g.Func, Column: g.Column})
+	}
+	return nests, aggs
+}
+
+func nestNamed(a *API, name string) *Nest {
+	for _, n := range a.Nests {
+		if n.Name == name {
+			return n
+		}
+	}
+	return nil
+}
+
+// nestItem: 嵌套的子行的消息(字段 = 子行的列,类型来自子表的列)。同名的消息已经有了时字段必须相同。
+func (c *ctx) nestItem(n *Nest) (*message, error) {
+	name := n.ItemName
+	if name == "" {
+		name = pascal(singular(n.Table))
+	}
+	item := &message{Name: name}
+	if t := c.d.Tables[n.Table]; t != nil {
+		item.Desc = t.Desc
+	}
+	for _, col := range n.Columns {
+		pt, kind, opt, err := c.columnField(n.Table, col[1])
+		if err != nil {
+			return nil, err
+		}
+		desc := ""
+		if t := c.d.Tables[n.Table]; t != nil {
+			desc = t.ColDesc[col[1]]
+		}
+		item.Fields = append(item.Fields, &field{Name: col[0], Desc: desc, Type: pt, kind: kind, Optional: opt})
+	}
+	if prev, ok := c.msgByNm[item.Name]; ok {
+		if !sameFields(prev, item) {
+			return nil, fmt.Errorf("子行的消息 %s 已经被用过,但字段不同(请用 嵌套 的 行名 改名)", item.Name)
+		}
+		return prev, nil
+	}
+	c.addMessage(item)
+	return item, nil
 }
 
 // checkPickUniquePlain: 普通的表(没有 存储)上的 每组取一条: 按 + 取 的列要覆盖表的主键,否则同一组里可能有多行

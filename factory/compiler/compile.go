@@ -77,6 +77,10 @@ func Compile(specs []*spec.Spec) (*ir.Plan, error) {
 	if err != nil {
 		return nil, err
 	}
+	keys, err := UniqueKeys() // 关联的 DRC: 对方的键列必须是唯一键
+	if err != nil {
+		return nil, err
+	}
 
 	// 声明 → 单元展开 → 流水线 → SQL(core 的 SQL 后端);逃生口的 SQL 原样使用
 	plan := &ir.Plan{Version: ir.Version}
@@ -93,11 +97,15 @@ func Compile(specs []*spec.Spec) (*ir.Plan, error) {
 			if _, ok := cat.tables[s.Datasource.Table]; !ok {
 				return nil, fmt.Errorf("%s: datasource.table: %q is not in db/schema/*.sql", s.Path, s.Datasource.Table)
 			}
-			cols, err := selectColumns(s, md, cat)
+			view, lsteps, err := lookupView(s, cat, keys) // 关联: 加的列也是来源的列(筛选 / 输出 / 排序)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", s.Path, err)
 			}
-			filters, err := resolveFilters(s, md, cat)
+			cols, err := selectColumns(s, md, view)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", s.Path, err)
+			}
+			filters, err := resolveFilters(s, md, view)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", s.Path, err)
 			}
@@ -109,7 +117,12 @@ func Compile(specs []*spec.Spec) (*ir.Plan, error) {
 			} else {
 				api.Shard = sh
 			}
-			pl, err := buildPipeline(s, lib, cols, filters, cat)
+			presence := map[string]bool{} // 请求字段 → 有没有 presence(派生参数的输入用)
+			for j := 0; j < md.Input().Fields().Len(); j++ {
+				fd := md.Input().Fields().Get(j)
+				presence[string(fd.Name())] = fd.HasPresence()
+			}
+			pl, err := buildPipeline(s, lib, cols, filters, cat, view, lsteps, presence)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", s.Path, err)
 			}
@@ -176,6 +189,22 @@ func Compile(specs []*spec.Spec) (*ir.Plan, error) {
 		if e.ShardBy != "" && !seen["shard:"+table] {
 			seen["shard:"+table] = true
 			plan.Shards = append(plan.Shards, ir.Shard{Table: table, Column: e.ShardBy})
+		}
+		var related []string // 关联 / 嵌套 / 子聚合的分库的表(验收把数据写进分库键对应的库)
+		for _, l := range s.Datasource.Lookups {
+			related = append(related, l.Table)
+		}
+		for _, n := range s.Datasource.Nests {
+			related = append(related, n.Table)
+		}
+		for _, a := range s.Datasource.ChildAggs {
+			related = append(related, a.Table)
+		}
+		for _, t := range related {
+			if le := s.Domain.Entities[t]; le.ShardBy != "" && !seen["shard:"+t] {
+				seen["shard:"+t] = true
+				plan.Shards = append(plan.Shards, ir.Shard{Table: t, Column: le.ShardBy})
+			}
 		}
 		if st := e.Storage; st != nil && !seen["storage:"+table] {
 			seen["storage:"+table] = true
