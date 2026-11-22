@@ -14,16 +14,6 @@ ai:
       command: [claude, -p, --model, claude-opus-5-5]
     claude-sonnet:               # 实现: 有路径闸门 + 编译 + 验收兜底,用便宜一些的模型
       command: [claude, -p, --model, claude-sonnet-5-5]
-    local:                       # winpc 的 Ollama(Anthropic 兼容 API),同一个 harness 只换模型
-      command: [claude, -p, --model, "qwen3.6:35b"]
-      env:
-        ANTHROPIC_BASE_URL: http://100.106.140.35:11434
-        ANTHROPIC_AUTH_TOKEN: ollama
-        ANTHROPIC_API_KEY: ""
-        ANTHROPIC_DEFAULT_HAIKU_MODEL: "qwen3.6:35b"
-        ANTHROPIC_DEFAULT_SONNET_MODEL: "qwen3.6:35b"
-        ANTHROPIC_DEFAULT_OPUS_MODEL: "qwen3.6:35b"
-        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
 
   # 角色: 用哪个模型、允许哪些模型、固定参数
   roles:
@@ -31,13 +21,13 @@ ai:
       model: claude
       # 第一波实测: 本地模型审查 10 个 API,挡下的 8 个 blocker 全部是误报(enum 的 DB 值和 proto 编号混淆等)。
       # 审查没有闸门兜底,误报会让流水线停下 → 只允许强模型
-      # local 也允许,但只作参考: scripts/ci/spec-review.sh 对 claude 以外的模型不阻塞(CI 用 winpc 时)
-      allowed: [claude, local]
+      # 只用 Claude(2026-11-22: 本地模型从工厂里拿掉; 实测本地模型审查误报多、计算类实现失败)
+      allowed: [claude]
       args: [--tools, "", --max-turns, "2"]
       timeout_sec: 600
     implement:
       model: claude
       # 实现有路径闸门 + 编译 + 验收兜底,弱模型也可以(实测: 本地模型 compute 8/9 次通过)
-      allowed: [claude, claude-sonnet, local]
+      allowed: [claude, claude-sonnet]
       args: [--max-turns, "40"]    # 允许的工具来自适配器清单(ai_tools)
       timeout_sec: 1800
