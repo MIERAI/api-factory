@@ -10,7 +10,7 @@ SPEC    ?= specs/jobs/get-job-status/spec.yaml
 MODEL   ?= claude
 ACCEPT_SPECS ?= specs
 
-.PHONY: projects perf hooks margin doctor db-up db-down db-schema design check prepare build test guard accept loop review-local review-fetch
+.PHONY: projects perf hooks margin doctor mq-up mq-down accept-mq db-up db-down db-schema design check prepare build test guard accept loop review-local review-fetch
 
 # 排序规则用 ICU(en-US): Alpine 的 en_US.utf8 实际按字节排,和 C 一样,测不出"忘了 COLLATE C"(生产不是这样)
 hooks:            ## 安装 git 钩子(内容防护: 产品分支不能出现试用公司的内容)
@@ -25,6 +25,17 @@ perf:             ## 性能闸门: 每表 20 万行 + EXPLAIN ANALYZE(慢,不在
 
 margin:           ## 差分测试的余量: 换种子跑变异,每个变异 ≥3 个差分用例(并行: go build -overlay + 每个 worker 一套数据库)
 	@DB_URL='$(DB_URL)' PG_NAME=$(PG_NAME) scripts/margin.sh
+
+MQ_NAME ?= api-factory-mq
+MQ_PORT ?= 55672
+mq-up:            ## RabbitMQ(消息的真实投递场景;数据目录 tmpfs,不写持久卷)
+	@docker inspect $(MQ_NAME) >/dev/null 2>&1 || docker run -d --name $(MQ_NAME) --tmpfs /var/lib/rabbitmq -p $(MQ_PORT):5672 rabbitmq:3.13.7-management >/dev/null
+	@until docker exec $(MQ_NAME) rabbitmq-diagnostics -q ping >/dev/null 2>&1; do sleep 1; done
+	@echo "✓ RabbitMQ amqp://guest:guest@127.0.0.1:$(MQ_PORT)/"
+mq-down:          ## 删除 RabbitMQ 的容器
+	@docker rm -f -v $(MQ_NAME) >/dev/null 2>&1 || true
+accept-mq: build  ## 真实 RabbitMQ 的场景(有消息的 API;独立的数据库 + vhost,串行)
+	@DB_URL='$(DB_URL)' PG_NAME=$(PG_NAME) MQ_NAME=$(MQ_NAME) MQ_PORT=$(MQ_PORT) scripts/accept-mq.sh $(ACCEPT_SPECS)
 
 doctor:           ## 环境检查(工具 / 数据库 / AI 命令行 / 钩子)
 	@scripts/doctor.sh

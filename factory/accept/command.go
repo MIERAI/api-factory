@@ -81,7 +81,8 @@ func runCommand(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.
 		}
 	}
 	if api.Command.Op == "command" { // 组合命令(R3-2): 状态差分 + 故障注入 + 并发 + 重放(command_prog.go)
-		return append(results, runProg(ctx, d, url, plan, api, true)...), nil
+		results = append(results, runProg(ctx, d, url, plan, api, true)...)
+		return append(results, runMQ(ctx, d, url, plan, api, s)...), nil // 发出: 真实 RabbitMQ(FACTORY_TEST_AMQP,mq.go)
 	}
 	results = append(results, runCommandDiff(ctx, d, url, plan, api)...)
 	return append(results, runProg(ctx, d, url, plan, api, false)...), nil // R3-1 的命令: 故障注入 + 并发

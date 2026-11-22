@@ -95,7 +95,7 @@ func messaging(deps server.Deps, consumers []*consume.Consumer) []server.Service
 	if deps.AMQP == nil { // 没有 AMQP_URL: outbox 只写不发(本地开发 / 进程内的验收)
 		return []server.Service{test}
 	}
-	spec := topology.Spec{Queues: []topology.Queue{
+	spec := topology.Spec{Retry: topology.DefaultRetry, Queues: []topology.Queue{
 		{Name: "factory.account.debit", Subscriptions: []topology.Subscription{{Kind: message.Command, Type: "account.debit"}}},
 		{Name: "factory.account.opened", Subscriptions: []topology.Subscription{{Kind: message.Event, Type: "account.opened"}}},
 		{Name: "factory.account.reverse", Subscriptions: []topology.Subscription{{Kind: message.Command, Type: "account.reverse"}}},

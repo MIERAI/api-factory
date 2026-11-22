@@ -344,7 +344,8 @@ func runHandler(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.
 			}
 		}
 	}
-	return append(results, runHandlerDiff(ctx, d, url, plan, api)...), nil
+	results = append(results, runHandlerDiff(ctx, d, url, plan, api)...)
+	return append(results, runMQ(ctx, d, url, plan, api, s)...), nil // 真实 RabbitMQ(FACTORY_TEST_AMQP,mq.go)
 }
 
 func (e *msgEnv) handlerCase(plan *ir.Plan, tables map[string]*command.Table, fixtures map[string][]map[string]any, c spec.Case, n int) (bool, string) {
@@ -683,6 +684,10 @@ func (h *handlerEnv) sampleMsg() map[string]any {
 			continue
 		}
 		hm, ok := h.home[f.Name]
+		if c := h.ifAnchors(f.Name); len(c) > 0 && h.rnd.Intn(100) < 35 { // 如果 的条件里和常量比较的字段: 边界 ± 1
+			req[f.Name] = h.jsonOf(&f, c[h.rnd.Intn(len(c))])
+			continue
+		}
 		if !ok {
 			if v, ok := h.base[f.Name]; ok {
 				req[f.Name] = v
@@ -806,6 +811,32 @@ func (h *handlerEnv) sampleMsg() map[string]any {
 	req[cmd.Each] = items
 	return req
 }
+
+// ifAnchors: 如果 的条件里 输入.name 和整数常量比较时: 常量 - 1 / 常量 / 常量 + 1。
+func (h *handlerEnv) ifAnchors(name string) []any {
+	var out []any
+	for _, op := range h.api.Command.Ops {
+		for _, v := range op.Values {
+			walkExpr(v.Expr, func(x *ir.CmdExpr) {
+				if x.Op != "if" || !cmpWordsAccept[x.Args[0].Op] {
+					return
+				}
+				a, b := x.Args[0].Args[0], x.Args[0].Args[1]
+				if a.Op == "const" {
+					a, b = b, a
+				}
+				if a.Op == "input" && a.Name == name && b.Op == "const" {
+					if n, err := strconv.ParseInt(b.Value, 10, 64); err == nil {
+						out = append(out, n-1, n, n+1)
+					}
+				}
+			})
+		}
+	}
+	return out
+}
+
+var cmpWordsAccept = map[string]bool{"=": true, "<>": true, "<": true, "<=": true, ">": true, ">=": true}
 
 // modelInputs: data(请求写法)→ 模型的输入 + 每项 的元素。
 func (h *handlerEnv) modelInputs(req map[string]any) (command.Inputs, []command.Inputs) {

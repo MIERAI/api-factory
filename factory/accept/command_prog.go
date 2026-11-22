@@ -1084,8 +1084,12 @@ func (e *progEnv) diff() []Result {
 
 func (e *progEnv) faults() []Result {
 	var results []Result
+	reps := 2
+	if e.msg != nil { // 发出: 第 k 个写 = outbox 的行时也要抓到"另开事务写 outbox"(≥ 3 个用例)
+		reps = 3
+	}
 	for k := 1; k <= len(e.ops)+len(e.api.Command.Emits); k++ { // 发出: outbox 的每一行也是一个写操作
-		for rep := 1; rep <= 2; rep++ {
+		for rep := 1; rep <= reps; rep++ {
 			name := fmt.Sprintf("故障注入: 第 %d 个写操作之后失败 #%d", k, rep)
 			req := e.find(progAim{-1, command.OK})
 			if req == nil {
