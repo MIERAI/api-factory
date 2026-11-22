@@ -229,6 +229,16 @@ type Lookup struct {
 	On      []string  `yaml:"on"`                // "customer_id = id"
 	Columns []TakeCol `yaml:"columns"`           // 加的列(新列名 ← 对方的列),按书写顺序
 	Missing string    `yaml:"missing,omitempty"` // keep(默认): 加的列为空;drop: 丢弃这一行
+	// AsOf: 按日期查历史表: 键相等、开始 ≤ 参照(有结束时 参照 < 结束,结束为空 = 无期限)的行里开始最大的一行
+	AsOf *LookupAsOf `yaml:"as_of,omitempty"`
+}
+
+// LookupAsOf: 按日期的关联。Ref = 当前行的列,或 今天 / 现在(领域的时区)。On 里可以有 "对方的列 = 常量"。
+type LookupAsOf struct {
+	Start string `yaml:"start"`
+	End   string `yaml:"end,omitempty"`
+	EndIn bool   `yaml:"end_inclusive,omitempty"` // End 是最后一天(含): 参照 <= 结束
+	Ref   string `yaml:"ref"`
 }
 
 // Nest: 子表(同一个库)里关联的行,作为子行的列表加一列 Name。On: "当前行的列 = 子表的列"(多列 = 多项)。

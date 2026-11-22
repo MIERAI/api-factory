@@ -34,6 +34,11 @@ type otherTable struct {
 	rowDB []*pgx.Conn
 	shard *ir.Shard
 	lt    *logicalTable // 对方是逻辑表(来源单元展开的表): 版本写进物理表(diffsource.go)
+	// pinned: 关联的条件里 "对方的列 = 常量" 的列 → 常量(约 2/3 的行取这个值,否则几乎没有行能匹配)
+	pinned map[string][]any
+	// asofCols: 按日期的关联的开始 / 结束列(参照是当前行的列): 约一半的行取和来源的唯一的日期一样分布的值
+	// (来源的日期列是唯一列时取序号: 中间 ± n/2 天;对方只取小值域就几乎碰不到参照)
+	asofCols map[string]bool
 }
 
 // fkRef: 表里的 cols 引用 ref 的 keys(逐列对应)。
@@ -41,6 +46,8 @@ type fkRef struct {
 	cols []string
 	ref  *otherTable
 	keys []string
+	// 按日期的关联(参照 = 主人的列 refCol): 取存在的键时,参照的值多半落在那一行的开始 / 结束的前后
+	refCol, start, end string
 }
 
 // origin: 列的物理的出处(表的列)。
@@ -80,6 +87,8 @@ func (e *diffEnv) initOthers() error {
 				byName[st.Table] = ot
 				e.others = append(e.others, ot)
 			}
+			ot.pin(st.Pred)
+			ot.asOf(st)
 			var fk fkRef
 			owner := ""
 			for _, k := range st.On {
@@ -94,6 +103,11 @@ func (e *diffEnv) initOthers() error {
 			}
 			if owner != "\x00" && owner != "" {
 				fk.ref = ot
+				if a := st.AsOf; a != nil && a.Ref != nil && a.Ref.Op == "col" {
+					if o, ok := from[a.Ref.Name]; ok && o.table == owner {
+						fk.refCol, fk.start, fk.end = o.col, a.Start, a.End
+					}
+				}
 				e.fks[owner] = append(e.fks[owner], fk)
 			}
 			for _, t := range st.Take {
@@ -119,6 +133,8 @@ func (e *diffEnv) initOthers() error {
 						byName[s.Table] = ot
 						e.others = append(e.others, ot)
 					}
+					ot.pin(s.Pred)
+					ot.asOf(s)
 					var fk fkRef
 					owner := ""
 					for _, k := range s.On {
@@ -133,6 +149,11 @@ func (e *diffEnv) initOthers() error {
 					}
 					if owner != "\x00" && owner != "" {
 						fk.ref = ot
+						if a := s.AsOf; a != nil && a.Ref != nil && a.Ref.Op == "col" {
+							if o, ok := sub[a.Ref.Name]; ok && o.table == owner {
+								fk.refCol, fk.start, fk.end = o.col, a.Start, a.End
+							}
+						}
 						e.fks[owner] = append(e.fks[owner], fk)
 						childOwners = append(childOwners, owner)
 					}
@@ -259,6 +280,22 @@ func (e *diffEnv) loadOthers() error {
 		for i := 0; i < n; i++ {
 			physical := map[string]any{}
 			for _, c := range ins {
+				if vs := ot.pinned[c.Name]; len(vs) > 0 && !unique[c.Name] && e.rnd.Intn(3) != 0 { // 对方的列 = 常量
+					physical[c.Name] = vs[e.rnd.Intn(len(vs))]
+					continue
+				}
+				if ot.asofCols[c.Name] && !unique[c.Name] && e.rnd.Intn(2) == 0 { // 按日期的关联(参照 = 列)
+					if v := e.scalar(c.Type.Kind, true, e.rnd.Intn(diffRows*max(e.scale, 1))); v != nil {
+						physical[c.Name] = v
+						continue
+					}
+				}
+				if e.boundaryCol(ot.table, c.Name) && !unique[c.Name] && e.rnd.Intn(3) != 0 { // 按日期的关联(参照 = 今天): 探针的边界
+					if v := e.boundaryOf(c.Name); v != nil {
+						physical[c.Name] = v
+						continue
+					}
+				}
 				if d := dom[c.Name]; d != nil {
 					physical[c.Name] = e.relatedValue(c, i, unique[c.Name], d)
 				} else {
@@ -385,7 +422,13 @@ func (e *diffEnv) applyFKs(table string, cols []core.NamedType, physical map[str
 			}
 			physical[nullable[e.rnd.Intn(len(nullable))]] = nil
 		case r < 8 && len(refRows) > 0: // 存在的键(整组)
-			e.copyKey(physical, fk, refRows[e.rnd.Intn(len(refRows))])
+			ref := refRows[e.rnd.Intn(len(refRows))]
+			e.copyKey(physical, fk, ref)
+			if fk.refCol != "" && !unique[fk.refCol] && e.rnd.Intn(4) != 0 { // 按日期: 参照落在这一行的开始 / 结束的前后
+				if v := nearAsOf(ref, fk, e.rnd.Intn(2), []int{-1, 0, 0, 1}[e.rnd.Intn(4)]); v != nil {
+					physical[fk.refCol] = v
+				}
+			}
 		default: // 不存在的键
 			if len(fk.cols) > 1 && len(refRows) > 1 && e.rnd.Intn(2) == 0 { // 每一列单独存在,组合不存在(多半)
 				e.copyKey(physical, fk, refRows[e.rnd.Intn(len(refRows))])
@@ -489,6 +532,10 @@ func (e *diffEnv) lookupTargets() []sensTarget {
 		})})
 		out = append(out, sensTarget{desc: name + " 找到的行(总是找不到的实现)", mutate: with(i, func(s *core.Step) { s.Table, s.Source = "\x00none", nil })})
 		out = append(out, sourceTargets(i, st, name)...)
+		for _, m := range asOfMutations(st) {
+			m := m
+			out = append(out, sensTarget{desc: name + " " + m.desc, mutate: with(i, m.f)})
+		}
 		if len(st.On) > 1 {
 			for j, k := range st.On {
 				j := j
@@ -521,4 +568,124 @@ func (e *diffEnv) lookupTargets() []sensTarget {
 		}
 	}
 	return out
+}
+
+// nearAsOf: 按日期的关联的参照的值: 对方的那一行的开始(which = 0)或结束(which = 1,有结束列而且不为空)前后 off 天(时间: 秒)。
+func nearAsOf(ref core.Row, fk fkRef, which, off int) any {
+	base := ref[fk.start]
+	if which == 1 && fk.end != "" && ref[fk.end] != nil {
+		base = ref[fk.end]
+	}
+	switch v := base.(type) {
+	case time.Time:
+		if v.Hour() == 0 && v.Minute() == 0 && v.Second() == 0 && v.Nanosecond() == 0 {
+			return v.AddDate(0, 0, off)
+		}
+		return v.Add(time.Duration(off) * time.Second)
+	case int64:
+		return v + int64(off)
+	}
+	return nil
+}
+
+// asOfMutation: lookup 的一个"错误实现"(按日期 / 对方的条件)。
+type asOfMutation struct {
+	desc string
+	f    func(s *core.Step)
+}
+
+// asOfMutations: 按日期的关联的错误实现: 开始 ≤ 写成 <、结束的含 / 不含反了、不看结束、取开始最小的、
+// 参照 = 今天 时读错时钟 / 在 UTC 取日期;对方的条件去掉。
+func asOfMutations(st core.Step) []asOfMutation {
+	var out []asOfMutation
+	if st.Pred != nil {
+		out = append(out, asOfMutation{"的对方的条件(去掉)", func(s *core.Step) { s.Pred = nil }})
+	}
+	a := st.AsOf
+	if a == nil {
+		return out
+	}
+	mut := func(desc string, f func(x *core.AsOf)) {
+		out = append(out, asOfMutation{desc, func(s *core.Step) {
+			x := *s.AsOf
+			f(&x)
+			s.AsOf = &x
+		}})
+	}
+	mut("的按日期: 开始 ≤ 参照 写成 <", func(x *core.AsOf) { x.Mutant = "start_lt" })
+	mut("的按日期: 取了开始最小的行", func(x *core.AsOf) { x.Mutant = "min" })
+	if a.End != "" {
+		mut("的按日期: 结束的当天(含 ↔ 不含)", func(x *core.AsOf) { x.Mutant = "end_flip" })
+		mut("的按日期: 不看结束", func(x *core.AsOf) { x.Mutant = "no_end" })
+	}
+	if core.UsesNow(a.Ref) {
+		mut("的按日期: 参照读错了时钟(晚 1 天)", func(x *core.AsOf) { x.Ref = shiftNow(x.Ref) })
+		if hasZone(a.Ref) {
+			mut("的按日期: 参照的时区(换成 UTC)", func(x *core.AsOf) { x.Ref = rezone(x.Ref, "UTC") })
+		}
+	}
+	return out
+}
+
+func hasZone(x *core.Expr) bool {
+	if x == nil {
+		return false
+	}
+	if x.Zone != "" && x.Zone != "UTC" {
+		return true
+	}
+	for _, a := range x.Args {
+		if hasZone(a) {
+			return true
+		}
+	}
+	return false
+}
+
+// pin: 关联的条件(对方的列上)里顶层的 "列 = 常量" → 造数据时多半取这个常量。
+func (ot *otherTable) pin(pred *core.Expr) {
+	if pred == nil {
+		return
+	}
+	var walk func(x *core.Expr)
+	walk = func(x *core.Expr) {
+		switch {
+		case x.Op == "and":
+			for _, a := range x.Args {
+				walk(a)
+			}
+		case x.Op == "cmp" && x.Name == "=" && len(x.Args) == 2:
+			a, b := x.Args[0], x.Args[1]
+			if a.Op == "const" {
+				a, b = b, a
+			}
+			if a.Op == "col" && b.Op == "const" && b.Value != nil {
+				if ot.pinned == nil {
+					ot.pinned = map[string][]any{}
+				}
+				for _, v := range ot.pinned[a.Name] {
+					if core.Canonical(v) == core.Canonical(b.Value) {
+						return
+					}
+				}
+				ot.pinned[a.Name] = append(ot.pinned[a.Name], b.Value)
+			}
+		}
+	}
+	walk(pred)
+}
+
+// asOf: 按日期的关联(参照是当前行的列)的开始 / 结束列。
+func (ot *otherTable) asOf(st core.Step) {
+	a := st.AsOf
+	if a == nil || a.Ref == nil || a.Ref.Op != "col" {
+		return
+	}
+	if ot.asofCols == nil {
+		ot.asofCols = map[string]bool{}
+	}
+	ot.asofCols[a.Start] = true
+	if a.End != "" {
+		ot.asofCols[a.End] = true
+	}
 }

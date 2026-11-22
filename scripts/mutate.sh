@@ -191,6 +191,14 @@ run "嵌套里的关联: 链式第二级写成 JOIN"             $CW 's/LEFT JOI
 run "嵌套里的关联: 链式第二级从子表的列关联"         $CW 's/ON t3\.region_code = t4\.region_code/ON t2.warehouse_code = t4.region_code/'
 run "嵌套里的关联: 按加的列排序的方向反了"           $CW 's/(t[56])\.region_name COLLATE "C"/$1.region_name COLLATE "C" DESC/g'
 run "嵌套里的关联: 加的列取错(倉庫名 ← 地域コード)"  $CW 's/t3\.name AS warehouse_name/t3.region_code AS warehouse_name/'
+# R2.6 G4: 按日期的关联(历史表)+ 对方的列 = 常量
+DC=gen/db/sales.list-daily-sales-cost-rates.sql.go
+run "按日期: 开始日を含まない(<= → <)"              $DC 's/AND t2\.valid_from <= t1\.sales_date/AND t2.valid_from < t1.sales_date/'
+run "按日期: 最終日を含まない(<= → <)"              $DC 's/OR t1\.sales_date <= t2\.valid_to\)/OR t1.sales_date < t2.valid_to)/'
+run "按日期: 一番古い改定を取る(DESC → ASC)"         $DC 's/ORDER BY t2\.valid_from DESC/ORDER BY t2.valid_from/'
+run "按日期: 最終日を見ない"                        $DC 's/\n\s+AND \(t2\.valid_to IS NULL OR t1\.sales_date <= t2\.valid_to\)//'
+run "对方的列 = 常量: 区分を見ない"                  $DC 's/\n\s+AND \(t2\.rate_kind = \x27STD\x27::text\)//'
+run "按日期(今天): UTC の日付"                      $DC 's/t4\.valid_from <= \(\(\$1::timestamptz AT TIME ZONE \x27Asia\/Tokyo\x27\)/t4.valid_from <= ((\$1::timestamptz AT TIME ZONE \x27UTC\x27)/'
 # 命令工厂(R3-1): 生成的写代码。每个变异都要被 ≥3 个状态差分的请求抓到(factory/accept/command_diff.go)
 UJ=internal/handler/schedules/update_job_schedule_gen.go
 SE=internal/handler/schedules/commands_gen.go

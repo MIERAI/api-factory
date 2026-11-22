@@ -27,6 +27,14 @@ entities:
             snap_ymd:
                 encoding: YYYYMMDD
         invariants: []
+    store_cost_rates:
+        natural_key:
+            - store_code
+            - rate_kind
+            - valid_from
+        policy: mutable
+        columns: {}
+        invariants: []
     store_prices:
         natural_key:
             - store_code

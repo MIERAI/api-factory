@@ -385,6 +385,19 @@ func parseLookups(e *errs, node *yaml.Node, at string) []*Lookup {
 		default:
 			e.add(p.Line, at+" %s: 找不到时 只能是 保留(加的列为空)/ 丢弃(这一行不要)", p.Key)
 		}
+		if d := get(p.Val, "按日期"); d != nil {
+			checkKeys(e, d, at+" "+p.Key+" 的按日期", "开始", "结束", "最后一天", "参照")
+			l.AsOf = &spec.LookupAsOf{Start: str(d, "开始"), End: str(d, "结束"), Ref: str(d, "参照")}
+			if last := str(d, "最后一天"); last != "" { // 结束列是最后一天(含)
+				if l.AsOf.End != "" {
+					e.add(p.Line, at+" %s: 按日期 的 结束(不含)和 最后一天(含)只能写一个", p.Key)
+				}
+				l.AsOf.End, l.AsOf.EndIn = last, true
+			}
+			if l.AsOf.Start == "" || l.AsOf.Ref == "" {
+				e.add(p.Line, at+" %s: 按日期 要写 开始 和 参照(例: 按日期: { 开始: valid_from, 结束: valid_to, 参照: sales_date })", p.Key)
+			}
+		}
 		out = append(out, l)
 	}
 	return out
@@ -420,8 +433,9 @@ type Lookup struct {
 	Name    string
 	Table   string
 	On      []string
-	Columns [][2]string // 新列名, 对方的列
-	Missing string      // keep / drop
+	Columns [][2]string      // 新列名, 对方的列
+	Missing string           // keep / drop
+	AsOf    *spec.LookupAsOf // 按日期: { 开始, 结束(可选), 参照 }
 	Line    int
 }
 
@@ -776,7 +790,7 @@ func strOrList(n *yaml.Node) []string {
 }
 
 // LookupKeys: 关联的一项可以写的键。
-func LookupKeys() []string { return []string{"表", "条件", "列", "找不到时"} }
+func LookupKeys() []string { return []string{"表", "条件", "列", "找不到时", "按日期"} }
 
 // InputKeys: 输入可以写的键(约束的键另外由 factory/constraints 决定)。
 func InputKeys() []string {

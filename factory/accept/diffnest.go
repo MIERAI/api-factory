@@ -746,6 +746,10 @@ func nestedLookupTargets(i int, st core.Step, name string) []sensTarget {
 			s.Missing = map[bool]string{true: "drop", false: "keep"}[keep]
 		})})
 		out = append(out, sensTarget{desc: at + " 找到的行(总是找不到的实现)", mutate: with(j, func(s *core.Step) { s.Table = "\x00none" })})
+		for _, m := range asOfMutations(l) {
+			m := m
+			out = append(out, sensTarget{desc: at + " " + m.desc, mutate: with(j, m.f)})
+		}
 		if len(l.On) > 1 {
 			for k, key := range l.On {
 				k := k

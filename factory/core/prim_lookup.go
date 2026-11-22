@@ -22,11 +22,16 @@ func init() {
 		kind: "lookup",
 		check: func(c *checker, st Step, at string) {
 			c.p.checkSource(st, at, c.add)
-			c.cur = checkLookup(c.cur, st, at, c.add)
+			extra := c.p.checkLookupExt(c.cur, st, at, c.add)
+			c.cur = checkLookupWith(c.cur, st, at, c.add, extra)
 		},
 		eval: func(e *evaluator, st Step) error {
 			other, err := e.p.related(st, e.tables, e.params)
 			if err != nil {
+				return err
+			}
+			if st.Pred != nil || st.AsOf != nil {
+				e.schema, e.rows, err = e.p.evalLookupExt(st, e.schema, e.rows, other, e.params)
 				return err
 			}
 			e.schema, e.rows = evalLookup(st, e.schema, e.rows, other)
@@ -40,6 +45,15 @@ func init() {
 func lookupSQL(g *sqlGen, lv *sqlLevel, st Step) (*sqlLevel, error) {
 	if lv.joinBusy() {
 		lv = g.wrap(lv, false)
+	}
+	if (st.Pred != nil || st.AsOf != nil) && len(st.Source) == 0 { // 按日期 / 带对方的条件: LATERAL(lookup_asof.go)
+		lv, err := g.lookupLateralSQL(lv, st)
+		if err != nil {
+			return nil, err
+		}
+		lv.in = checkLookup(lv.in, st, "", func(string, ...any) {})
+		lv.out = lv.in
+		return lv, nil
 	}
 	if len(st.Source) > 0 { // 逻辑表: LEFT JOIN LATERAL (来源 + 关联条件) ON TRUE(drop: JOIN LATERAL)
 		sub, err := g.sourceSQL(st, lv)
@@ -88,6 +102,20 @@ func lookupSQL(g *sqlGen, lv *sqlLevel, st Step) (*sqlLevel, error) {
 // checkLookup: 多对一查找的 DRC。对方的键列必须覆盖对方的一个唯一键(最多一行匹配;多对一以外的关联不是 lookup),
 // 两边的类型可以比较,加的列不能和已有的列重名。返回加了列之后的列(keep: 加的列可空)。
 func checkLookup(cur Schema, st Step, at string, add func(string, ...any)) Schema {
+	return checkLookupWith(cur, st, at, add, pinnedAndStart(st))
+}
+
+// pinnedAndStart: 唯一性用的另外覆盖的列(对方的条件固定的列 + 按日期的开始列;lookup_asof.go)。
+func pinnedAndStart(st Step) map[string]bool {
+	extra := PinnedCols(st.Pred)
+	if st.AsOf != nil {
+		extra[st.AsOf.Start] = true
+	}
+	return extra
+}
+
+// checkLookupWith: checkLookup 的本体。extra: 键以外覆盖唯一键的列(固定的列 / 开始列)。
+func checkLookupWith(cur Schema, st Step, at string, add func(string, ...any), extra map[string]bool) Schema {
 	other := Schema(st.Columns)
 	if st.Table == "" || len(st.Columns) == 0 {
 		add("%s: 需要对方的表和列", at)
@@ -120,7 +148,7 @@ func checkLookup(cur Schema, st Step, at string, add func(string, ...any)) Schem
 	for _, u := range st.Unique {
 		covered := len(u) > 0
 		for _, c := range u {
-			covered = covered && keys[c]
+			covered = covered && (keys[c] || extra[c])
 		}
 		unique = unique || covered
 	}
@@ -222,4 +250,70 @@ func evalLookup(st Step, schema Schema, rows []Row, other []Row) (Schema, []Row)
 		}
 	}
 	return next, out
+}
+
+// evalLookupExt: 带对方的条件 / 按日期的 lookup(lookup_asof.go)。对方的行先过 Pred,按键建索引;
+// 按日期: 匹配的行里选一行;否则和 evalLookup 一样(DRC 保证最多一行)。
+func (p *Pipeline) evalLookupExt(st Step, schema Schema, rows []Row, other []Row, params Params) (Schema, []Row, error) {
+	otherSchema := Schema(st.Columns)
+	var kept []Row
+	for _, o := range other {
+		if st.Pred != nil {
+			v, err := p.eval(st.Pred, o, otherSchema, params)
+			if err != nil {
+				return nil, nil, err
+			}
+			if v != true {
+				continue
+			}
+		}
+		kept = append(kept, o)
+	}
+	if st.AsOf == nil {
+		plain := st
+		plain.Pred = nil
+		next, out := evalLookup(plain, schema, rows, kept)
+		return next, out, nil
+	}
+	index := map[string][]Row{}
+	for _, o := range kept {
+		if k, ok := childKey(o, st.On, func(j JoinKey) string { return j.Key }); ok {
+			index[k] = append(index[k], o)
+		}
+	}
+	next := append(Schema(nil), schema...)
+	for _, t := range st.Take {
+		ty, _ := otherSchema.Col(t.Col)
+		if st.Missing != "drop" {
+			ty.Nullable = true
+		}
+		next = append(next, NamedType{t.Name, ty})
+	}
+	var out []Row
+	for _, r := range rows {
+		var found []Row
+		if k, ok := childKey(r, st.On, func(j JoinKey) string { return j.Col }); ok {
+			found = index[k]
+		}
+		best, err := p.asOfPick(st, r, schema, params, found)
+		if err != nil {
+			return nil, nil, err
+		}
+		if best == nil && st.Missing == "drop" {
+			continue
+		}
+		row := Row{}
+		for c, v := range r {
+			row[c] = v
+		}
+		for _, t := range st.Take {
+			if best == nil {
+				row[t.Name] = nil
+			} else {
+				row[t.Name] = best[t.Col]
+			}
+		}
+		out = append(out, row)
+	}
+	return next, out, nil
 }

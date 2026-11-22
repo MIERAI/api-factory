@@ -20,6 +20,9 @@ service SaleService {
   // 店舗の全商品について、基準日までに始まった売価のうち最新の 1 件をページごとに返す
   rpc ListCurrentPrices(ListCurrentPricesRequest) returns (ListCurrentPricesResponse);
 
+  // 店舗の売上を from〜to(両端を含む)で日付順に返す。各日に適用されていた通常の原価率と、今日の通常の原価率をつける
+  rpc ListDailySalesCostRates(ListDailySalesCostRatesRequest) returns (ListDailySalesCostRatesResponse);
+
   // 売上日を指定して、値引きのあった店舗の売上を売上金額の大きい順に返す(分页)
   rpc ListDiscountedSales(ListDiscountedSalesRequest) returns (ListDiscountedSalesResponse);
 
@@ -155,6 +158,36 @@ message ListCurrentPricesResponse {
   repeated CurrentPrice store_prices = 1;
   // 还有下一页时不为空
   string next_page_token = 2;
+}
+
+// 日别・店别の売上(一天一店一行)
+message SaleWithCostRate {
+  // 売上日
+  string sales_date = 1;
+  // 売上金額
+  string amount = 2;
+  // その日に適用されていた通常の原価率(なし = 不设置)
+  optional string cost_rate = 3;
+  // その原価率の適用開始日(なし = 不设置)
+  optional string rate_from = 4;
+  // 今日の通常の原価率(なし = 不设置)
+  optional string current_cost_rate = 5;
+}
+
+// 店舗の売上を from〜to(両端を含む)で日付順に返す。各日に適用されていた通常の原価率と、今日の通常の原価率をつける
+message ListDailySalesCostRatesRequest {
+  // 店舗コード
+  int32 store_code = 1 [(buf.validate.field).int32.gt = 0];
+  // 期間の開始(含む)
+  string from = 2 [(buf.validate.field).string.pattern = "^\\d{4}-\\d{2}-\\d{2}$"];
+  // 期間の終了(含む。省略 = 終わりなし)
+  optional string to = 3 [(buf.validate.field).string.pattern = "^\\d{4}-\\d{2}-\\d{2}$"];
+}
+
+// 店舗の売上を from〜to(両端を含む)で日付順に返す。各日に適用されていた通常の原価率と、今日の通常の原価率をつける
+message ListDailySalesCostRatesResponse {
+  // 最多 62 件;超过时返回错误(不会截断)
+  repeated SaleWithCostRate daily_sales = 1;
 }
 
 // 日别・店别の売上(一天一店一行)

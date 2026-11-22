@@ -33,6 +33,7 @@ type derivedCmp struct {
 	expr  *core.Expr // 时间运算的一边
 	kind  core.Kind  // 列的类型(日期 / 时间;整数编码的日期 = 日期)
 	ymd   bool       // 列是整数编码的日期(条件里是 ymd(列))
+	asof  bool       // 按日期的关联的开始 / 结束列(参照 = 今天 / 现在): 只用来造边界的值,覆盖条件在 difflookup.go
 }
 
 // timeState: 派生参数的状态(没有时间运算的 API 为空,随机数的消耗和以前完全一样)。
@@ -120,6 +121,26 @@ func (e *diffEnv) collectDerived() {
 			}
 		}
 		find(st.Pred)
+	}
+	// 按日期的关联,参照 = 今天 / 现在: 对方的开始 / 结束列落在探针的边界上(数据来源的关联和嵌套里的关联)
+	asOf := func(st core.Step) {
+		if st.Kind != "lookup" || st.AsOf == nil || !isTimeExpr(st.AsOf.Ref) {
+			return
+		}
+		for _, c := range []string{st.AsOf.Start, st.AsOf.End} {
+			if c == "" {
+				continue
+			}
+			t, _ := core.Schema(st.Columns).Col(c)
+			e.tm.cmps = append(e.tm.cmps, derivedCmp{table: st.Table, step: -1, col: c, expr: st.AsOf.Ref, kind: t.Kind, asof: true})
+		}
+		walkIn(st.AsOf.Ref)
+	}
+	for _, st := range p.Steps {
+		asOf(st)
+		for _, s := range st.Source {
+			asOf(s)
+		}
 	}
 	if len(e.tm.cmps) == 0 {
 		return
@@ -396,6 +417,9 @@ func (e *diffEnv) timeTargets() []sensTarget {
 	looseDone := map[string]bool{}
 	for _, c := range e.tm.cmps {
 		c := c
+		if c.asof { // 按日期的关联的参照: difflookup.go 的 asOfTargets
+			continue
+		}
 		if f, ok := flip[c.node.Name]; ok {
 			out = append(out, sensTarget{desc: fmt.Sprintf("派生参数的边界(%s %s 写成 %s)", c.col, c.node.Name, f), mutate: func(p *core.Pipeline) *core.Pipeline {
 				return replaceIn(p, c.step, c.node, &core.Expr{Op: "cmp", Name: f, Args: c.node.Args})

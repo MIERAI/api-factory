@@ -20,6 +20,7 @@ import (
 	"apifactory/factory/core"
 	"apifactory/factory/sources"
 	"apifactory/factory/spec"
+	"apifactory/factory/where"
 )
 
 // lookupView: 关联的流水线步骤 + 加了关联列的目录(来源的表的列 + 每个关联加的列;keep 的列可空)。
@@ -106,9 +107,18 @@ func lookupStep(s *spec.Spec, cat *catalog, keys map[string][][]string, lib *cel
 		return false
 	}
 	shardOK := false
+	var preds []*core.Expr // 对方的列 = 常量(对方的行先按它筛)
 	for _, on := range l.On {
 		a, b, ok := strings.Cut(on, "=")
 		a, b = strings.TrimSpace(a), strings.TrimSpace(b)
+		if ok && isLiteral(b) {
+			e, err := where.Parse(on, WhereTypes(other))
+			if err != nil {
+				return st, nil, fmt.Errorf("%s: 条件 %q(对方的列 = 常量): %w", at, on, err)
+			}
+			preds = append(preds, e)
+			continue
+		}
 		if !ok || a == "" || b == "" || strings.Contains(b, "=") {
 			return st, nil, fmt.Errorf("%s: 条件 %q 写成 \"当前行的列 = %s 的列\"", at, on, l.Table)
 		}
@@ -123,7 +133,43 @@ func lookupStep(s *spec.Spec, cat *catalog, keys map[string][][]string, lib *cel
 		}
 		st.On = append(st.On, core.JoinKey{Col: a, Key: b})
 	}
+	switch len(preds) {
+	case 0:
+	case 1:
+		st.Pred = preds[0]
+	default:
+		st.Pred = core.And(preds...)
+	}
+	if len(st.On) == 0 {
+		return st, nil, fmt.Errorf("%s: 条件里要有 \"当前行的列 = %s 的列\"(只有常量的条件不是关联)", at, l.Table)
+	}
+	if a := l.AsOf; a != nil {
+		if !has(other, a.Start) {
+			return st, nil, fmt.Errorf("%s: 按日期的开始 %s 不是 %s 的列", at, a.Start, l.Table)
+		}
+		if a.End != "" && !has(other, a.End) {
+			return st, nil, fmt.Errorf("%s: 按日期的结束 %s 不是 %s 的列", at, a.End, l.Table)
+		}
+		var ref *core.Expr
+		switch {
+		case a.Ref == "今天":
+			ref = core.Today(whereOpt(s, table).Zone)
+		case a.Ref == "现在":
+			ref = core.Now()
+		case has(cols, a.Ref):
+			ref = core.Col(a.Ref)
+		default:
+			return st, nil, fmt.Errorf("%s: 按日期的参照 %s 不是当前行的列(也不是 今天 / 现在)", at, a.Ref)
+		}
+		st.AsOf = &core.AsOf{Start: a.Start, End: a.End, EndIn: a.EndIn, Ref: ref}
+	}
 	onKeys := map[string]bool{}
+	for c := range core.PinnedCols(st.Pred) {
+		onKeys[c] = true
+	}
+	if st.AsOf != nil {
+		onKeys[st.AsOf.Start] = true
+	}
 	var keyList []string
 	for _, k := range st.On {
 		onKeys[k.Key] = true
@@ -328,4 +374,18 @@ func relatedSource(s *spec.Spec, st *core.Step, cat *catalog, lib *cells.Library
 	}
 	st.Source = steps
 	return nil
+}
+
+// isLiteral: 条件的右边是常量('文本' / 数字): "对方的列 = 常量"。
+func isLiteral(s string) bool {
+	if s == "" {
+		return false
+	}
+	if s[0] == '\'' {
+		return true
+	}
+	if s[0] == '-' {
+		s = s[1:]
+	}
+	return s != "" && s[0] >= '0' && s[0] <= '9'
 }

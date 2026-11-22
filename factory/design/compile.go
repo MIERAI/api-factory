@@ -729,6 +729,14 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 			whereTime = whereTime || where.UsesTime(w)
 		}
 	}
+	for _, l := range lookups { // 按日期的参照是 今天 / 现在
+		whereTime = whereTime || (l.AsOf != nil && (l.AsOf.Ref == "今天" || l.AsOf.Ref == "现在"))
+	}
+	for _, n := range nests {
+		for _, l := range n.Lookups {
+			whereTime = whereTime || (l.AsOf != nil && (l.AsOf.Ref == "今天" || l.AsOf.Ref == "现在"))
+		}
+	}
 	if whereTime {
 		usesNow = true
 		s.Datasource.TimeZone = c.d.TZ
@@ -1052,7 +1060,7 @@ func (c *ctx) lookups(a *API, table string, e *errs) []spec.Lookup {
 			e.add(l.Line, "关联 %s: 只能用于有数据来源的查询(%s 不行)", l.Name, a.Exit.Name)
 			continue
 		}
-		sl := spec.Lookup{Name: l.Name, Table: l.Table, On: l.On, Missing: l.Missing}
+		sl := spec.Lookup{Name: l.Name, Table: l.Table, On: l.On, Missing: l.Missing, AsOf: l.AsOf}
 		for _, col := range l.Columns {
 			if t := c.d.Tables[l.Table]; t != nil && t.ColEnum[col[1]] != "" {
 				e.add(l.Line, "关联 %s: 列 %s(%s.%s)是枚举,关联的列还不能是枚举", l.Name, col[0], l.Table, col[1])
@@ -1076,7 +1084,7 @@ func (c *ctx) children(a *API, table string, e *errs) ([]spec.Nest, []spec.Child
 		}
 		sn := spec.Nest{Name: n.Name, Table: n.Table, On: n.On, Where: n.Where, OrderBy: n.OrderBy, Max: n.Max}
 		for _, l := range n.Lookups {
-			sl := spec.Lookup{Name: l.Name, Table: l.Table, On: l.On, Missing: l.Missing}
+			sl := spec.Lookup{Name: l.Name, Table: l.Table, On: l.On, Missing: l.Missing, AsOf: l.AsOf}
 			for _, col := range l.Columns {
 				if t := c.d.Tables[l.Table]; t != nil && t.ColEnum[col[1]] != "" {
 					e.add(l.Line, "嵌套 %s 的关联 %s: 列 %s(%s.%s)是枚举,关联的列还不能是枚举", n.Name, l.Name, col[0], l.Table, col[1])

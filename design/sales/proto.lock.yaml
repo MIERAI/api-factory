@@ -57,6 +57,12 @@
     ListCurrentPricesResponse:
         next_page_token: 2
         store_prices: 1
+    ListDailySalesCostRatesRequest:
+        from: 2
+        store_code: 1
+        to: 3
+    ListDailySalesCostRatesResponse:
+        daily_sales: 1
     ListDiscountedSalesRequest:
         page_size: 1
         page_token: 2
@@ -169,6 +175,12 @@
         price: 3
         product_code: 1
         snap_ymd: 2
+    SaleWithCostRate:
+        amount: 2
+        cost_rate: 3
+        current_cost_rate: 5
+        rate_from: 4
+        sales_date: 1
     StoreDaySale:
         amount: 2
         closed_on: 4

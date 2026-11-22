@@ -2644,8 +2644,14 @@ func (e *diffEnv) pickReduced(reqs []core.Params) (int, bool) {
 
 // evalPerDB: 不依赖请求的求值(来源部分): 分库时每个库分别算,结果合在一起(版本的选择在各个库里分别进行)。
 func (e *diffEnv) evalPerDB(p *core.Pipeline) (*core.Result, error) {
+	ps := core.Params{}
+	if p.UsesNow() && len(e.tm.probes) > 0 { // 来源里用到 now(按日期的关联,参照 = 今天): 第一个探针的时刻
+		if v, ok := e.tm.probes[0][core.NowParam]; ok {
+			ps[core.NowParam] = v
+		}
+	}
 	if e.api.Shard == nil {
-		return core.Eval(p, e.tablesIn(nil, e.rows), core.Params{})
+		return core.Eval(p, e.tablesIn(nil, e.rows), ps)
 	}
 	parts := map[*pgx.Conn][]core.Row{}
 	var order []*pgx.Conn
@@ -2658,7 +2664,7 @@ func (e *diffEnv) evalPerDB(p *core.Pipeline) (*core.Result, error) {
 	}
 	out := &core.Result{}
 	for _, c := range order {
-		res, err := core.Eval(p, e.tablesIn(c, parts[c]), core.Params{})
+		res, err := core.Eval(p, e.tablesIn(c, parts[c]), ps)
 		if err != nil {
 			return nil, err
 		}

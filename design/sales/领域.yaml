@@ -37,6 +37,16 @@
       product_code: 商品コード
       snap_ymd:     { 说明: スナップショット日(YYYYMMDD の整数。取込のバグで存在しない日付が混ざることがある), 编码: YYYYMMDD }
       price:        売価
+  store_cost_rates:
+    说明: 店舗の原価率の履歴(区分ごと)。改定すると行が増える
+    主键: [store_code, rate_kind, valid_from]
+    更新方式: 可以更新
+    列:
+      store_code: 店舗コード
+      rate_kind:  区分(STD = 通常 / SALE = 特売)
+      valid_from: 適用開始日(含)
+      valid_to:   適用最終日(含;空 = 次の改定まで)
+      cost_rate:  原価率
   price_changes:
     说明: 売価変更の指示(店舗 × 商品 × 指示日)
     主键: [store_code, product_code, proc_date]

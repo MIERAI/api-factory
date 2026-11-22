@@ -45,6 +45,9 @@ const (
 	// SaleServiceListCurrentPricesProcedure is the fully-qualified name of the SaleService's
 	// ListCurrentPrices RPC.
 	SaleServiceListCurrentPricesProcedure = "/factory.sales.v1.SaleService/ListCurrentPrices"
+	// SaleServiceListDailySalesCostRatesProcedure is the fully-qualified name of the SaleService's
+	// ListDailySalesCostRates RPC.
+	SaleServiceListDailySalesCostRatesProcedure = "/factory.sales.v1.SaleService/ListDailySalesCostRates"
 	// SaleServiceListDiscountedSalesProcedure is the fully-qualified name of the SaleService's
 	// ListDiscountedSales RPC.
 	SaleServiceListDiscountedSalesProcedure = "/factory.sales.v1.SaleService/ListDiscountedSales"
@@ -103,6 +106,8 @@ type SaleServiceClient interface {
 	GetPriceChangeSummary(context.Context, *connect.Request[v1.GetPriceChangeSummaryRequest]) (*connect.Response[v1.GetPriceChangeSummaryResponse], error)
 	// 店舗の全商品について、基準日までに始まった売価のうち最新の 1 件をページごとに返す
 	ListCurrentPrices(context.Context, *connect.Request[v1.ListCurrentPricesRequest]) (*connect.Response[v1.ListCurrentPricesResponse], error)
+	// 店舗の売上を from〜to(両端を含む)で日付順に返す。各日に適用されていた通常の原価率と、今日の通常の原価率をつける
+	ListDailySalesCostRates(context.Context, *connect.Request[v1.ListDailySalesCostRatesRequest]) (*connect.Response[v1.ListDailySalesCostRatesResponse], error)
 	// 売上日を指定して、値引きのあった店舗の売上を売上金額の大きい順に返す(分页)
 	ListDiscountedSales(context.Context, *connect.Request[v1.ListDiscountedSalesRequest]) (*connect.Response[v1.ListDiscountedSalesResponse], error)
 	// 店舗と指示日を指定して、売価が実際に変わる売価変更の指示を返す
@@ -164,6 +169,12 @@ func NewSaleServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			httpClient,
 			baseURL+SaleServiceListCurrentPricesProcedure,
 			connect.WithSchema(saleServiceMethods.ByName("ListCurrentPrices")),
+			connect.WithClientOptions(opts...),
+		),
+		listDailySalesCostRates: connect.NewClient[v1.ListDailySalesCostRatesRequest, v1.ListDailySalesCostRatesResponse](
+			httpClient,
+			baseURL+SaleServiceListDailySalesCostRatesProcedure,
+			connect.WithSchema(saleServiceMethods.ByName("ListDailySalesCostRates")),
 			connect.WithClientOptions(opts...),
 		),
 		listDiscountedSales: connect.NewClient[v1.ListDiscountedSalesRequest, v1.ListDiscountedSalesResponse](
@@ -270,6 +281,7 @@ type saleServiceClient struct {
 	getDailySalesSummary      *connect.Client[v1.GetDailySalesSummaryRequest, v1.GetDailySalesSummaryResponse]
 	getPriceChangeSummary     *connect.Client[v1.GetPriceChangeSummaryRequest, v1.GetPriceChangeSummaryResponse]
 	listCurrentPrices         *connect.Client[v1.ListCurrentPricesRequest, v1.ListCurrentPricesResponse]
+	listDailySalesCostRates   *connect.Client[v1.ListDailySalesCostRatesRequest, v1.ListDailySalesCostRatesResponse]
 	listDiscountedSales       *connect.Client[v1.ListDiscountedSalesRequest, v1.ListDiscountedSalesResponse]
 	listEffectivePriceChanges *connect.Client[v1.ListEffectivePriceChangesRequest, v1.ListEffectivePriceChangesResponse]
 	listPrevMonthLastPrices   *connect.Client[v1.ListPrevMonthLastPricesRequest, v1.ListPrevMonthLastPricesResponse]
@@ -301,6 +313,11 @@ func (c *saleServiceClient) GetPriceChangeSummary(ctx context.Context, req *conn
 // ListCurrentPrices calls factory.sales.v1.SaleService.ListCurrentPrices.
 func (c *saleServiceClient) ListCurrentPrices(ctx context.Context, req *connect.Request[v1.ListCurrentPricesRequest]) (*connect.Response[v1.ListCurrentPricesResponse], error) {
 	return c.listCurrentPrices.CallUnary(ctx, req)
+}
+
+// ListDailySalesCostRates calls factory.sales.v1.SaleService.ListDailySalesCostRates.
+func (c *saleServiceClient) ListDailySalesCostRates(ctx context.Context, req *connect.Request[v1.ListDailySalesCostRatesRequest]) (*connect.Response[v1.ListDailySalesCostRatesResponse], error) {
+	return c.listDailySalesCostRates.CallUnary(ctx, req)
 }
 
 // ListDiscountedSales calls factory.sales.v1.SaleService.ListDiscountedSales.
@@ -391,6 +408,8 @@ type SaleServiceHandler interface {
 	GetPriceChangeSummary(context.Context, *connect.Request[v1.GetPriceChangeSummaryRequest]) (*connect.Response[v1.GetPriceChangeSummaryResponse], error)
 	// 店舗の全商品について、基準日までに始まった売価のうち最新の 1 件をページごとに返す
 	ListCurrentPrices(context.Context, *connect.Request[v1.ListCurrentPricesRequest]) (*connect.Response[v1.ListCurrentPricesResponse], error)
+	// 店舗の売上を from〜to(両端を含む)で日付順に返す。各日に適用されていた通常の原価率と、今日の通常の原価率をつける
+	ListDailySalesCostRates(context.Context, *connect.Request[v1.ListDailySalesCostRatesRequest]) (*connect.Response[v1.ListDailySalesCostRatesResponse], error)
 	// 売上日を指定して、値引きのあった店舗の売上を売上金額の大きい順に返す(分页)
 	ListDiscountedSales(context.Context, *connect.Request[v1.ListDiscountedSalesRequest]) (*connect.Response[v1.ListDiscountedSalesResponse], error)
 	// 店舗と指示日を指定して、売価が実際に変わる売価変更の指示を返す
@@ -448,6 +467,12 @@ func NewSaleServiceHandler(svc SaleServiceHandler, opts ...connect.HandlerOption
 		SaleServiceListCurrentPricesProcedure,
 		svc.ListCurrentPrices,
 		connect.WithSchema(saleServiceMethods.ByName("ListCurrentPrices")),
+		connect.WithHandlerOptions(opts...),
+	)
+	saleServiceListDailySalesCostRatesHandler := connect.NewUnaryHandler(
+		SaleServiceListDailySalesCostRatesProcedure,
+		svc.ListDailySalesCostRates,
+		connect.WithSchema(saleServiceMethods.ByName("ListDailySalesCostRates")),
 		connect.WithHandlerOptions(opts...),
 	)
 	saleServiceListDiscountedSalesHandler := connect.NewUnaryHandler(
@@ -554,6 +579,8 @@ func NewSaleServiceHandler(svc SaleServiceHandler, opts ...connect.HandlerOption
 			saleServiceGetPriceChangeSummaryHandler.ServeHTTP(w, r)
 		case SaleServiceListCurrentPricesProcedure:
 			saleServiceListCurrentPricesHandler.ServeHTTP(w, r)
+		case SaleServiceListDailySalesCostRatesProcedure:
+			saleServiceListDailySalesCostRatesHandler.ServeHTTP(w, r)
 		case SaleServiceListDiscountedSalesProcedure:
 			saleServiceListDiscountedSalesHandler.ServeHTTP(w, r)
 		case SaleServiceListEffectivePriceChangesProcedure:
@@ -605,6 +632,10 @@ func (UnimplementedSaleServiceHandler) GetPriceChangeSummary(context.Context, *c
 
 func (UnimplementedSaleServiceHandler) ListCurrentPrices(context.Context, *connect.Request[v1.ListCurrentPricesRequest]) (*connect.Response[v1.ListCurrentPricesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.sales.v1.SaleService.ListCurrentPrices is not implemented"))
+}
+
+func (UnimplementedSaleServiceHandler) ListDailySalesCostRates(context.Context, *connect.Request[v1.ListDailySalesCostRatesRequest]) (*connect.Response[v1.ListDailySalesCostRatesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.sales.v1.SaleService.ListDailySalesCostRates is not implemented"))
 }
 
 func (UnimplementedSaleServiceHandler) ListDiscountedSales(context.Context, *connect.Request[v1.ListDiscountedSalesRequest]) (*connect.Response[v1.ListDiscountedSalesResponse], error) {
