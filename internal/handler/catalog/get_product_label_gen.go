@@ -7,10 +7,10 @@ import (
 	"context"
 
 	"connectrpc.com/connect"
+	"github.com/MIERAI/api-factory-runtime/apierr"
 
 	"apifactory/gen/db"
 	catalogv1 "apifactory/gen/factory/catalog/v1"
-	"apifactory/platform/apierr"
 )
 
 // GetProductLabel 商品コードとラベルコードを指定して、ラベルの現在の文言を返す。なければ found = false

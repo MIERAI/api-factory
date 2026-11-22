@@ -7,8 +7,8 @@ package shop
 import (
 	"apifactory/gen/db"
 	"apifactory/gen/factory/shop/v1/shopv1connect"
-	"apifactory/platform/paging"
-	"apifactory/platform/shard"
+	"github.com/MIERAI/api-factory-runtime/paging"
+	"github.com/MIERAI/api-factory-runtime/shard"
 )
 
 // Handler 实现 shopv1connect.ShopServiceHandler。

@@ -186,7 +186,7 @@ func (t *genCtx) expectCheck(field string, want any) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		t.use("apifactory/platform/testkit", "")
+		t.use("github.com/MIERAI/api-factory-runtime/testkit", "")
 		return fmt.Sprintf("\t\ttestkit.MatchField(t, res, %q, %s)\n", field, "`"+string(b)+"`"), nil
 	}
 	if s, ok := want.(string); ok && s == "$absent" {

@@ -7,10 +7,10 @@ import (
 	"context"
 
 	"connectrpc.com/connect"
+	"github.com/MIERAI/api-factory-runtime/conv"
 
 	"apifactory/gen/db"
 	salesv1 "apifactory/gen/factory/sales/v1"
-	"apifactory/platform/conv"
 )
 
 // ListTopStores 売上日を指定して、売上金額の上位 3 店を返す

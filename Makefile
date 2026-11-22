@@ -69,7 +69,7 @@ guard:            ## ④ 路径闸门
 	@$(FACTORY) guard
 
 test:             ## 单元测试(含工厂生成的 enum / 逻辑样例测试)
-	@go test ./internal/... ./platform/...
+	@go test ./internal/...
 
 accept: build test  ## 验收(ACCEPT_SPECS 可限定为某个式样书目录;SEEDS=",s1,s2" 多个种子同时跑;SERIAL=1 串行)
 ifdef SERIAL

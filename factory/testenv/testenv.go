@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"apifactory/platform/shard"
+	"github.com/MIERAI/api-factory-runtime/shard"
 )
 
 // PlanAgnostic 让被测服务器的 DB 会话不使用索引扫描。
@@ -40,7 +40,7 @@ func PlanAgnostic(databaseURL string) string {
 // 所以: 服务器进程退出了就换端口重试;健康之后确认进程还活着;日志按端口分开。
 func WithServer(ctx context.Context, serverBin, databaseURL, logPath string, cmd []string) error {
 	env := append(os.Environ(), "DATABASE_URL="+PlanAgnostic(databaseURL))
-	if os.Getenv("AUTH_MODE") == "" { // 测试: 不认证(认证本身由 platform/server 的单元测试测)
+	if os.Getenv("AUTH_MODE") == "" { // 测试: 不认证(认证本身由 api-factory-runtime 的 server 包的单元测试测)
 		env = append(env, "AUTH_MODE=none")
 	}
 	if spec := os.Getenv("FACTORY_SHARDS"); spec != "" { // 分库也一样不用索引扫描

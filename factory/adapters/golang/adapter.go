@@ -182,8 +182,8 @@ package {{.Domain}}
 import (
 	"{{.ConnectPath}}"
 	"apifactory/gen/db"
-	"apifactory/platform/paging"
-	"apifactory/platform/shard"
+	"github.com/MIERAI/api-factory-runtime/paging"
+	"github.com/MIERAI/api-factory-runtime/shard"
 )
 
 // Handler 实现 {{.ConnectPkg}}.{{.Service}}Handler。
@@ -219,7 +219,7 @@ import (
 	"connectrpc.com/connect"
 
 	"apifactory/gen/db"
-	"apifactory/platform/server"
+	"github.com/MIERAI/api-factory-runtime/server"
 {{- range .}}
 	"{{.ConnectPath}}"
 	{{.Domain}}handler "{{.HandlerPath}}"

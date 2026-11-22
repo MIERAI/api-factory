@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/MIERAI/api-factory-runtime/conv"
 
 	"apifactory/gen/db"
 	salesv1 "apifactory/gen/factory/sales/v1"
-	"apifactory/platform/conv"
 )
 
 // getDailySalesSummaryRow: getDailySalesSummaryLogic 的输入行(enum 列已按领域层转换成 proto enum)。

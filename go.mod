@@ -7,6 +7,7 @@ require (
 	buf.build/go/protovalidate v1.4.0
 	connectrpc.com/connect v1.21.1
 	connectrpc.com/validate v0.9.0
+	github.com/MIERAI/api-factory-runtime v0.1.0
 	github.com/bmatcuk/doublestar/v4 v4.10.4
 	github.com/jackc/pgx/v5 v5.13.0
 	github.com/pressly/goose/v3 v3.29.0

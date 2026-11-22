@@ -7,8 +7,8 @@ package catalog
 import (
 	"apifactory/gen/db"
 	"apifactory/gen/factory/catalog/v1/catalogv1connect"
-	"apifactory/platform/paging"
-	"apifactory/platform/shard"
+	"github.com/MIERAI/api-factory-runtime/paging"
+	"github.com/MIERAI/api-factory-runtime/shard"
 )
 
 // Handler 实现 catalogv1connect.CatalogServiceHandler。

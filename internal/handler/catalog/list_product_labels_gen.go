@@ -7,10 +7,10 @@ import (
 	"context"
 
 	"connectrpc.com/connect"
+	"github.com/MIERAI/api-factory-runtime/apierr"
 
 	"apifactory/gen/db"
 	catalogv1 "apifactory/gen/factory/catalog/v1"
-	"apifactory/platform/apierr"
 )
 
 // ListProductLabels 商品コードを指定して、その商品のラベル(既定のラベルを含む)の現在の値を返す

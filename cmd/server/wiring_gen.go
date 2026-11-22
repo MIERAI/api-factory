@@ -14,7 +14,7 @@ import (
 	jobshandler "apifactory/internal/handler/jobs"
 	saleshandler "apifactory/internal/handler/sales"
 	shophandler "apifactory/internal/handler/shop"
-	"apifactory/platform/server"
+	"github.com/MIERAI/api-factory-runtime/server"
 )
 
 func services(deps server.Deps, opts ...connect.HandlerOption) []server.Service {
