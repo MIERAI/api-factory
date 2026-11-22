@@ -1,0 +1,22 @@
+# ============================================================================
+# 审查记录: 这个文件由工厂写入,不用自己写(factory answer)。
+# ============================================================================
+问答:
+
+  - 问题: "文档已经批准、进入 PUBLISHING 之后,又收到评审人的回答(review.approved 或 review.rejected),要忽略还是拒绝(进 DLQ)?"
+    选项: ["批准忽略,驳回拒绝", "都忽略", "都拒绝(保持例子 5 的规则)"]
+    回答: "都忽略"
+    补充规则: { 情况: "文档在 PUBLISHING 时又收到 review.approved / review.rejected", 结果: "忽略(不改文档,不发消息)" }
+    来自: "DocumentReview 的审查 2026-11-23 20261123-005619-default-approvals.document-review"
+
+  - 问题: "提交已经超过 1 小时、才到的批准(例: 10:59 提交 → 11:59:30 收到 review.approved)怎么处理?"
+    选项: ["保持现在的行为", "已经过期的文档收到回答 → 拒绝(进 DLQ)", "超过期限一律不接受(改成 AI 实现)"]
+    回答: "保持现在的行为"
+    补充规则: { 情况: "提交超过 1 小时后才收到 review.approved / review.rejected", 结果: "文档还在 REVIEWING(期限的扫描还没处理)→ 按正常转移处理;已经是 EXPIRED → 忽略(不改文档,不发消息)" }
+    来自: "DocumentReview 的审查 2026-11-23 20261123-005619-default-approvals.document-review"
+
+  - 问题: "文档在审批中、评审人(document_reviewers)被改掉时,重发的 review.request 用哪些评审人?评审人被删到 0 人时怎么办?"
+    选项: ["保持现在的行为", "提交之后评审人不能改"]
+    回答: "提交之后评审人不能改"
+    补充规则: { 情况: "文档已经提交", 结果: "document_reviewers 是只追加的表(工厂不生成更新 / 删除它的写接口),只由 SubmitDocument 和文档一起写入;重发的 review.request 用提交时的评审人(按评审人 id 的顺序),一定是 1~10 人" }
+    来自: "DocumentReview 的审查 2026-11-23 20261123-005619-default-approvals.document-review"

@@ -117,6 +117,8 @@ behavior:
       then: 写文档(审批中、版本 1)和评审人,发出 review.request(评审人按请求里的顺序)
     - when: 评审人重复
       then: 参数错误,什么都不写
+    - when: 同样的标题和评审人被提交了多次
+      then: 每次都新建一个文档(文档号不同),每次都发出 review.request;重复提交不算错误,由调用方自己避免
 acceptance:
     fixtures:
         document_reviewers: []
@@ -182,4 +184,6 @@ acceptance:
             unchanged: true
           emitted: []
 logic_examples: []
-review_decisions: []
+review_decisions:
+    - question: 调用方提交后没收到回复(例如网络超时)又提交了一次同样的请求(同一个标题、同样的评审人)时,应该建两个文档、发两次 review.request,还是只算一次?
+      decision: 保持现在的行为:每次提交都是新文档

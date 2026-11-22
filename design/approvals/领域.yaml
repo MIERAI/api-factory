@@ -22,9 +22,9 @@
       submitted_at: 提交时间
       entered_at:   进入当前状态的时间
   document_reviewers:
-    说明: 一个文档的评审人
+    说明: 一个文档的评审人(提交时和文档一起写入,之后不改)
     主键: [doc_id, reviewer]
-    更新方式: 可以更新
+    更新方式: 只追加
     列:
       doc_id:   文档号
       reviewer: 评审人 id(2~32 个字符)

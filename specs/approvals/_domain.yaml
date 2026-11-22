@@ -6,7 +6,7 @@ entities:
         natural_key:
             - doc_id
             - reviewer
-        policy: mutable
+        policy: versioned
         columns: {}
         invariants: []
     documents:

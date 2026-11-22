@@ -283,6 +283,12 @@ behavior:
       then: 重发 publish.request(之后每 1 分钟一次),没有期限(发布是幂等的,一直重发到完成)
     - when: 重发引起的第二个回答、或者结论之后才到的回答
       then: 忽略(不改文档,不发消息)
+    - when: 文档在 PUBLISHING 时又收到 review.approved / review.rejected
+      then: 忽略(不改文档,不发消息)
+    - when: 提交超过 1 小时后才收到 review.approved / review.rejected
+      then: 文档还在 REVIEWING(期限的扫描还没处理)→ 按正常转移处理;已经是 EXPIRED → 忽略(不改文档,不发消息)
+    - when: 文档已经提交
+      then: document_reviewers 是只追加的表(工厂不生成更新 / 删除它的写接口),只由 SubmitDocument 和文档一起写入;重发的 review.request 用提交时的评审人(按评审人 id 的顺序),一定是 1~10 人
 acceptance:
     fixtures:
         document_reviewers:
@@ -555,4 +561,10 @@ acceptance:
                 doc_id: 1
           timeout: true
 logic_examples: []
-review_decisions: []
+review_decisions:
+    - question: 文档已经批准、进入 PUBLISHING 之后,又收到评审人的回答(review.approved 或 review.rejected),要忽略还是拒绝(进 DLQ)?
+      decision: 都忽略
+    - question: '提交已经超过 1 小时、才到的批准(例: 10:59 提交 → 11:59:30 收到 review.approved)怎么处理?'
+      decision: 保持现在的行为
+    - question: 文档在审批中、评审人(document_reviewers)被改掉时,重发的 review.request 用哪些评审人?评审人被删到 0 人时怎么办?
+      decision: 提交之后评审人不能改
