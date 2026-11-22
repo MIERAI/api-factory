@@ -105,6 +105,12 @@ func Eval(p *Pipeline, tables map[string][]Row, params Params) (*Result, error) 
 			rows = out
 		case "lookup":
 			schema, rows = evalLookup(st, schema, rows, tables[st.Table])
+		case "nest", "child_agg":
+			var err error
+			schema, rows, err = p.evalChildren(st, schema, rows, tables[st.Table], params)
+			if err != nil {
+				return nil, err
+			}
 		case "sort":
 			sortRows(rows, st.Order)
 			for i := 1; i < len(rows); i++ {
@@ -495,6 +501,29 @@ func Canonical(v any) string {
 		return strconv.FormatBool(x)
 	case time.Time:
 		return x.UTC().Format(time.RFC3339Nano)
+	case Children: // 子行: 每行的列按名字排序(行里的列是 map)。上限不算(从 Postgres 读回的值不知道上限)
+		var b strings.Builder
+		b.WriteString("[")
+		for i, r := range x.Rows {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			keys := make([]string, 0, len(r))
+			for k := range r {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			b.WriteString("{")
+			for j, k := range keys {
+				if j > 0 {
+					b.WriteString(" ")
+				}
+				b.WriteString(k + "=" + Canonical(r[k]))
+			}
+			b.WriteString("}")
+		}
+		b.WriteString("]")
+		return b.String()
 	}
 	b, _ := json.Marshal(v)
 	return string(b)
@@ -535,6 +564,76 @@ func FromPGText(s *string, k Kind) (any, error) {
 		return nil, fmt.Errorf("timestamp %q", *s)
 	}
 	return castText(*s, k)
+}
+
+// FromPGTyped: 和 FromPGText 一样,另外认 rows(nest 的子行的 JSON,按 t.Fields 的类型还原)。
+func FromPGTyped(s *string, t Type) (any, error) {
+	if t.Kind != Rows {
+		return FromPGText(s, t.Kind)
+	}
+	if s == nil {
+		return nil, nil
+	}
+	rows, err := ChildRowsFromJSON([]byte(*s), t.Fields)
+	if err != nil {
+		return nil, err
+	}
+	return Children{Rows: rows, Max: -1}, nil
+}
+
+// ChildRowsFromJSON: 子行的 JSON(核心的 API 表示: 十进制 = 文本,时间 = UTC 的 RFC3339 文本,日期 = YYYY-MM-DD)→ 行。
+// 和适配器扫描子行用的是同一种表示(SQL 后端的 jsonValueSQL)。JSON 数字只允许整数(十进制如果变成了 JSON 数字 → 报错)。
+func ChildRowsFromJSON(raw []byte, fields []NamedType) ([]Row, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var items []map[string]any
+	if err := dec.Decode(&items); err != nil {
+		return nil, fmt.Errorf("子行的 JSON: %w", err)
+	}
+	if items == nil {
+		return nil, fmt.Errorf("子行的 JSON: 不是数组: %s", raw)
+	}
+	out := make([]Row, 0, len(items))
+	for _, it := range items {
+		r := Row{}
+		for _, f := range fields {
+			v, ok := it[f.Name]
+			if !ok {
+				return nil, fmt.Errorf("子行的 JSON: 没有键 %s", f.Name)
+			}
+			if v == nil {
+				r[f.Name] = nil
+				continue
+			}
+			var err error
+			switch x := v.(type) {
+			case json.Number:
+				if f.Type.Kind != Int32 && f.Type.Kind != Int64 {
+					return nil, fmt.Errorf("子行的 JSON: %s 是 %s,不能是 JSON 数字 %s", f.Name, f.Type.Kind, x)
+				}
+				r[f.Name], err = castText(string(x), f.Type.Kind)
+			case bool:
+				if f.Type.Kind != Bool {
+					return nil, fmt.Errorf("子行的 JSON: %s 是 %s,不能是 bool", f.Name, f.Type.Kind)
+				}
+				r[f.Name] = x
+			case string:
+				switch f.Type.Kind {
+				case Text, Decimal, Date, Timestamp:
+					r[f.Name], err = castText(x, f.Type.Kind)
+				default:
+					return nil, fmt.Errorf("子行的 JSON: %s 是 %s,不能是文本 %q", f.Name, f.Type.Kind, x)
+				}
+			default:
+				return nil, fmt.Errorf("子行的 JSON: %s 的值 %T 不支持", f.Name, v)
+			}
+			if err != nil {
+				return nil, fmt.Errorf("子行的 JSON: %s: %w", f.Name, err)
+			}
+		}
+		out = append(out, r)
+	}
+	return out, nil
 }
 
 // Compare: 两个值的顺序(和排序一样的规则;NULL 最大)。验收的数据生成用。
@@ -607,4 +706,120 @@ func evalLookup(st Step, schema Schema, rows []Row, other []Row) (Schema, []Row)
 		}
 	}
 	return next, out
+}
+
+// childKey: 关联的键(规范文本)。任一列为 NULL → 没有键(NULL 和什么都不相等)。
+func childKey(r Row, on []JoinKey, side func(JoinKey) string) (string, bool) {
+	var b strings.Builder
+	for _, k := range on {
+		v := r[side(k)]
+		if v == nil {
+			return "", false
+		}
+		b.WriteString(Canonical(v))
+		b.WriteString("\x00")
+	}
+	return b.String(), true
+}
+
+// evalChildren: nest / child_agg。子表的行按关联的键建索引(键里有 NULL 的行不进索引),过滤 Pred,
+// nest: 按 Order 排序(并列而内容不同 → ErrAmbiguous),最多取 N+1 行;child_agg: 每个聚合(agg.go 的 evalAgg)。
+func (p *Pipeline) evalChildren(st Step, schema Schema, rows []Row, child []Row, params Params) (Schema, []Row, error) {
+	childSchema := Schema(st.Columns)
+	index := map[string][]Row{}
+	for _, c := range child {
+		if st.Pred != nil {
+			v, err := p.eval(st.Pred, c, childSchema, params)
+			if err != nil {
+				return nil, nil, err
+			}
+			if v != true {
+				continue
+			}
+		}
+		if k, ok := childKey(c, st.On, func(j JoinKey) string { return j.Key }); ok {
+			index[k] = append(index[k], c)
+		}
+	}
+	next := append(Schema(nil), schema...)
+	var fields Schema
+	if st.Kind == "nest" {
+		for _, t := range st.Take {
+			ct, _ := childSchema.Col(t.Col)
+			fields = append(fields, NamedType{t.Name, ct})
+		}
+		next = append(next, NamedType{st.As, Type{Kind: Rows, Fields: fields}})
+	} else {
+		for _, a := range st.Aggs {
+			var col *Type
+			if a.Col != "" {
+				t, _ := childSchema.Col(a.Col)
+				col = &t
+			}
+			t, err := AggType(a.Func, col, true)
+			if err != nil {
+				return nil, nil, err
+			}
+			next = append(next, NamedType{a.Name, t})
+		}
+	}
+	out := make([]Row, 0, len(rows))
+	for _, r := range rows {
+		var group []Row
+		if k, ok := childKey(r, st.On, func(j JoinKey) string { return j.Col }); ok {
+			group = append(group, index[k]...)
+		}
+		row := Row{}
+		for c, v := range r {
+			row[c] = v
+		}
+		if st.Kind == "nest" {
+			sortRows(group, st.Order)
+			for i := 1; i < len(group); i++ {
+				if compareRows(group[i-1], group[i], st.Order) == 0 && !sameRow(group[i-1], group[i]) {
+					return nil, nil, fmt.Errorf("%w: 子行的顺序 %v 有并列的行", ErrAmbiguous, st.Order)
+				}
+			}
+			if len(group) > st.N+1 {
+				group = group[:st.N+1]
+			}
+			list := make([]Row, 0, len(group))
+			for _, c := range group {
+				item := Row{}
+				for _, t := range st.Take {
+					item[t.Name] = c[t.Col]
+				}
+				list = append(list, item)
+			}
+			if len(list) == 0 && st.Mutant == "empty_null" {
+				row[st.As] = nil
+			} else {
+				row[st.As] = Children{Rows: list, Max: st.N}
+			}
+		} else {
+			for _, a := range st.Aggs {
+				var col Type
+				vals := make([]any, len(group))
+				if a.Col != "" {
+					col, _ = childSchema.Col(a.Col)
+					for i, c := range group {
+						vals[i] = c[a.Col]
+					}
+				}
+				v, err := evalAgg(a, vals, col)
+				if err != nil {
+					return nil, nil, err
+				}
+				switch {
+				case len(group) == 0 && a.Func == "sum" && st.Mutant == "sum_empty_null":
+					v = nil
+				case len(group) == 0 && a.Func == "count" && st.Mutant == "count_outer":
+					v = int64(1)
+				}
+				row[a.Name] = v
+			}
+		}
+		out = append(out, row)
+	}
+	return next, out, nil
 }

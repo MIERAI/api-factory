@@ -380,6 +380,7 @@ func TestCertification(t *testing.T) {
 		env.check(fmt.Sprintf("json_field 规范写法 %s %s", c.kind, c.val), p, nil)
 	}
 	certLookup(env, all)
+	certNest(env, all) // cert_nest_test.go
 	if !t.Failed() {
 		t.Logf("元件认证: %d 个用例全部一致", env.n)
 	}
@@ -609,7 +610,7 @@ func (e *certEnv) run(p *Pipeline, params Params) ([]string, *SQL, error) {
 		}
 		var parts []string
 		for i, c := range q.Columns {
-			parts = append(parts, c.Name+"="+canonicalText(vals[i], c.Type.Kind))
+			parts = append(parts, c.Name+"="+canonicalText(vals[i], c.Type))
 		}
 		out = append(out, strings.Join(parts, " "))
 	}
@@ -633,8 +634,8 @@ func sqlArg(v any) any {
 }
 
 // canonicalText: Postgres 的 ::text 输出 → 与 Canonical 相同的写法
-func canonicalText(s *string, k Kind) string {
-	v, err := FromPGText(s, k)
+func canonicalText(s *string, t Type) string {
+	v, err := FromPGTyped(s, t)
 	if err != nil {
 		return "!" + *s
 	}

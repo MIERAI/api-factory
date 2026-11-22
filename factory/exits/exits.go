@@ -147,6 +147,21 @@ func (e *Exit) RequestNames(p spec.Pattern) map[string]bool {
 	return out
 }
 
+// nestOver: 响应里的行有子行多于上限的嵌套(核心的 nest)→ 整个请求 FAILED_PRECONDITION(不截断)。
+func nestOver(rows []core.Row) bool {
+	for _, r := range rows {
+		if core.Overflow(r) {
+			return true
+		}
+	}
+	return false
+}
+
+// nestOverCase: 子行多于上限时的期待值。
+func nestOverCase(req map[string]any) (spec.Case, string, string) {
+	return spec.Case{Request: req, Expect: spec.Expect{Code: "FAILED_PRECONDITION", MessageContains: "too many"}}, "嵌套的子行超过上限", "nest_over"
+}
+
 // ItemsField: 响应里行的列表字段(Rows 的出口)。
 func ItemsField(api *ir.API, kind string) (string, error) {
 	name := ""

@@ -13,6 +13,7 @@ import (
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -24,6 +25,306 @@ const (
 	// Verify that runtime/protoimpl is sufficiently up-to-date.
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
+
+// 出荷の梱包(1 出荷に 0 個以上。梱包番号は出荷ごと)
+type ShipmentPackage struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 梱包番号(出荷ごとに 1 から)
+	PackageNo int32 `protobuf:"varint,1,opt,name=package_no,json=packageNo,proto3" json:"package_no,omitempty"`
+	// 追跡ラベル(英大文字 2 桁 + 数字 6 桁)
+	Label string `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`
+	// 梱包の重量 kg(十进制)
+	Weight string `protobuf:"bytes,3,opt,name=weight,proto3" json:"weight,omitempty"`
+	// 封緘時刻(未封緘は空)
+	SealedAt      *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=sealed_at,json=sealedAt,proto3" json:"sealed_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ShipmentPackage) Reset() {
+	*x = ShipmentPackage{}
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ShipmentPackage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ShipmentPackage) ProtoMessage() {}
+
+func (x *ShipmentPackage) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ShipmentPackage.ProtoReflect.Descriptor instead.
+func (*ShipmentPackage) Descriptor() ([]byte, []int) {
+	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *ShipmentPackage) GetPackageNo() int32 {
+	if x != nil {
+		return x.PackageNo
+	}
+	return 0
+}
+
+func (x *ShipmentPackage) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
+}
+
+func (x *ShipmentPackage) GetWeight() string {
+	if x != nil {
+		return x.Weight
+	}
+	return ""
+}
+
+func (x *ShipmentPackage) GetSealedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.SealedAt
+	}
+	return nil
+}
+
+// 出荷(1 出荷 1 行)
+type PackedShipment struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 出荷 ID
+	Id int64 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	// 倉庫コード
+	WarehouseCode string `protobuf:"bytes,2,opt,name=warehouse_code,json=warehouseCode,proto3" json:"warehouse_code,omitempty"`
+	// 封緘済みの梱包(重い順、同じ重さは梱包番号順。最大 3 個、超える出荷があると一覧ごとエラー)
+	Packages []*ShipmentPackage `protobuf:"bytes,3,rep,name=packages,proto3" json:"packages,omitempty"`
+	// 梱包の数(未封緘も含む。梱包なし = 0)
+	PackageCount int64 `protobuf:"varint,4,opt,name=package_count,json=packageCount,proto3" json:"package_count,omitempty"`
+	// 封緘済みの梱包の重量の合計 kg(なし = 0)
+	SealedWeight string `protobuf:"bytes,5,opt,name=sealed_weight,json=sealedWeight,proto3" json:"sealed_weight,omitempty"`
+	// 最初の封緘時刻(封緘済みの梱包が無いときは不设置)
+	FirstSealedAt *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=first_sealed_at,json=firstSealedAt,proto3" json:"first_sealed_at,omitempty"`
+	// 最後の封緘時刻(封緘済みの梱包が無いときは不设置)
+	LastSealedAt  *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=last_sealed_at,json=lastSealedAt,proto3" json:"last_sealed_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PackedShipment) Reset() {
+	*x = PackedShipment{}
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PackedShipment) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PackedShipment) ProtoMessage() {}
+
+func (x *PackedShipment) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PackedShipment.ProtoReflect.Descriptor instead.
+func (*PackedShipment) Descriptor() ([]byte, []int) {
+	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *PackedShipment) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *PackedShipment) GetWarehouseCode() string {
+	if x != nil {
+		return x.WarehouseCode
+	}
+	return ""
+}
+
+func (x *PackedShipment) GetPackages() []*ShipmentPackage {
+	if x != nil {
+		return x.Packages
+	}
+	return nil
+}
+
+func (x *PackedShipment) GetPackageCount() int64 {
+	if x != nil {
+		return x.PackageCount
+	}
+	return 0
+}
+
+func (x *PackedShipment) GetSealedWeight() string {
+	if x != nil {
+		return x.SealedWeight
+	}
+	return ""
+}
+
+func (x *PackedShipment) GetFirstSealedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.FirstSealedAt
+	}
+	return nil
+}
+
+func (x *PackedShipment) GetLastSealedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastSealedAt
+	}
+	return nil
+}
+
+// 出荷日の出荷を、封緘済みの梱包(重い順)と梱包の集計つきで返す
+type ListShipmentPackagesRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 每页件数。0 = 默认 20,最多 100
+	PageSize int32 `protobuf:"varint,1,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	// 上一页返回的 next_page_token(不透明的字符串)
+	PageToken string `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	// 出荷日
+	ShippedOn string `protobuf:"bytes,3,opt,name=shipped_on,json=shippedOn,proto3" json:"shipped_on,omitempty"`
+	// 倉庫コード(不指定 = 全倉庫)
+	WarehouseCode *string `protobuf:"bytes,4,opt,name=warehouse_code,json=warehouseCode,proto3,oneof" json:"warehouse_code,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListShipmentPackagesRequest) Reset() {
+	*x = ListShipmentPackagesRequest{}
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListShipmentPackagesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListShipmentPackagesRequest) ProtoMessage() {}
+
+func (x *ListShipmentPackagesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListShipmentPackagesRequest.ProtoReflect.Descriptor instead.
+func (*ListShipmentPackagesRequest) Descriptor() ([]byte, []int) {
+	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ListShipmentPackagesRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListShipmentPackagesRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+func (x *ListShipmentPackagesRequest) GetShippedOn() string {
+	if x != nil {
+		return x.ShippedOn
+	}
+	return ""
+}
+
+func (x *ListShipmentPackagesRequest) GetWarehouseCode() string {
+	if x != nil && x.WarehouseCode != nil {
+		return *x.WarehouseCode
+	}
+	return ""
+}
+
+// 出荷日の出荷を、封緘済みの梱包(重い順)と梱包の集計つきで返す
+type ListShipmentPackagesResponse struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Shipments []*PackedShipment      `protobuf:"bytes,1,rep,name=shipments,proto3" json:"shipments,omitempty"`
+	// 还有下一页时不为空
+	NextPageToken string `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListShipmentPackagesResponse) Reset() {
+	*x = ListShipmentPackagesResponse{}
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListShipmentPackagesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListShipmentPackagesResponse) ProtoMessage() {}
+
+func (x *ListShipmentPackagesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListShipmentPackagesResponse.ProtoReflect.Descriptor instead.
+func (*ListShipmentPackagesResponse) Descriptor() ([]byte, []int) {
+	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ListShipmentPackagesResponse) GetShipments() []*PackedShipment {
+	if x != nil {
+		return x.Shipments
+	}
+	return nil
+}
+
+func (x *ListShipmentPackagesResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
 
 // 出荷(1 出荷 1 行)
 type DayShipment struct {
@@ -46,7 +347,7 @@ type DayShipment struct {
 
 func (x *DayShipment) Reset() {
 	*x = DayShipment{}
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[0]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -58,7 +359,7 @@ func (x *DayShipment) String() string {
 func (*DayShipment) ProtoMessage() {}
 
 func (x *DayShipment) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[0]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -71,7 +372,7 @@ func (x *DayShipment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DayShipment.ProtoReflect.Descriptor instead.
 func (*DayShipment) Descriptor() ([]byte, []int) {
-	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{0}
+	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *DayShipment) GetId() int64 {
@@ -129,7 +430,7 @@ type ListShipmentsByDayRequest struct {
 
 func (x *ListShipmentsByDayRequest) Reset() {
 	*x = ListShipmentsByDayRequest{}
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[1]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -141,7 +442,7 @@ func (x *ListShipmentsByDayRequest) String() string {
 func (*ListShipmentsByDayRequest) ProtoMessage() {}
 
 func (x *ListShipmentsByDayRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[1]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -154,7 +455,7 @@ func (x *ListShipmentsByDayRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListShipmentsByDayRequest.ProtoReflect.Descriptor instead.
 func (*ListShipmentsByDayRequest) Descriptor() ([]byte, []int) {
-	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{1}
+	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ListShipmentsByDayRequest) GetShippedOn() string {
@@ -182,7 +483,7 @@ type ListShipmentsByDayResponse struct {
 
 func (x *ListShipmentsByDayResponse) Reset() {
 	*x = ListShipmentsByDayResponse{}
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[2]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -194,7 +495,7 @@ func (x *ListShipmentsByDayResponse) String() string {
 func (*ListShipmentsByDayResponse) ProtoMessage() {}
 
 func (x *ListShipmentsByDayResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[2]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -207,7 +508,7 @@ func (x *ListShipmentsByDayResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListShipmentsByDayResponse.ProtoReflect.Descriptor instead.
 func (*ListShipmentsByDayResponse) Descriptor() ([]byte, []int) {
-	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{2}
+	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ListShipmentsByDayResponse) GetShipments() []*DayShipment {
@@ -236,7 +537,7 @@ type RegionShipment struct {
 
 func (x *RegionShipment) Reset() {
 	*x = RegionShipment{}
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[3]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -248,7 +549,7 @@ func (x *RegionShipment) String() string {
 func (*RegionShipment) ProtoMessage() {}
 
 func (x *RegionShipment) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[3]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -261,7 +562,7 @@ func (x *RegionShipment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegionShipment.ProtoReflect.Descriptor instead.
 func (*RegionShipment) Descriptor() ([]byte, []int) {
-	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{3}
+	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *RegionShipment) GetId() int64 {
@@ -312,7 +613,7 @@ type ListShipmentsByRegionRequest struct {
 
 func (x *ListShipmentsByRegionRequest) Reset() {
 	*x = ListShipmentsByRegionRequest{}
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[4]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -324,7 +625,7 @@ func (x *ListShipmentsByRegionRequest) String() string {
 func (*ListShipmentsByRegionRequest) ProtoMessage() {}
 
 func (x *ListShipmentsByRegionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[4]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -337,7 +638,7 @@ func (x *ListShipmentsByRegionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListShipmentsByRegionRequest.ProtoReflect.Descriptor instead.
 func (*ListShipmentsByRegionRequest) Descriptor() ([]byte, []int) {
-	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{4}
+	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ListShipmentsByRegionRequest) GetShippedOn() string {
@@ -365,7 +666,7 @@ type ListShipmentsByRegionResponse struct {
 
 func (x *ListShipmentsByRegionResponse) Reset() {
 	*x = ListShipmentsByRegionResponse{}
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[5]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -377,7 +678,7 @@ func (x *ListShipmentsByRegionResponse) String() string {
 func (*ListShipmentsByRegionResponse) ProtoMessage() {}
 
 func (x *ListShipmentsByRegionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[5]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -390,7 +691,7 @@ func (x *ListShipmentsByRegionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListShipmentsByRegionResponse.ProtoReflect.Descriptor instead.
 func (*ListShipmentsByRegionResponse) Descriptor() ([]byte, []int) {
-	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{5}
+	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ListShipmentsByRegionResponse) GetShipments() []*RegionShipment {
@@ -417,7 +718,7 @@ type Shipment struct {
 
 func (x *Shipment) Reset() {
 	*x = Shipment{}
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[6]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -429,7 +730,7 @@ func (x *Shipment) String() string {
 func (*Shipment) ProtoMessage() {}
 
 func (x *Shipment) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[6]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -442,7 +743,7 @@ func (x *Shipment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Shipment.ProtoReflect.Descriptor instead.
 func (*Shipment) Descriptor() ([]byte, []int) {
-	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{6}
+	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Shipment) GetId() int64 {
@@ -490,7 +791,7 @@ type ListZonedShipmentsRequest struct {
 
 func (x *ListZonedShipmentsRequest) Reset() {
 	*x = ListZonedShipmentsRequest{}
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[7]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -502,7 +803,7 @@ func (x *ListZonedShipmentsRequest) String() string {
 func (*ListZonedShipmentsRequest) ProtoMessage() {}
 
 func (x *ListZonedShipmentsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[7]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -515,7 +816,7 @@ func (x *ListZonedShipmentsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListZonedShipmentsRequest.ProtoReflect.Descriptor instead.
 func (*ListZonedShipmentsRequest) Descriptor() ([]byte, []int) {
-	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{7}
+	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ListZonedShipmentsRequest) GetPageSize() int32 {
@@ -558,7 +859,7 @@ type ListZonedShipmentsResponse struct {
 
 func (x *ListZonedShipmentsResponse) Reset() {
 	*x = ListZonedShipmentsResponse{}
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[8]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -570,7 +871,7 @@ func (x *ListZonedShipmentsResponse) String() string {
 func (*ListZonedShipmentsResponse) ProtoMessage() {}
 
 func (x *ListZonedShipmentsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[8]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -583,7 +884,7 @@ func (x *ListZonedShipmentsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListZonedShipmentsResponse.ProtoReflect.Descriptor instead.
 func (*ListZonedShipmentsResponse) Descriptor() ([]byte, []int) {
-	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{8}
+	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ListZonedShipmentsResponse) GetShipments() []*Shipment {
@@ -604,7 +905,32 @@ var File_factory_logistics_v1_logistics_proto protoreflect.FileDescriptor
 
 const file_factory_logistics_v1_logistics_proto_rawDesc = "" +
 	"\n" +
-	"$factory/logistics/v1/logistics.proto\x12\x14factory.logistics.v1\x1a\x1bbuf/validate/validate.proto\"\x8d\x02\n" +
+	"$factory/logistics/v1/logistics.proto\x12\x14factory.logistics.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x97\x01\n" +
+	"\x0fShipmentPackage\x12\x1d\n" +
+	"\n" +
+	"package_no\x18\x01 \x01(\x05R\tpackageNo\x12\x14\n" +
+	"\x05label\x18\x02 \x01(\tR\x05label\x12\x16\n" +
+	"\x06weight\x18\x03 \x01(\tR\x06weight\x127\n" +
+	"\tsealed_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\bsealedAt\"\xda\x02\n" +
+	"\x0ePackedShipment\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12%\n" +
+	"\x0ewarehouse_code\x18\x02 \x01(\tR\rwarehouseCode\x12A\n" +
+	"\bpackages\x18\x03 \x03(\v2%.factory.logistics.v1.ShipmentPackageR\bpackages\x12#\n" +
+	"\rpackage_count\x18\x04 \x01(\x03R\fpackageCount\x12#\n" +
+	"\rsealed_weight\x18\x05 \x01(\tR\fsealedWeight\x12B\n" +
+	"\x0ffirst_sealed_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\rfirstSealedAt\x12@\n" +
+	"\x0elast_sealed_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\flastSealedAt\"\xde\x01\n" +
+	"\x1bListShipmentPackagesRequest\x12&\n" +
+	"\tpage_size\x18\x01 \x01(\x05B\t\xbaH\x06\x1a\x04\x18d(\x00R\bpageSize\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x02 \x01(\tR\tpageToken\x129\n" +
+	"\n" +
+	"shipped_on\x18\x03 \x01(\tB\x1a\xbaH\x17r\x152\x13^\\d{4}-\\d{2}-\\d{2}$R\tshippedOn\x12*\n" +
+	"\x0ewarehouse_code\x18\x04 \x01(\tH\x00R\rwarehouseCode\x88\x01\x01B\x11\n" +
+	"\x0f_warehouse_code\"\x8a\x01\n" +
+	"\x1cListShipmentPackagesResponse\x12B\n" +
+	"\tshipments\x18\x01 \x03(\v2$.factory.logistics.v1.PackedShipmentR\tshipments\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\x8d\x02\n" +
 	"\vDayShipment\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12%\n" +
 	"\x0ewarehouse_code\x18\x02 \x01(\tR\rwarehouseCode\x12*\n" +
@@ -660,8 +986,9 @@ const file_factory_logistics_v1_logistics_proto_rawDesc = "" +
 	"\v_zone_label\"\x82\x01\n" +
 	"\x1aListZonedShipmentsResponse\x12<\n" +
 	"\tshipments\x18\x01 \x03(\v2\x1e.factory.logistics.v1.ShipmentR\tshipments\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken2\x86\x03\n" +
-	"\x0fLogisticService\x12w\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken2\x85\x04\n" +
+	"\x0fLogisticService\x12}\n" +
+	"\x14ListShipmentPackages\x121.factory.logistics.v1.ListShipmentPackagesRequest\x1a2.factory.logistics.v1.ListShipmentPackagesResponse\x12w\n" +
 	"\x12ListShipmentsByDay\x12/.factory.logistics.v1.ListShipmentsByDayRequest\x1a0.factory.logistics.v1.ListShipmentsByDayResponse\x12\x80\x01\n" +
 	"\x15ListShipmentsByRegion\x122.factory.logistics.v1.ListShipmentsByRegionRequest\x1a3.factory.logistics.v1.ListShipmentsByRegionResponse\x12w\n" +
 	"\x12ListZonedShipments\x12/.factory.logistics.v1.ListZonedShipmentsRequest\x1a0.factory.logistics.v1.ListZonedShipmentsResponseB1Z/apifactory/gen/factory/logistics/v1;logisticsv1b\x06proto3"
@@ -678,33 +1005,45 @@ func file_factory_logistics_v1_logistics_proto_rawDescGZIP() []byte {
 	return file_factory_logistics_v1_logistics_proto_rawDescData
 }
 
-var file_factory_logistics_v1_logistics_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_factory_logistics_v1_logistics_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_factory_logistics_v1_logistics_proto_goTypes = []any{
-	(*DayShipment)(nil),                   // 0: factory.logistics.v1.DayShipment
-	(*ListShipmentsByDayRequest)(nil),     // 1: factory.logistics.v1.ListShipmentsByDayRequest
-	(*ListShipmentsByDayResponse)(nil),    // 2: factory.logistics.v1.ListShipmentsByDayResponse
-	(*RegionShipment)(nil),                // 3: factory.logistics.v1.RegionShipment
-	(*ListShipmentsByRegionRequest)(nil),  // 4: factory.logistics.v1.ListShipmentsByRegionRequest
-	(*ListShipmentsByRegionResponse)(nil), // 5: factory.logistics.v1.ListShipmentsByRegionResponse
-	(*Shipment)(nil),                      // 6: factory.logistics.v1.Shipment
-	(*ListZonedShipmentsRequest)(nil),     // 7: factory.logistics.v1.ListZonedShipmentsRequest
-	(*ListZonedShipmentsResponse)(nil),    // 8: factory.logistics.v1.ListZonedShipmentsResponse
+	(*ShipmentPackage)(nil),               // 0: factory.logistics.v1.ShipmentPackage
+	(*PackedShipment)(nil),                // 1: factory.logistics.v1.PackedShipment
+	(*ListShipmentPackagesRequest)(nil),   // 2: factory.logistics.v1.ListShipmentPackagesRequest
+	(*ListShipmentPackagesResponse)(nil),  // 3: factory.logistics.v1.ListShipmentPackagesResponse
+	(*DayShipment)(nil),                   // 4: factory.logistics.v1.DayShipment
+	(*ListShipmentsByDayRequest)(nil),     // 5: factory.logistics.v1.ListShipmentsByDayRequest
+	(*ListShipmentsByDayResponse)(nil),    // 6: factory.logistics.v1.ListShipmentsByDayResponse
+	(*RegionShipment)(nil),                // 7: factory.logistics.v1.RegionShipment
+	(*ListShipmentsByRegionRequest)(nil),  // 8: factory.logistics.v1.ListShipmentsByRegionRequest
+	(*ListShipmentsByRegionResponse)(nil), // 9: factory.logistics.v1.ListShipmentsByRegionResponse
+	(*Shipment)(nil),                      // 10: factory.logistics.v1.Shipment
+	(*ListZonedShipmentsRequest)(nil),     // 11: factory.logistics.v1.ListZonedShipmentsRequest
+	(*ListZonedShipmentsResponse)(nil),    // 12: factory.logistics.v1.ListZonedShipmentsResponse
+	(*timestamppb.Timestamp)(nil),         // 13: google.protobuf.Timestamp
 }
 var file_factory_logistics_v1_logistics_proto_depIdxs = []int32{
-	0, // 0: factory.logistics.v1.ListShipmentsByDayResponse.shipments:type_name -> factory.logistics.v1.DayShipment
-	3, // 1: factory.logistics.v1.ListShipmentsByRegionResponse.shipments:type_name -> factory.logistics.v1.RegionShipment
-	6, // 2: factory.logistics.v1.ListZonedShipmentsResponse.shipments:type_name -> factory.logistics.v1.Shipment
-	1, // 3: factory.logistics.v1.LogisticService.ListShipmentsByDay:input_type -> factory.logistics.v1.ListShipmentsByDayRequest
-	4, // 4: factory.logistics.v1.LogisticService.ListShipmentsByRegion:input_type -> factory.logistics.v1.ListShipmentsByRegionRequest
-	7, // 5: factory.logistics.v1.LogisticService.ListZonedShipments:input_type -> factory.logistics.v1.ListZonedShipmentsRequest
-	2, // 6: factory.logistics.v1.LogisticService.ListShipmentsByDay:output_type -> factory.logistics.v1.ListShipmentsByDayResponse
-	5, // 7: factory.logistics.v1.LogisticService.ListShipmentsByRegion:output_type -> factory.logistics.v1.ListShipmentsByRegionResponse
-	8, // 8: factory.logistics.v1.LogisticService.ListZonedShipments:output_type -> factory.logistics.v1.ListZonedShipmentsResponse
-	6, // [6:9] is the sub-list for method output_type
-	3, // [3:6] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	13, // 0: factory.logistics.v1.ShipmentPackage.sealed_at:type_name -> google.protobuf.Timestamp
+	0,  // 1: factory.logistics.v1.PackedShipment.packages:type_name -> factory.logistics.v1.ShipmentPackage
+	13, // 2: factory.logistics.v1.PackedShipment.first_sealed_at:type_name -> google.protobuf.Timestamp
+	13, // 3: factory.logistics.v1.PackedShipment.last_sealed_at:type_name -> google.protobuf.Timestamp
+	1,  // 4: factory.logistics.v1.ListShipmentPackagesResponse.shipments:type_name -> factory.logistics.v1.PackedShipment
+	4,  // 5: factory.logistics.v1.ListShipmentsByDayResponse.shipments:type_name -> factory.logistics.v1.DayShipment
+	7,  // 6: factory.logistics.v1.ListShipmentsByRegionResponse.shipments:type_name -> factory.logistics.v1.RegionShipment
+	10, // 7: factory.logistics.v1.ListZonedShipmentsResponse.shipments:type_name -> factory.logistics.v1.Shipment
+	2,  // 8: factory.logistics.v1.LogisticService.ListShipmentPackages:input_type -> factory.logistics.v1.ListShipmentPackagesRequest
+	5,  // 9: factory.logistics.v1.LogisticService.ListShipmentsByDay:input_type -> factory.logistics.v1.ListShipmentsByDayRequest
+	8,  // 10: factory.logistics.v1.LogisticService.ListShipmentsByRegion:input_type -> factory.logistics.v1.ListShipmentsByRegionRequest
+	11, // 11: factory.logistics.v1.LogisticService.ListZonedShipments:input_type -> factory.logistics.v1.ListZonedShipmentsRequest
+	3,  // 12: factory.logistics.v1.LogisticService.ListShipmentPackages:output_type -> factory.logistics.v1.ListShipmentPackagesResponse
+	6,  // 13: factory.logistics.v1.LogisticService.ListShipmentsByDay:output_type -> factory.logistics.v1.ListShipmentsByDayResponse
+	9,  // 14: factory.logistics.v1.LogisticService.ListShipmentsByRegion:output_type -> factory.logistics.v1.ListShipmentsByRegionResponse
+	12, // 15: factory.logistics.v1.LogisticService.ListZonedShipments:output_type -> factory.logistics.v1.ListZonedShipmentsResponse
+	12, // [12:16] is the sub-list for method output_type
+	8,  // [8:12] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_factory_logistics_v1_logistics_proto_init() }
@@ -712,18 +1051,19 @@ func file_factory_logistics_v1_logistics_proto_init() {
 	if File_factory_logistics_v1_logistics_proto != nil {
 		return
 	}
-	file_factory_logistics_v1_logistics_proto_msgTypes[0].OneofWrappers = []any{}
-	file_factory_logistics_v1_logistics_proto_msgTypes[3].OneofWrappers = []any{}
+	file_factory_logistics_v1_logistics_proto_msgTypes[2].OneofWrappers = []any{}
 	file_factory_logistics_v1_logistics_proto_msgTypes[4].OneofWrappers = []any{}
-	file_factory_logistics_v1_logistics_proto_msgTypes[6].OneofWrappers = []any{}
 	file_factory_logistics_v1_logistics_proto_msgTypes[7].OneofWrappers = []any{}
+	file_factory_logistics_v1_logistics_proto_msgTypes[8].OneofWrappers = []any{}
+	file_factory_logistics_v1_logistics_proto_msgTypes[10].OneofWrappers = []any{}
+	file_factory_logistics_v1_logistics_proto_msgTypes[11].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_factory_logistics_v1_logistics_proto_rawDesc), len(file_factory_logistics_v1_logistics_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   9,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

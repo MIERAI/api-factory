@@ -134,6 +134,30 @@ func ToSQL(p *Pipeline, opt Options) (*SQL, error) {
 			}
 			lv.in = checkLookup(lv.in, st, "", func(string, ...any) {})
 			lv.out = lv.in
+		case "nest", "child_agg": // LEFT JOIN LATERAL (子查询) ON true 接在这一层的 FROM 后面(和 lookup 一样不用包)
+			if lv.project != nil || lv.distinct != nil || lv.order != nil || lv.limit != "" {
+				lv = g.wrap(lv, false)
+			}
+			sub, err := g.childSQL(lv, st)
+			if err != nil {
+				return nil, err
+			}
+			g.n++
+			alias := fmt.Sprintf("t%d", g.n)
+			lv.from += fmt.Sprintf("\nLEFT JOIN LATERAL (\n%s\n) AS %s ON TRUE", indent(sub), alias)
+			if lv.refs == nil {
+				lv.refs = map[string]string{}
+			}
+			if st.Kind == "nest" {
+				lv.refs[st.As] = alias + ".v"
+				lv.in = p.checkNest(lv.in, st, "", func(string, ...any) {})
+			} else {
+				for _, a := range st.Aggs {
+					lv.refs[a.Name] = alias + "." + quoteIdent(a.Name)
+				}
+				lv.in = p.checkChildAgg(lv.in, st, "", func(string, ...any) {})
+			}
+			lv.out = lv.in
 		case "sort":
 			if lv.project != nil || lv.distinct != nil || lv.order != nil || lv.limit != "" {
 				lv = g.wrap(lv, false)
@@ -155,6 +179,83 @@ func ToSQL(p *Pipeline, opt Options) (*SQL, error) {
 		return nil, err
 	}
 	return &SQL{Text: text, Params: g.params, Columns: out}, nil
+}
+
+// childSQL: nest / child_agg 的 LATERAL 子查询。子表的行: 关联条件(当前行的列 = 子表的列;任一边 NULL → 不相等)+ 子表上的条件。
+//
+//	nest:      SELECT coalesce(jsonb_agg(jsonb_build_object(…) ORDER BY …), '[]') AS v
+//	           FROM (SELECT 用到的列 FROM 子表 WHERE … ORDER BY … LIMIT N+1) AS w
+//	           (多取一行: 超过上限由出口判定;值按核心的 API 表示写进 JSON: jsonValueSQL)
+//	child_agg: SELECT 聚合(agg.go 的 aggSQL) AS 名字, … FROM 子表 WHERE …(没有 GROUP BY: 永远一行,空集合也有)
+func (g *sqlGen) childSQL(lv *sqlLevel, st Step) (string, error) {
+	g.n++
+	child := &sqlLevel{alias: fmt.Sprintf("t%d", g.n), in: Schema(st.Columns), out: Schema(st.Columns)}
+	var where []string
+	for _, k := range st.On {
+		where = append(where, fmt.Sprintf("%s = %s", g.col(child, k.Key), g.col(lv, k.Col)))
+	}
+	if st.Pred != nil {
+		w, err := g.expr(st.Pred, child)
+		if err != nil {
+			return "", err
+		}
+		where = append(where, w)
+	}
+	from := fmt.Sprintf("FROM %s AS %s\nWHERE %s", quoteIdent(st.Table), child.alias, strings.Join(where, "\n  AND "))
+	if st.Kind == "child_agg" {
+		var sel []string
+		for _, a := range st.Aggs {
+			x, t := "", Type{}
+			if a.Col != "" {
+				x = g.col(child, a.Col)
+				t, _ = child.in.Col(a.Col)
+			}
+			sel = append(sel, aggSQL(a, x, t)+" AS "+quoteIdent(a.Name))
+		}
+		return "SELECT " + strings.Join(sel, ", ") + "\n" + from, nil
+	}
+	// nest: 内层取用到的列(子行的列 + 顺序的列),外层按同样的顺序聚合成 JSON
+	var cols []string
+	seen := map[string]bool{}
+	for _, c := range append(takeCols(st.Take), orderNames(st.Order)...) {
+		if !seen[c] {
+			seen[c] = true
+			cols = append(cols, g.col(child, c))
+		}
+	}
+	inner := fmt.Sprintf("SELECT %s\n%s\nORDER BY %s\nLIMIT %d", strings.Join(cols, ", "), from, strings.Join(g.orderItems(child, st.Order), ", "), st.N+1)
+	g.n++
+	w := &sqlLevel{alias: fmt.Sprintf("t%d", g.n), in: child.in, out: child.in}
+	var obj []string
+	for _, t := range st.Take {
+		ct, _ := child.in.Col(t.Col)
+		obj = append(obj, quoteLit(t.Name), jsonValueSQL(g.col(w, t.Col), ct.Kind))
+	}
+	return fmt.Sprintf("SELECT coalesce(jsonb_agg(jsonb_build_object(%s) ORDER BY %s), '[]'::jsonb) AS v\nFROM (\n%s\n) AS %s",
+		strings.Join(obj, ", "), strings.Join(g.orderItems(w, st.Order), ", "), indent(inner), w.alias), nil
+}
+
+func takeCols(t []TakeCol) []string {
+	var out []string
+	for _, x := range t {
+		out = append(out, x.Col)
+	}
+	return out
+}
+
+// jsonValueSQL: 子行的值在 JSON 里的写法 = 核心的 API 表示(参考求值器 ChildRowsFromJSON、适配器的扫描用同一种):
+// 十进制 → 文本(numeric::text,不经过 JSON 数字: 不丢精度);时间 → UTC 的 RFC3339 文本(不受会话时区影响);
+// 日期 → YYYY-MM-DD(不受 DateStyle 影响)。整数 / bool / 文本是 JSON 本来的类型。NULL → JSON null。
+func jsonValueSQL(x string, k Kind) string {
+	switch k {
+	case Decimal:
+		return x + "::text"
+	case Date:
+		return "to_char(" + x + ", 'YYYY-MM-DD')"
+	case Timestamp:
+		return "to_char(" + x + ` AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`
+	}
+	return x
 }
 
 func (g *sqlGen) newLevel(from string, in Schema) *sqlLevel {

@@ -50,3 +50,13 @@
       carrier_id:   配送業者 ID
       name:         配送業者名
       partner_code: 取引先コード(自社便は空)
+  packages:
+    说明: 出荷の梱包(1 出荷に 0 個以上。梱包番号は出荷ごと)
+    主键: [shipment_id, package_no]
+    更新方式: 可以更新
+    列:
+      shipment_id: 出荷 ID
+      package_no:  梱包番号(出荷ごとに 1 から)
+      label:       追跡ラベル(英大文字 2 桁 + 数字 6 桁)
+      weight:      梱包の重量 kg(十进制)
+      sealed_at:   封緘時刻(未封緘は空)

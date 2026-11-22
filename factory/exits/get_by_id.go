@@ -80,6 +80,8 @@ func init() {
 				return spec.Case{Request: req, Expect: spec.Expect{Code: "OK", Response: emptyResponse(api)}}, "", ""
 			case n == 0:
 				return spec.Case{Request: req, Expect: spec.Expect{Code: "NOT_FOUND"}}, "", ""
+			case n == 1 && nestOver(rows):
+				return nestOverCase(req)
 			case n == 1:
 				resp := x.Item(rows[0], &api.Response)
 				if api.GetByID.NotFoundEmpty {

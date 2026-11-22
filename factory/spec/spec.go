@@ -99,6 +99,10 @@ type Datasource struct {
 	Where []string `yaml:"where,omitempty"`
 	// Lookups: 多对一查找(核心的 lookup),按顺序接在来源之后。加的列和来源的列一样,可以用在筛选 / 输出 / 排序里
 	Lookups []Lookup `yaml:"lookups,omitempty"`
+	// Nests: 一对多嵌套(核心的 nest),接在关联之后: 每一行加一列子行的列表
+	Nests []Nest `yaml:"nests,omitempty"`
+	// ChildAggs: 按父行聚合(核心的 child_agg),接在嵌套之后: 每一行加一列子行的聚合值
+	ChildAggs []ChildAgg `yaml:"child_aggs,omitempty"`
 	// SQL: 逃生口(JOIN / 聚合 / 复杂条件)。写了 sql 就不写 filters/columns;
 	// table 可以写,表示结果列来自哪张表(用于查领域层的 enum 映射)
 	SQL string `yaml:"sql"`
@@ -112,6 +116,29 @@ type Lookup struct {
 	On      []string  `yaml:"on"`                // "customer_id = id"
 	Columns []TakeCol `yaml:"columns"`           // 加的列(新列名 ← 对方的列),按书写顺序
 	Missing string    `yaml:"missing,omitempty"` // keep(默认): 加的列为空;drop: 丢弃这一行
+}
+
+// Nest: 子表(同一个库)里关联的行,作为子行的列表加一列 Name。On: "当前行的列 = 子表的列"(多列 = 多项)。
+// OrderBy: "列 asc|desc",加上 On 的子表的列要覆盖子表的主键 / 唯一键(子行的顺序是全序;核心的 DRC)。
+// Max: 子行的上限(超过 → FAILED_PRECONDITION,不截断)。
+type Nest struct {
+	Name    string    `yaml:"name"`            // 输出的列名(子行的列表)
+	Table   string    `yaml:"table"`           // 子表
+	On      []string  `yaml:"on"`              // "id = order_id"
+	Where   []string  `yaml:"where,omitempty"` // 子表上的固定条件(factory/where 的写法,子表的列名)
+	OrderBy []string  `yaml:"order_by"`        // "line_no asc"
+	Max     int       `yaml:"max"`
+	Columns []TakeCol `yaml:"columns"` // 子行的列(列名 ← 子表的列)
+}
+
+// ChildAgg: 关联的子行(经过 Where)的一个聚合,加一列 Name。Func: count / sum / min / max(count 没有 Column)。
+type ChildAgg struct {
+	Name   string   `yaml:"name"`
+	Table  string   `yaml:"table"`
+	On     []string `yaml:"on"`
+	Where  []string `yaml:"where,omitempty"`
+	Func   string   `yaml:"func"`
+	Column string   `yaml:"column,omitempty"`
 }
 
 type TakeCol struct {
@@ -398,10 +425,32 @@ func (s *Spec) Check() []string {
 		for _, l := range ds.Lookups { // 关联的表也可以(而且应该)准备数据
 			allowed[l.Table] = true
 		}
+		for _, n := range ds.Nests { // 嵌套 / 子聚合的子表也是
+			allowed[n.Table] = true
+		}
+		for _, a := range ds.ChildAggs {
+			allowed[a.Table] = true
+		}
 		for table := range s.Acceptance.Fixtures {
 			if !allowed[table] {
 				add("acceptance.fixtures: table %s is not datasource.table (%s) or a lookup table", table, ds.Table)
 			}
+		}
+	}
+	for i, n := range ds.Nests {
+		if n.Name == "" || n.Table == "" || len(n.On) == 0 || len(n.OrderBy) == 0 || n.Max <= 0 || len(n.Columns) == 0 {
+			add("datasource.nests[%d]: name / table / on / order_by / max (> 0) / columns are required", i)
+		}
+		if ds.SQL != "" {
+			add("datasource.nests[%d]: nests need a declarative datasource (not sql)", i)
+		}
+	}
+	for i, a := range ds.ChildAggs {
+		if a.Name == "" || a.Table == "" || len(a.On) == 0 || a.Func == "" {
+			add("datasource.child_aggs[%d]: name / table / on / func are required", i)
+		}
+		if ds.SQL != "" {
+			add("datasource.child_aggs[%d]: child_aggs need a declarative datasource (not sql)", i)
 		}
 	}
 	for i, l := range ds.Lookups {

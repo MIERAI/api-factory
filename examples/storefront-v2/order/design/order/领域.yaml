@@ -1,0 +1,41 @@
+# 领域: order(storefront v2 的订单服务)。这个服务独占的数据库(db/schema/order.sql)
+领域: order
+说明: 订单和订单明细
+时区: Asia/Tokyo
+
+表:
+  orders:
+    说明: 订单(1 个订单 1 行。状态由下单的 saga 推进)
+    主键: [id]
+    更新方式: 可以更新
+    列:
+      id:          订单号
+      customer_id: 顾客 ID
+      status:      { 说明: 状态, 枚举: OrderStatus }
+      total:       订单金额(下单时确定,十进制)
+      created_at:  下单时间
+      updated_at:  最后更新时间
+  order_items:
+    说明: 订单明细(行号在订单内从 1 开始)
+    主键: [order_id, line_no]
+    更新方式: 可以更新
+    列:
+      order_id: 订单号
+      line_no:  行号
+      sku:      SKU
+      qty:      数量
+      price:    单价(十进制)
+      amount:   金额 = 数量 × 单价(数据库计算)
+
+枚举:
+  OrderStatus:
+    说明: 订单的状态(下单的 saga 依次 预留库存 → 扣款 → 确认;失败时释放)
+    值:
+      PENDING:    { 说明: 已受理, 数据库值: 1 }
+      RESERVING:  { 说明: 预留库存中, 数据库值: 2 }
+      CHARGING:   { 说明: 扣款中, 数据库值: 3 }
+      CONFIRMING: { 说明: 确认中, 数据库值: 4 }
+      RELEASING:  { 说明: 释放中(失败的补偿), 数据库值: 5 }
+      CONFIRMED:  { 说明: 已确认, 数据库值: 6 }
+      CANCELLED:  { 说明: 已取消, 数据库值: 7 }
+    读到不认识的值: 返回"未指定",并记录到监控指标

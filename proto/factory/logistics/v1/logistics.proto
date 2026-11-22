@@ -6,11 +6,15 @@ syntax = "proto3";
 package factory.logistics.v1;
 
 import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "apifactory/gen/factory/logistics/v1;logisticsv1";
 
 // 出荷と倉庫・区画・配送業者のマスタ
 service LogisticService {
+  // 出荷日の出荷を、封緘済みの梱包(重い順)と梱包の集計つきで返す
+  rpc ListShipmentPackages(ListShipmentPackagesRequest) returns (ListShipmentPackagesResponse);
+
   // 指定した出荷日の出荷を、倉庫名と配送業者名つきで返す(分页なし)
   rpc ListShipmentsByDay(ListShipmentsByDayRequest) returns (ListShipmentsByDayResponse);
 
@@ -19,6 +23,55 @@ service LogisticService {
 
   // 倉庫の出荷のうち、区画マスタにある区画に割り当て済みのものを区画名つきで返す
   rpc ListZonedShipments(ListZonedShipmentsRequest) returns (ListZonedShipmentsResponse);
+}
+
+// 出荷の梱包(1 出荷に 0 個以上。梱包番号は出荷ごと)
+message ShipmentPackage {
+  // 梱包番号(出荷ごとに 1 から)
+  int32 package_no = 1;
+  // 追跡ラベル(英大文字 2 桁 + 数字 6 桁)
+  string label = 2;
+  // 梱包の重量 kg(十进制)
+  string weight = 3;
+  // 封緘時刻(未封緘は空)
+  google.protobuf.Timestamp sealed_at = 4;
+}
+
+// 出荷(1 出荷 1 行)
+message PackedShipment {
+  // 出荷 ID
+  int64 id = 1;
+  // 倉庫コード
+  string warehouse_code = 2;
+  // 封緘済みの梱包(重い順、同じ重さは梱包番号順。最大 3 個、超える出荷があると一覧ごとエラー)
+  repeated ShipmentPackage packages = 3;
+  // 梱包の数(未封緘も含む。梱包なし = 0)
+  int64 package_count = 4;
+  // 封緘済みの梱包の重量の合計 kg(なし = 0)
+  string sealed_weight = 5;
+  // 最初の封緘時刻(封緘済みの梱包が無いときは不设置)
+  google.protobuf.Timestamp first_sealed_at = 6;
+  // 最後の封緘時刻(封緘済みの梱包が無いときは不设置)
+  google.protobuf.Timestamp last_sealed_at = 7;
+}
+
+// 出荷日の出荷を、封緘済みの梱包(重い順)と梱包の集計つきで返す
+message ListShipmentPackagesRequest {
+  // 每页件数。0 = 默认 20,最多 100
+  int32 page_size = 1 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
+  // 上一页返回的 next_page_token(不透明的字符串)
+  string page_token = 2;
+  // 出荷日
+  string shipped_on = 3 [(buf.validate.field).string.pattern = "^\\d{4}-\\d{2}-\\d{2}$"];
+  // 倉庫コード(不指定 = 全倉庫)
+  optional string warehouse_code = 4;
+}
+
+// 出荷日の出荷を、封緘済みの梱包(重い順)と梱包の集計つきで返す
+message ListShipmentPackagesResponse {
+  repeated PackedShipment shipments = 1;
+  // 还有下一页时不为空
+  string next_page_token = 2;
 }
 
 // 出荷(1 出荷 1 行)

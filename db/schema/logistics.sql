@@ -39,3 +39,14 @@ CREATE TABLE IF NOT EXISTS shipments (
 );
 CREATE INDEX IF NOT EXISTS shipments_shipped_on_idx ON shipments (shipped_on, id);
 CREATE INDEX IF NOT EXISTS shipments_warehouse_idx ON shipments (warehouse_code, id);
+
+-- 出荷の梱包(1 出荷に 0 個以上)。梱包番号は出荷ごと。ラベルは配送業者の追跡番号(英大文字 2 桁 + 数字 6 桁)
+-- 梱包は出荷の明細なので外部キーを張らない方針は同じ(取り込み順で出荷より先に届くことがある)
+CREATE TABLE IF NOT EXISTS packages (
+    shipment_id BIGINT      NOT NULL,
+    package_no  INTEGER     NOT NULL CHECK (package_no > 0),
+    label       TEXT        NOT NULL CHECK (label ~ '^[A-Z]{2}[0-9]{6}$'),
+    weight      NUMERIC     NOT NULL CHECK (weight > 0),
+    sealed_at   TIMESTAMPTZ,          -- 封緘時刻(未封緘 = 空)
+    PRIMARY KEY (shipment_id, package_no)
+);

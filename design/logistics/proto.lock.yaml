@@ -7,6 +7,14 @@
         warehouse_code: 2
         warehouse_name: 3
         weight: 6
+    ListShipmentPackagesRequest:
+        page_size: 1
+        page_token: 2
+        shipped_on: 3
+        warehouse_code: 4
+    ListShipmentPackagesResponse:
+        next_page_token: 2
+        shipments: 1
     ListShipmentsByDayRequest:
         shipped_on: 1
         warehouse_codes: 2
@@ -25,6 +33,14 @@
     ListZonedShipmentsResponse:
         next_page_token: 2
         shipments: 1
+    PackedShipment:
+        first_sealed_at: 6
+        id: 1
+        last_sealed_at: 7
+        package_count: 4
+        packages: 3
+        sealed_weight: 5
+        warehouse_code: 2
     RegionShipment:
         id: 1
         region_code: 4
@@ -36,3 +52,8 @@
         shipped_on: 4
         zone_label: 3
         zone_no: 2
+    ShipmentPackage:
+        label: 2
+        package_no: 1
+        sealed_at: 4
+        weight: 3

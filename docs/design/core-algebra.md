@@ -78,7 +78,9 @@ sqlc 不再是类型的来源(见 §9 决定 1)。
 | `sort(keys)` | 每个键带方向;**NULL 位置显式**(ASC NULLS LAST / DESC NULLS FIRST),SQL 也显式写出 |
 | `limit(n)` | 前 n 行 |
 | `lookup(table, on, take, missing)` | 多对一查找(R2-1,`docs/design/r2-relations.md` §2.1): 对每一行在 table 里找 on 的键列逐个相等的行,把 take 的列加上。on 的键列必须覆盖 table 的主键或唯一约束(DRC,最多一行匹配);任一边 NULL → 找不到;missing = keep(加的列 NULL,类型可空)/ drop(丢弃这一行 = 内连接);后面的 lookup 可以用前面加的列(链式)。SQL = `LEFT JOIN` / `JOIN`,参考求值器 = 按键建索引(键有 NULL 的行不进索引) |
-| (以后)一对多的 `nest` / `child_agg`、顶层的 `group` | R2-2 / R2-4(`r2-relations.md`) |
+| `nest(table, on, pred, order, max, as, take)` | 一对多嵌套(R2-2,`r2-relations.md` §2.2): 对每一行取 table 里 on 的列逐个相等的行(任一边 NULL → 不相等),经过 pred、按 order 排序,把 take 的列作为**子行的列表**加一列 as(核心类型 `rows`,不能比较 / 排序 / 分组)。没有子行 → 空列表(不是 NULL);子行多于 max → 整个请求 FAILED_PRECONDITION(不截断;两个后端都最多取 max+1 行,出口只看响应里的行)。DRC: order + on 的子表的列覆盖子表的一个唯一键(不在 on 里的列不为空)→ 全序;只有一层。SQL = `LEFT JOIN LATERAL (SELECT coalesce(jsonb_agg(jsonb_build_object(…) ORDER BY …), '[]') FROM (… LIMIT max+1)) ON TRUE`;JSON 里的值 = 核心的 API 表示(十进制 `numeric::text`、时间 UTC 的 RFC3339、日期 YYYY-MM-DD),参考求值器 / 适配器的扫描用同一种表示 |
+| `child_agg(table, on, pred, aggs)` | 按父行聚合(R2-2,§2.3): 对每一行关联的子行(经过 pred)计算 aggs,作为标量列加上。聚合的类型和 NULL 的规则只在 `factory/core/agg.go` 定义一次(和 R2-4 的顶层 `group` 共用): count → int64(空 0)、sum(整数) → int64(溢出 → 查询失败)/ sum(十进制) → 精确的十进制,**空集合 / 全部 NULL → 0**、min / max → 列的类型,空集合 → NULL;忽略 NULL。SQL = `LEFT JOIN LATERAL (SELECT count(*), coalesce(sum(x), 0), min(y COLLATE "C") …) ON TRUE`(没有 GROUP BY: 空集合也有一行) |
+| (以后)顶层的 `group` / `rank` | R2-4(`r2-relations.md`) |
 
 ### 4.3 出口(行集 → 响应)
 
@@ -156,7 +158,7 @@ JSON版本:
 1. **Go 适配器不再用 sqlc 生成行类型**(推荐)。行的类型和可空性由核心决定,适配器自己生成扫描代码;
    sqlc 只留作 DRC 的独立检查(SQL 能否解析、类型是否一致,忽略它的可空性)。代价: 适配器多写约 200 行生成代码。
 2. **单元库的宏能力**: 只做参数替换 / 可选参数 / 列表展开(推荐),不做条件分支和循环。不够用 → 新增基本元件(评审)。
-3. **join**: 等出现 2 个以上需求再加(推荐)。→ **多对一的 `lookup` 已加**(R2-1,2026-11-22: 两个使用者各有需求;元件认证 + 差分测试的多表造数据 + 变异)。一对多 / 聚合按 `r2-relations.md` 的顺序继续。
+3. **join**: 等出现 2 个以上需求再加(推荐)。→ **多对一的 `lookup` 已加**(R2-1,2026-11-22: 两个使用者各有需求;元件认证 + 差分测试的多表造数据 + 变异)。→ **一对多的 `nest` / `child_agg` 已加**(R2-2: storefront v2 Q5 / Q6;元件认证 + 子表的造数据(子行数 0 / 1 / 几个 / 上限 / 上限+1)+ 变异)。顶层的分组聚合按 `r2-relations.md` 的顺序继续。
 4. **性能闸门**: 先只做"前导列无索引"警告;EXPLAIN 闸门另写设计稿。
 
 ## 10. 迁移步骤与验收标准

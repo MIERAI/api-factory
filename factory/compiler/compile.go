@@ -185,10 +185,20 @@ func Compile(specs []*spec.Spec) (*ir.Plan, error) {
 			seen["shard:"+table] = true
 			plan.Shards = append(plan.Shards, ir.Shard{Table: table, Column: e.ShardBy})
 		}
-		for _, l := range s.Datasource.Lookups { // 关联的分库的表(验收把数据写进分库键对应的库)
-			if le := s.Domain.Entities[l.Table]; le.ShardBy != "" && !seen["shard:"+l.Table] {
-				seen["shard:"+l.Table] = true
-				plan.Shards = append(plan.Shards, ir.Shard{Table: l.Table, Column: le.ShardBy})
+		var related []string // 关联 / 嵌套 / 子聚合的分库的表(验收把数据写进分库键对应的库)
+		for _, l := range s.Datasource.Lookups {
+			related = append(related, l.Table)
+		}
+		for _, n := range s.Datasource.Nests {
+			related = append(related, n.Table)
+		}
+		for _, a := range s.Datasource.ChildAggs {
+			related = append(related, a.Table)
+		}
+		for _, t := range related {
+			if le := s.Domain.Entities[t]; le.ShardBy != "" && !seen["shard:"+t] {
+				seen["shard:"+t] = true
+				plan.Shards = append(plan.Shards, ir.Shard{Table: t, Column: le.ShardBy})
 			}
 		}
 		if st := e.Storage; st != nil && !seen["storage:"+table] {

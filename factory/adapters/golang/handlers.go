@@ -131,6 +131,9 @@ func (g *genCtx) reqExpr(f *ir.Field, paramType string) (string, error) {
 
 // resExpr: 查询结果字段 → 响应字段 的转换表达式。
 func (g *genCtx) resExpr(src, srcType string, f *ir.Field) (string, error) {
+	if f.List && f.Kind == "message" && strings.HasPrefix(srcType, "[]") { // 嵌套的子行(nest.go)
+		return g.childrenExpr(src, srcType, f)
+	}
 	if f.Kind == "enum" && !f.List {
 		m, err := g.enumFor(f.Name)
 		if err != nil {
@@ -424,11 +427,11 @@ func (h *Handler) %s(ctx context.Context, req *connect.Request[%s]) (*connect.Re
 		}
 		return nil, err
 	}
-	return connect.NewResponse(&%s{
+%s	return connect.NewResponse(&%s{
 		%s
 	}), nil
 }
-`, g.api.Method, g.api.Summary, g.api.Method, g.pbType(in), g.pbType(out), call, notFound, g.pbType(out), strings.Join(resLines, "\n"))
+`, g.api.Method, g.api.Summary, g.api.Method, g.pbType(in), g.pbType(out), call, notFound, g.nestGuard("row", ""), g.pbType(out), strings.Join(resLines, "\n"))
 	return g.header(body), nil
 }
 
@@ -522,7 +525,7 @@ func (h *Handler) %s(ctx context.Context, req *connect.Request[%s]) (*connect.Re
 		return nil, err
 	}
 	rows, hasNext := paging.Trim(rows, size)
-	res := &%s{%s: make([]*%s, 0, len(rows))}
+%s	res := &%s{%s: make([]*%s, 0, len(rows))}
 	for _, r := range rows {
 		res.%s = append(res.%s, &%s{
 			%s
@@ -546,6 +549,7 @@ func (h *Handler) %s(ctx context.Context, req *connect.Request[%s]) (*connect.Re
 		g.query.ParamType, strings.Join(assigns, "\n"),
 		cursorType, strings.Join(cursorSet, "\n"),
 		qref+"."+g.api.Query.Name,
+		g.nestGuard("", "rows"),
 		g.pbType(out), itemsGo, g.pbType(elem),
 		itemsGo, itemsGo, g.pbType(elem), strings.Join(elemLines, "\n"),
 		cursorType, strings.Join(cursorBuild, "\n"))
@@ -720,6 +724,7 @@ func genRowsList(g *genCtx, itemsField string, maxRows int32) (string, error) {
 		g.use(runtimeModule+"/apierr", "")
 		guard = fmt.Sprintf("\tif len(rows) > %d {\n\t\treturn nil, apierr.FailedPrecondition(\"too many results (more than %d); narrow the conditions\")\n\t}\n", maxRows, maxRows)
 	}
+	guard += g.nestGuard("", "rows")
 	msgLine := "m := req.Msg"
 	if !strings.Contains(call, "m.") { // 没有输入的 API
 		msgLine = "_ = req"

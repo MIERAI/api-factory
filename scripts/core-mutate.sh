@@ -44,6 +44,26 @@ mutate "SQL: lookup 键按文本忽略大小写比较"    $S 's|"%s = %s.%s", g.
 mutate "参考: lookup NULL 键也进索引"       $E 's|if !st.NullEq {|if false {|'
 mutate "参考: lookup drop 不丢弃"          $E 's|			if st.Missing == "drop" {|			if false {|'
 mutate "参考: lookup 文本键忽略大小写"       $E 's|b.WriteString(Canonical(v))|b.WriteString(strings.ToLower(Canonical(v)))|'
+A=factory/core/agg.go
+mutate "SQL: nest 空列表 → NULL(没有 coalesce)" $S "s|coalesce(jsonb_agg(jsonb_build_object(%s) ORDER BY %s), '\[\]'::jsonb)|jsonb_agg(jsonb_build_object(%s) ORDER BY %s)|"
+mutate "SQL: nest 没有多取一行(LIMIT N)"     $S 's|strings.Join(g.orderItems(child, st.Order), ", "), st.N+1)|strings.Join(g.orderItems(child, st.Order), ", "), st.N)|'
+# 不列: "nest 的 JSON 聚合没有 ORDER BY" —— Postgres 实际按有序子查询的顺序聚合,测试看不出来(SQL 标准不保证,所以照写 ORDER BY)
+mutate "SQL: nest 十进制写成 JSON 数字"      $S 's|return x + "::text"|return x|'
+mutate "SQL: nest 时间不换成 UTC"            $S "s| AT TIME ZONE 'UTC', 'YYYY|, 'YYYY|"
+mutate "SQL: nest 日期按会话的写法"          $S "s|return \"to_char(\" + x + \", 'YYYY-MM-DD')\"|return x + \"::text\"|"
+mutate "SQL: 子表的关联 NULL 当作相等"       $S 's|"%s = %s", g.col(child, k.Key)|"%s IS NOT DISTINCT FROM %s", g.col(child, k.Key)|'
+mutate "SQL: 子表的条件被忽略"              $S 's|	if st.Pred != nil {|	if false \&\& st.Pred != nil {|'
+mutate "SQL: 子表的顺序方向反了"            $S 's|strings.Join(g.orderItems(w, st.Order), ", ")|strings.Join(g.orderItems(w, reversed(st.Order)), ", ")|; s|^func takeCols|func reversed(o []SortKey) []SortKey { r := append([]SortKey(nil), o...); for i := range r { r[i].Desc = !r[i].Desc }; return r }\nfunc takeCols|'
+mutate "SQL: sum 空集合 → NULL"             $A 's|return fmt.Sprintf("coalesce(sum(%s), 0)", x)|return fmt.Sprintf("sum(%s)", x)|'
+mutate "SQL: count = LEFT JOIN 的行数(空 = 1)" $A 's|return "count(\*)"|return "greatest(count(*), 1)"|'
+mutate "SQL: min ↔ max"                    $A 's|return fmt.Sprintf("%s(%s)", a.Func, x)|return fmt.Sprintf("%s(%s)", map[string]string{"min": "max", "max": "min"}[a.Func], x)|'
+mutate "SQL: min / max 文本没有 COLLATE C"   $A 's|x += ` COLLATE "C"`|x += ""|'
+mutate "参考: nest 空列表 → NULL"            $E 's|if len(list) == 0 \&\& st.Mutant == "empty_null" {|if len(list) == 0 {|'
+mutate "参考: nest 不截断"                  $E 's|if len(group) > st.N+1 {|if false \&\& len(group) > st.N+1 {|'
+mutate "参考: 子表的关联 NULL 也匹配"        $E '/^func childKey/,/^}/s|return "", false|b.WriteString("∅")|'
+mutate "参考: 子表的条件被忽略"              $E '/^func (p \*Pipeline) evalChildren/,/^}/s|if st.Pred != nil {|if false \&\& st.Pred != nil {|'
+mutate "参考: sum 空集合 → NULL"             $E 's|len(group) == 0 \&\& a.Func == "sum" \&\& st.Mutant == "sum_empty_null"|len(group) == 0 \&\& a.Func == "sum"|'
+mutate "参考: min / max 不忽略 NULL"         $A '/case "min", "max":/,/return best/s|continue|return nil, nil|'
 echo "变异: 抓到 $caught / $total"
 for m in "${missed[@]:-}"; do if [ -n "$m" ]; then echo "  - $m"; fi; done
 [ "$caught" -eq "$total" ]

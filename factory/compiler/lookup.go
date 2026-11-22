@@ -20,10 +20,10 @@ import (
 )
 
 // lookupView: 关联的流水线步骤 + 加了关联列的目录(来源的表的列 + 每个关联加的列;keep 的列可空)。
-// 没有关联时返回原来的目录。
+// 之后接嵌套 / 子聚合(nest.go: 子行的列表 / 聚合值也加到目录里)。没有关联、嵌套、子聚合时返回原来的目录。
 func lookupView(s *spec.Spec, cat *catalog, keys map[string][][]string) (*catalog, []core.Step, error) {
 	ls := s.Datasource.Lookups
-	if len(ls) == 0 {
+	if len(ls) == 0 && len(s.Datasource.Nests) == 0 && len(s.Datasource.ChildAggs) == 0 {
 		return cat, nil, nil
 	}
 	table := s.Datasource.Table
@@ -142,8 +142,12 @@ func lookupView(s *spec.Spec, cat *catalog, keys map[string][][]string) (*catalo
 		}
 		steps = append(steps, st)
 	}
+	cols, children, err := childSteps(s, cat, keys, cols, shardCols)
+	if err != nil {
+		return nil, nil, err
+	}
 	view.tables[table] = cols
-	return view, steps, nil
+	return view, append(steps, children...), nil
 }
 
 // LookupColumns: 设计编译器用: 加了关联列之后的来源的列(检查筛选 / 输出 / 固定条件用)。

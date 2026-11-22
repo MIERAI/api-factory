@@ -118,6 +118,26 @@ func loadFixtures(ctx context.Context, d *dbs, plan *ir.Plan, fixtures map[strin
 		tables = append(tables, t)
 	}
 	sort.Strings(tables)
+	// 外键: 先清空全部的表(TRUNCATE … CASCADE 会连带清空引用它的表),再按依赖的顺序插入(被引用的表在前: 父表 → 子表)
+	refs, err := foreignRefs(ctx, d.main)
+	if err != nil {
+		return err
+	}
+	tables = sortedTables(refs, tables)
+	for _, table := range tables {
+		if plan.Storage(table) != nil {
+			continue
+		}
+		targets, err := d.targets(plan.Shard(table))
+		if err != nil {
+			return err
+		}
+		for _, c := range targets {
+			if _, err := c.Exec(ctx, "TRUNCATE "+pgx.Identifier{table}.Sanitize()+" CASCADE"); err != nil {
+				return err
+			}
+		}
+	}
 	for _, table := range tables {
 		if st := plan.Storage(table); st != nil {
 			if err := loadStorageRows(ctx, d, plan, st, fixtures[table]); err != nil {
@@ -127,15 +147,6 @@ func loadFixtures(ctx context.Context, d *dbs, plan *ir.Plan, fixtures map[strin
 		}
 		ident := pgx.Identifier{table}.Sanitize()
 		sh := plan.Shard(table)
-		targets, err := d.targets(sh)
-		if err != nil {
-			return err
-		}
-		for _, c := range targets {
-			if _, err := c.Exec(ctx, "TRUNCATE "+ident+" CASCADE"); err != nil {
-				return err
-			}
-		}
 		for _, row := range fixtures[table] {
 			conn := d.main
 			if sh != nil { // 分库: 写进分库键对应的库
@@ -165,6 +176,25 @@ func loadFixtures(ctx context.Context, d *dbs, plan *ir.Plan, fixtures map[strin
 		}
 	}
 	return nil
+}
+
+// foreignRefs: 表 → 它的外键引用的表(当前的 schema)。
+func foreignRefs(ctx context.Context, conn *pgx.Conn) (map[string][]string, error) {
+	rows, err := conn.Query(ctx, `SELECT c.conrelid::regclass::text, c.confrelid::regclass::text FROM pg_constraint c
+		JOIN pg_namespace n ON n.oid = c.connamespace WHERE c.contype = 'f' AND n.nspname = current_schema()`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string][]string{}
+	for rows.Next() {
+		var a, b string
+		if err := rows.Scan(&a, &b); err != nil {
+			return nil, err
+		}
+		out[strings.Trim(a, `"`)] = append(out[strings.Trim(a, `"`)], strings.Trim(b, `"`))
+	}
+	return out, rows.Err()
 }
 
 func runCase(url string, c spec.Case, out *ir.Message) (bool, string) {

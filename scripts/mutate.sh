@@ -110,5 +110,22 @@ run "关联: 加的列上的筛选被忽略"               $LZ 's/ OR \(t2\.labe
 LR=gen/db/logistics.list-shipments-by-region.sql.go
 run "关联的链: 第二级写成 JOIN"                $LR 's/LEFT JOIN regions AS t3/JOIN regions AS t3/'
 run "关联的链: 第二级从来源的列关联"            $LR 's/ON t2\.region_code = t3\.region_code/ON t1.warehouse_code = t3.region_code/'
+NP=gen/db/logistics.list-shipment-packages.sql.go
+NH=internal/handler/logistics/list_shipment_packages_gen.go
+run "嵌套: 去掉子表的条件"                     $NP 's/\n\s+AND \(NOT \(t2\.sealed_at IS NULL\)\)//'
+run "嵌套: 顺序第 1 列的方向反了"               $NP 's/(t[23])\.weight DESC/$1.weight/g'
+run "嵌套: 顺序第 2 列的方向反了"               $NP 's/(t[23])\.package_no(\)|\n)/$1.package_no DESC$2/g'
+run "嵌套: 关联列换成另一列"                   $NP 's/WHERE t2\.shipment_id = t1\.id/WHERE t2.shipment_id = t1.zone_no/'
+run "嵌套: 没有多取一行(LIMIT 3)"              $NP 's/LIMIT 4\n/LIMIT 3\n/'
+run "嵌套: 上限 > 写成 >="                      $NH 's/len\(r\.Packages\) > 3/len(r.Packages) >= 3/'
+run "嵌套: 超过上限时悄悄截断"                  $NH 's/(\s+)return nil, apierr\.FailedPrecondition\("too many packages[^\n]*/$1r.Packages = r.Packages[:3]/'
+run "嵌套: 空列表返回 NULL"                    $NP "s/SELECT coalesce\(jsonb_agg/SELECT (jsonb_agg/; s/, '\[\]'::jsonb\) AS v/) AS v/"
+run "嵌套: 十进制写成 JSON 数字"                $NP 's/\x27weight\x27, t3\.weight::text/\x27weight\x27, t3.weight/'
+run "嵌套: 子行的字段映射漏掉 label"            $NH 's/\n\s+Label:\s+c\.Label,//'
+run "子聚合: 空集合的合计返回 NULL"             $NP 's/coalesce\(sum\(t7\.weight\), 0\)/sum(t7.weight)/'
+run "子聚合: 件数 = LEFT JOIN 的行数(空 = 1)"  $NP 's/SELECT count\(\*\) AS package_count/SELECT greatest(count(*), 1) AS package_count/'
+run "子聚合: 最小 ↔ 最大"                      $NP 's/SELECT min\(t9\.sealed_at\)/SELECT max(t9.sealed_at)/'
+run "子聚合: 去掉子表的条件"                    $NP 's/\n\s+AND \(NOT \(t7\.sealed_at IS NULL\)\)//'
+run "子聚合: 关联列换成另一列"                  $NP 's/WHERE t5\.shipment_id = t1\.id/WHERE t5.shipment_id = t1.zone_no/'
 [[ -n ${PLAN:-} ]] && exit 0
 go build -o bin/server ./cmd/server; git status --short

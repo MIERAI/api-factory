@@ -9,7 +9,7 @@
 
 | 生产线 | 状态 | 对象 |
 |---|---|---|
-| **查询工厂**(本仓库) | 开发中 | 只读、同步请求/响应、单表 + 多对一的关联(以后: 一对多的嵌套、聚合) |
+| **查询工厂**(本仓库) | 开发中 | 只读、同步请求/响应、单表 + 多对一的关联 + 一对多的嵌套 / 子聚合(以后: 分组聚合) |
 | 命令工厂 | 计划 | 写入: 校验 → 业务规则 → 写入操作(操作作为数据返回,平台执行) |
 | IF 工厂 | 候选 | 文件布局 ↔ 表(编码、定长、补零),golden file / 往返判定 |
 
@@ -81,7 +81,7 @@ factory --project ../shop/services/catalog prepare        # → proto、gen/、i
 
 - `--project DIR`: 工厂切换到项目根目录;工厂自己的资源(factory.yaml 的默认值、适配器)仍从工厂目录读(`factory/proj`)
 - 项目的 `factory.yaml` 只写项目的键(proto 的包名前缀),按键覆盖工厂的;生成代码的模块名 = 项目 go.mod 的 module
-- `examples/` 下的项目(现在: storefront v2 的样例,见 `docs/design/storefront-v2-readiness.md`)由 `make projects` /
+- `examples/` 下的项目(现在: storefront v2 的样例 catalog / inventory / order / payment / notification,见 `docs/design/storefront-v2-readiness.md`)由 `make projects` /
   CI 的 verify ⑤ 检查: 设计 → 生成物是最新的 → 编译 → 用项目自己的数据库验收。工厂遇到做不到的,记在 `examples/storefront-v2/GAPS.md`
 
 ## 架构: 各环节通过文件契约串起来

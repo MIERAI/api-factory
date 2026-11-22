@@ -67,6 +67,9 @@ func init() {
 		},
 		DiffCase: func(x DiffCtx, rows []core.Row, req map[string]any) (spec.Case, string, string) {
 			items := x.API().ExitParams["items_field"].(string)
+			if nestOver(rows) {
+				return nestOverCase(req)
+			}
 			msg := x.API().Response.Field(items).Message
 			list := []any{}
 			for _, r := range rows { // 参考求值器已经取了前 N 条

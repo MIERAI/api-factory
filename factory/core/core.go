@@ -31,11 +31,14 @@ const (
 	Date      Kind = "date"      // 日期(API 里 YYYY-MM-DD)
 	Timestamp Kind = "timestamp" // 时刻(API 里 RFC3339 UTC)
 	JSON      Kind = "json"      // 只能作为 json_field 的输入
+	// Rows: 子行的列表(nest 加的列)。Type.Fields = 每个子行的列。不能比较、排序、分组;值是 Children
+	Rows Kind = "rows"
 )
 
 type Type struct {
-	Kind     Kind `json:"kind"`
-	Nullable bool `json:"nullable,omitempty"`
+	Kind     Kind        `json:"kind"`
+	Nullable bool        `json:"nullable,omitempty"`
+	Fields   []NamedType `json:"fields,omitempty"` // Kind = rows: 子行的列(按顺序)
 }
 
 // SQLType: SQL 里的类型名(参数的 cast 用)。
@@ -55,7 +58,7 @@ func (k Kind) SQLType() string {
 		return "date"
 	case Timestamp:
 		return "timestamptz"
-	case JSON:
+	case JSON, Rows:
 		return "jsonb"
 	}
 	panic(fmt.Sprintf("core: unknown kind %q", k))
@@ -63,7 +66,7 @@ func (k Kind) SQLType() string {
 
 func comparable(a, b Kind) bool {
 	if a == b {
-		return a != JSON
+		return a != JSON && a != Rows
 	}
 	return (a == Int32 || a == Int64) && (b == Int32 || b == Int64)
 }
@@ -148,6 +151,13 @@ var cmpOps = map[string]bool{"=": true, "<>": true, "<": true, "<=": true, ">": 
 //	              把 Take 的列加到当前行上。On 的键列必须覆盖 Table 的一个唯一键(Unique)→ 最多一行匹配。
 //	              任一边为 NULL → 不匹配(和 SQL 的 = 一致)。找不到: Missing = keep(默认)→ 加的列为 NULL(类型可空);
 //	              drop → 丢弃这一行(内连接)。后面的 lookup 可以用前面 lookup 加的列做关联(链式)
+//	nest          一对多嵌套: 对每一行,取 Table(列 = Columns)里 On 的列逐个相等的行(任一边 NULL → 不相等),
+//	              经过 Pred(子表的列上的条件,UNKNOWN 丢弃)、按 Order 排序,取 Take 的列,作为子行的列表加一列 As
+//	              (类型 rows,值 Children)。没有子行 → 空列表(不是 NULL)。子行多于 N → 整个请求 FAILED_PRECONDITION
+//	              (不截断;两个后端都最多取 N+1 行,超过由出口判定: 只看响应里的行)。
+//	              DRC: Order + On 的子表的列覆盖子表的一个唯一键(不为空的列)→ 子行的顺序是全序。只有一层
+//	child_agg     按父行聚合: 对每一行,对关联的子行(同 nest 的 On / Pred)计算 Aggs(agg.go,集合可能为空:
+//	              count 0、sum 0、min / max NULL),作为标量列加到当前行上
 type Step struct {
 	Kind    string      `json:"kind"`
 	Table   string      `json:"table,omitempty"`
@@ -166,6 +176,14 @@ type Step struct {
 	Unique  [][]string `json:"unique,omitempty"`  // 对方的表的唯一键(主键 / 唯一约束;DRC 用)
 	// NullEq: 只给差分测试的"错误实现"用(NULL 当作相等的关联),参考求值器认,SQL 后端和 IR 里没有
 	NullEq bool `json:"-"`
+	// nest / child_agg(Table / Columns / On / Unique 同 lookup;On 的 Key = 子表的列。Pred = 子表的列上的条件;
+	// Order = 子行的顺序;N = 子行的上限;Take = 子行的列)
+	Aggs []Agg `json:"aggs,omitempty"` // child_agg: 聚合(agg.go)
+	As   string `json:"as,omitempty"`   // nest: 子行的列表的列名
+	// Mutant: 只给差分测试的"错误实现"用(参考求值器认,SQL 后端和 IR 里没有):
+	// nest: empty_null(空列表 → NULL);child_agg: sum_empty_null(空集合的 sum → NULL)/ count_outer(空集合的 count = 1,
+	// LEFT JOIN + GROUP BY 的 count(*))
+	Mutant string `json:"-"`
 }
 
 // JoinKey: 关联条件的一对列(列 = 列的等值)。
@@ -210,6 +228,36 @@ func LimitParam(p string) Step   { return Step{Kind: "limit", Param: p} }
 // Lookup: 多对一查找(missing: keep / drop)。
 func Lookup(table string, cols []NamedType, unique [][]string, on []JoinKey, take []TakeCol, missing string) Step {
 	return Step{Kind: "lookup", Table: table, Columns: cols, Unique: unique, On: on, Take: take, Missing: missing}
+}
+
+// Nest: 一对多嵌套(子行的列表加一列 as)。
+func Nest(table string, cols []NamedType, unique [][]string, on []JoinKey, pred *Expr, order []SortKey, max int, as string, take []TakeCol) Step {
+	return Step{Kind: "nest", Table: table, Columns: cols, Unique: unique, On: on, Pred: pred, Order: order, N: max, As: as, Take: take}
+}
+
+// ChildAgg: 按父行聚合(每个聚合加一列)。
+func ChildAgg(table string, cols []NamedType, on []JoinKey, pred *Expr, aggs ...Agg) Step {
+	return Step{Kind: "child_agg", Table: table, Columns: cols, On: on, Pred: pred, Aggs: aggs}
+}
+
+// Children: rows 类型的值(nest 的子行的列表)。Rows 最多 Max+1 行(两个后端都多取一行);Max < 0 = 不知道上限
+// (从 Postgres 读回的值)。比较(Canonical)只看 Rows。
+type Children struct {
+	Rows []Row
+	Max  int
+}
+
+// Over: 子行多于上限(整个请求 FAILED_PRECONDITION)。
+func (c Children) Over() bool { return c.Max >= 0 && len(c.Rows) > c.Max }
+
+// Overflow: 这一行里有没有超过上限的子行的列表(出口判定 FAILED_PRECONDITION 用)。
+func Overflow(r Row) bool {
+	for _, v := range r {
+		if c, ok := v.(Children); ok && c.Over() {
+			return true
+		}
+	}
+	return false
 }
 
 // Pipeline: 一条查询。Params = 请求参数的类型(列表参数 List = true)。

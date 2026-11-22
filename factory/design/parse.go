@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -341,6 +342,32 @@ type API struct {
 	LogicCases []*yaml.Node
 	Reviewed   []QA // X.审查.yaml
 	Lookups    []*Lookup // 关联(多对一查找),按书写顺序
+	Nests      []*Nest     // 嵌套(一对多: 子行的列表)
+	ChildAggs  []*ChildAgg // 子聚合(按父行聚合)
+}
+
+// Nest: 嵌套的一项。`名字: { 表, 条件: [列 = 子表的列, …], 固定条件?, 排序: [列 小到大, …], 上限: N, 列: {…} | […], 行名? }`
+type Nest struct {
+	Name     string
+	Table    string
+	On       []string
+	Where    []string
+	OrderBy  []string // spec 的写法: "列 asc|desc"
+	Max      int
+	Columns  [][2]string // 子行的列名, 子表的列
+	ItemName string      // 子行的消息名(没写 = 子表名的单数 PascalCase: order_items → OrderItem)
+	Line     int
+}
+
+// ChildAgg: 子聚合的一项。`名字: { 表, 条件, 固定条件?, 计算: 件数 | 合计(列) | 最小(列) | 最大(列) }`
+type ChildAgg struct {
+	Name   string
+	Table  string
+	On     []string
+	Where  []string
+	Func   string // count / sum / min / max
+	Column string
+	Line   int
 }
 
 // Lookup: 关联的一项。`名字: { 表: …, 条件: [列 = 对方的列, …], 列: { 新列名: 对方的列 }, 找不到时: 保留 | 丢弃 }`
@@ -442,6 +469,54 @@ func loadAPI(path string) (*API, error) {
 			e.add(p.Line, "关联 %s: 找不到时 只能是 保留(加的列为空)/ 丢弃(这一行不要)", p.Key)
 		}
 		a.Lookups = append(a.Lookups, l)
+	}
+	for _, p := range pairs(get(root, "嵌套")) {
+		checkKeys(e, p.Val, "嵌套 "+p.Key, NestKeys()...)
+		n := &Nest{Name: p.Key, Table: str(p.Val, "表"), On: strList(get(p.Val, "条件")), Where: strOrList(get(p.Val, "固定条件")),
+			ItemName: str(p.Val, "行名"), Line: p.Line}
+		if n.Table == "" || len(n.On) == 0 {
+			e.add(p.Line, "嵌套 %s: 要写 表 和 条件(例: 条件: [id = order_id])", p.Key)
+		}
+		cols, desc, err := parseOrder(strList(get(p.Val, "排序")))
+		if err != nil {
+			e.add(p.Line, "嵌套 %s: %v", p.Key, err)
+		}
+		for i, c := range cols {
+			n.OrderBy = append(n.OrderBy, c+" "+map[bool]string{false: "asc", true: "desc"}[desc[i]])
+		}
+		if _, err := fmt.Sscan(str(p.Val, "上限"), &n.Max); err != nil || n.Max <= 0 {
+			e.add(p.Line, "嵌套 %s: 上限 必须是正整数(子行多于上限时整个请求返回错误,不会悄悄截断)", p.Key)
+		}
+		switch cs := get(p.Val, "列"); {
+		case cs != nil && cs.Kind == yaml.MappingNode:
+			for _, c := range pairs(cs) {
+				n.Columns = append(n.Columns, [2]string{c.Key, strings.TrimSpace(c.Val.Value)})
+			}
+		case cs != nil && cs.Kind == yaml.SequenceNode:
+			for _, c := range strList(cs) {
+				n.Columns = append(n.Columns, [2]string{c, c})
+			}
+		}
+		if len(n.Columns) == 0 {
+			e.add(p.Line, "嵌套 %s: 要写 列(子行的列,例: 列: [sku, qty, price])", p.Key)
+		}
+		a.Nests = append(a.Nests, n)
+	}
+	for _, p := range pairs(get(root, "子聚合")) {
+		checkKeys(e, p.Val, "子聚合 "+p.Key, ChildAggKeys()...)
+		g := &ChildAgg{Name: p.Key, Table: str(p.Val, "表"), On: strList(get(p.Val, "条件")), Where: strOrList(get(p.Val, "固定条件")), Line: p.Line}
+		if g.Table == "" || len(g.On) == 0 {
+			e.add(p.Line, "子聚合 %s: 要写 表 和 条件(例: 条件: [id = order_id])", p.Key)
+		}
+		calc := strings.TrimSpace(str(p.Val, "计算"))
+		if m := reAggCall.FindStringSubmatch(calc); calc == "件数" {
+			g.Func = "count"
+		} else if m != nil {
+			g.Func, g.Column = aggWords[m[1]], strings.TrimSpace(m[2])
+		} else {
+			e.add(p.Line, "子聚合 %s: 计算 写成 件数 / 合计(列) / 最小(列) / 最大(列),现在是 %q", p.Key, calc)
+		}
+		a.ChildAggs = append(a.ChildAggs, g)
 	}
 	for _, p := range pairs(get(root, "输入")) {
 		checkKeys(e, p.Val, "输入 "+p.Key, append(InputKeys(), constraints.Keys()...)...)
@@ -633,13 +708,37 @@ func (r tableReader) Column(name, desc, enum string) {
 
 // TopKeys: 设计稿顶层的键(所有种类共用;各种类另外的键在出口的注册表里)。
 func TopKeys() []string {
-	return []string{"API", "说明", "背景", "负责人", "风险", "种类", "数据来源", "关联", "输入", "输入之间的规则", "固定条件",
+	return []string{"API", "说明", "背景", "负责人", "风险", "种类", "数据来源", "关联", "嵌套", "子聚合", "输入", "输入之间的规则", "固定条件",
 		"输出", "输出行名", "输出列表名", "业务规则", "例子", "计算例子"}
 }
 
 // OutputKeys: 输出的一列可以写的键。
 func OutputKeys() []string {
 	return []string{"类型", "说明", "来自", "可以不设置", "每行"}
+}
+
+// NestKeys / ChildAggKeys: 嵌套 / 子聚合的一项可以写的键。
+func NestKeys() []string     { return []string{"表", "条件", "固定条件", "排序", "上限", "列", "行名"} }
+func ChildAggKeys() []string { return []string{"表", "条件", "固定条件", "计算"} }
+
+// aggWords: 子聚合的 计算 的写法 → 聚合(core/agg.go)。件数 = count(没有列)。
+var (
+	aggWords  = map[string]string{"合计": "sum", "最小": "min", "最大": "max"}
+	reAggCall = regexp.MustCompile(`^(合计|最小|最大)\s*[((]\s*([A-Za-z_][A-Za-z0-9_]*)\s*[))]$`)
+)
+
+// strOrList: 一个字符串或字符串的列表(固定条件)。
+func strOrList(n *yaml.Node) []string {
+	if n == nil {
+		return nil
+	}
+	if n.Kind == yaml.ScalarNode {
+		if v := strings.TrimSpace(n.Value); v != "" {
+			return []string{v}
+		}
+		return nil
+	}
+	return strList(n)
 }
 
 // LookupKeys: 关联的一项可以写的键。

@@ -8,6 +8,13 @@ entities:
         policy: mutable
         columns: {}
         invariants: []
+    packages:
+        natural_key:
+            - shipment_id
+            - package_no
+        policy: mutable
+        columns: {}
+        invariants: []
     regions:
         natural_key:
             - region_code

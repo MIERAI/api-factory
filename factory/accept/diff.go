@@ -77,6 +77,7 @@ type diffEnv struct {
 	others    []*otherTable                  // 关联的表(多表: 被引用的在前,按生成的顺序;difflookup.go)
 	fks       map[string][]fkRef             // 表 → 它的外键(关联条件推出来的: 这些列的值要从对方的键里取)
 	view      core.Schema                    // 来源 + 关联之后的列(筛选的列可能是关联加的列)
+	children  []*childTable                  // 嵌套 / 子聚合的子表(在来源的表之后造;diffnest.go)
 }
 
 // tupleGroup: 一个组的列表输入。members[i] = 第 i 个字段的参数名(ir.MemberParam),cols[i] = 它的列。
@@ -954,10 +955,17 @@ func (e *diffEnv) load() (int, int, error) {
 	if st != nil {
 		src, _ = sources.ByKind(st.Kind)
 	}
+	gen, err := e.generatedCols(e.table) // 生成列不插入(值由数据库算)
+	if err != nil {
+		return 0, 0, err
+	}
 	var names, holders []string
-	for i, c := range e.cols {
+	for _, c := range e.cols {
+		if gen[c.Name] {
+			continue
+		}
 		names = append(names, pgx.Identifier{c.Name}.Sanitize())
-		holders = append(holders, fmt.Sprintf("$%d::%s", i+1, c.Type.Kind.SQLType()))
+		holders = append(holders, fmt.Sprintf("$%d::%s", len(holders)+1, c.Type.Kind.SQLType()))
 	}
 	insert := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", ident, strings.Join(names, ", "), strings.Join(holders, ", "))
 	rejected := 0
@@ -982,7 +990,9 @@ func (e *diffEnv) load() (int, int, error) {
 		}
 		e.applyFKs(e.table, e.cols, physical, unique, i)
 		for _, c := range e.cols {
-			args = append(args, sqlValue(physical[c.Name]))
+			if !gen[c.Name] {
+				args = append(args, sqlValue(physical[c.Name]))
+			}
 		}
 		if sh != nil { // 分库: 写进分库键对应的库
 			key := physical[sh.Column]
@@ -1033,6 +1043,9 @@ func (e *diffEnv) load() (int, int, error) {
 		if err := rows.Err(); err != nil {
 			return 0, 0, err
 		}
+	}
+	if err := e.loadChildren(); err != nil { // 嵌套 / 子聚合的子表: 父行(来源的表)读回之后造
+		return 0, 0, err
 	}
 	return len(e.rows), rejected, nil
 }
@@ -1331,6 +1344,11 @@ func (e *diffEnv) align(ps core.Params) core.Params {
 func (e *diffEnv) item(r core.Row, msg *ir.Message) map[string]any {
 	out := map[string]any{}
 	for _, f := range msg.Fields {
+		if c, ok := r[f.Name].(core.Children); ok && f.Message != nil { // 嵌套的子行(diffnest.go)
+			t, _ := e.colType(f.Name)
+			out[f.Name] = childItems(c, t, f.Message)
+			continue
+		}
 		v := e.present(f.Name, r[f.Name])
 		if v == nil {
 			if f.Presence {
@@ -2093,7 +2111,7 @@ func (e *diffEnv) sensTargets() []sensTarget {
 			}
 		}
 	}
-	return append(out, e.lookupTargets()...)
+	return append(append(out, e.lookupTargets()...), e.nestTargets()...)
 }
 
 // refersParam: 表达式里有没有请求参数(param / absent / 列表参数的元件)。
@@ -2397,6 +2415,9 @@ func (e *diffEnv) evalCanon(pl *core.Pipeline, ps core.Params) string {
 	for _, r := range res.Rows {
 		for _, c := range res.Columns {
 			b.WriteString(core.Canonical(r[c.Name]) + "|")
+		}
+		if core.Overflow(r) { // 子行超过上限: 出口返回 FAILED_PRECONDITION(上限差一的实现要看得出来)
+			b.WriteString("!over")
 		}
 		b.WriteString("\n")
 	}

@@ -73,6 +73,9 @@ func init() {
 				return spec.Case{Request: req, Expect: spec.Expect{Code: "FAILED_PRECONDITION", MessageContains: "too many"}},
 					fmt.Sprintf("超过上限(%d 行以上)", n), "over"
 			}
+			if nestOver(rows) {
+				return nestOverCase(req)
+			}
 			msg := x.API().Response.Field(la.ItemsField).Message
 			list := []any{}
 			for _, r := range rows {

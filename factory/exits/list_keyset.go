@@ -127,6 +127,10 @@ func init() {
 				if start > 0 {
 					stepReq["page_token"] = "$prev.next_page_token"
 				}
+				if nestOver(rows[start:end]) { // 这一页里有子行超过上限的行: 这一页报错,不再往后翻
+					steps = append(steps, spec.Step{Request: stepReq, Expect: spec.Expect{Code: "FAILED_PRECONDITION", MessageContains: "too many"}})
+					break
+				}
 				token := any("$absent")
 				if end < n {
 					token = "$nonempty"
@@ -154,7 +158,7 @@ func pageExitCases(x DiffCtx) []Case {
 			continue
 		}
 		r, err := x.Eval(ps)
-		if err == nil && len(r) >= 5 && (base == nil || len(r) > len(rows)) { // 结果最多的(默认件数的用例要能翻页)
+		if err == nil && len(r) >= 5 && !nestOver(r[:5]) && (base == nil || len(r) > len(rows)) { // 结果最多的(默认件数的用例要能翻页)
 			base, rows = ps, r
 		}
 	}
@@ -229,9 +233,23 @@ func defaultPageCases(x DiffCtx, base core.Params, rows []core.Row, list func([]
 		token = "$nonempty"
 	}
 	firstPage := map[string]any{k.ItemsField: list(first), "next_page_token": token}
+	if nestOver(first) { // 默认件数的第一页里有子行超过上限的行(嵌套): 这一页报错
+		over := spec.Expect{Code: "FAILED_PRECONDITION", MessageContains: "too many"}
+		return []Case{
+			{Name: "分页出口: 不传 page_size → 默认件数(子行超过上限)", Case: spec.Case{Request: with(nil), Expect: over}},
+			{Name: "分页出口: page_size = 0 → 默认件数(子行超过上限)", Case: spec.Case{Request: with(map[string]any{"page_size": 0}), Expect: over}},
+		}
+	}
 	out := []Case{
 		{Name: "分页出口: 不传 page_size → 默认件数", Case: spec.Case{Request: with(nil), Expect: spec.Expect{Code: "OK", Response: firstPage}}},
 		{Name: "分页出口: page_size = 0 → 默认件数", Case: spec.Case{Request: with(map[string]any{"page_size": 0}), Expect: spec.Expect{Code: "OK", Response: firstPage}}},
+	}
+	if more && nestOver(rows[def:min(2*def, len(rows))]) {
+		out = append(out, Case{Name: "分页出口: 不传 page_size 翻到第 2 页(子行超过上限)", Case: spec.Case{Steps: []spec.Step{
+			{Request: with(nil), Expect: spec.Expect{Code: "OK", Response: firstPage}},
+			{Request: with(map[string]any{"page_token": "$prev.next_page_token"}), Expect: spec.Expect{Code: "FAILED_PRECONDITION", MessageContains: "too many"}},
+		}}})
+		return out
 	}
 	if more {
 		second := rows[def:min(2*def, len(rows))]

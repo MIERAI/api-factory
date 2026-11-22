@@ -42,11 +42,13 @@ type fkRef struct {
 	keys []string
 }
 
-// initOthers: 从流水线的关联步骤推出关联的表、外键和造数据的顺序。
+// origin: 列的物理的出处(表的列)。
+type origin struct{ table, col string }
+
+// initOthers: 从流水线的关联步骤推出关联的表、外键和造数据的顺序(嵌套 / 子聚合的子表: initChildren)。
 func (e *diffEnv) initOthers() error {
 	e.others, e.fks = nil, map[string][]fkRef{}
 	byName := map[string]*otherTable{}
-	type origin struct{ table, col string }
 	// 列 → 物理的出处(来源的表的列;关联加的列 = 对方的表的列)。JSON版本 的逻辑列没有物理的出处
 	from := map[string]origin{}
 	var src []core.Step
@@ -128,6 +130,7 @@ func (e *diffEnv) initOthers() error {
 		}
 	}
 	e.others = order
+	e.initChildren(from)
 	view, err := core.Check(&core.Pipeline{Steps: src, Params: e.api.Pipeline.Params})
 	if err == nil {
 		e.view = view
@@ -160,22 +163,39 @@ func (e *diffEnv) loadOthers() error {
 		if err != nil {
 			return err
 		}
+		dom, err := e.checkDomains(ot.table, ot.cols) // 关联的表的 CHECK(diffnest.go)
+		if err != nil {
+			return err
+		}
+		gen, err := e.generatedCols(ot.table)
+		if err != nil {
+			return err
+		}
 		var names, holders []string
-		for i, c := range ot.cols {
+		var ins []core.NamedType
+		for _, c := range ot.cols {
+			if gen[c.Name] {
+				continue
+			}
+			ins = append(ins, c)
 			names = append(names, pgx.Identifier{c.Name}.Sanitize())
-			holders = append(holders, fmt.Sprintf("$%d::%s", i+1, c.Type.Kind.SQLType()))
+			holders = append(holders, fmt.Sprintf("$%d::%s", len(holders)+1, c.Type.Kind.SQLType()))
 		}
 		ident := pgx.Identifier{ot.table}.Sanitize()
 		insert := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", ident, strings.Join(names, ", "), strings.Join(holders, ", "))
 		n := diffRows / 2 * max(e.scale, 1)
 		for i := 0; i < n; i++ {
 			physical := map[string]any{}
-			for _, c := range ot.cols {
-				physical[c.Name] = e.otherValue(c, i, unique[c.Name])
+			for _, c := range ins {
+				if d := dom[c.Name]; d != nil {
+					physical[c.Name] = e.relatedValue(c, i, unique[c.Name], d)
+				} else {
+					physical[c.Name] = e.otherValue(c, i, unique[c.Name])
+				}
 			}
 			e.applyFKs(ot.table, ot.cols, physical, unique, i)
 			var args []any
-			for _, c := range ot.cols {
+			for _, c := range ins {
 				args = append(args, sqlValue(physical[c.Name]))
 			}
 			conn := e.conn
@@ -344,6 +364,7 @@ func (e *diffEnv) evalTables(ps core.Params) map[string][]core.Row {
 // tablesIn: 来源的行 main + 关联的表在库 conn 里的行(conn = nil: 全部)。
 func (e *diffEnv) tablesIn(conn *pgx.Conn, main []core.Row) map[string][]core.Row {
 	m := map[string][]core.Row{e.table: main}
+	e.childTablesIn(conn, m)
 	for _, ot := range e.others {
 		if conn == nil || ot.shard == nil {
 			m[ot.table] = ot.rows

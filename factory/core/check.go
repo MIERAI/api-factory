@@ -72,14 +72,18 @@ func Check(p *Pipeline) (Schema, error) {
 				t, ok := cur.Col(k)
 				if !ok {
 					add("%s: 键 %s 不存在", at, k)
-				} else if t.Kind == JSON {
-					add("%s: 键 %s 不能是 json", at, k)
+				} else if t.Kind == JSON || t.Kind == Rows {
+					add("%s: 键 %s 不能是 %s", at, k, t.Kind)
 				}
 				// 键可以为 NULL: NULL 自己是一组(和 SQL 的 DISTINCT ON 一样;参考求值器按规范文本分组,NULL = "∅")
 			}
 			checkOrder(cur, st.Order, at, add)
 		case "lookup":
 			cur = checkLookup(cur, st, at, add)
+		case "nest":
+			cur = p.checkNest(cur, st, at, add)
+		case "child_agg":
+			cur = p.checkChildAgg(cur, st, at, add)
 		case "sort":
 			checkOrder(cur, st.Order, at, add)
 		case "limit":
@@ -272,13 +276,156 @@ func checkLookup(cur Schema, st Step, at string, add func(string, ...any)) Schem
 	return next
 }
 
+// checkChild: nest / child_agg 共同的部分: 子表、关联条件(当前行的列 = 子表的列)、子表上的条件。
+func (p *Pipeline) checkChild(cur Schema, st Step, at string, add func(string, ...any)) (child Schema, ok bool) {
+	child = Schema(st.Columns)
+	if st.Table == "" || len(st.Columns) == 0 {
+		add("%s: 需要子表和它的列", at)
+		return child, false
+	}
+	if len(st.On) == 0 {
+		add("%s: 需要关联条件(on)", at)
+	}
+	seen := map[string]bool{}
+	for _, k := range st.On {
+		a, okA := cur.Col(k.Col)
+		b, okB := child.Col(k.Key)
+		switch {
+		case !okA:
+			add("%s: 关联的列 %s 不存在", at, k.Col)
+		case !okB:
+			add("%s: %s 没有列 %s", at, st.Table, k.Key)
+		case !comparable(a.Kind, b.Kind):
+			add("%s: 关联条件 %s = %s.%s: %s 和 %s 不能比较", at, k.Col, st.Table, k.Key, a.Kind, b.Kind)
+		}
+		if seen[k.Key] {
+			add("%s: 子表的列 %s 重复", at, k.Key)
+		}
+		seen[k.Key] = true
+	}
+	if st.Pred != nil {
+		t, err := p.typeOf(st.Pred, child)
+		if err != nil {
+			add("%s: 子表的条件: %v", at, err)
+		} else if t.Kind != Bool {
+			add("%s: 子表的条件必须是 bool,实际是 %s", at, t.Kind)
+		}
+	}
+	return child, true
+}
+
+// checkNest: 一对多嵌套的 DRC。子行的顺序必须是全序: Order 的列 + 关联的子表的列(同一个父行里是常量)
+// 覆盖子表的一个唯一键,而且这个唯一键的列都不为空(可以为空的唯一列里 NULL 可以重复)。只有一层(子表的列不会是 rows)。
+func (p *Pipeline) checkNest(cur Schema, st Step, at string, add func(string, ...any)) Schema {
+	child, ok := p.checkChild(cur, st, at, add)
+	if !ok {
+		return cur
+	}
+	if st.N <= 0 {
+		add("%s: 子行的上限 N 必须 > 0", at)
+	}
+	if st.As == "" {
+		add("%s: 需要子行的列表的列名(as)", at)
+	} else if _, dup := cur.Col(st.As); dup {
+		add("%s: 列 %s 和已有的列重名", at, st.As)
+	}
+	if len(st.Order) == 0 {
+		add("%s: 需要子行的顺序(order)", at)
+	}
+	checkOrder(child, st.Order, at, add)
+	inOrder, inOn := map[string]bool{}, map[string]bool{}
+	for _, o := range st.Order {
+		inOrder[o.Col] = true
+	}
+	for _, k := range st.On {
+		inOn[k.Key] = true
+	}
+	total := false
+	for _, u := range st.Unique {
+		all := len(u) > 0
+		for _, c := range u {
+			t, ok := child.Col(c)
+			// 关联的列: 匹配到的子行里 = 父行的值(不为空的常量);顺序的列: 必须不为空
+			all = all && ok && (inOn[c] || (inOrder[c] && !t.Nullable))
+		}
+		total = total || all
+	}
+	if !total && len(st.Order) > 0 {
+		add("%s: 子行的顺序 %v 不是全序: 顺序的列(加上关联的列)要包含 %s 的主键或唯一键(不在关联条件里的列要不为空)(唯一键: %v)", at, orderNames(st.Order), st.Table, st.Unique)
+	}
+	if len(st.Take) == 0 {
+		add("%s: 需要子行的列(take)", at)
+	}
+	var fields Schema
+	names := map[string]bool{}
+	for _, t := range st.Take {
+		ct, ok := child.Col(t.Col)
+		switch {
+		case !ok:
+			add("%s: %s 没有列 %s", at, st.Table, t.Col)
+			continue
+		case ct.Kind == JSON || ct.Kind == Rows:
+			add("%s: 子行的列 %s 不能是 %s", at, t.Name, ct.Kind)
+			continue
+		case names[t.Name]:
+			add("%s: 子行的列 %s 重复", at, t.Name)
+			continue
+		}
+		names[t.Name] = true
+		fields = append(fields, NamedType{t.Name, ct})
+	}
+	return append(append(Schema(nil), cur...), NamedType{st.As, Type{Kind: Rows, Fields: fields}})
+}
+
+// checkChildAgg: 按父行聚合的 DRC。聚合的类型来自 agg.go(集合可能为空: min / max 可空)。
+func (p *Pipeline) checkChildAgg(cur Schema, st Step, at string, add func(string, ...any)) Schema {
+	child, ok := p.checkChild(cur, st, at, add)
+	if !ok {
+		return cur
+	}
+	if len(st.Aggs) == 0 {
+		add("%s: 需要聚合(aggs)", at)
+	}
+	next := append(Schema(nil), cur...)
+	for _, a := range st.Aggs {
+		if _, dup := next.Col(a.Name); dup || a.Name == "" {
+			add("%s: 聚合的列名 %q 为空或和已有的列重名", at, a.Name)
+			continue
+		}
+		var col *Type
+		if a.Col != "" {
+			t, ok := child.Col(a.Col)
+			if !ok {
+				add("%s: 聚合 %s: %s 没有列 %s", at, a.Name, st.Table, a.Col)
+				continue
+			}
+			col = &t
+		}
+		t, err := AggType(a.Func, col, true)
+		if err != nil {
+			add("%s: 聚合 %s: %v", at, a.Name, err)
+			continue
+		}
+		next = append(next, NamedType{a.Name, t})
+	}
+	return next
+}
+
+func orderNames(o []SortKey) []string {
+	var out []string
+	for _, k := range o {
+		out = append(out, k.Col)
+	}
+	return out
+}
+
 func checkOrder(cur Schema, order []SortKey, at string, add func(string, ...any)) {
 	for _, o := range order {
 		t, ok := cur.Col(o.Col)
 		if !ok {
 			add("%s: 排序列 %s 不存在", at, o.Col)
-		} else if t.Kind == JSON {
-			add("%s: 不能按 json 列排序", at)
+		} else if t.Kind == JSON || t.Kind == Rows {
+			add("%s: 不能按 %s 列排序(%s)", at, t.Kind, o.Col)
 		}
 	}
 }
