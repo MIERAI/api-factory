@@ -26,7 +26,7 @@
 
 ## 纯函数的规则(闸门会检查)
 
-1. 不访问 DB、网络、文件,不 import `context`、`os`、`net`、`sync`、`math/rand`、`apifactory/platform/...`
+1. 不访问 DB、网络、文件,不 import `context`、`os`、`net`、`sync`、`math/rand`、`github.com/MIERAI/api-factory-runtime/...`
 2. 不调用 `time.Now` / `time.Since` 等依赖当前时间的函数,不启动 goroutine
 3. 不使用全局可变状态
 4. 业务上无法计算的情况,照式样书 behavior 处理;式样书没写的情况,在最后的回复里指出来,不要自作主张

@@ -35,7 +35,7 @@ guard:
   raw_sql_skip_suffix: _test.go
   # compute 的主文件必须是纯函数
   pure:
-    forbidden_imports: ['"context"', '"os"', '"net"', '"math/rand"', '"sync"', '"apifactory/platform', '"apifactory/gen/db"']
+    forbidden_imports: ['"context"', '"os"', '"net"', '"math/rand"', '"sync"', '"github.com/MIERAI/api-factory-runtime', '"apifactory/gen/db"']
     forbidden_calls: "\\btime\\.(Now|Since|Until|Sleep|After|Tick)\\(|\\bgo\\s+func\\b"
 
 # 从逻辑函数的桩里提取签名(prompt 里给 AI 看,签名只在桩里定义一次)

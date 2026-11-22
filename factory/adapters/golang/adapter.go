@@ -25,6 +25,11 @@ import (
 
 const modulePath = "apifactory"
 
+// runtimeModule: the public runtime every generated service imports (github.com/MIERAI/api-factory-runtime). The
+// pure-function gate of the manifest must forbid it (TestPureGateForbidsTheRuntime): a compute function that imports
+// the runtime can reach the database and the network.
+const runtimeModule = "github.com/MIERAI/api-factory-runtime"
+
 func init() { adapter.Register("go", Run) }
 
 func Run(plan *ir.Plan) error {

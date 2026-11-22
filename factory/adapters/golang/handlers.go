@@ -82,13 +82,13 @@ func (g *genCtx) reqExpr(f *ir.Field, paramType string) (string, error) {
 			return fmt.Sprintf("func() []%[1]s {\n\t\tout := make([]%[1]s, 0, len(m.Get%[2]s()))\n\t\tfor _, v := range m.Get%[2]s() {\n\t\t\tout = append(out, %[3]sToDB(v))\n\t\t}\n\t\treturn out\n\t}()", m.DBGoType, goName, m.Helper), nil
 		}
 		if f.Kind == "string" && paramType == "[]time.Time" { // 日期 "YYYY-MM-DD" 的列表
-			g.use("github.com/MIERAI/api-factory-runtime/conv", "")
+			g.use(runtimeModule+"/conv", "")
 			return fmt.Sprintf("conv.Dates(m.Get%s())", goName), nil
 		}
 		return "", fmt.Errorf("list request field %s (%s) cannot be mapped to query param type %s", f.Name, f.Kind, paramType)
 	}
 	if f.Kind == "string" && (paramType == "time.Time" || paramType == "*time.Time") { // 日期 "YYYY-MM-DD"
-		g.use("github.com/MIERAI/api-factory-runtime/conv", "")
+		g.use(runtimeModule+"/conv", "")
 		if paramType == "*time.Time" {
 			return fmt.Sprintf("conv.DatePtr(m.%s)", goName), nil
 		}
@@ -117,7 +117,7 @@ func (g *genCtx) reqExpr(f *ir.Field, paramType string) (string, error) {
 	}
 	switch {
 	case kind == "ts" && paramType == "*time.Time":
-		g.use("github.com/MIERAI/api-factory-runtime/conv", "")
+		g.use(runtimeModule+"/conv", "")
 		return fmt.Sprintf("conv.TimePtr(m.%s)", goName), nil
 	case kind == "ts" && paramType == "time.Time":
 		return fmt.Sprintf("m.Get%s().AsTime()", goName), nil
@@ -147,22 +147,22 @@ func (g *genCtx) resExpr(src, srcType string, f *ir.Field) (string, error) {
 	}
 	switch {
 	case kind == "string" && srcType == "time.Time" && f.Optional && !f.List: // 列不为空,响应字段可选
-		g.use("github.com/MIERAI/api-factory-runtime/conv", "")
+		g.use(runtimeModule+"/conv", "")
 		return fmt.Sprintf("conv.Ptr(conv.DateString(%s))", src), nil
 	case kind == "string" && srcType == "time.Time": // date 列 → "YYYY-MM-DD"
-		g.use("github.com/MIERAI/api-factory-runtime/conv", "")
+		g.use(runtimeModule+"/conv", "")
 		return fmt.Sprintf("conv.DateString(%s)", src), nil
 	case kind == "string" && srcType == "*time.Time" && f.Optional:
-		g.use("github.com/MIERAI/api-factory-runtime/conv", "")
+		g.use(runtimeModule+"/conv", "")
 		return fmt.Sprintf("conv.DateStringPtr(%s)", src), nil
 	case kind == "ts" && srcType == "time.Time":
-		g.use("github.com/MIERAI/api-factory-runtime/conv", "")
+		g.use(runtimeModule+"/conv", "")
 		return fmt.Sprintf("conv.TS(%s)", src), nil
 	case kind == "ts" && srcType == "*time.Time":
-		g.use("github.com/MIERAI/api-factory-runtime/conv", "")
+		g.use(runtimeModule+"/conv", "")
 		return fmt.Sprintf("conv.TSPtr(%s)", src), nil
 	case srcType == kind && f.Optional && !f.List: // 列不为空(类型收窄),响应字段是可选的(可空性来自表定义)
-		g.use("github.com/MIERAI/api-factory-runtime/conv", "")
+		g.use(runtimeModule+"/conv", "")
 		return fmt.Sprintf("conv.Ptr(%s)", src), nil
 	case srcType == kind:
 		return src, nil
@@ -207,7 +207,7 @@ func (g *genCtx) memberExpr(param, paramType string) (string, bool, error) {
 			switch {
 			case k == elem:
 			case k == "string" && elem == "time.Time": // 日期 "YYYY-MM-DD"
-				g.use("github.com/MIERAI/api-factory-runtime/conv", "")
+				g.use(runtimeModule+"/conv", "")
 				get = fmt.Sprintf("conv.Date(%s)", get)
 			case k == "ts" && elem == "time.Time":
 				get += ".AsTime()"
@@ -352,7 +352,7 @@ var placeholderRe = regexp.MustCompile(`\{([a-z0-9_]+)\}`)
 
 func genGetByID(g *genCtx) (string, error) {
 	in, out := &g.api.Request, &g.api.Response
-	g.use("github.com/MIERAI/api-factory-runtime/apierr", "")
+	g.use(runtimeModule+"/apierr", "")
 
 	call, err := g.queryCall()
 	if err != nil {
@@ -435,8 +435,8 @@ func (h *Handler) %s(ctx context.Context, req *connect.Request[%s]) (*connect.Re
 func genListKeyset(g *genCtx) (string, error) {
 	in, out := &g.api.Request, &g.api.Response
 	k := g.api.Keyset
-	g.use("github.com/MIERAI/api-factory-runtime/apierr", "")
-	g.use("github.com/MIERAI/api-factory-runtime/paging", "")
+	g.use(runtimeModule+"/apierr", "")
+	g.use(runtimeModule+"/paging", "")
 	g.use("apifactory/gen/db", "")
 
 	items := out.Field(k.ItemsField)
@@ -717,7 +717,7 @@ func genRowsList(g *genCtx, itemsField string, maxRows int32) (string, error) {
 	itemsGo := goCamelCase(items.Name)
 	guard := ""
 	if maxRows > 0 {
-		g.use("github.com/MIERAI/api-factory-runtime/apierr", "")
+		g.use(runtimeModule+"/apierr", "")
 		guard = fmt.Sprintf("\tif len(rows) > %d {\n\t\treturn nil, apierr.FailedPrecondition(\"too many results (more than %d); narrow the conditions\")\n\t}\n", maxRows, maxRows)
 	}
 	msgLine := "m := req.Msg"
