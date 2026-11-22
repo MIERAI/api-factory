@@ -1297,7 +1297,7 @@ func (e *machEnv) concurrency() []Result {
 				go func() { defer wg.Done(); rs[i], _ = e.round(at, 0) }()
 			}
 			wg.Wait()
-			want := e.state.Timeouts(e.m, at, machBatch)              // 串行: 第一轮
+			want := e.state.Timeouts(e.m, at, machBatch)                 // 串行: 第一轮
 			want = append(want, e.state.Timeouts(e.m, at, machBatch)...) // 第二轮(同一时刻)
 			var extra []string
 			if n := rs[0].Retried + rs[0].Deadlines + rs[1].Retried + rs[1].Deadlines; n != len(want) {
