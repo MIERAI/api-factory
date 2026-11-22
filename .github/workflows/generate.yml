@@ -30,8 +30,8 @@ jobs:
       - name: 生成
         env:
           BASE: ${{ inputs.base || github.event.before }}
-          # 仓库变量 FACTORY_IMPLEMENT_MODEL: claude | local(winpc)。默认 local。都有路径闸门 + 编译 + 验收兜底
-          IMPLEMENT_MODEL: ${{ vars.FACTORY_IMPLEMENT_MODEL || 'local' }}
+          # 仓库变量 FACTORY_IMPLEMENT_MODEL: claude | claude-sonnet。默认 claude-sonnet。都有路径闸门 + 编译 + 验收兜底
+          IMPLEMENT_MODEL: ${{ vars.FACTORY_IMPLEMENT_MODEL || 'claude-sonnet' }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: scripts/ci/generate.sh
       - name: 推送分支 + 开 PR

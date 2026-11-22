@@ -564,7 +564,7 @@ func cmdServeTest(args []string) error {
 
 // cmdAI: 调用 AI 的唯一入口。
 //
-//	factory ai --role implement [--model local] [-- 追加参数...]  < prompt
+//	factory ai --role implement [--model claude-sonnet] [-- 追加参数...]  < prompt
 //
 // implement 角色会自动加上适配器清单里的 ai_tools(允许的工具)。
 func cmdAI(args []string) error {

@@ -28,7 +28,7 @@
 ```sh
 brew install go bufbuild/buf/buf sqlc   # 另需 docker 和 claude CLI
 make db-up                              # 本地 Postgres(端口 55432)
-make loop SPEC=specs/jobs/get-job-status/spec.yaml          # MODEL=local 可让实现用本地模型(审查总是强模型)
+make loop SPEC=specs/jobs/get-job-status/spec.yaml          # MODEL=claude-sonnet 可让实现用便宜一些的模型(审查总是强模型)
 ```
 
 ## 流水线(CI/CD)与部署
@@ -58,8 +58,8 @@ spec-review     generate                verify               deploy
   `none` = 交给平台(Cloud Run 的 IAM `--no-allow-unauthenticated`)
 - 在 GitHub 上启用(仓库的 variables / secrets;没设时对应的 workflow 跳过):
   - `FACTORY_GENERATE=on`: 式样书的审查(spec-pr)和生成(generate)在 self-hosted runner `[self-hosted, laptop]` 上跑
-    (tailnet 里的常驻机器,能连到 winpc 的模型;仓库是私有的,外部的 PR 不会在上面执行)。模型 = factory.yaml 的 `local`:
-    实现由路径闸门 + 编译 + 验收兜底;审查只作参考、不阻塞(本地模型误报多)。runner 上预装 `claude` CLI 和 docker。
+    (tailnet 里的常驻机器;仓库是私有的,外部的 PR 不会在上面执行)。模型 = factory.yaml 的 Claude(审查 claude 阻塞,实现 claude-sonnet;
+    实现由路径闸门 + 编译 + 验收兜底)。runner 上预装 `claude` CLI 和 docker,密钥 CLAUDE_CODE_OAUTH_TOKEN。
     生成物的 PR 用 `GITHUB_TOKEN` 开(不会触发 verify)→ generate 在同一次运行里对生成物的分支调用 verify,结果贴到 PR
   - `GCP_PROJECT` / `GCP_REGION` / `SERVICE` / `AR_REPO` / `RUN_SA` / `GCP_WIF_PROVIDER` / `GCP_DEPLOY_SA`(Workload Identity Federation,仓库里不放密钥);
     连接信息在 Secret Manager(`<SERVICE>-database-url` 等)。第一次部署(服务还不存在)不能用 `--no-traffic`,先普通部署一次
