@@ -10,7 +10,7 @@ SPEC    ?= specs/jobs/get-job-status/spec.yaml
 MODEL   ?= claude
 ACCEPT_SPECS ?= specs
 
-.PHONY: projects perf hooks margin doctor mq-up mq-down accept-mq db-up db-down db-schema design check prepare build test guard accept loop review-local review-fetch
+.PHONY: e2e projects perf hooks margin doctor mq-up mq-down accept-mq db-up db-down db-schema design check prepare build test guard accept loop review-local review-fetch
 
 # 排序规则用 ICU(en-US): Alpine 的 en_US.utf8 实际按字节排,和 C 一样,测不出"忘了 COLLATE C"(生产不是这样)
 hooks:            ## 安装 git 钩子(内容防护: 产品分支不能出现试用公司的内容)
@@ -90,8 +90,11 @@ else
 	@DB_URL='$(DB_URL)' PG_NAME=$(PG_NAME) python3 scripts/accept-par.py $(if $(SEEDS),--seeds '$(SEEDS)') $(ACCEPT_SPECS)
 endif
 
-projects:         ## 其他项目(examples/ 下有 go.mod 的目录,factory --project): 设计 → 生成物最新 → 编译 → 验收
+projects:         ## 其他项目(examples/ 下有 factory.yaml 的目录,factory --project): 设计 → 生成物最新 → 编译 → 验收
 	@scripts/projects.sh
+
+e2e:              ## storefront v2 端到端(手写层,examples/storefront-v2/e2e): compose 起 RabbitMQ + 3 个服务 → 驱动 → down -v
+	@$(MAKE) --no-print-directory -C examples/storefront-v2/e2e e2e
 
 review-local:     ## 推送前的 AI 审查(和 CI 的 spec-pr 同一个脚本;本地 claude CLI;BASE=origin/main)
 	@rm -f .factory/review-local.md

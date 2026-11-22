@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The factory's other projects (factory --project): every directory under examples/ with a go.mod — today the
+# The factory's other projects (factory --project): every directory under examples/ with a factory.yaml — today the
 # storefront v2 sample (docs/design/storefront-v2-readiness.md). For each one, the same gates as this repository:
 #   design / check     the design compiles, the specs pass the gate
 #   prepare            the generated code is up to date (regenerating changes nothing tracked)
@@ -16,7 +16,8 @@ F=$PWD/.factory/factory
 
 dirs=("$@")
 if [ ${#dirs[@]} -eq 0 ]; then
-  while IFS= read -r m; do dirs+=("$(dirname "$m")"); done < <(find examples -name go.mod -not -path '*/node_modules/*' | sort)
+  # factory.yaml, not go.mod: hand-written modules next to the projects (examples/storefront-v2/e2e/driver) are not projects
+  while IFS= read -r m; do dirs+=("$(dirname "$m")"); done < <(find examples -name factory.yaml -not -path '*/node_modules/*' | sort)
 fi
 [ ${#dirs[@]} -gt 0 ] || { echo "no projects under examples/"; exit 0; }
 
