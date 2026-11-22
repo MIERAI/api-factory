@@ -2,9 +2,9 @@
   {
     "id": "catalog.create-product",
     "method": "CreateProduct",
-    "summary": "新建一个商品,返回新建的商品(状态 = 在售,版本号 = 1,由数据库的默认值决定)",
+    "summary": "新建一个商品,返回新建的商品(状态 = 在售,版本号 = 1),同时发出 catalog.product_created",
     "path": "/catalog.catalog.v1.CatalogService/CreateProduct",
-    "pattern": "insert",
+    "pattern": "command",
     "cases": [
       {
         "name": "新的 SKU → 新建,在售,版本号 1",

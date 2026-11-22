@@ -51,6 +51,9 @@ const (
 	// InventoryMessageHandlerServiceCommitStockProcedure is the fully-qualified name of the
 	// InventoryMessageHandlerService's CommitStock RPC.
 	InventoryMessageHandlerServiceCommitStockProcedure = "/inventory.inventory.v1.InventoryMessageHandlerService/CommitStock"
+	// InventoryMessageHandlerServiceInitStockProcedure is the fully-qualified name of the
+	// InventoryMessageHandlerService's InitStock RPC.
+	InventoryMessageHandlerServiceInitStockProcedure = "/inventory.inventory.v1.InventoryMessageHandlerService/InitStock"
 	// InventoryMessageHandlerServiceReleaseStockProcedure is the fully-qualified name of the
 	// InventoryMessageHandlerService's ReleaseStock RPC.
 	InventoryMessageHandlerServiceReleaseStockProcedure = "/inventory.inventory.v1.InventoryMessageHandlerService/ReleaseStock"
@@ -193,6 +196,8 @@ func (UnimplementedInventoryServiceHandler) ListStockBySkus(context.Context, *co
 type InventoryMessageHandlerServiceClient interface {
 	// 确认一个订单的预留(支付成功之后): HELD → COMMITTED,已预留数量减少(出库)。预留已经释放了 → 进 DLQ(收到 inventory.commit v1;入口 = RabbitMQ 的队列,不是 HTTP)
 	CommitStock(context.Context, *connect.Request[v1.CommitStockRequest]) (*connect.Response[v1.CommitStockResponse], error)
+	// 收到新商品的事件,为这个 SKU 建一条库存记录(可用 0、已预留 0)。已经有了就什么都不改(收到 catalog.product_created v1;入口 = RabbitMQ 的队列,不是 HTTP)
+	InitStock(context.Context, *connect.Request[v1.InitStockRequest]) (*connect.Response[v1.InitStockResponse], error)
 	// 释放一个订单的预留(补偿): HELD 的加回可售;预留还没到的留下墓碑(之后迟到的预留不再扣)(收到 inventory.release v1;入口 = RabbitMQ 的队列,不是 HTTP)
 	ReleaseStock(context.Context, *connect.Request[v1.ReleaseStockRequest]) (*connect.Response[v1.ReleaseStockResponse], error)
 	// 为一个订单预留库存。每个 SKU 的可售数量都够才预留(全部或全不),回答 inventory.reserved 或 inventory.reservation_failed(收到 inventory.reserve v1;入口 = RabbitMQ 的队列,不是 HTTP)
@@ -217,6 +222,12 @@ func NewInventoryMessageHandlerServiceClient(httpClient connect.HTTPClient, base
 			connect.WithSchema(inventoryMessageHandlerServiceMethods.ByName("CommitStock")),
 			connect.WithClientOptions(opts...),
 		),
+		initStock: connect.NewClient[v1.InitStockRequest, v1.InitStockResponse](
+			httpClient,
+			baseURL+InventoryMessageHandlerServiceInitStockProcedure,
+			connect.WithSchema(inventoryMessageHandlerServiceMethods.ByName("InitStock")),
+			connect.WithClientOptions(opts...),
+		),
 		releaseStock: connect.NewClient[v1.ReleaseStockRequest, v1.ReleaseStockResponse](
 			httpClient,
 			baseURL+InventoryMessageHandlerServiceReleaseStockProcedure,
@@ -235,6 +246,7 @@ func NewInventoryMessageHandlerServiceClient(httpClient connect.HTTPClient, base
 // inventoryMessageHandlerServiceClient implements InventoryMessageHandlerServiceClient.
 type inventoryMessageHandlerServiceClient struct {
 	commitStock  *connect.Client[v1.CommitStockRequest, v1.CommitStockResponse]
+	initStock    *connect.Client[v1.InitStockRequest, v1.InitStockResponse]
 	releaseStock *connect.Client[v1.ReleaseStockRequest, v1.ReleaseStockResponse]
 	reserveStock *connect.Client[v1.ReserveStockRequest, v1.ReserveStockResponse]
 }
@@ -242,6 +254,11 @@ type inventoryMessageHandlerServiceClient struct {
 // CommitStock calls inventory.inventory.v1.InventoryMessageHandlerService.CommitStock.
 func (c *inventoryMessageHandlerServiceClient) CommitStock(ctx context.Context, req *connect.Request[v1.CommitStockRequest]) (*connect.Response[v1.CommitStockResponse], error) {
 	return c.commitStock.CallUnary(ctx, req)
+}
+
+// InitStock calls inventory.inventory.v1.InventoryMessageHandlerService.InitStock.
+func (c *inventoryMessageHandlerServiceClient) InitStock(ctx context.Context, req *connect.Request[v1.InitStockRequest]) (*connect.Response[v1.InitStockResponse], error) {
+	return c.initStock.CallUnary(ctx, req)
 }
 
 // ReleaseStock calls inventory.inventory.v1.InventoryMessageHandlerService.ReleaseStock.
@@ -259,6 +276,8 @@ func (c *inventoryMessageHandlerServiceClient) ReserveStock(ctx context.Context,
 type InventoryMessageHandlerServiceHandler interface {
 	// 确认一个订单的预留(支付成功之后): HELD → COMMITTED,已预留数量减少(出库)。预留已经释放了 → 进 DLQ(收到 inventory.commit v1;入口 = RabbitMQ 的队列,不是 HTTP)
 	CommitStock(context.Context, *connect.Request[v1.CommitStockRequest]) (*connect.Response[v1.CommitStockResponse], error)
+	// 收到新商品的事件,为这个 SKU 建一条库存记录(可用 0、已预留 0)。已经有了就什么都不改(收到 catalog.product_created v1;入口 = RabbitMQ 的队列,不是 HTTP)
+	InitStock(context.Context, *connect.Request[v1.InitStockRequest]) (*connect.Response[v1.InitStockResponse], error)
 	// 释放一个订单的预留(补偿): HELD 的加回可售;预留还没到的留下墓碑(之后迟到的预留不再扣)(收到 inventory.release v1;入口 = RabbitMQ 的队列,不是 HTTP)
 	ReleaseStock(context.Context, *connect.Request[v1.ReleaseStockRequest]) (*connect.Response[v1.ReleaseStockResponse], error)
 	// 为一个订单预留库存。每个 SKU 的可售数量都够才预留(全部或全不),回答 inventory.reserved 或 inventory.reservation_failed(收到 inventory.reserve v1;入口 = RabbitMQ 的队列,不是 HTTP)
@@ -278,6 +297,12 @@ func NewInventoryMessageHandlerServiceHandler(svc InventoryMessageHandlerService
 		connect.WithSchema(inventoryMessageHandlerServiceMethods.ByName("CommitStock")),
 		connect.WithHandlerOptions(opts...),
 	)
+	inventoryMessageHandlerServiceInitStockHandler := connect.NewUnaryHandler(
+		InventoryMessageHandlerServiceInitStockProcedure,
+		svc.InitStock,
+		connect.WithSchema(inventoryMessageHandlerServiceMethods.ByName("InitStock")),
+		connect.WithHandlerOptions(opts...),
+	)
 	inventoryMessageHandlerServiceReleaseStockHandler := connect.NewUnaryHandler(
 		InventoryMessageHandlerServiceReleaseStockProcedure,
 		svc.ReleaseStock,
@@ -294,6 +319,8 @@ func NewInventoryMessageHandlerServiceHandler(svc InventoryMessageHandlerService
 		switch r.URL.Path {
 		case InventoryMessageHandlerServiceCommitStockProcedure:
 			inventoryMessageHandlerServiceCommitStockHandler.ServeHTTP(w, r)
+		case InventoryMessageHandlerServiceInitStockProcedure:
+			inventoryMessageHandlerServiceInitStockHandler.ServeHTTP(w, r)
 		case InventoryMessageHandlerServiceReleaseStockProcedure:
 			inventoryMessageHandlerServiceReleaseStockHandler.ServeHTTP(w, r)
 		case InventoryMessageHandlerServiceReserveStockProcedure:
@@ -309,6 +336,10 @@ type UnimplementedInventoryMessageHandlerServiceHandler struct{}
 
 func (UnimplementedInventoryMessageHandlerServiceHandler) CommitStock(context.Context, *connect.Request[v1.CommitStockRequest]) (*connect.Response[v1.CommitStockResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("inventory.inventory.v1.InventoryMessageHandlerService.CommitStock is not implemented"))
+}
+
+func (UnimplementedInventoryMessageHandlerServiceHandler) InitStock(context.Context, *connect.Request[v1.InitStockRequest]) (*connect.Response[v1.InitStockResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("inventory.inventory.v1.InventoryMessageHandlerService.InitStock is not implemented"))
 }
 
 func (UnimplementedInventoryMessageHandlerServiceHandler) ReleaseStock(context.Context, *connect.Request[v1.ReleaseStockRequest]) (*connect.Response[v1.ReleaseStockResponse], error) {

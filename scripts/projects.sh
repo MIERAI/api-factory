@@ -6,6 +6,8 @@
 #   build              go build + go vet in the project's own module
 #   accept             a database of its own (sf_<name> on the factory's Postgres) with its db/schema, the server,
 #                      hand-written + automatic + differential cases
+# Then, per system (the projects' parent directory, e.g. examples/storefront-v2): factory system --check = the
+# cross-project message contract check and the system topology manifest <contracts>/topology.json is up to date.
 #   scripts/projects.sh [dir…]      (default: all)       PROJECTS_REGEN=1: write the regenerated files instead of failing
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -41,5 +43,12 @@ for d in "${dirs[@]}"; do
     cat "$d"/db/schema/*.sql | docker exec -i "$PG_NAME" psql -q -U factory -d "$db" -v ON_ERROR_STOP=1
     "$F" --project "$d" serve-test --server bin/server --db "$url" -- "$F" --project . accept --db "$url" | tail -1
   ) || { echo "✗ $d"; fail=1; }
+done
+
+# systems: the parent directories of the projects checked (PROJECTS_REGEN=1: rewrite topology.json)
+systems=$(for d in "${dirs[@]}"; do dirname "$d"; done | sort -u)
+for sys in $systems; do
+  echo "━━ system $sys"
+  if [ -n "${PROJECTS_REGEN:-}" ]; then "$F" system "$sys" || fail=1; else "$F" system "$sys" --check || fail=1; fi
 done
 exit $fail

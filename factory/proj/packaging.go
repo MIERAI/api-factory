@@ -18,7 +18,9 @@ import (
 // 项目的服务器运行时不读任何文件(建表 db/schema 由平台在部署前执行;没有 migrate 步骤),所以只复制二进制。
 //
 // 健康检查和指标由运行时(api-factory-runtime/server)提供,镜像只把端口定下来:
-//   PORT=8080          API + /livez(liveness) /readyz(readiness,停机开始后 503) /healthz(数据库能 ping 通)
+//   PORT=8080          API + /livez(liveness) /readyz(readiness: 有 AMQP_URL 时拓扑声明好、消费循环订阅之前 503;
+//                      停机开始后 503) /healthz(数据库能 ping 通)
+//   HEALTHCHECK        docker / compose 用(k8s 不看): /server probe 请求自己的 /readyz(distroless 没有 shell / curl)
 //   METRICS_PORT=9090  /metrics(不认证的内部端口,Prometheus 从这里抓)
 // k8s 清单不在这里(平台层)。
 
@@ -103,6 +105,9 @@ ENV SERVICE_NAME=%[2]s
 ENV PORT=8080 METRICS_PORT=9090
 EXPOSE 8080 9090
 USER nonroot:nonroot
+# docker / compose (k8s probes /readyz itself): healthy = /readyz 200 = the topology is declared and every consumer
+# subscribed. distroless has no shell / curl: the server's own probe subcommand asks its /readyz
+HEALTHCHECK --interval=10s --timeout=3s --start-period=60s --start-interval=1s --retries=3 CMD ["/server", "probe"]
 ENTRYPOINT ["/server"]
 `
 
