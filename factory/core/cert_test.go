@@ -67,6 +67,8 @@ type certEnv struct {
 	conn *pgx.Conn
 	rows []Row
 	n    int
+	// others: lookup 的对方的表(表名 → 行)
+	others map[string][]Row
 }
 
 func TestCertification(t *testing.T) {
@@ -377,8 +379,175 @@ func TestCertification(t *testing.T) {
 		p := &Pipeline{Steps: all(Filter(Cmp("=", Col("k"), Const(k, Type{Kind: Int64}))), Project(NamedExpr{"v", JSONField(Col("j"), "v", Type{Kind: c.kind})}))}
 		env.check(fmt.Sprintf("json_field 规范写法 %s %s", c.kind, c.val), p, nil)
 	}
+	certLookup(env, all)
 	if !t.Failed() {
 		t.Logf("元件认证: %d 个用例全部一致", env.n)
+	}
+}
+
+func (e *certEnv) tables() map[string][]Row {
+	m := map[string][]Row{"c": e.rows}
+	for k, v := range e.others {
+		m[k] = v
+	}
+	return m
+}
+
+// insertOther: lookup 的对方的表的一行(值按列的类型 cast)。
+func (e *certEnv) insertOther(table string, cols []NamedType, vals ...any) {
+	r := Row{}
+	var holders []string
+	var args []any
+	for i, c := range cols {
+		r[c.Name] = vals[i]
+		holders = append(holders, fmt.Sprintf("$%d::%s", i+1, c.Type.Kind.SQLType()))
+		args = append(args, sqlArg(vals[i]))
+	}
+	if _, err := e.conn.Exec(e.ctx, fmt.Sprintf("INSERT INTO %s VALUES (%s)", table, strings.Join(holders, ", ")), args...); err != nil {
+		e.t.Fatal(err)
+	}
+	if e.others == nil {
+		e.others = map[string][]Row{}
+	}
+	e.others[table] = append(e.others[table], r)
+}
+
+// certLookup: 多对一查找。键匹配 / 不匹配 / NULL(两边),单列和两列的键,keep 和 drop,两级链式;
+// 陷阱: 大小写不同的文本键(ICU 的排序规则下也不相等)、1.5 = 1.50(十进制按值相等)、int4 = int8、对方的唯一列里有 NULL。
+func certLookup(env *certEnv, all func(steps ...Step) []Step) {
+	t := env.t
+	nt := func(name string, k Kind, nullable bool) NamedType {
+		return NamedType{name, Type{Kind: k, Nullable: nullable}}
+	}
+	for _, q := range []string{
+		`CREATE TABLE o1 (k int8 PRIMARY KEY, name text COLLATE "en-US-x-icu" NOT NULL, ref text COLLATE "en-US-x-icu", amt numeric)`,
+		`CREATE TABLE ot (id int8 PRIMARY KEY, u text COLLATE "en-US-x-icu" UNIQUE, name text COLLATE "en-US-x-icu" NOT NULL)`,
+		`CREATE TABLE o2 (g int4 NOT NULL, t text COLLATE "en-US-x-icu" NOT NULL, label text COLLATE "en-US-x-icu", PRIMARY KEY (g, t))`,
+		`CREATE TABLE od (k numeric PRIMARY KEY, name text NOT NULL)`,
+		`CREATE TABLE odt (k date PRIMARY KEY, name text NOT NULL)`,
+	} {
+		if _, err := env.conn.Exec(env.ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	o1 := []NamedType{nt("k", Int64, false), nt("name", Text, false), nt("ref", Text, true), nt("amt", Decimal, true)}
+	for _, r := range [][]any{{int64(1), "one", "a", rat("1.5")}, {int64(10), "ten", nil, nil}, {int64(5), "five", "B", rat("-2")}, {int64(3), "three", "zz", rat("9")}} {
+		env.insertOther("o1", o1, r...)
+	}
+	ot := []NamedType{nt("id", Int64, false), nt("u", Text, true), nt("name", Text, false)}
+	for _, r := range [][]any{{int64(1), "a", "ua"}, {int64(2), "B", "uB"}, {int64(3), nil, "unull"}, {int64(4), "", "uempty"}, {int64(5), "a%", "upct"}, {int64(6), nil, "unull2"}} {
+		env.insertOther("ot", ot, r...)
+	}
+	o2 := []NamedType{nt("g", Int32, false), nt("t", Text, false), nt("label", Text, true)}
+	for _, r := range [][]any{{int64(1), "a", "1a"}, {int64(1), "B", "1B"}, {int64(2), "a", nil}, {int64(2), "ab", "2ab"}, {int64(3), "A", "3A"}, {int64(9), "a", "9a"}} {
+		env.insertOther("o2", o2, r...)
+	}
+	od := []NamedType{nt("k", Decimal, false), nt("name", Text, false)}
+	for _, r := range [][]any{{rat("1.50"), "d1.5"}, {rat("10"), "d10"}, {rat("-2.0"), "d-2"}, {rat("3"), "d3"}} {
+		env.insertOther("od", od, r...)
+	}
+	odt := []NamedType{nt("k", Date, false), nt("name", Text, false)}
+	for _, r := range [][]any{{day("2026-01-01"), "jan1"}, {day("2025-12-31"), "dec31"}, {day("2026-03-01"), "mar1"}} {
+		env.insertOther("odt", odt, r...)
+	}
+	pk := func(cols ...string) [][]string { return [][]string{cols} }
+	byK := SortKey{Col: "k"}
+	type cfg struct {
+		name string
+		step func(missing string) Step
+	}
+	cfgs := []cfg{
+		{"int4→int8 主键", func(m string) Step {
+			return Lookup("o1", o1, pk("k"), []JoinKey{{"i", "k"}}, []TakeCol{{"o_name", "name"}, {"o_amt", "amt"}}, m)
+		}},
+		{"文本 唯一列(可空)", func(m string) Step {
+			return Lookup("ot", ot, [][]string{{"id"}, {"u"}}, []JoinKey{{"s", "u"}}, []TakeCol{{"u_name", "name"}, {"u_id", "id"}}, m)
+		}},
+		{"两列的键", func(m string) Step {
+			return Lookup("o2", o2, pk("g", "t"), []JoinKey{{"g", "g"}, {"t", "t"}}, []TakeCol{{"label", "label"}}, m)
+		}},
+		{"两列的键(顺序反过来)", func(m string) Step {
+			return Lookup("o2", o2, pk("g", "t"), []JoinKey{{"t", "t"}, {"g", "g"}}, []TakeCol{{"label", "label"}, {"o2_t", "t"}}, m)
+		}},
+		{"十进制", func(m string) Step {
+			return Lookup("od", od, pk("k"), []JoinKey{{"d", "k"}}, []TakeCol{{"d_name", "name"}, {"d_k", "k"}}, m)
+		}},
+		{"日期", func(m string) Step {
+			return Lookup("odt", odt, pk("k"), []JoinKey{{"dt", "k"}}, []TakeCol{{"dt_name", "name"}}, m)
+		}},
+	}
+	for _, c := range cfgs {
+		for _, m := range []string{"keep", "drop", ""} {
+			env.check(fmt.Sprintf("lookup %s missing=%q", c.name, m), &Pipeline{Steps: all(c.step(m), Sort(byK))}, nil)
+		}
+	}
+	// 两级链式: c.i → o1.k(取 ref)→ ot.u(取 name)。keep/drop 的四种组合
+	for _, m1 := range []string{"keep", "drop"} {
+		for _, m2 := range []string{"keep", "drop"} {
+			p := &Pipeline{Steps: all(
+				Lookup("o1", o1, pk("k"), []JoinKey{{"i", "k"}}, []TakeCol{{"o_ref", "ref"}, {"o_name", "name"}}, m1),
+				Lookup("ot", ot, [][]string{{"u"}}, []JoinKey{{"o_ref", "u"}}, []TakeCol{{"u_name", "name"}}, m2),
+				Project(NamedExpr{"k", Col("k")}, NamedExpr{"i", Col("i")}, NamedExpr{"o_ref", Col("o_ref")}, NamedExpr{"o_name", Col("o_name")}, NamedExpr{"u_name", Col("u_name")}),
+				Sort(byK))}
+			env.check(fmt.Sprintf("lookup 两级链式 %s/%s", m1, m2), p, nil)
+		}
+	}
+	// 关联的列来自计算(project 之后)/ 每组取一条之后(要包一层子查询)/ 之后再每组取一条
+	env.check("lookup 在 project 之后", &Pipeline{Steps: all(
+		Filter(Cmp("<", Col("k"), Const(int64(1000), Type{Kind: Int64}))), // 12. 之后插入了格式错的 JSON
+		Project(NamedExpr{"k", Col("k")}, NamedExpr{"key", JSONField(Col("j"), "n", Type{Kind: Int32})}),
+		Lookup("o1", o1, pk("k"), []JoinKey{{"key", "k"}}, []TakeCol{{"o_name", "name"}}, "keep"), Sort(byK))}, nil)
+	env.check("lookup 在每组取一条之后", &Pipeline{Steps: all(
+		PickPerKey([]string{"g"}, SortKey{"k", true}),
+		Lookup("o2", o2, pk("g", "t"), []JoinKey{{"g", "g"}, {"t", "t"}}, []TakeCol{{"label", "label"}}, "keep"), Sort(SortKey{Col: "g"}))}, nil)
+	env.check("lookup 之后每组取一条(按加的列分组)", &Pipeline{Steps: all(
+		Lookup("o1", o1, pk("k"), []JoinKey{{"i", "k"}}, []TakeCol{{"o_name", "name"}}, "keep"),
+		PickPerKey([]string{"o_name"}, SortKey{"k", true}), Sort(SortKey{Col: "k"}))}, nil)
+	// 加的列用在筛选 / 排序 / 截取里(文本: 按字节;NULL 在 ASC 最后)
+	for _, m := range []string{"keep", "drop"} {
+		lk := Lookup("ot", ot, [][]string{{"u"}}, []JoinKey{{"s", "u"}}, []TakeCol{{"u_name", "name"}}, m)
+		for _, v := range []any{"<absent>", "ua", "uB", "nope"} {
+			ps := Params{}
+			if v != "<absent>" {
+				ps["p"] = v
+			}
+			p := &Pipeline{Params: []ParamDecl{{Name: "p", Type: Type{Kind: Text}}}, Steps: all(lk,
+				Filter(Or(Absent("p"), Cmp("=", Col("u_name"), Param("p")))), Sort(byK))}
+			env.check(fmt.Sprintf("lookup %s + 筛选加的列 p=%v", m, v), p, ps)
+		}
+		for _, desc := range []bool{false, true} {
+			env.check(fmt.Sprintf("lookup %s + 按加的列排序 desc=%v", m, desc), &Pipeline{Steps: all(lk,
+				Sort(SortKey{"u_name", desc}, byK), Limit(9))}, nil)
+		}
+		env.check(fmt.Sprintf("lookup %s + is_null(加的列)", m), &Pipeline{Steps: all(lk, Filter(IsNull(Col("u_name"))), Sort(byK))}, nil)
+	}
+	// 筛选在 lookup 之前(同一层的 WHERE)和之后
+	env.check("筛选 → lookup → 筛选", &Pipeline{Steps: all(
+		Filter(Cmp(">", Col("g"), Const(int64(1), Type{Kind: Int32}))),
+		Lookup("o2", o2, pk("g", "t"), []JoinKey{{"g", "g"}, {"t", "t"}}, []TakeCol{{"label", "label"}}, "keep"),
+		Filter(Not(IsNull(Col("label")))), Sort(byK))}, nil)
+
+	// DRC: 不是唯一键 / 类型不能比较 / 重名 → 编译失败
+	for name, st := range map[string]Step{
+		"键不唯一":   Lookup("o2", o2, pk("g", "t"), []JoinKey{{"g", "g"}}, []TakeCol{{"label", "label"}}, "keep"),
+		"类型不能比较": Lookup("o1", o1, pk("k"), []JoinKey{{"s", "k"}}, []TakeCol{{"o_name", "name"}}, "keep"),
+		"重名":     Lookup("o1", o1, pk("k"), []JoinKey{{"i", "k"}}, []TakeCol{{"s", "name"}}, "keep"),
+		"列不存在":   Lookup("o1", o1, pk("k"), []JoinKey{{"nope", "k"}}, []TakeCol{{"o_name", "name"}}, "keep"),
+		"找不到时":   Lookup("o1", o1, pk("k"), []JoinKey{{"i", "k"}}, []TakeCol{{"o_name", "name"}}, "skip"),
+	} {
+		if _, err := Check(&Pipeline{Steps: all(st)}); err == nil {
+			t.Errorf("lookup DRC %s: 应该报错", name)
+		}
+	}
+	// 类型: keep → 加的列可空;drop → 保持对方的列的可空性
+	for m, want := range map[string]bool{"keep": true, "drop": false} {
+		s, err := Check(&Pipeline{Steps: all(Lookup("o1", o1, pk("k"), []JoinKey{{"i", "k"}}, []TakeCol{{"o_name", "name"}}, m))})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ty, _ := s.Col("o_name"); ty.Nullable != want {
+			t.Errorf("lookup %s: o_name 的可空性 %v,应该是 %v", m, ty.Nullable, want)
+		}
 	}
 }
 
@@ -475,7 +644,7 @@ func canonicalText(s *string, k Kind) string {
 func (e *certEnv) check(name string, p *Pipeline, params Params) {
 	e.t.Helper()
 	e.n++
-	want, werr := Eval(p, map[string][]Row{"c": e.rows}, params)
+	want, werr := Eval(p, e.tables(), params)
 	got, q, gerr := e.run(p, params)
 	if errors.Is(werr, ErrAmbiguous) {
 		e.t.Fatalf("%s: 认证数据有并列(认证本身的问题): %v", name, werr)
@@ -505,7 +674,7 @@ func (e *certEnv) check(name string, p *Pipeline, params Params) {
 func (e *certEnv) checkError(name string, p *Pipeline) {
 	e.t.Helper()
 	e.n++
-	_, werr := Eval(p, map[string][]Row{"c": e.rows}, nil)
+	_, werr := Eval(p, e.tables(), nil)
 	_, q, gerr := e.run(p, nil)
 	if werr == nil || gerr == nil {
 		e.t.Errorf("%s: 两边都应该报错: 参考求值器 err=%v / SQL err=%v\n%s", name, werr, gerr, q.Text)

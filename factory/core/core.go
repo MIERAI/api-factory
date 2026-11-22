@@ -144,6 +144,10 @@ var cmpOps = map[string]bool{"=": true, "<>": true, "<": true, "<=": true, ">": 
 //	pick_per_key  Keys: 每个键(NULL 视为相等)按 Order 取第一行
 //	sort          Order: 文本按字节;NULL 在 ASC 时最后、DESC 时最前
 //	limit         N;或者 Param = 参数名(必填的整数参数,例如分页的 row_limit)
+//	lookup        多对一查找: 对每一行,在 Table(列 = Columns)里找 On 的键列逐个等于当前行的列的那一行,
+//	              把 Take 的列加到当前行上。On 的键列必须覆盖 Table 的一个唯一键(Unique)→ 最多一行匹配。
+//	              任一边为 NULL → 不匹配(和 SQL 的 = 一致)。找不到: Missing = keep(默认)→ 加的列为 NULL(类型可空);
+//	              drop → 丢弃这一行(内连接)。后面的 lookup 可以用前面 lookup 加的列做关联(链式)
 type Step struct {
 	Kind    string      `json:"kind"`
 	Table   string      `json:"table,omitempty"`
@@ -155,6 +159,25 @@ type Step struct {
 	N       int         `json:"n,omitempty"`
 	Param   string      `json:"param,omitempty"` // limit: 行数来自参数
 	From    string      `json:"from,omitempty"`  // 来自哪个单元 / 设计稿哪一行(审查和报错用)
+	// lookup(Table / Columns 和 scan 一样是对方的表和列)
+	On      []JoinKey  `json:"on,omitempty"`      // 当前行的列 = 对方的键列
+	Take    []TakeCol  `json:"take,omitempty"`    // 加到当前行上的列(新列名 ← 对方的列)
+	Missing string     `json:"missing,omitempty"` // keep(空 = keep)/ drop
+	Unique  [][]string `json:"unique,omitempty"`  // 对方的表的唯一键(主键 / 唯一约束;DRC 用)
+	// NullEq: 只给差分测试的"错误实现"用(NULL 当作相等的关联),参考求值器认,SQL 后端和 IR 里没有
+	NullEq bool `json:"-"`
+}
+
+// JoinKey: 关联条件的一对列(列 = 列的等值)。
+type JoinKey struct {
+	Col string `json:"col"` // 当前行的列
+	Key string `json:"key"` // 对方的键列
+}
+
+// TakeCol: lookup 加到当前行上的一列。
+type TakeCol struct {
+	Name string `json:"name"` // 新列名
+	Col  string `json:"col"`  // 对方的列
 }
 
 type NamedType struct {
@@ -183,6 +206,11 @@ func PickPerKey(keys []string, order ...SortKey) Step {
 func Sort(order ...SortKey) Step { return Step{Kind: "sort", Order: order} }
 func Limit(n int) Step           { return Step{Kind: "limit", N: n} }
 func LimitParam(p string) Step   { return Step{Kind: "limit", Param: p} }
+
+// Lookup: 多对一查找(missing: keep / drop)。
+func Lookup(table string, cols []NamedType, unique [][]string, on []JoinKey, take []TakeCol, missing string) Step {
+	return Step{Kind: "lookup", Table: table, Columns: cols, Unique: unique, On: on, Take: take, Missing: missing}
+}
 
 // Pipeline: 一条查询。Params = 请求参数的类型(列表参数 List = true)。
 type Pipeline struct {

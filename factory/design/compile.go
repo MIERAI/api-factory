@@ -336,6 +336,20 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 
 	checkPickUniquePlain(c, a, table, e)
 
+	// ---- 关联: 加的列之后和来源的列一样(筛选 / 输出 / 来自 / 固定条件 / 排序)。例子的准备数据仍然按表的真实的列
+	lookups := c.lookups(a, table, e)
+	rawCols := c.cat[table]
+	if len(lookups) > 0 && e.err() == nil {
+		view, err := compiler.LookupColumns(&spec.Spec{Domain: c.machineDomain(),
+			Datasource: spec.Datasource{Table: table, Lookups: lookups}}, c.cat)
+		if err != nil {
+			e.add(a.Lookups[0].Line, "%v", err)
+		} else {
+			c.cat[table] = view
+			defer func() { c.cat[table] = rawCols }()
+		}
+	}
+
 	// ---- 请求
 	req := &message{Name: a.Name + "Request", Desc: a.Desc}
 	if a.Exit.Request != nil { // 出口加到请求里的字段(分页: page_size / page_token)
@@ -560,7 +574,7 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 	s.API = spec.API{RPC: c.pkg + "." + c.service + "/" + a.Name, Owner: a.Owner, RiskLevel: a.Risk, Description: a.Background}
 	s.Pattern = a.Pattern
 	s.Pattern.Kind = a.Kind
-	s.Datasource = spec.Datasource{Table: table, Filters: filters, Where: a.Where}
+	s.Datasource = spec.Datasource{Table: table, Filters: filters, Where: a.Where, Lookups: lookups}
 	for _, w := range a.Where { // 固定条件: 写法 / 列名 / 常量的类型在这里就检查
 		if _, err := where.Parse(w, compiler.WhereTypes(c.cat[table])); err != nil {
 			e.add(1, "%v", err)
@@ -581,8 +595,19 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 	for _, qa := range a.Reviewed {
 		s.ReviewDecisions = append(s.ReviewDecisions, spec.ReviewDecision{Question: qa.Question, Decision: qa.Answer})
 	}
+	if len(lookups) > 0 { // 例子: 准备数据按表的真实的列
+		c.cat[table] = rawCols
+	}
 	if err := c.examples(a, s, req, resp, itemKey); err != nil {
 		return nil, "", err
+	}
+	for _, l := range lookups { // 准备数据里没写的关联的表 = 空表(不能留着别的用例的数据)
+		if s.Acceptance.Fixtures == nil {
+			s.Acceptance.Fixtures = map[string][]map[string]any{}
+		}
+		if _, ok := s.Acceptance.Fixtures[l.Table]; !ok {
+			s.Acceptance.Fixtures[l.Table] = []map[string]any{}
+		}
 	}
 	return s, fmt.Sprintf("  // %s\n  rpc %s(%s) returns (%s);", oneLine(a.Desc), a.Name, req.Name, resp.Name), nil
 }
@@ -833,6 +858,27 @@ func contains(xs []string, x string) bool {
 		}
 	}
 	return false
+}
+
+// lookups: 设计稿的 关联 → 机器用的式样书。关联的表 / 列是否存在、键是否唯一、分库由编译器检查(factory/compiler/lookup.go);
+// 这里只检查设计稿层面的: 要有数据来源、关联的列不能是枚举(枚举的映射按来源的表查,还不支持别的表的枚举)。
+func (c *ctx) lookups(a *API, table string, e *errs) []spec.Lookup {
+	var out []spec.Lookup
+	for _, l := range a.Lookups {
+		if table == "" || a.Exit.AI {
+			e.add(l.Line, "关联 %s: 只能用于有数据来源的查询(%s 不行)", l.Name, a.Exit.Name)
+			continue
+		}
+		sl := spec.Lookup{Name: l.Name, Table: l.Table, On: l.On, Missing: l.Missing}
+		for _, col := range l.Columns {
+			if t := c.d.Tables[l.Table]; t != nil && t.ColEnum[col[1]] != "" {
+				e.add(l.Line, "关联 %s: 列 %s(%s.%s)是枚举,关联的列还不能是枚举", l.Name, col[0], l.Table, col[1])
+			}
+			sl.Columns = append(sl.Columns, spec.TakeCol{Name: col[0], From: col[1]})
+		}
+		out = append(out, sl)
+	}
+	return out
 }
 
 // checkPickUniquePlain: 普通的表(没有 存储)上的 每组取一条: 按 + 取 的列要覆盖表的主键,否则同一组里可能有多行

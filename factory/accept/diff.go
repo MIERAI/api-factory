@@ -74,6 +74,9 @@ type diffEnv struct {
 	tuples    []tupleGroup                   // 组的列表(组属于): 每个字段是一个列表参数,请求 / 求值前按下标对齐(align)
 	keySets   [][]string                     // 唯一的列的组合(主键 / 唯一约束 / 多版本来源的自然键);nil = 还没查
 	ties      [][2]string                    // 条件里互相比较的两列(固定条件: 税込 = 旧税込): 数据里要经常相等
+	others    []*otherTable                  // 关联的表(多表: 被引用的在前,按生成的顺序;difflookup.go)
+	fks       map[string][]fkRef             // 表 → 它的外键(关联条件推出来的: 这些列的值要从对方的键里取)
+	view      core.Schema                    // 来源 + 关联之后的列(筛选的列可能是关联加的列)
 }
 
 // tupleGroup: 一个组的列表输入。members[i] = 第 i 个字段的参数名(ir.MemberParam),cols[i] = 它的列。
@@ -288,6 +291,9 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 	}
 	env.input = md.Input()
 	env.collect()
+	if err := env.initOthers(); err != nil {
+		return fail("关联: %v", err)
+	}
 	if env.out, err = core.Check(p); err != nil {
 		return fail("流水线: %v", err)
 	}
@@ -369,7 +375,7 @@ func (e *diffEnv) injectRemoval(req core.Params, mode int) error {
 		return nil
 	}
 	req = e.align(req)
-	res, err := core.Eval(e.api.Pipeline, map[string][]core.Row{e.table: e.rowsFor(req)}, req)
+	res, err := core.Eval(e.api.Pipeline, e.evalTables(req), req)
 	if err != nil || len(res.Rows) == 0 {
 		return err
 	}
@@ -939,6 +945,9 @@ func (e *diffEnv) load() (int, int, error) {
 			return 0, 0, err
 		}
 	}
+	if err := e.loadOthers(); err != nil { // 关联的表先造(外键的值从它们的键里取)
+		return 0, 0, err
+	}
 	// 分库键在物理行里的值: 普通的表 = 列;其他来源由来源决定(JSON版本 = JSON 里的键)
 	st := e.plan.Storage(e.api.Table)
 	var src *sources.Source
@@ -971,6 +980,7 @@ func (e *diffEnv) load() (int, int, error) {
 				physical[t[1]] = physical[t[0]]
 			}
 		}
+		e.applyFKs(e.table, e.cols, physical, unique, i)
 		for _, c := range e.cols {
 			args = append(args, sqlValue(physical[c.Name]))
 		}
@@ -1207,6 +1217,9 @@ func (e *diffEnv) colType(name string) (core.Type, bool) {
 	if t, ok := e.out.Col(name); ok {
 		return t, true
 	}
+	if t, ok := e.view.Col(name); ok {
+		return t, true
+	}
 	return core.Schema(e.cols).Col(name)
 }
 
@@ -1385,7 +1398,7 @@ func (e *diffEnv) Eval(ps core.Params) ([]core.Row, error) {
 			evalParams[k] = v
 		}
 	}
-	res, err := core.Eval(e.api.Pipeline, map[string][]core.Row{e.table: e.rowsFor(ps)}, evalParams)
+	res, err := core.Eval(e.api.Pipeline, e.evalTables(ps), evalParams)
 	if err != nil {
 		return nil, err
 	}
@@ -1415,7 +1428,8 @@ func (e *diffEnv) rowsFor(ps core.Params) []core.Row {
 func (e *diffEnv) loadAnchors() error {
 	src := &core.Pipeline{Params: e.api.Pipeline.Params}
 	for _, st := range e.api.Pipeline.Steps {
-		if st.From != "datasource.table" && !strings.HasPrefix(st.From, "来源 ") {
+		// 关联也算来源: 筛选的列可能是关联加的列,请求的值要从关联之后的行里取
+		if st.From != "datasource.table" && !strings.HasPrefix(st.From, "来源 ") && st.Kind != "lookup" {
 			break
 		}
 		src.Steps = append(src.Steps, st)
@@ -2079,7 +2093,7 @@ func (e *diffEnv) sensTargets() []sensTarget {
 			}
 		}
 	}
-	return out
+	return append(out, e.lookupTargets()...)
 }
 
 // refersParam: 表达式里有没有请求参数(param / absent / 列表参数的元件)。
@@ -2375,7 +2389,7 @@ func (e *diffEnv) evalCanon(pl *core.Pipeline, ps core.Params) string {
 			params[k] = v
 		}
 	}
-	res, err := core.Eval(pl, map[string][]core.Row{e.table: e.rowsFor(ps)}, params)
+	res, err := core.Eval(pl, e.evalTables(ps), params)
 	if err != nil {
 		return "error"
 	}
@@ -2433,7 +2447,7 @@ func (e *diffEnv) pickReduced(reqs []core.Params) (int, bool) {
 		for k, v := range ps {
 			evalParams[k] = v
 		}
-		res, err := core.Eval(&core.Pipeline{Steps: steps[:upto], Params: e.api.Pipeline.Params}, map[string][]core.Row{e.table: e.rowsFor(ps)}, evalParams)
+		res, err := core.Eval(&core.Pipeline{Steps: steps[:upto], Params: e.api.Pipeline.Params}, e.evalTables(ps), evalParams)
 		if err != nil {
 			return -1
 		}
@@ -2454,7 +2468,7 @@ func (e *diffEnv) pickReduced(reqs []core.Params) (int, bool) {
 // evalPerDB: 不依赖请求的求值(来源部分): 分库时每个库分别算,结果合在一起(版本的选择在各个库里分别进行)。
 func (e *diffEnv) evalPerDB(p *core.Pipeline) (*core.Result, error) {
 	if e.api.Shard == nil {
-		return core.Eval(p, map[string][]core.Row{e.table: e.rows}, core.Params{})
+		return core.Eval(p, e.tablesIn(nil, e.rows), core.Params{})
 	}
 	parts := map[*pgx.Conn][]core.Row{}
 	var order []*pgx.Conn
@@ -2467,7 +2481,7 @@ func (e *diffEnv) evalPerDB(p *core.Pipeline) (*core.Result, error) {
 	}
 	out := &core.Result{}
 	for _, c := range order {
-		res, err := core.Eval(p, map[string][]core.Row{e.table: parts[c]}, core.Params{})
+		res, err := core.Eval(p, e.tablesIn(c, parts[c]), core.Params{})
 		if err != nil {
 			return nil, err
 		}
@@ -2584,7 +2598,7 @@ func (e *diffEnv) rowsBeforeLimit(ps core.Params) (int, error) {
 			params[k] = v
 		}
 	}
-	res, err := core.Eval(&core.Pipeline{Steps: steps, Params: e.api.Pipeline.Params}, map[string][]core.Row{e.table: e.rowsFor(ps)}, params)
+	res, err := core.Eval(&core.Pipeline{Steps: steps, Params: e.api.Pipeline.Params}, e.evalTables(ps), params)
 	if err != nil {
 		return 0, err
 	}

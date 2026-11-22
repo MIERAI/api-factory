@@ -340,6 +340,17 @@ type API struct {
 	Cases      []*yaml.Node
 	LogicCases []*yaml.Node
 	Reviewed   []QA // X.审查.yaml
+	Lookups    []*Lookup // 关联(多对一查找),按书写顺序
+}
+
+// Lookup: 关联的一项。`名字: { 表: …, 条件: [列 = 对方的列, …], 列: { 新列名: 对方的列 }, 找不到时: 保留 | 丢弃 }`
+type Lookup struct {
+	Name    string
+	Table   string
+	On      []string
+	Columns [][2]string // 新列名, 对方的列
+	Missing string      // keep / drop
+	Line    int
 }
 
 type Input struct {
@@ -402,6 +413,35 @@ func loadAPI(path string) (*API, error) {
 	}
 	if a.Risk, ok = risks[str(root, "风险")]; !ok {
 		e.add(root.Line, "风险 只能是 低 / 中 / 高")
+	}
+	for _, p := range pairs(get(root, "关联")) {
+		checkKeys(e, p.Val, "关联 "+p.Key, LookupKeys()...)
+		l := &Lookup{Name: p.Key, Table: str(p.Val, "表"), On: strList(get(p.Val, "条件")), Line: p.Line}
+		if l.Table == "" || len(l.On) == 0 {
+			e.add(p.Line, "关联 %s: 要写 表 和 条件(例: 条件: [customer_id = id])", p.Key)
+		}
+		switch cols := get(p.Val, "列"); {
+		case cols != nil && cols.Kind == yaml.MappingNode:
+			for _, c := range pairs(cols) {
+				l.Columns = append(l.Columns, [2]string{c.Key, strings.TrimSpace(c.Val.Value)})
+			}
+		case cols != nil && cols.Kind == yaml.SequenceNode: // [name, …] = 同名
+			for _, c := range strList(cols) {
+				l.Columns = append(l.Columns, [2]string{c, c})
+			}
+		}
+		if len(l.Columns) == 0 {
+			e.add(p.Line, "关联 %s: 要写 列(例: 列: { customer_name: name },新列名: 对方的列)", p.Key)
+		}
+		switch str(p.Val, "找不到时") {
+		case "", "保留":
+			l.Missing = "keep"
+		case "丢弃":
+			l.Missing = "drop"
+		default:
+			e.add(p.Line, "关联 %s: 找不到时 只能是 保留(加的列为空)/ 丢弃(这一行不要)", p.Key)
+		}
+		a.Lookups = append(a.Lookups, l)
 	}
 	for _, p := range pairs(get(root, "输入")) {
 		checkKeys(e, p.Val, "输入 "+p.Key, append(InputKeys(), constraints.Keys()...)...)
@@ -593,7 +633,7 @@ func (r tableReader) Column(name, desc, enum string) {
 
 // TopKeys: 设计稿顶层的键(所有种类共用;各种类另外的键在出口的注册表里)。
 func TopKeys() []string {
-	return []string{"API", "说明", "背景", "负责人", "风险", "种类", "数据来源", "输入", "输入之间的规则", "固定条件",
+	return []string{"API", "说明", "背景", "负责人", "风险", "种类", "数据来源", "关联", "输入", "输入之间的规则", "固定条件",
 		"输出", "输出行名", "输出列表名", "业务规则", "例子", "计算例子"}
 }
 
@@ -601,6 +641,9 @@ func TopKeys() []string {
 func OutputKeys() []string {
 	return []string{"类型", "说明", "来自", "可以不设置", "每行"}
 }
+
+// LookupKeys: 关联的一项可以写的键。
+func LookupKeys() []string { return []string{"表", "条件", "列", "找不到时"} }
 
 // InputKeys: 输入可以写的键(约束的键另外由 factory/constraints 决定)。
 func InputKeys() []string { return []string{"类型", "必填", "说明", "筛选", "组"} }

@@ -37,7 +37,8 @@ func WhereTypes(cols []Column) func(string) (core.Type, bool) {
 	}
 }
 
-func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []resolvedFilter, cat *catalog) (*core.Pipeline, error) {
+// cat: schema 的目录(来源的扫描用);view: 加了关联列的目录(筛选 / 输出 / 固定条件用);lookups: 关联的步骤(接在来源之后)。
+func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []resolvedFilter, cat, view *catalog, lookups []core.Step) (*core.Pipeline, error) {
 	table := s.Datasource.Table
 	p := &core.Pipeline{}
 	source, err := sourceSteps(s, lib, cat)
@@ -58,7 +59,7 @@ func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []re
 		var members []string
 		if f.Op == "in_tuples" { // 组的列表: 每个字段一个列表参数(类型 = 列的类型)
 			for _, c := range cols {
-				cc, _ := cat.column(table, c)
+				cc, _ := view.column(table, c)
 				ct, err := coreType(table, cc)
 				if err != nil {
 					return nil, err
@@ -77,7 +78,7 @@ func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []re
 		parts.Filters = append(parts.Filters, e)
 	}
 	for _, w := range s.Datasource.Where { // 固定条件: 和筛选一样作用在来源的列上
-		e, err := where.Parse(w, WhereTypes(cat.tables[table]))
+		e, err := where.Parse(w, WhereTypes(view.tables[table]))
 		if err != nil {
 			return nil, err
 		}
@@ -95,7 +96,7 @@ func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []re
 		return nil, fmt.Errorf("模式 %s 没有对应的套装", s.PatternKind())
 	}
 	if ex.Parts != nil {
-		if err := ex.Parts(s, partsCtx{table, cat}, &parts, p); err != nil {
+		if err := ex.Parts(s, partsCtx{table, view}, &parts, p); err != nil {
 			return nil, err
 		}
 	}
@@ -104,7 +105,7 @@ func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []re
 	if err != nil {
 		return nil, err
 	}
-	p.Steps = append(source, steps...)
+	p.Steps = append(append(source, lookups...), steps...)
 	if _, err := core.Check(p); err != nil {
 		return nil, fmt.Errorf("设计规则检查:\n%w", err)
 	}

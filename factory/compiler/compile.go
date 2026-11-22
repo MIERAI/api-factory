@@ -77,6 +77,10 @@ func Compile(specs []*spec.Spec) (*ir.Plan, error) {
 	if err != nil {
 		return nil, err
 	}
+	keys, err := UniqueKeys() // 关联的 DRC: 对方的键列必须是唯一键
+	if err != nil {
+		return nil, err
+	}
 
 	// 声明 → 单元展开 → 流水线 → SQL(core 的 SQL 后端);逃生口的 SQL 原样使用
 	plan := &ir.Plan{Version: ir.Version}
@@ -93,11 +97,15 @@ func Compile(specs []*spec.Spec) (*ir.Plan, error) {
 			if _, ok := cat.tables[s.Datasource.Table]; !ok {
 				return nil, fmt.Errorf("%s: datasource.table: %q is not in db/schema/*.sql", s.Path, s.Datasource.Table)
 			}
-			cols, err := selectColumns(s, md, cat)
+			view, lsteps, err := lookupView(s, cat, keys) // 关联: 加的列也是来源的列(筛选 / 输出 / 排序)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", s.Path, err)
 			}
-			filters, err := resolveFilters(s, md, cat)
+			cols, err := selectColumns(s, md, view)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", s.Path, err)
+			}
+			filters, err := resolveFilters(s, md, view)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", s.Path, err)
 			}
@@ -109,7 +117,7 @@ func Compile(specs []*spec.Spec) (*ir.Plan, error) {
 			} else {
 				api.Shard = sh
 			}
-			pl, err := buildPipeline(s, lib, cols, filters, cat)
+			pl, err := buildPipeline(s, lib, cols, filters, cat, view, lsteps)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", s.Path, err)
 			}
@@ -176,6 +184,12 @@ func Compile(specs []*spec.Spec) (*ir.Plan, error) {
 		if e.ShardBy != "" && !seen["shard:"+table] {
 			seen["shard:"+table] = true
 			plan.Shards = append(plan.Shards, ir.Shard{Table: table, Column: e.ShardBy})
+		}
+		for _, l := range s.Datasource.Lookups { // 关联的分库的表(验收把数据写进分库键对应的库)
+			if le := s.Domain.Entities[l.Table]; le.ShardBy != "" && !seen["shard:"+l.Table] {
+				seen["shard:"+l.Table] = true
+				plan.Shards = append(plan.Shards, ir.Shard{Table: l.Table, Column: le.ShardBy})
+			}
 		}
 		if st := e.Storage; st != nil && !seen["storage:"+table] {
 			seen["storage:"+table] = true

@@ -103,6 +103,8 @@ func Eval(p *Pipeline, tables map[string][]Row, params Params) (*Result, error) 
 				out = append(out, g[0])
 			}
 			rows = out
+		case "lookup":
+			schema, rows = evalLookup(st, schema, rows, tables[st.Table])
 		case "sort":
 			sortRows(rows, st.Order)
 			for i := 1; i < len(rows); i++ {
@@ -537,3 +539,72 @@ func FromPGText(s *string, k Kind) (any, error) {
 
 // Compare: 两个值的顺序(和排序一样的规则;NULL 最大)。验收的数据生成用。
 func Compare(a, b any) int { return compareNullsLarge(a, b) }
+
+// evalLookup: 多对一查找。对方的行按键建索引(键里有 NULL 的行不进索引: NULL 和什么都不相等),
+// 当前行的关联列有 NULL → 找不到。匹配的行按连接的语义逐个输出(DRC 保证最多一行;
+// 差分测试的"错误实现"(少比较一列的键)会匹配到多行,这时和 SQL 的连接一样输出多行)。
+func evalLookup(st Step, schema Schema, rows []Row, other []Row) (Schema, []Row) {
+	types := map[string]Type{}
+	for _, c := range st.Columns {
+		types[c.Name] = c.Type
+	}
+	next := append(Schema(nil), schema...)
+	for _, t := range st.Take {
+		ty := types[t.Col]
+		if st.Missing != "drop" {
+			ty.Nullable = true
+		}
+		next = append(next, NamedType{t.Name, ty})
+	}
+	const null = "\x01NULL" // NullEq(错误实现): NULL 当作一个普通的值
+	key := func(r Row, cols func(JoinKey) string) (string, bool) {
+		var b strings.Builder
+		for _, k := range st.On {
+			v := r[cols(k)]
+			if v == nil {
+				if !st.NullEq {
+					return "", false
+				}
+				b.WriteString(null)
+			} else {
+				b.WriteString(Canonical(v))
+			}
+			b.WriteString("\x00")
+		}
+		return b.String(), true
+	}
+	index := map[string][]Row{}
+	for _, o := range other {
+		if k, ok := key(o, func(j JoinKey) string { return j.Key }); ok {
+			index[k] = append(index[k], o)
+		}
+	}
+	var out []Row
+	for _, r := range rows {
+		var found []Row
+		if k, ok := key(r, func(j JoinKey) string { return j.Col }); ok {
+			found = index[k]
+		}
+		if len(found) == 0 {
+			if st.Missing == "drop" {
+				continue
+			}
+			found = []Row{nil}
+		}
+		for _, o := range found {
+			row := Row{}
+			for c, v := range r {
+				row[c] = v
+			}
+			for _, t := range st.Take {
+				if o == nil {
+					row[t.Name] = nil
+				} else {
+					row[t.Name] = o[t.Col]
+				}
+			}
+			out = append(out, row)
+		}
+	}
+	return next, out
+}

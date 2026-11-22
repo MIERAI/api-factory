@@ -730,6 +730,221 @@
     ]
   },
   {
+    "id": "logistics.list-shipments-by-day",
+    "method": "ListShipmentsByDay",
+    "summary": "指定した出荷日の出荷を、倉庫名と配送業者名つきで返す(分页なし)",
+    "path": "/factory.logistics.v1.LogisticService/ListShipmentsByDay",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "倉庫マスタに無い倉庫(W9)・業者マスタに無いコード(P99)の出荷も返す。名前は不设置",
+        "request": {
+          "shipped_on": "2026-11-20"
+        },
+        "response": {
+          "shipments": [
+            {
+              "carrier_name": "山川運輸",
+              "id": 1,
+              "partner_code": "P01",
+              "warehouse_name": "東倉庫",
+              "weight": "12.5"
+            },
+            {
+              "carrier_name": "$absent",
+              "id": 2,
+              "partner_code": "$absent",
+              "warehouse_code": "W9",
+              "warehouse_name": "$absent"
+            },
+            {
+              "carrier_name": "$absent",
+              "id": 3,
+              "partner_code": "P99",
+              "warehouse_name": "西倉庫",
+              "weight": "0.25"
+            }
+          ]
+        }
+      },
+      {
+        "name": "取引先コードが空の出荷は、取引先コードが空の業者(自社便)とは結びつかない(空どうしは等しくない)",
+        "request": {
+          "shipped_on": "2026-11-20",
+          "warehouse_codes": [
+            "W9"
+          ]
+        },
+        "response": {
+          "shipments": [
+            {
+              "carrier_name": "$absent",
+              "id": 2
+            }
+          ]
+        }
+      },
+      {
+        "name": "倉庫で絞り込む",
+        "request": {
+          "shipped_on": "2026-11-21",
+          "warehouse_codes": [
+            "W1",
+            "W2"
+          ]
+        },
+        "response": {
+          "shipments": [
+            {
+              "carrier_name": "山川運輸",
+              "id": 4,
+              "warehouse_name": "東倉庫"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "logistics.list-shipments-by-region",
+    "method": "ListShipmentsByRegion",
+    "summary": "指定した出荷日の出荷を、倉庫の地域つきで地域名順に返す(分页なし)",
+    "path": "/factory.logistics.v1.LogisticService/ListShipmentsByRegion",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "地域名順(文字コード順)。地域が空(W3)・地域マスタに無い(W4)・倉庫マスタに無い(W9)出荷は地域名が空で末尾",
+        "request": {
+          "shipped_on": "2026-11-20"
+        },
+        "response": {
+          "shipments": [
+            {
+              "id": 2,
+              "region_code": "R2",
+              "region_name": "九州",
+              "warehouse_name": "西倉庫"
+            },
+            {
+              "id": 1,
+              "region_code": "R1",
+              "region_name": "関東",
+              "warehouse_name": "東倉庫"
+            },
+            {
+              "id": 3,
+              "region_code": "$absent",
+              "region_name": "$absent",
+              "warehouse_name": "新倉庫"
+            },
+            {
+              "id": 4,
+              "region_code": "R9",
+              "region_name": "$absent",
+              "warehouse_name": "旧倉庫"
+            },
+            {
+              "id": 5,
+              "region_code": "$absent",
+              "region_name": "$absent",
+              "warehouse_name": "$absent"
+            }
+          ]
+        }
+      },
+      {
+        "name": "地域で絞り込む(倉庫マスタの地域コード)",
+        "request": {
+          "region_code": "R1",
+          "shipped_on": "2026-11-20"
+        },
+        "response": {
+          "shipments": [
+            {
+              "id": 1,
+              "region_name": "関東"
+            }
+          ]
+        }
+      },
+      {
+        "name": "地域マスタに無い地域コードでも絞り込める(地域名は空)",
+        "request": {
+          "region_code": "R9",
+          "shipped_on": "2026-11-20"
+        },
+        "response": {
+          "shipments": [
+            {
+              "id": 4,
+              "region_name": "$absent"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "logistics.list-zoned-shipments",
+    "method": "ListZonedShipments",
+    "summary": "倉庫の出荷のうち、区画マスタにある区画に割り当て済みのものを区画名つきで返す",
+    "path": "/factory.logistics.v1.LogisticService/ListZonedShipments",
+    "pattern": "list_keyset",
+    "cases": [
+      {
+        "name": "区画が空(id 3)・区画マスタに無い区画(id 4)の出荷は出さない",
+        "request": {
+          "warehouse_code": "W1"
+        },
+        "response": {
+          "shipments": [
+            {
+              "id": 2,
+              "zone_label": "B棚",
+              "zone_no": 2
+            },
+            {
+              "id": 1,
+              "zone_label": "A棚",
+              "zone_no": 1
+            }
+          ]
+        }
+      },
+      {
+        "name": "区画番号は倉庫ごと(W2 の区画 2 は無い。W1 の区画 2 と取り違えない)",
+        "request": {
+          "warehouse_code": "W2"
+        },
+        "response": {
+          "shipments": [
+            {
+              "id": 6,
+              "shipped_on": "2026-11-22",
+              "zone_label": "冷蔵",
+              "zone_no": 1
+            }
+          ]
+        }
+      },
+      {
+        "name": "区画の表示名で絞り込む",
+        "request": {
+          "warehouse_code": "W1",
+          "zone_label": "A棚"
+        },
+        "response": {
+          "shipments": [
+            {
+              "id": 1,
+              "zone_label": "A棚"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
     "id": "sales.get-daily-sales-summary",
     "method": "GetDailySalesSummary",
     "summary": "指定した売上日の売上を店舗横断で集計する(合計・値引き・純売上・値引き率・締めの状況)",

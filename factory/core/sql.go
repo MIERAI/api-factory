@@ -34,6 +34,7 @@ type sqlLevel struct {
 	order    []SortKey
 	limit    string
 	out      Schema
+	refs     map[string]string // lookup 加的列 → SQL 里的写法(t2.name);其他列 = 别名.列
 }
 
 type sqlGen struct {
@@ -110,6 +111,29 @@ func ToSQL(p *Pipeline, opt Options) (*SQL, error) {
 				lv = g.wrap(lv, false)
 			}
 			lv.distinct, lv.dOrder = st.Keys, st.Order
+		case "lookup": // LEFT JOIN(drop: JOIN)接在这一层的 FROM 后面。WHERE 只引用之前的列,和连接的先后无关,不用包
+			if lv.project != nil || lv.distinct != nil || lv.order != nil || lv.limit != "" {
+				lv = g.wrap(lv, false)
+			}
+			g.n++
+			alias := fmt.Sprintf("t%d", g.n)
+			var conds []string
+			for _, k := range st.On {
+				conds = append(conds, fmt.Sprintf("%s = %s.%s", g.col(lv, k.Col), alias, quoteIdent(k.Key)))
+			}
+			join := "LEFT JOIN"
+			if st.Missing == "drop" {
+				join = "JOIN"
+			}
+			lv.from += fmt.Sprintf("\n%s %s AS %s ON %s", join, quoteIdent(st.Table), alias, strings.Join(conds, " AND "))
+			if lv.refs == nil {
+				lv.refs = map[string]string{}
+			}
+			for _, t := range st.Take {
+				lv.refs[t.Name] = alias + "." + quoteIdent(t.Col)
+			}
+			lv.in = checkLookup(lv.in, st, "", func(string, ...any) {})
+			lv.out = lv.in
 		case "sort":
 			if lv.project != nil || lv.distinct != nil || lv.order != nil || lv.limit != "" {
 				lv = g.wrap(lv, false)
@@ -159,10 +183,13 @@ func (g *sqlGen) render(lv *sqlLevel, textOutput bool) (string, error) {
 		}
 	} else {
 		for _, c := range lv.out {
-			e := lv.alias + "." + quoteIdent(c.Name)
-			if textOutput {
+			e := g.col(lv, c.Name)
+			switch {
+			case textOutput:
 				sel = append(sel, e+"::text AS "+quoteIdent(c.Name))
-			} else {
+			case e != lv.alias+"."+quoteIdent(c.Name): // lookup 加的列: 改名
+				sel = append(sel, e+" AS "+quoteIdent(c.Name))
+			default:
 				sel = append(sel, e)
 			}
 		}
@@ -197,7 +224,7 @@ func (g *sqlGen) render(lv *sqlLevel, textOutput bool) (string, error) {
 func (g *sqlGen) distinctKeys(lv *sqlLevel) []string {
 	var ks []string
 	for _, k := range lv.distinct {
-		e := lv.alias + "." + quoteIdent(k)
+		e := g.col(lv, k)
 		if t, _ := lv.in.Col(k); t.Kind == Text {
 			e += ` COLLATE "C"`
 		}
@@ -209,7 +236,7 @@ func (g *sqlGen) distinctKeys(lv *sqlLevel) []string {
 func (g *sqlGen) orderItems(lv *sqlLevel, order []SortKey) []string {
 	var out []string
 	for _, o := range order {
-		e := lv.alias + "." + quoteIdent(o.Col)
+		e := g.col(lv, o.Col)
 		if t, _ := lv.in.Col(o.Col); t.Kind == Text {
 			e += ` COLLATE "C"`
 		}
@@ -219,6 +246,14 @@ func (g *sqlGen) orderItems(lv *sqlLevel, order []SortKey) []string {
 		out = append(out, e)
 	}
 	return out
+}
+
+// col: 列在这一层的写法。一律带表别名(lookup 加的列 = 对方的表的别名.列)。
+func (g *sqlGen) col(lv *sqlLevel, name string) string {
+	if r, ok := lv.refs[name]; ok {
+		return r
+	}
+	return lv.alias + "." + quoteIdent(name)
 }
 
 func (g *sqlGen) param(name string) (string, *ParamDecl) {
@@ -244,7 +279,7 @@ func (g *sqlGen) expr(e *Expr, lv *sqlLevel) (string, error) {
 	sub := func(x *Expr) (string, error) { return g.expr(x, lv) }
 	switch e.Op {
 	case "col":
-		return lv.alias + "." + quoteIdent(e.Name), nil
+		return g.col(lv, e.Name), nil
 	case "const":
 		return constSQL(e.Value, e.Type.Kind)
 	case "param":

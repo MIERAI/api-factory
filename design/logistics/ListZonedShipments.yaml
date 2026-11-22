@@ -1,0 +1,54 @@
+# ============================================================================
+# ListZonedShipments: 区画が決まった出荷の一覧(关联: 两列的键,找不到时 丢弃)
+# ============================================================================
+API: ListZonedShipments
+说明: 倉庫の出荷のうち、区画マスタにある区画に割り当て済みのものを区画名つきで返す
+背景: ピッキング指示。区画が未割当(空)・区画マスタに無い区画の出荷は指示を出せないので一覧に出さない。区画番号は倉庫ごとなので、倉庫コードと区画番号の両方で区画を引く
+负责人: logistics-team
+风险: 低
+
+种类: 一览
+数据来源: shipments
+
+关联:
+  zone: { 表: zones, 条件: [warehouse_code = warehouse_code, zone_no = zone_no], 列: { zone_label: label }, 找不到时: 丢弃 }
+
+输入:
+  warehouse_code: { 类型: 文本, 必填: 是, 说明: 倉庫コード, 筛选: warehouse_code 等于 }
+  zone_label:     { 类型: 文本, 必填: 否, 说明: 区画の表示名, 筛选: zone_label 等于 }
+
+输出:
+  id:         出荷 ID
+  zone_no:    区画番号
+  zone_label: 区画の表示名
+  shipped_on: 出荷日
+
+排序: [id 大到小]
+分页: { 默认每页: 20, 每页最多: 100 }
+
+例子:
+  准备数据:
+    zones:
+      - { warehouse_code: W1, zone_no: 1, label: A棚 }
+      - { warehouse_code: W1, zone_no: 2, label: B棚 }
+      - { warehouse_code: W2, zone_no: 1, label: 冷蔵 }
+    shipments:
+      - { id: 1, warehouse_code: W1, zone_no: 1,    partner_code: null, shipped_on: 2026-11-20, weight: 1 }
+      - { id: 2, warehouse_code: W1, zone_no: 2,    partner_code: null, shipped_on: 2026-11-20, weight: 1 }
+      - { id: 3, warehouse_code: W1, zone_no: null, partner_code: null, shipped_on: 2026-11-21, weight: 1 }
+      - { id: 4, warehouse_code: W1, zone_no: 3,    partner_code: null, shipped_on: 2026-11-21, weight: 1 }
+      - { id: 5, warehouse_code: W2, zone_no: 2,    partner_code: null, shipped_on: 2026-11-21, weight: 1 }
+      - { id: 6, warehouse_code: W2, zone_no: 1,    partner_code: null, shipped_on: 2026-11-22, weight: 1 }
+  用例:
+    - 说明: 区画が空(id 3)・区画マスタに無い区画(id 4)の出荷は出さない
+      输入: { warehouse_code: W1 }
+      结果: { shipments: [{ id: 2, zone_no: 2, zone_label: B棚 }, { id: 1, zone_no: 1, zone_label: A棚 }] }
+    - 说明: 区画番号は倉庫ごと(W2 の区画 2 は無い。W1 の区画 2 と取り違えない)
+      输入: { warehouse_code: W2 }
+      结果: { shipments: [{ id: 6, zone_no: 1, zone_label: 冷蔵, shipped_on: 2026-11-22 }] }
+    - 说明: 区画の表示名で絞り込む
+      输入: { warehouse_code: W1, zone_label: A棚 }
+      结果: { shipments: [{ id: 1, zone_label: A棚 }] }
+    - 说明: 該当なし
+      输入: { warehouse_code: W9 }
+      结果: { shipments: [] }

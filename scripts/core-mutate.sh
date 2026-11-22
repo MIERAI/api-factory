@@ -36,6 +36,14 @@ mutate "参考: 空列表 → 不是 absent"     $E 's|return len(l) == 0|return
 mutate "SQL: 组属于没有按下标对齐"       $S 's|conds = append(conds, fmt.Sprintf("tup%d.n = tup1.n", i+1))|_ = 0|'
 mutate "SQL: 组属于用 IN(三值)"          $S 's|return fmt.Sprintf("EXISTS (SELECT 1 FROM %s WHERE %s)", strings.Join(from, ", "), strings.Join(conds, " AND ")), nil|return fmt.Sprintf("(CASE WHEN EXISTS (SELECT 1 FROM %s WHERE %s) THEN TRUE WHEN %s IS NULL THEN NULL ELSE FALSE END)", strings.Join(from, ", "), strings.Join(conds, " AND "), "NULL::bool"), nil|'
 mutate "参考: 组属于列为 NULL → UNKNOWN"  $E '/case "in_tuples":/,/vals\[i\] = v/s|return false, nil|return nil, nil|'
+mutate "SQL: lookup 的 keep 写成 JOIN"     $S 's|join := "LEFT JOIN"|join := "JOIN"|'
+mutate "SQL: lookup 的 drop 写成 LEFT JOIN" $S 's|join = "JOIN"|join = "LEFT JOIN"|'
+mutate "SQL: lookup NULL 当作相等"        $S 's|"%s = %s.%s", g.col(lv, k.Col)|"%s IS NOT DISTINCT FROM %s.%s", g.col(lv, k.Col)|'
+mutate "SQL: lookup 多列键只比较第一列"     $S 's|ON %s", join, quoteIdent(st.Table), alias, strings.Join(conds, " AND "))|ON %s", join, quoteIdent(st.Table), alias, conds[0])|'
+mutate "SQL: lookup 键按文本忽略大小写比较"    $S 's|"%s = %s.%s", g.col(lv, k.Col)|"lower(%s::text) = lower(%s.%s::text)", g.col(lv, k.Col)|'
+mutate "参考: lookup NULL 键也进索引"       $E 's|if !st.NullEq {|if false {|'
+mutate "参考: lookup drop 不丢弃"          $E 's|			if st.Missing == "drop" {|			if false {|'
+mutate "参考: lookup 文本键忽略大小写"       $E 's|b.WriteString(Canonical(v))|b.WriteString(strings.ToLower(Canonical(v)))|'
 echo "变异: 抓到 $caught / $total"
 for m in "${missed[@]:-}"; do if [ -n "$m" ]; then echo "  - $m"; fi; done
 [ "$caught" -eq "$total" ]

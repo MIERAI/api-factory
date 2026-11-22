@@ -78,6 +78,8 @@ func Check(p *Pipeline) (Schema, error) {
 				// 键可以为 NULL: NULL 自己是一组(和 SQL 的 DISTINCT ON 一样;参考求值器按规范文本分组,NULL = "∅")
 			}
 			checkOrder(cur, st.Order, at, add)
+		case "lookup":
+			cur = checkLookup(cur, st, at, add)
 		case "sort":
 			checkOrder(cur, st.Order, at, add)
 		case "limit":
@@ -198,6 +200,76 @@ func nullRejects(e *Expr, p *Pipeline) (cols map[string]bool, all bool) {
 		}
 	}
 	return cols, false
+}
+
+// checkLookup: 多对一查找的 DRC。对方的键列必须覆盖对方的一个唯一键(最多一行匹配;多对一以外的关联不是 lookup),
+// 两边的类型可以比较,加的列不能和已有的列重名。返回加了列之后的列(keep: 加的列可空)。
+func checkLookup(cur Schema, st Step, at string, add func(string, ...any)) Schema {
+	other := Schema(st.Columns)
+	if st.Table == "" || len(st.Columns) == 0 {
+		add("%s: 需要对方的表和列", at)
+		return cur
+	}
+	if len(st.On) == 0 || len(st.Take) == 0 {
+		add("%s: 需要关联条件(on)和加的列(take)", at)
+	}
+	if st.Missing != "" && st.Missing != "keep" && st.Missing != "drop" {
+		add("%s: 找不到时只能是 keep / drop,实际是 %q", at, st.Missing)
+	}
+	keys := map[string]bool{}
+	for _, k := range st.On {
+		a, okA := cur.Col(k.Col)
+		b, okB := other.Col(k.Key)
+		switch {
+		case !okA:
+			add("%s: 关联的列 %s 不存在", at, k.Col)
+		case !okB:
+			add("%s: %s 没有列 %s", at, st.Table, k.Key)
+		case !comparable(a.Kind, b.Kind):
+			add("%s: 关联条件 %s = %s.%s: %s 和 %s 不能比较", at, k.Col, st.Table, k.Key, a.Kind, b.Kind)
+		}
+		if keys[k.Key] {
+			add("%s: 对方的键列 %s 重复", at, k.Key)
+		}
+		keys[k.Key] = true
+	}
+	unique := false
+	for _, u := range st.Unique {
+		covered := len(u) > 0
+		for _, c := range u {
+			covered = covered && keys[c]
+		}
+		unique = unique || covered
+	}
+	if !unique && len(st.On) > 0 {
+		var ks []string
+		for _, k := range st.On {
+			ks = append(ks, k.Key)
+		}
+		add("%s: 关联的键 %v 不是 %s 的主键或唯一约束(唯一键: %v)。多对一以外的关联不能用查找", at, ks, st.Table, st.Unique)
+	}
+	next := append(Schema(nil), cur...)
+	seen := map[string]bool{}
+	for _, c := range cur {
+		seen[c.Name] = true
+	}
+	for _, t := range st.Take {
+		ct, ok := other.Col(t.Col)
+		if !ok {
+			add("%s: %s 没有列 %s", at, st.Table, t.Col)
+			continue
+		}
+		if seen[t.Name] {
+			add("%s: 加的列 %s 和已有的列重名", at, t.Name)
+			continue
+		}
+		seen[t.Name] = true
+		if st.Missing != "drop" { // 找不到 → NULL
+			ct.Nullable = true
+		}
+		next = append(next, NamedType{t.Name, ct})
+	}
+	return next
 }
 
 func checkOrder(cur Schema, order []SortKey, at string, add func(string, ...any)) {

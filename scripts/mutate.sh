@@ -97,5 +97,18 @@ run "分库: 选错库(店铺代码 +1)"          $SH 's/h\.at\(int64\(m\.GetSto
 T=gen/db/sales.list-top-stores.sql.go
 run "前N条: 取的条数不对(LIMIT 4)"        $T 's/LIMIT 3/LIMIT 4/'
 run "前N条: 排序方向反了"                $T 's/ORDER BY t2\.amount DESC, t2\.store_code DESC/ORDER BY t2.amount, t2.store_code/'
+LD=gen/db/logistics.list-shipments-by-day.sql.go
+run "关联: 保留写成丢弃(LEFT JOIN → JOIN)"     $LD 's/LEFT JOIN warehouses AS t2/JOIN warehouses AS t2/'
+run "关联: NULL 当作相等"                     $LD 's/ON t1\.partner_code = t3\.partner_code/ON t1.partner_code IS NOT DISTINCT FROM t3.partner_code/'
+run "关联: 关联列换成另一列"                   $LD 's/ON t1\.partner_code = t3\.partner_code/ON t1.warehouse_code = t3.partner_code/'
+run "关联: 取错了对方的列"                     $LD 's/t3\.name AS carrier_name/t3.partner_code AS carrier_name/'
+LZ=gen/db/logistics.list-zoned-shipments.sql.go
+run "关联: 丢弃写成保留(JOIN → LEFT JOIN)"     $LZ 's/\n(\s+)JOIN zones AS t2/\n${1}LEFT JOIN zones AS t2/'
+run "关联: 两列的键少比较区画番号"             $LZ 's/ AND t1\.zone_no = t2\.zone_no//'
+run "关联: 两列的键少比较倉庫"                 $LZ 's/ON t1\.warehouse_code = t2\.warehouse_code AND /ON /'
+run "关联: 加的列上的筛选被忽略"               $LZ 's/ OR \(t2\.label = \$2::text\)\)/ OR TRUE)/'
+LR=gen/db/logistics.list-shipments-by-region.sql.go
+run "关联的链: 第二级写成 JOIN"                $LR 's/LEFT JOIN regions AS t3/JOIN regions AS t3/'
+run "关联的链: 第二级从来源的列关联"            $LR 's/ON t2\.region_code = t3\.region_code/ON t1.warehouse_code = t3.region_code/'
 [[ -n ${PLAN:-} ]] && exit 0
 go build -o bin/server ./cmd/server; git status --short

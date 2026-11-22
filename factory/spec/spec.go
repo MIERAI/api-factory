@@ -61,11 +61,11 @@ type ReviewDecision struct {
 //   - custom      : AI 写整个 handler(逃生口)
 type Pattern struct {
 	Kind            string         `yaml:"kind"`
-	NotFoundMessage string         `yaml:"not_found_message"` // get_by_id: "job not found: {job_id}"
+	NotFoundMessage string         `yaml:"not_found_message"`         // get_by_id: "job not found: {job_id}"
 	NotFoundEmpty   bool           `yaml:"not_found_empty,omitempty"` // get_by_id: 找不到时返回 OK + found = false(不是 NOT_FOUND)
-	OrderBy         []string       `yaml:"order_by"`          // list_keyset: 游标列,最后一列必须唯一
-	Direction       string         `yaml:"direction"`         // desc / asc / mixed(每列的方向在 directions;分页不能 mixed)
-	Directions      []string       `yaml:"directions,omitempty"` // direction = mixed 时: 每列的方向(和 order_by 一一对应)
+	OrderBy         []string       `yaml:"order_by"`                  // list_keyset: 游标列,最后一列必须唯一
+	Direction       string         `yaml:"direction"`                 // desc / asc / mixed(每列的方向在 directions;分页不能 mixed)
+	Directions      []string       `yaml:"directions,omitempty"`      // direction = mixed 时: 每列的方向(和 order_by 一一对应)
 	PageSize        PageSize       `yaml:"page_size"`
 	MaxRows         int32          `yaml:"max_rows,omitempty"`       // list_all: 最多返回的件数(超过时报错,不悄悄截断)
 	Params          map[string]any `yaml:"params,omitempty"`         // 出口自己的参数(新出口不用改 spec)
@@ -97,9 +97,26 @@ type Datasource struct {
 	Rename map[string]string `yaml:"rename,omitempty"`
 	// Where: 固定条件(不来自请求;factory/where 的写法,列名是来源的列),和筛选一起作用
 	Where []string `yaml:"where,omitempty"`
+	// Lookups: 多对一查找(核心的 lookup),按顺序接在来源之后。加的列和来源的列一样,可以用在筛选 / 输出 / 排序里
+	Lookups []Lookup `yaml:"lookups,omitempty"`
 	// SQL: 逃生口(JOIN / 聚合 / 复杂条件)。写了 sql 就不写 filters/columns;
 	// table 可以写,表示结果列来自哪张表(用于查领域层的 enum 映射)
 	SQL string `yaml:"sql"`
+}
+
+// Lookup: 按键取另一张表(同一个库)的一行的列。On: "当前行的列 = 对方的键列"(多列 = 多项)。
+// 对方的键列必须是主键或唯一约束(编译器的 DRC)。
+type Lookup struct {
+	Name    string    `yaml:"name"`              // 设计稿里的名字(报错 / 审查用)
+	Table   string    `yaml:"table"`             // 对方的表
+	On      []string  `yaml:"on"`                // "customer_id = id"
+	Columns []TakeCol `yaml:"columns"`           // 加的列(新列名 ← 对方的列),按书写顺序
+	Missing string    `yaml:"missing,omitempty"` // keep(默认): 加的列为空;drop: 丢弃这一行
+}
+
+type TakeCol struct {
+	Name string `yaml:"name"`
+	From string `yaml:"from"`
 }
 
 type Filter struct {
@@ -377,10 +394,25 @@ func (s *Spec) Check() []string {
 		}
 	}
 	if ds.Table != "" && ds.SQL == "" {
+		allowed := map[string]bool{ds.Table: true}
+		for _, l := range ds.Lookups { // 关联的表也可以(而且应该)准备数据
+			allowed[l.Table] = true
+		}
 		for table := range s.Acceptance.Fixtures {
-			if table != ds.Table {
-				add("acceptance.fixtures: table %s is not datasource.table (%s)", table, ds.Table)
+			if !allowed[table] {
+				add("acceptance.fixtures: table %s is not datasource.table (%s) or a lookup table", table, ds.Table)
 			}
+		}
+	}
+	for i, l := range ds.Lookups {
+		if l.Name == "" || l.Table == "" || len(l.On) == 0 || len(l.Columns) == 0 {
+			add("datasource.lookups[%d]: name / table / on / columns are required", i)
+		}
+		if l.Missing != "" && l.Missing != "keep" && l.Missing != "drop" {
+			add("datasource.lookups[%d]: missing must be keep or drop", i)
+		}
+		if ds.SQL != "" {
+			add("datasource.lookups[%d]: lookups need a declarative datasource (not sql)", i)
 		}
 	}
 
