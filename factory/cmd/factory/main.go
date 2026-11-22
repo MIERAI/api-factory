@@ -220,6 +220,12 @@ func cmdPrepare(args []string) error {
 	if err := m.Generate(plan); err != nil {
 		return err
 	}
+	// ④ 项目的打包模板(Dockerfile、.dockerignore;factory/proj/packaging.go)。工厂仓库自己的 Dockerfile 是手写的
+	if proj.InProject() {
+		if err := proj.WritePackaging("."); err != nil {
+			return err
+		}
+	}
 	fmt.Printf("✓ prepared %d spec(s)\n", len(specs))
 	return nil
 }
@@ -526,6 +532,7 @@ func cmdStats(args []string) error {
 	}
 	byPattern := map[string]int{}
 	escHandler, escSQL := 0, 0
+	escapeSpecs := map[string]bool{} // 写了 datasource.sql 的式样书: 从它们生成的查询算手写
 	for _, s := range specs {
 		byPattern[s.PatternKind()]++
 		if s.PatternKind() == "custom" {
@@ -533,6 +540,7 @@ func cmdStats(args []string) error {
 		}
 		if s.Datasource.SQL != "" {
 			escSQL++
+			escapeSpecs[filepath.ToSlash(filepath.Clean(s.Path))] = true
 		}
 	}
 	fmt.Printf("APIs: %d\n", len(specs))
@@ -543,6 +551,29 @@ func cmdStats(args []string) error {
 		fmt.Printf("逃生率: handler(custom) %d/%d = %.0f%%  查询(datasource.sql) %d/%d = %.0f%%\n",
 			escHandler, len(specs), 100*float64(escHandler)/float64(len(specs)),
 			escSQL, len(specs), 100*float64(escSQL)/float64(len(specs)))
+	}
+	// 手写占比(按代码行;定义见 factory/proj/lines.go 和 boundaries.md §8.2)
+	ls, err := proj.CountLines(".", escapeSpecs)
+	if err != nil {
+		return err
+	}
+	cats := make([]string, 0, len(ls.Hand))
+	for c := range ls.Hand {
+		cats = append(cats, c)
+	}
+	sort.Strings(cats)
+	var parts []string
+	for _, c := range cats {
+		parts = append(parts, fmt.Sprintf("%s %d", c, ls.Hand[c]))
+	}
+	fmt.Printf("代码行(非空): 生成 %d (工厂 %d, protoc/sqlc %d)  手写 %d", ls.Generated, ls.Generated-ls.Tools, ls.Tools, ls.HandTotal())
+	if len(parts) > 0 {
+		fmt.Printf(" (%s)", strings.Join(parts, ", "))
+	}
+	fmt.Printf("\n手写占比: %d/%d = %.1f%%  (生成只算工厂的: %.1f%%)\n", ls.HandTotal(), ls.HandTotal()+ls.Generated,
+		100*ls.HandRatio(), 100*ls.HandRatioFactoryOnly())
+	for _, f := range ls.HandFiles {
+		fmt.Printf("  手写: %s\n", f)
 	}
 	return nil
 }
