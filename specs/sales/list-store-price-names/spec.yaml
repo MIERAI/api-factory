@@ -5,7 +5,7 @@ api:
     rpc: factory.sales.v1.SaleService/ListStorePriceNames
     owner: sales-team
     risk_level: low
-    description: 店舗の売価確認画面。商品名は店舗の DB にある商品マスタ(店舗ごとに表示名が違う)から引く。 商品マスタに無い商品も売価は表示する(商品名が空)。300 件を超える店舗はエラーにして、別の画面(前方一致の検索)で絞ってもらう
+    description: 店舗の売価確認画面。商品名は店舗の DB にある商品マスタ(店舗ごとに表示名が違う)から引く。 商品マスタに無い商品も売価は表示する(商品名が空)。商品コードの先頭・商品名で絞れる。絞った後で 300 件を超えるときは エラーにして、さらに絞ってもらう(絞った後が 300 件以下なら店舗全体の件数は問わない)
 pattern:
     kind: list_all
     not_found_message: ""
@@ -46,8 +46,12 @@ datasource:
 behavior:
     - when: 店舗の商品マスタに無い商品
       then: 売価は返す。商品名は空
-    - when: 店舗の売価が 300 件を超える
+    - when: 絞った後の売価が 300 件を超える
       then: エラー(FAILED_PRECONDITION)。途中で切り捨てない
+    - when: product_prefix・product_name で絞った後の売価が 300 件を超える
+      then: エラー(FAILED_PRECONDITION)。絞った後が 300 件以下なら、店舗全体で 300 件を超えていても全件を返す
+    - when: 指定した店舗コードの DB が無い(存在しない店舗)
+      then: エラーにせず、空の一覧を返す(売価の無い店舗と同じ扱い)
 acceptance:
     fixtures:
         local_products:
@@ -105,6 +109,27 @@ acceptance:
                     - product_code: "4901"
                       valid_from: "2026-11-01"
           steps: []
+        - name: 商品名だけで絞ると、商品マスタに無い商品(5001)は出ない
+          request:
+            product_name: お茶 500ml
+            store_code: 1
+          expect:
+            code: OK
+            response:
+                store_prices:
+                    - product_code: "4901"
+                      valid_from: "2026-12-01"
+                    - product_code: "4901"
+                      valid_from: "2026-11-01"
+          steps: []
+        - name: 売価の無い店舗コードは空の一覧(エラーにしない)
+          request:
+            store_code: 99999
+          expect:
+            code: OK
+            response:
+                store_prices: []
+          steps: []
         - name: 別の店舗(別の DB)でも同じ商品マスタの行がある
           request:
             store_code: 3
@@ -117,4 +142,12 @@ acceptance:
                       product_name: お茶 500ml
           steps: []
 logic_examples: []
-review_decisions: []
+review_decisions:
+    - question: '300 件の上限は「店舗の売価の全件数」と「product_prefix・product_name で絞った後の件数」のどちらで数えますか?(例: 店舗 1 に売価が 500 件あり、product_prefix: "49" で絞ると 120 件になる場合、エラーにしますか、120 件を返しますか)'
+      decision: 絞り込み後の件数で数える(現在の動作)
+    - question: 'DB が存在しない店舗コード(例: 入力ミスの store_code: 99999)を指定したとき、どう返しますか?'
+      decision: 空の一覧を返す
+    - question: '業務ルールに「店舗の売価が 300 件を超える → エラー」が残っていますが、前回の回答(絞った後が 300 件以下なら、店舗全体で 300 件を超えていても全件を返す)と食い違います。例: 店舗 1 に売価が 500 件あり、product_prefix: "49" で絞ると 120 件になるとき、前者ではエラー、後者では 120 件を返します。どちらに揃えますか?'
+      decision: 已经直接修改了设计书
+    - question: '業務ルールの「店舗の売価が 300 件を超える → エラー」と背景の「300 件を超える店舗はエラーにして」が、前回の回答「絞った後が 300 件以下なら、店舗全体で 300 件を超えていても全件を返す」とまだ食い違っています。どちらに揃えますか?(例: 店舗 1 に売価が 500 件あり、product_prefix: "49" で絞ると 120 件になるとき、前者ならエラー、後者なら 120 件を返します)'
+      decision: 已经直接修改了设计书

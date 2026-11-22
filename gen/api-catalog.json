@@ -2790,16 +2790,20 @@
         }
       },
       {
-        "name": "別の店舗(別の DB)でも同じ商品マスタの行がある",
+        "name": "商品名だけで絞ると、商品マスタに無い商品(5001)は出ない",
         "request": {
-          "store_code": 3
+          "product_name": "お茶 500ml",
+          "store_code": 1
         },
         "response": {
           "store_prices": [
             {
-              "price": "99",
               "product_code": "4901",
-              "product_name": "お茶 500ml"
+              "valid_from": "2026-12-01"
+            },
+            {
+              "product_code": "4901",
+              "valid_from": "2026-11-01"
             }
           ]
         }

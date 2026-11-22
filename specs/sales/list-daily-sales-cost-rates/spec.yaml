@@ -73,6 +73,8 @@ behavior:
       then: 使わない(通常 STD だけ)
     - when: 期間内の売上が 62 日分を超える
       then: エラー(FAILED_PRECONDITION)。途中で切り捨てない
+    - when: 期間(from〜to、または to 省略)の中に売上の行が 62 件以下
+      then: 期間の長さに関係なく全部返す。売上のない日は数えない。63 件以上なら FAILED_PRECONDITION
 acceptance:
     fixtures:
         daily_sales:
@@ -183,4 +185,6 @@ acceptance:
           steps: []
           now: "2026-11-04T14:59:00Z"
 logic_examples: []
-review_decisions: []
+review_decisions:
+    - question: '62 日の上限は「期間の長さ」と「期間内にある売上の行数」のどちらで判定しますか?(例: from = 1/1、to = 6/30 で売上のある日が 50 日だけのとき、エラーにしますか?)'
+      decision: 保持现在的行为(売上の行数で判定)
