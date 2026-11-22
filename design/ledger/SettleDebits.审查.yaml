@@ -14,3 +14,21 @@
     回答: "已经直接修改了设计书"
     改了设计: "结算 加 条件 held >= 确认.amount,不满足 HELD_SHORT(处理: 死信)+ 例子"
     来自: "SettleDebits 的审查 2026-11-22 20261122-215048-claude-ledger.settle-debits"
+
+  - 问题: "已经结算过的扣款再收到结算消息、但消息里的金额和扣款记录不同时,是照样成功(跳过并发出 account.settled),还是进 DLQ(AMOUNT_MISMATCH)?例: transfer 6 的 ACC-001 已经 SETTLED,金额 20;重发的消息写 amount 15。"
+    选项: ["保持现在的行为(金额不同 → 死信)", "已结算的只看状态,照样成功"]
+    回答: "保持现在的行为(金额不同 → 死信)"
+    补充规则: { 情况: "扣款已经结算过,但消息里的金额和扣款记录的金额不同", 结果: "不提交,进 DLQ(AMOUNT_MISMATCH),不发出 account.settled" }
+    来自: "SettleDebits 的审查 2026-11-22 20261122-220056-claude-ledger.settle-debits"
+
+  - 问题: "一条消息同时满足几个死信原因时,记成哪一个?例: transfer 7 的 ACC-001 扣款记录是 50(HELD),消息写 40,账户的 held 只有 45。这时结算会因为 held 不够失败(HELD_SHORT),而金额也不一致(AMOUNT_MISMATCH)。"
+    选项: ["按结果里写的顺序(HELD_SHORT 最优先)", "先看消息本身(撤销 → 金额 → held)"]
+    回答: "已经直接修改了设计书"
+    改了设计: "先看消息本身: 结果按 ALREADY_REVERSED → AMOUNT_MISMATCH → HELD_SHORT 的顺序;held 的检查改成只读的检查更新(不满足: 跳过)+ 当"
+    来自: "SettleDebits 的审查 2026-11-22 20261122-220056-claude-ledger.settle-debits"
+
+  - 问题: "消息里只列出了这笔转账的一部分账户时,没列出的扣款要怎么处理?例: transfer 8 在 ACC-001 和 ACC-002 上都有 HELD 的扣款,结算消息只写了 ACC-002。"
+    选项: ["保持现在的行为(只结算列出的账户)", "没列全 → 死信"]
+    回答: "保持现在的行为(只结算列出的账户)"
+    补充规则: { 情况: "消息里没有列出这笔转账的某些账户", 结果: "只结算列出的账户,照样发出 account.settled;没列出的扣款保持原样(由发消息的一方保证列全)" }
+    来自: "SettleDebits 的审查 2026-11-22 20261122-220056-claude-ledger.settle-debits"

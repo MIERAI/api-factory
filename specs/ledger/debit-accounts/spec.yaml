@@ -183,13 +183,23 @@ behavior:
     - when: 一部分账户有 REVERSED 的墓碑、一部分没有
       then: 全部回滚(没有墓碑的账户也不扣),回答 account.debit_failed(REVERSED)
     - when: 同一条命令里既有余额不够的账户、又有不存在的账户
-      then: 按账户 id 的顺序先遇到哪个就是哪个的结果(先遇到不存在 = 毒消息,先遇到余额不够 = INSUFFICIENT_FUNDS);两种都是一个账户都不扣
+      then: 按账户 id 的顺序(处理时元素按账户 id 排序)先遇到哪个就是哪个的结果(先遇到不存在 = 毒消息,先遇到余额不够 = INSUFFICIENT_FUNDS);两种都是一个账户都不扣
+    - when: 有墓碑的账户和余额不够(或不存在)的账户在同一条命令里
+      then: 余额不够 / 不存在优先(遇到就立刻回滚);墓碑只在所有账户都处理完之后判定
+    - when: 金额和记过的不同的账户,和余额不够(或不存在)的账户在同一条命令里
+      then: 同一个账户上,金额不一致优先(记过的账户不会再扣,所以不会余额不够)。不同的账户,按账户 id 的顺序,先遇到余额不够 / 不存在就立刻回滚(INSUFFICIENT_FUNDS / 毒消息),后面的账户不再检查;否则全部处理完之后金额不一致 → 死信(AMOUNT_MISMATCH)。工厂现在做不到"跨账户的金额不一致优先"(GAPS G17)
     - when: 账户不存在
       then: 毒消息(进 DLQ,人来处理),什么都不写
     - when: 任一账户有 REVERSED 的墓碑
       then: 一个账户都不扣、不记(其他账户已经做的扣款也回滚);发出 account.debit_failed(REVERSED)
     - when: 命令里同时有余额不够的账户和不存在的账户
-      then: 按 lines 的顺序,先遇到哪个就按哪个处理(毒消息 或 account.debit_failed(INSUFFICIENT_FUNDS));什么都不写
+      then: 按账户 id 的顺序(处理时元素按账户 id 排序),先遇到哪个就按哪个处理(毒消息 或 account.debit_failed(INSUFFICIENT_FUNDS));什么都不写
+    - when: 命令里有墓碑的账户,同时有余额不够或不存在的账户
+      then: 按余额不够(account.debit_failed(INSUFFICIENT_FUNDS))或不存在(毒消息)处理;只有其他账户都能扣时,墓碑才回答 account.debit_failed(REVERSED);两种都什么都不写
+    - when: 有墓碑的账户,墓碑上的金额和命令的金额不同
+      then: 数据不一致,不提交,进 DLQ(AMOUNT_MISMATCH),不回答 account.debit_failed(REVERSED)
+    - when: 同一笔转账再来,命令里有还没记过的账户
+      then: 已经记过的账户不再扣,没记过的账户照常检查余额并扣款;都成功时发出 account.debited(lines = 这条命令的 lines)
 acceptance:
     fixtures:
         accounts:
@@ -376,3 +386,13 @@ review_decisions:
       decision: 已经直接修改了设计书
     - question: '同一条命令里既有余额不够的账户、又有不存在的账户时,结果取决于 lines 的顺序,这样可以吗?例: [NONE-1 1, ACC-002 101] 是毒消息,[ACC-002 101, NONE-1 1] 是 account.debit_failed(INSUFFICIENT_FUNDS)'
       decision: 保持现在的行为
+    - question: '余额不够和账户不存在同时出现时,按哪个顺序决定结果?业务规则里原来写的是「按账户 id 的顺序」,上一轮回答加的规则写的是「按 lines 的顺序」。例: [NONE-1 扣 1, ACC-002 扣 101],按 lines 的顺序是毒消息,按账户 id 的顺序(ACC-002 在 NONE-1 前面)是 account.debit_failed(INSUFFICIENT_FUNDS)'
+      decision: 已经直接修改了设计书
+    - question: '一条命令里有墓碑的账户,同时另一个账户余额不够(或不存在)时,回答什么?例: transfer 9 的命令是 [ACC-001 扣 30(有墓碑), ACC-002 扣 101(余额只有 100)]'
+      decision: 余额不够 / 不存在优先(保持现在的行为)
+    - question: '金额和记过的不同的账户,和余额不够(或不存在)的账户在同一条命令里时,是进 DLQ(AMOUNT_MISMATCH)还是回答扣款失败?例: transfer 6 的命令是 [ACC-001 扣 41(记过的是 40), ACC-002 扣 101(余额只有 100)]'
+      decision: 已经直接修改了设计书
+    - question: '墓碑上的金额和扣款命令的金额不同时,是进 DLQ(AMOUNT_MISMATCH)还是回答 account.debit_failed(REVERSED)?例: transfer 9 / ACC-001 的墓碑金额是 30,迟到的扣款命令写 transfer 9 / ACC-001 扣 35'
+      decision: 进 DLQ(保持现在的行为)
+    - question: '同一笔转账再来一条命令,但账户和记过的不一样(多了一个账户)时,新的账户照扣吗?例: 已经记过 transfer 6 / ACC-001 扣 40,新命令写 transfer 6 [ACC-001 扣 40, ACC-002 扣 10]'
+      decision: 新的账户照扣(保持现在的行为)

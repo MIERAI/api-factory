@@ -19,23 +19,30 @@ API: SettleDebits
       条件: "status = HELD"
       不满足: 跳过
       找不到时: "debit not found (transfer {transfer_id})"
-  - 结算:
+  - 检查:                       # 只读账户的 held(不改): 不够 = 跳过,结果里按 撤销 → 金额 → held 的顺序判定
       更新: accounts
       键: { account_id: 项.account_id }
       仅当: 确认.已更新
-      设置: { held: "held - 确认.amount" }
+      设置: { held: held }
       条件: "held >= 确认.amount"
-      不满足: HELD_SHORT
+      不满足: 跳过
+      找不到时: "account not found (transfer {transfer_id})"
+  - 结算:
+      更新: accounts
+      键: { account_id: 项.account_id }
+      仅当: 检查.已更新
+      设置: { held: "held - 确认.amount" }
       找不到时: "account not found (transfer {transfer_id})"
 
-结果:
-  HELD_SHORT:
+结果:                           # 几个死信的原因同时成立时: 先看撤销,再看金额,最后看 held
+  ALREADY_REVERSED:
+    当: "任一项 确认.status = REVERSED"
     处理: 死信
   AMOUNT_MISMATCH:
     当: "任一项 确认.amount <> 项.amount"
     处理: 死信
-  ALREADY_REVERSED:
-    当: "任一项 确认.status = REVERSED"
+  HELD_SHORT:
+    当: "任一项 检查.held < 确认.amount"
     处理: 死信
   成功:
     发出:
@@ -54,6 +61,10 @@ API: SettleDebits
     结果: 不提交,进 DLQ(AMOUNT_MISMATCH)
   - 情况: 账户的 held 比要结算的扣款金额少
     结果: 不提交,进 DLQ(HELD_SHORT,数据不一致,需要人处理)
+  - 情况: 同时有几个死信的原因(例如金额不一致而且 held 不够)
+    结果: 按 撤销(ALREADY_REVERSED)→ 金额(AMOUNT_MISMATCH)→ held(HELD_SHORT)的顺序取第一个
+  - 情况: 已经结算过、但消息里的金额和扣款记录不同
+    结果: 进 DLQ(AMOUNT_MISMATCH)
   - 情况: 一笔转账有的账户是 HELD、有的已撤销
     结果: 整条消息都不提交(HELD 的也保持 HELD),进 DLQ(ALREADY_REVERSED)
 
@@ -97,6 +108,16 @@ API: SettleDebits
       之后: 不变
     - 说明: 金额和扣款记录不同 → 死信
       消息: { transfer_id: 7, lines: [ { account_id: "ACC-001", amount: 40 } ] }
+      结果: AMOUNT_MISMATCH
+      发出: []
+      之后: 不变
+    - 说明: 已经结算过、金额不同 → 死信(AMOUNT_MISMATCH)
+      消息: { transfer_id: 6, lines: [ { account_id: "ACC-001", amount: 15 } ] }
+      结果: AMOUNT_MISMATCH
+      发出: []
+      之后: 不变
+    - 说明: 金额不同而且 held 不够 → 先看金额(AMOUNT_MISMATCH)
+      消息: { transfer_id: 4, lines: [ { account_id: "ACC-002", amount: 8 } ] }
       结果: AMOUNT_MISMATCH
       发出: []
       之后: 不变

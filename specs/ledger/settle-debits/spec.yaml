@@ -30,6 +30,19 @@ pattern:
               cond: status = 1
               not_found: debit not found (transfer {transfer_id})
               skip: true
+            - name: 检查
+              kind: update
+              table: accounts
+              key:
+                - column: account_id
+                  expr: 项.account_id
+              values:
+                - column: held
+                  expr: held
+              cond: held >= 确认.amount
+              not_found: account not found (transfer {transfer_id})
+              only: 确认.已更新
+              skip: true
             - name: 结算
               kind: update
               table: accounts
@@ -39,23 +52,23 @@ pattern:
               values:
                 - column: held
                   expr: held - 确认.amount
-              cond: held >= 确认.amount
-              unmet: HELD_SHORT
               not_found: account not found (transfer {transfer_id})
-              only: 确认.已更新
+              only: 检查.已更新
         receive:
             type: account.settle
             version: 1
         each: lines
         results:
-            - name: HELD_SHORT
+            - name: ALREADY_REVERSED
+              when: 确认.status = 3
+              any: true
               dlq: true
             - name: AMOUNT_MISMATCH
               when: 确认.amount <> 项.amount
               any: true
               dlq: true
-            - name: ALREADY_REVERSED
-              when: 确认.status = 3
+            - name: HELD_SHORT
+              when: 检查.held < 确认.amount
               any: true
               dlq: true
             - name: 成功
@@ -127,8 +140,16 @@ behavior:
       then: 不提交,进 DLQ(AMOUNT_MISMATCH)
     - when: 账户的 held 比要结算的扣款金额少
       then: 不提交,进 DLQ(HELD_SHORT,数据不一致,需要人处理)
+    - when: 同时有几个死信的原因(例如金额不一致而且 held 不够)
+      then: 按 撤销(ALREADY_REVERSED)→ 金额(AMOUNT_MISMATCH)→ held(HELD_SHORT)的顺序取第一个
+    - when: 已经结算过、但消息里的金额和扣款记录不同
+      then: 进 DLQ(AMOUNT_MISMATCH)
     - when: 一笔转账有的账户是 HELD、有的已撤销
       then: 整条消息都不提交(HELD 的也保持 HELD),进 DLQ(ALREADY_REVERSED)
+    - when: 扣款已经结算过,但消息里的金额和扣款记录的金额不同
+      then: 不提交,进 DLQ(AMOUNT_MISMATCH),不发出 account.settled
+    - when: 消息里没有列出这笔转账的某些账户
+      then: 只结算列出的账户,照样发出 account.settled;没列出的扣款保持原样(由发消息的一方保证列全)
 acceptance:
     fixtures:
         accounts:
@@ -251,6 +272,32 @@ acceptance:
           after:
             unchanged: true
           emitted: []
+        - name: 已经结算过、金额不同 → 死信(AMOUNT_MISMATCH)
+          request:
+            lines:
+                - account_id: ACC-001
+                  amount: 15
+            transfer_id: 6
+          expect:
+            code: DLQ:AMOUNT_MISMATCH
+            response: {}
+          steps: []
+          after:
+            unchanged: true
+          emitted: []
+        - name: 金额不同而且 held 不够 → 先看金额(AMOUNT_MISMATCH)
+          request:
+            lines:
+                - account_id: ACC-002
+                  amount: 8
+            transfer_id: 4
+          expect:
+            code: DLQ:AMOUNT_MISMATCH
+            response: {}
+          steps: []
+          after:
+            unchanged: true
+          emitted: []
         - name: held 比扣款金额少 → 死信(HELD_SHORT)
           request:
             lines:
@@ -296,3 +343,9 @@ review_decisions:
       decision: 已经直接修改了设计书
     - question: '账户的 held 比要结算的扣款金额少时(例: held 是 20,扣款 50),要怎么处理?'
       decision: 已经直接修改了设计书
+    - question: '已经结算过的扣款再收到结算消息、但消息里的金额和扣款记录不同时,是照样成功(跳过并发出 account.settled),还是进 DLQ(AMOUNT_MISMATCH)?例: transfer 6 的 ACC-001 已经 SETTLED,金额 20;重发的消息写 amount 15。'
+      decision: 保持现在的行为(金额不同 → 死信)
+    - question: '一条消息同时满足几个死信原因时,记成哪一个?例: transfer 7 的 ACC-001 扣款记录是 50(HELD),消息写 40,账户的 held 只有 45。这时结算会因为 held 不够失败(HELD_SHORT),而金额也不一致(AMOUNT_MISMATCH)。'
+      decision: 已经直接修改了设计书
+    - question: '消息里只列出了这笔转账的一部分账户时,没列出的扣款要怎么处理?例: transfer 8 在 ACC-001 和 ACC-002 上都有 HELD 的扣款,结算消息只写了 ACC-002。'
+      decision: 保持现在的行为(只结算列出的账户)
