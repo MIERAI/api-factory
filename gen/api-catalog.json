@@ -1054,6 +1054,194 @@
     ]
   },
   {
+    "id": "ledger.debit-accounts",
+    "method": "DebitAccounts",
+    "summary": "一笔转账从多个账户扣款。每个账户余额都够才扣(全部或全不),回答 account.debited 或 account.debit_failed(收到 account.debit v1;入口 = RabbitMQ 的队列,不是 HTTP)",
+    "path": "/factory.ledger.v1.LedgerMessageHandlerService/DebitAccounts",
+    "pattern": "message",
+    "cases": [
+      {
+        "name": "两个账户都够 → 都扣,发出 account.debited",
+        "request": {
+          "lines": [
+            {
+              "account_id": "ACC-002",
+              "amount": 100
+            },
+            {
+              "account_id": "ACC-001",
+              "amount": 50
+            }
+          ],
+          "transfer_id": 7
+        },
+        "response": {}
+      },
+      {
+        "name": "同一笔转账再来(新 id),账户都已经记过 → 什么都不写,照样发出 account.debited",
+        "request": {
+          "lines": [
+            {
+              "account_id": "ACC-001",
+              "amount": 40
+            }
+          ],
+          "transfer_id": 6
+        },
+        "response": {}
+      }
+    ]
+  },
+  {
+    "id": "ledger.open-account",
+    "method": "OpenAccount",
+    "summary": "开一个账户,同时发出 account.opened 事件",
+    "path": "/factory.ledger.v1.LedgerService/OpenAccount",
+    "pattern": "command",
+    "cases": [
+      {
+        "name": "开户 → 写账户、发出 account.opened",
+        "request": {
+          "account_id": "ACC-002",
+          "balance": 1200,
+          "owner": "bob"
+        },
+        "response": {
+          "account_id": "ACC-002",
+          "balance": 1200,
+          "opened_at": "2026-11-22T01:00:00Z"
+        }
+      }
+    ]
+  },
+  {
+    "id": "ledger.record-account-opened",
+    "method": "RecordAccountOpened",
+    "summary": "收到开户的事件,记一条账户的动态(100 万以上记成大额开户)(收到 account.opened v1;入口 = RabbitMQ 的队列,不是 HTTP)",
+    "path": "/factory.ledger.v1.LedgerMessageHandlerService/RecordAccountOpened",
+    "pattern": "message",
+    "cases": [
+      {
+        "name": "普通开户 → 记一条 OPENED",
+        "request": {
+          "account_id": "ACC-002",
+          "balance": 1200,
+          "opened_at": "2026-11-22T00:59:00Z"
+        },
+        "response": {}
+      },
+      {
+        "name": "100 万以上 → 大额开户",
+        "request": {
+          "account_id": "ACC-003",
+          "balance": 1000000,
+          "opened_at": "2026-11-22T00:59:00Z"
+        },
+        "response": {}
+      }
+    ]
+  },
+  {
+    "id": "ledger.reverse-debits",
+    "method": "ReverseDebits",
+    "summary": "撤销一笔转账的扣款: 已扣下的退回;扣款还没到的留下墓碑(之后迟到的扣款不再扣)(收到 account.reverse v1;入口 = RabbitMQ 的队列,不是 HTTP)",
+    "path": "/factory.ledger.v1.LedgerMessageHandlerService/ReverseDebits",
+    "pattern": "message",
+    "cases": [
+      {
+        "name": "HELD → 退回;没到的账户 → 墓碑",
+        "request": {
+          "lines": [
+            {
+              "account_id": "ACC-001",
+              "amount": 50
+            },
+            {
+              "account_id": "ACC-009",
+              "amount": 5
+            }
+          ],
+          "transfer_id": 7
+        },
+        "response": {}
+      },
+      {
+        "name": "已经撤销过(另发的第二条)→ 不退,照样发出 account.reversed",
+        "request": {
+          "lines": [
+            {
+              "account_id": "ACC-001",
+              "amount": 20
+            }
+          ],
+          "transfer_id": 8
+        },
+        "response": {}
+      },
+      {
+        "name": "消息里的金额和扣款记录不同(记录 50、消息 30)→ 按扣款记录的 50 退回",
+        "request": {
+          "lines": [
+            {
+              "account_id": "ACC-001",
+              "amount": 30
+            }
+          ],
+          "transfer_id": 7
+        },
+        "response": {}
+      }
+    ]
+  },
+  {
+    "id": "ledger.settle-debits",
+    "method": "SettleDebits",
+    "summary": "结算一笔转账的扣款: HELD → SETTLED,held 减少。扣款已经撤销了 → 进 DLQ(需要人处理)(收到 account.settle v1;入口 = RabbitMQ 的队列,不是 HTTP)",
+    "path": "/factory.ledger.v1.LedgerMessageHandlerService/SettleDebits",
+    "pattern": "message",
+    "cases": [
+      {
+        "name": "HELD → SETTLED,held 减少",
+        "request": {
+          "lines": [
+            {
+              "account_id": "ACC-001",
+              "amount": 50
+            }
+          ],
+          "transfer_id": 7
+        },
+        "response": {}
+      },
+      {
+        "name": "已经结算过(重发)→ 跳过,held 不变,照样发出 account.settled",
+        "request": {
+          "lines": [
+            {
+              "account_id": "ACC-001",
+              "amount": 20
+            }
+          ],
+          "transfer_id": 6
+        },
+        "response": {}
+      },
+      {
+        "name": "已经结算过、现在的 held 比金额少 → 照样成功(已结算的不看 held)",
+        "request": {
+          "lines": [
+            {
+              "account_id": "ACC-002",
+              "amount": 7
+            }
+          ],
+          "transfer_id": 3
+        },
+        "response": {}
+      }
+    ]
+  },
+  {
     "id": "logistics.list-carrier-contracts",
     "method": "ListCarrierContracts",
     "summary": "配送業者を、今日有効な倉庫契約(倉庫コード順)と契約数つきで返す",

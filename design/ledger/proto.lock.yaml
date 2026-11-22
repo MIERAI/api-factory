@@ -1,0 +1,56 @@
+# 由设计编译器维护,不要手改。proto 的字段编号对外发布后不能变: 只追加,删掉的字段编号保留(reserved)
+字段编号:
+    AccountDebitFailedV1:
+        reason: 2
+        transfer_id: 1
+    AccountDebitedV1:
+        lines: 2
+        transfer_id: 1
+    AccountDebitedV1Line:
+        account_id: 1
+        amount: 2
+    AccountOpenedV1:
+        account_id: 1
+        balance: 2
+        opened_at: 3
+    AccountReversedV1:
+        transfer_id: 1
+    AccountSettledV1:
+        transfer_id: 1
+    ActivityKind:
+        ACTIVITY_KIND_LARGE_OPENED: 2
+        ACTIVITY_KIND_OPENED: 1
+    DebitAccountsLine:
+        account_id: 1
+        amount: 2
+    DebitAccountsRequest:
+        lines: 2
+        transfer_id: 1
+    DebitStatus:
+        DEBIT_STATUS_HELD: 1
+        DEBIT_STATUS_REVERSED: 3
+        DEBIT_STATUS_SETTLED: 2
+    OpenAccountRequest:
+        account_id: 1
+        balance: 3
+        owner: 2
+    OpenAccountResponse:
+        account_id: 1
+        balance: 2
+        opened_at: 3
+    RecordAccountOpenedRequest:
+        account_id: 1
+        balance: 2
+        opened_at: 3
+    ReverseDebitsLine:
+        account_id: 1
+        amount: 2
+    ReverseDebitsRequest:
+        lines: 2
+        transfer_id: 1
+    SettleDebitsLine:
+        account_id: 1
+        amount: 2
+    SettleDebitsRequest:
+        lines: 2
+        transfer_id: 1

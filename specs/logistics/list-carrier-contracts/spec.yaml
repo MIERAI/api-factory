@@ -64,6 +64,10 @@ behavior:
       then: 期限なし(開始日以降ずっと有効)
     - when: ある業者の有効な契約が 20 件を超える
       then: その業者が入るページの要求だけが FAILED_PRECONDITION になる(切り捨てない)
+    - when: 日本の 0 時をまたいで次のページを取得する
+      then: 各ページは、そのページを要求した時点の日本の日付を今日として判定する。ページ間で基準日がずれることがある
+    - when: 同じ倉庫の契約が期間の重なる形で複数あり、どれも今日有効
+      then: すべて contracts に返し、active_count もそれぞれ 1 件として数える。期間の重なりはデータの誤りで、直すのは登録側
 acceptance:
     fixtures:
         carrier_contracts:
@@ -146,4 +150,8 @@ acceptance:
           steps: []
           now: "2026-03-01T15:00:00Z"
 logic_examples: []
-review_decisions: []
+review_decisions:
+    - question: '日本の 0 時をまたいでページをめくったとき(例: 1 ページ目を 3/1 23:59、2 ページ目を 3/2 00:01 に取得)、2 ページ目は 3/2 を今日として判定してよいですか?'
+      decision: 今の動作のまま(ページごとに要求時の日本の日付)
+    - question: '同じ倉庫との契約を更新したのに、古い契約の終了日が空のまま残っているとき(例: W1 の 2025-04-01〜空 と 2026-03-01〜空 の両方が今日有効)、active_count と contracts で 2 件として扱いますか?'
+      decision: 今の動作のまま(行ごとに数える)

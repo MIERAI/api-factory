@@ -83,10 +83,14 @@ func (s *State) Run(ops []ir.CommandOp, in Inputs, now any) ProgResult {
 
 type evalCtx struct {
 	in   Inputs
-	now  any
-	row  Row // update 的对象(更新之前)
-	prev []OpResult
-	refs map[string]int
+	item Inputs // 每项: 当前元素(R4)
+	env  string // 消息的 id(R4)
+	// lenient: 引用没执行的操作(仅当)= 空(消息处理器)
+	lenient bool
+	now     any
+	row     Row // update 的对象(更新之前)
+	prev    []OpResult
+	refs    map[string]int
 }
 
 // exec: 一个操作(状态 = 这个事务里到目前为止的状态)。
@@ -160,8 +164,8 @@ func (s *State) exec(ts *TableState, op ir.CommandOp, ec *evalCtx) (OpResult, Ou
 			if err != nil {
 				return OpResult{}, Check, err.Error()
 			}
-			if !ok {
-				return OpResult{}, Unmet, Format(op.Cond)
+			if !ok { // Row = 现在的行(R4: 不满足 = 跳过 时后面的操作 / 结果看它)
+				return OpResult{Row: old}, Unmet, Format(op.Cond)
 			}
 		}
 		if op.Kind == "delete" {
@@ -229,6 +233,25 @@ func (ec *evalCtx) eval(x *ir.CmdExpr) (any, error) {
 		return Canon(x.Type, x.Value)
 	case "now":
 		return ec.now, nil
+	case "item":
+		v, ok := ec.item[x.Name]
+		if !ok || v == nil {
+			return nil, nil
+		}
+		return Canon(x.Type, v)
+	case "env":
+		return ec.env, nil
+	case "null":
+		return nil, nil
+	case "if":
+		ok, err := ec.cond(x.Args[0])
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			return ec.eval(x.Args[1])
+		}
+		return ec.eval(x.Args[2])
 	case "col":
 		if ec.row == nil {
 			return nil, fmt.Errorf("column %s without a row", x.Name)
@@ -236,6 +259,9 @@ func (ec *evalCtx) eval(x *ir.CmdExpr) (any, error) {
 		return ec.row[x.Name], nil
 	case "ref":
 		r, ok := ec.lookupRef(x.Ref)
+		if !ok && ec.lenient { // 消息处理器: 仅当 没执行的操作 → 空
+			return nil, nil
+		}
 		if !ok {
 			return nil, fmt.Errorf("op %s has no result", x.Ref)
 		}
@@ -289,7 +315,7 @@ func (ec *evalCtx) eval(x *ir.CmdExpr) (any, error) {
 
 func (ec *evalCtx) lookupRef(name string) (OpResult, bool) {
 	i, ok := ec.refs[name]
-	if !ok || i >= len(ec.prev) || !ec.prev[i].Ran {
+	if !ok || i >= len(ec.prev) || (!ec.prev[i].Ran && ec.prev[i].Row == nil) { // 跳过的更新: Row = 现在的行
 		return OpResult{}, false
 	}
 	return ec.prev[i], true
@@ -386,7 +412,7 @@ func isGen(v any) bool { _, ok := v.(Gen); return ok }
 // OpsOf: 命令 → 操作的列表(组合命令原样;新建 / 按键更新 / 按键删除 = 一个操作)。
 // 故障注入 / 并发 / 重放的测试对所有的命令用同一套模型。
 func OpsOf(c *ir.Command) []ir.CommandOp {
-	if c.Op == "command" {
+	if c.Op == "command" || c.Op == "message" {
 		return c.Ops
 	}
 	op := ir.CommandOp{Name: c.Op, Kind: c.Op, Table: c.Table, NotFound: c.NotFound, Returning: c.Returning}

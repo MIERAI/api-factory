@@ -1,0 +1,162 @@
+# ============================================================================
+# SettleDebits: 收到 account.settle → 结算扣款(消息处理器: 跳过 + 仅当 已更新 + 死信的结果)
+# ============================================================================
+API: SettleDebits
+说明: "结算一笔转账的扣款: HELD → SETTLED,held 减少。扣款已经撤销了 → 进 DLQ(需要人处理)"
+背景: 转账成功之后结算。重复的结算不能减两次;结算时发现扣款已撤销是不该发生的异常,不能悄悄成功
+负责人: platform-team
+风险: 高
+
+种类: 消息处理
+收到: account.settle
+每项: 消息.lines
+
+操作:
+  - 确认:
+      更新: debits
+      键: { transfer_id: 消息.transfer_id, account_id: 项.account_id }
+      设置: { status: SETTLED }
+      条件: "status = HELD"
+      不满足: 跳过
+      找不到时: "debit not found (transfer {transfer_id})"
+  - 检查:                       # 只读账户的 held(不改): 不够 = 跳过,结果里按 撤销 → 金额 → held 的顺序判定
+      更新: accounts
+      键: { account_id: 项.account_id }
+      仅当: 确认.已更新
+      设置: { held: held }
+      条件: "held >= 确认.amount"
+      不满足: 跳过
+      找不到时: "account not found (transfer {transfer_id})"
+  - 结算:
+      更新: accounts
+      键: { account_id: 项.account_id }
+      仅当: 检查.已更新
+      设置: { held: "held - 确认.amount" }
+      找不到时: "account not found (transfer {transfer_id})"
+
+结果:                           # 几个死信的原因同时成立时: 先看撤销,再看金额,最后看 held
+  ALREADY_REVERSED:
+    当: "任一项 确认.status = REVERSED"
+    处理: 死信
+  AMOUNT_MISMATCH:
+    当: "任一项 确认.amount <> 项.amount"
+    处理: 死信
+  HELD_SHORT:
+    当: "任一项 检查.held < 确认.amount"
+    处理: 死信
+  成功:
+    发出:
+      - account.settled: { transfer_id: 消息.transfer_id }
+
+业务规则:
+  - 情况: 扣款是 HELD
+    结果: 改成 SETTLED,held 减少扣款的金额
+  - 情况: 已经结算过
+    结果: 跳过(重发),照样发出 account.settled
+  - 情况: 扣款已经撤销
+    结果: 不提交,进 DLQ(ALREADY_REVERSED,需要人处理)
+  - 情况: 没有这笔扣款
+    结果: 毒消息(DLQ),什么都不写,不发出 account.settled
+  - 情况: 消息里的金额和扣款记录的金额不同
+    结果: 不提交,进 DLQ(AMOUNT_MISMATCH)
+  - 情况: 账户的 held 比要结算的扣款金额少
+    结果: 不提交,进 DLQ(HELD_SHORT,数据不一致,需要人处理)
+  - 情况: 同时有几个死信的原因(例如金额不一致而且 held 不够)
+    结果: 按 撤销(ALREADY_REVERSED)→ 金额(AMOUNT_MISMATCH)→ held(HELD_SHORT)的顺序取第一个
+  - 情况: 已经结算过、但消息里的金额和扣款记录不同
+    结果: 进 DLQ(AMOUNT_MISMATCH)
+  - 情况: 一笔转账有的账户是 HELD、有的已撤销
+    结果: 整条消息都不提交(HELD 的也保持 HELD),进 DLQ(ALREADY_REVERSED)
+
+例子:
+  准备数据:
+    accounts:
+      - { account_id: "ACC-001", owner: alice, balance: 450, held: 80, opened_at: "2026-11-01 09:00" }
+      - { account_id: "ACC-002", owner: bob, balance: 10, held: 5, opened_at: "2026-11-01 09:00" }
+    debits:
+      - { transfer_id: 7, account_id: "ACC-001", amount: 50, status: HELD, debited_at: "2026-11-21 09:00" }
+      - { transfer_id: 8, account_id: "ACC-001", amount: 30, status: REVERSED, debited_at: "2026-11-21 09:00" }
+      - { transfer_id: 8, account_id: "ACC-002", amount: 5, status: HELD, debited_at: "2026-11-21 09:00" }
+      - { transfer_id: 6, account_id: "ACC-001", amount: 20, status: SETTLED, debited_at: "2026-11-21 09:00" }
+      - { transfer_id: 4, account_id: "ACC-002", amount: 9, status: HELD, debited_at: "2026-11-21 09:00" }
+      - { transfer_id: 3, account_id: "ACC-002", amount: 7, status: SETTLED, debited_at: "2026-11-21 09:00" }
+  用例:
+    - 说明: HELD → SETTLED,held 减少
+      消息: { transfer_id: 7, lines: [ { account_id: "ACC-001", amount: 50 } ] }
+      结果: 成功
+      发出:
+        - account.settled: { transfer_id: 7 }
+      之后:
+        accounts:
+          - { account_id: "ACC-001", balance: 450, held: 30 }
+          - { account_id: "ACC-002", held: 5 }
+        debits:
+          - { transfer_id: 7, account_id: "ACC-001", status: SETTLED }
+          - { transfer_id: 8, account_id: "ACC-001", status: REVERSED }
+          - { transfer_id: 8, account_id: "ACC-002", status: HELD }
+          - { transfer_id: 6, account_id: "ACC-001", status: SETTLED }
+          - { transfer_id: 4, account_id: "ACC-002", status: HELD }
+          - { transfer_id: 3, account_id: "ACC-002", status: SETTLED }
+    - 说明: 已经结算过(重发)→ 跳过,held 不变,照样发出 account.settled
+      消息: { transfer_id: 6, lines: [ { account_id: "ACC-001", amount: 20 } ] }
+      结果: 成功
+      发出:
+        - account.settled: { transfer_id: 6 }
+      之后: 不变
+    - 说明: 已经结算过、现在的 held 比金额少 → 照样成功(已结算的不看 held)
+      消息: { transfer_id: 3, lines: [ { account_id: "ACC-002", amount: 7 } ] }
+      结果: 成功
+      发出:
+        - account.settled: { transfer_id: 3 }
+      之后: 不变
+    - 说明: held 正好等于扣款金额 → 结算成功,held 变成 0
+      消息: { transfer_id: 8, lines: [ { account_id: "ACC-002", amount: 5 } ] }
+      结果: 成功
+      发出:
+        - account.settled: { transfer_id: 8 }
+      之后:
+        accounts:
+          - { account_id: "ACC-001", held: 80 }
+          - { account_id: "ACC-002", held: 0 }
+        debits:
+          - { transfer_id: 7, account_id: "ACC-001", status: HELD }
+          - { transfer_id: 8, account_id: "ACC-001", status: REVERSED }
+          - { transfer_id: 8, account_id: "ACC-002", status: SETTLED }
+          - { transfer_id: 6, account_id: "ACC-001", status: SETTLED }
+          - { transfer_id: 4, account_id: "ACC-002", status: HELD }
+          - { transfer_id: 3, account_id: "ACC-002", status: SETTLED }
+    - 说明: 一个账户 HELD、另一个已撤销 → 全部不提交(死信)
+      消息: { transfer_id: 8, lines: [ { account_id: "ACC-001", amount: 30 }, { account_id: "ACC-002", amount: 5 } ] }
+      结果: ALREADY_REVERSED
+      发出: []
+      之后: 不变
+    - 说明: 金额和扣款记录不同 → 死信
+      消息: { transfer_id: 7, lines: [ { account_id: "ACC-001", amount: 40 } ] }
+      结果: AMOUNT_MISMATCH
+      发出: []
+      之后: 不变
+    - 说明: 已经结算过、金额不同 → 死信(AMOUNT_MISMATCH)
+      消息: { transfer_id: 6, lines: [ { account_id: "ACC-001", amount: 15 } ] }
+      结果: AMOUNT_MISMATCH
+      发出: []
+      之后: 不变
+    - 说明: 金额不同而且 held 不够 → 先看金额(AMOUNT_MISMATCH)
+      消息: { transfer_id: 4, lines: [ { account_id: "ACC-002", amount: 8 } ] }
+      结果: AMOUNT_MISMATCH
+      发出: []
+      之后: 不变
+    - 说明: held 比扣款金额少 → 死信(HELD_SHORT)
+      消息: { transfer_id: 4, lines: [ { account_id: "ACC-002", amount: 9 } ] }
+      结果: HELD_SHORT
+      发出: []
+      之后: 不变
+    - 说明: 没有这笔扣款 → 毒消息,什么都不写、不发出
+      消息: { transfer_id: 99, lines: [ { account_id: "ACC-001", amount: 1 } ] }
+      结果: 毒消息
+      发出: []
+      之后: 不变
+    - 说明: 已经撤销了 → 死信(不提交)
+      消息: { transfer_id: 8, lines: [ { account_id: "ACC-001", amount: 30 } ] }
+      结果: ALREADY_REVERSED
+      发出: []
+      之后: 不变

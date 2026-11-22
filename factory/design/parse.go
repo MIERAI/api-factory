@@ -622,7 +622,7 @@ func loadAPI(path string) (*API, error) {
 		}
 		a.Outputs = append(a.Outputs, o)
 	}
-	if len(a.Outputs) == 0 {
+	if len(a.Outputs) == 0 && a.Kind != "message" { // 消息处理器没有响应
 		e.add(root.Line, "缺少 输出")
 	}
 	if a.Exit != nil && a.Exit.Parse != nil { // 种类自己的键
@@ -637,7 +637,7 @@ func loadAPI(path string) (*API, error) {
 	if c := get(get(root, "例子"), "用例"); c != nil {
 		a.Cases = c.Content
 		for _, x := range c.Content {
-			checkKeys(e, x, "用例", "说明", "输入", "结果", "现在", "错误", "之后")
+			checkKeys(e, x, "用例", "说明", "输入", "消息", "结果", "现在", "错误", "之后", "发出")
 		}
 	}
 	if c := get(root, "计算例子"); c != nil {
@@ -695,7 +695,7 @@ func LoadDir(dir string) (*Domain, []*API, error) {
 	var apis []*API
 	for _, f := range files {
 		base := filepath.Base(f)
-		if strings.HasPrefix(base, "领域") || strings.HasSuffix(base, ".审查.yaml") || strings.HasSuffix(base, ".lock.yaml") {
+		if strings.HasPrefix(base, "领域") || base == ContractsFile || strings.HasSuffix(base, ".审查.yaml") || strings.HasSuffix(base, ".lock.yaml") {
 			continue
 		}
 		a, err := loadAPI(f)

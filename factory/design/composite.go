@@ -13,7 +13,6 @@ import (
 	"apifactory/factory/command"
 	"apifactory/factory/compiler"
 	"apifactory/factory/exits"
-	"apifactory/factory/kinds"
 	"apifactory/factory/spec"
 )
 
@@ -22,6 +21,7 @@ var placeholderInMsg = regexp.MustCompile(`\{([^{}]+)\}`)
 // compositeOps: 组合命令的输入和操作。
 func (c *ctx) compositeOps(a *API, e *errs) {
 	cmd := a.Pattern.Command
+	handler := a.Kind == "message"
 	if a.Source != "" {
 		e.add(1, "组合命令: 不写 数据来源(每个操作写自己的表)")
 	}
@@ -34,8 +34,9 @@ func (c *ctx) compositeOps(a *API, e *errs) {
 		switch {
 		case in.Write != "" || in.Key != "" || in.Lock != "" || in.Filter != "":
 			e.add(in.Line, "输入 %s: 组合命令的输入不写 写入 / 键 / 乐观锁 / 筛选(操作里用 输入.%s 引用)", in.Name, in.Name)
+		case handler && in.Type == GroupListType: // 消息的列表: 每项 / 原样发出
 		case strings.HasSuffix(in.Type, "列表") || in.Type == GroupListType:
-			e.add(in.Line, "输入 %s: 组合命令的输入不能是列表(对列表逐项执行的 每项 在 R4)", in.Name)
+			e.add(in.Line, "输入 %s: 组合命令的输入不能是列表(对列表逐项执行的 每项 只能用于 消息处理)", in.Name)
 		}
 	}
 	optionalOK := map[string]bool{} // 可以不传的输入: 只能直接作为 新建 / 幂等新建 的值(不传 = 不写这一列: 默认值 / 空)
@@ -64,6 +65,9 @@ func (c *ctx) compositeOps(a *API, e *errs) {
 			}
 		}
 		optionalOK[name] = ok && uses > 0
+		if handler && uses == 0 { // 契约的可选字段: 只在 发出 / 结果 里用(或者不用)
+			continue
+		}
 		if !optionalOK[name] {
 			e.add(in.Line, "输入 %s: 组合命令里可以不传的输入只能直接写进 新建 / 幂等新建 的值(不是键、不在条件和运算里、不是枚举);其他的用法要 必填: 是", name)
 		}
@@ -75,24 +79,24 @@ func (c *ctx) compositeOps(a *API, e *errs) {
 			return "", fmt.Errorf("输入.%s: 没有这个输入", name)
 		}
 		used[name] = true
-		if c.d.Enum(in.Type) != nil {
-			return "enum", nil
+		if in.Type == GroupListType {
+			return "", fmt.Errorf("输入.%s 是列表: 每项 的操作里用 项.字段", name)
 		}
-		k, ok := kinds.ByName(in.Type)
-		if !ok {
-			return "", fmt.Errorf("输入.%s: 类型 %q 不能用于写操作", name, in.Type)
-		}
-		for k.Base != "" && len(k.SQL) == 0 {
-			b, ok := kinds.ByName(k.Base)
-			if !ok {
-				break
+		return c.inputSQL(in)
+	}
+	var itemType func(string) (string, error) // 每项: 元素的字段
+	if cmd.Each != "" {
+		if in := inputs[cmd.Each]; in != nil && in.Type == GroupListType {
+			used[cmd.Each] = true
+			itemType = func(name string) (string, error) {
+				for _, g := range in.Group {
+					if g.Name == name {
+						return c.inputSQL(g)
+					}
+				}
+				return "", fmt.Errorf("项.%s: 列表 %s 的元素没有字段 %s", name, cmd.Each, name)
 			}
-			k = b
 		}
-		if len(k.SQL) == 0 {
-			return "", fmt.Errorf("输入.%s: 类型 %q 不能用于写操作", name, in.Type)
-		}
-		return k.SQL[0], nil
 	}
 	uniques, err := compiler.UniqueKeys()
 	if err != nil {
@@ -133,7 +137,10 @@ func (c *ctx) compositeOps(a *API, e *errs) {
 				}
 				return cc.Type, nil
 			},
-			Input: inputType,
+			Input:   inputType,
+			Item:    itemType,
+			RefEnum: c.refEnum(tables),
+			Env:     handler,
 			Enum: func(table, col, name string) (string, bool) {
 				tt := c.d.Tables[table]
 				if tt == nil || tt.ColEnum[col] == "" {
@@ -258,12 +265,36 @@ func (c *ctx) compositeOps(a *API, e *errs) {
 		if op.Cond != "" && op.Kind != "update" {
 			e.add(1, "%s: 条件 只能用于 更新", where)
 		}
+		if op.Only != "" {
+			ref, flag, _ := strings.Cut(op.Only, ".")
+			kind := ""
+			for _, prev := range cmd.Ops[:i] {
+				if prev.Name == ref {
+					kind = prev.Kind
+				}
+			}
+			switch {
+			case kind == "":
+				e.add(1, "%s: 仅当 %s: %s 不是前面的操作", where, op.Only, ref)
+			case flag == exits.CreatedWord && kind != "insert_idempotent", flag == exits.UpdatedWord && kind != "update":
+				e.add(1, "%s: 仅当 %s: %s.新建 只用于 幂等新建,%s.已更新 只用于 更新", where, op.Only, ref, ref)
+			case flag != exits.CreatedWord && flag != exits.UpdatedWord:
+				e.add(1, "%s: 仅当 写 操作名.新建(前面的幂等新建真的插入了)或 操作名.已更新(前面的更新真的更新了)", where)
+			}
+		}
+		if op.Skip && op.Kind != "update" {
+			e.add(1, "%s: 不满足: 跳过 只能用于 更新", where)
+		}
 		if _, dup := tables[op.Name]; dup {
 			e.add(1, "%s: 操作名重复", where)
 		}
 		tables[op.Name] = op.Table
 	}
+	c.messaging(a, inputs, inputType, itemType, tables, e) // 发出 / 结果 / 可重入(message_ops.go)
 	for _, in := range a.Inputs {
+		if handler { // 消息处理器的输入 = 契约的字段: 不用也可以
+			break
+		}
 		if !used[in.Name] && inputs[in.Name] != nil {
 			e.add(in.Line, "输入 %s: 没有操作用到它", in.Name)
 		}

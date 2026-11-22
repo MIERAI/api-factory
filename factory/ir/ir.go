@@ -180,6 +180,48 @@ type Command struct {
 	// 组合命令(R3-2,Op = command): 按顺序执行的写操作 + 响应字段的来源。上面的单个操作的字段不用
 	Ops     []CommandOp  `json:"ops,omitempty"`
 	Outputs []CommandOut `json:"outputs,omitempty"`
+	// R4: 发出(组合命令)/ 收到、每项、结果(消息处理器,Op = message)/ 用到的契约(docs/design/r4-events-messages.md)
+	Emits     []CommandEmit   `json:"emits,omitempty"`
+	Receive   *Contract       `json:"receive,omitempty"`
+	Each      string          `json:"each,omitempty"`     // 每项: 消息的列表字段
+	EachKey   []string        `json:"each_key,omitempty"` // 元素的唯一键(执行前按它排序: 加行锁的顺序)
+	Results   []CommandResult `json:"results,omitempty"`
+	Contracts []Contract      `json:"contracts,omitempty"` // 发出的消息的契约
+}
+
+// IsHandler: 消息处理器(R4-2)。
+func (c *Command) IsHandler() bool { return c != nil && c.Op == "message" }
+
+// Contract: 消息契约。Message = data 的 proto 消息(收到的 = 处理器的请求 <API>Request;发出的 = <Type>V<N>)。
+type Contract struct {
+	Type    string  `json:"type"`
+	Kind    string  `json:"kind"` // event / command
+	Version int     `json:"version"`
+	Subject string  `json:"subject"` // envelope.subject = data 的这个字段
+	Message Message `json:"message"`
+}
+
+// CommandEmit: 发出的一条消息: 契约 Type + data 的字段 ← 表达式。
+type CommandEmit struct {
+	Type   string    `json:"type"`
+	Values []EmitVal `json:"values"`
+}
+
+// EmitVal: data 的一个字段 ← 表达式(List = 原样传一个列表字段: Expr 是 input / 那个列表)。
+type EmitVal struct {
+	Field string   `json:"field"`
+	Type  string   `json:"type,omitempty"`
+	List  bool     `json:"list,omitempty"`
+	Expr  *CmdExpr `json:"expr"`
+}
+
+// CommandResult: 消息处理器的结果(见 spec.Result)。Name 为空 = 成功。
+type CommandResult struct {
+	Name  string        `json:"name,omitempty"`
+	When  *CmdExpr      `json:"when,omitempty"`
+	Any   bool          `json:"any,omitempty"`
+	Emits []CommandEmit `json:"emits,omitempty"`
+	DLQ   bool          `json:"dlq,omitempty"`
 }
 
 // Unmets: 组合命令里声明的业务原因码(条件不成立时)。
@@ -216,6 +258,11 @@ type CommandOp struct {
 	NotFound  string       `json:"not_found,omitempty"`
 	Returning []Column     `json:"returning,omitempty"` // 后面的操作 / 输出要用的列(没有 = RETURNING 1)
 	Created   bool         `json:"created,omitempty"`   // 输出要用 是否新建(insert_idempotent)
+	// R4: 仅当(Only = 前面的操作名,OnlyFlag = created / updated)、不满足 = 跳过(Skip)
+	Only     string `json:"only,omitempty"`
+	OnlyFlag string `json:"only_flag,omitempty"`
+	Skip     bool   `json:"skip,omitempty"`
+	Updated  bool   `json:"updated,omitempty"` // 后面要用 是否真的更新了(update)
 }
 
 // CommandVal: 列 ← 表达式(Type / NotNull = 列的)。
@@ -228,6 +275,7 @@ type CommandVal struct {
 
 // CmdExpr: 组合命令的表达式(值 / 条件)。Op:
 //   - input: 请求字段 Name;ref: 操作 Ref 的返回值的列 Name;col: 这一行(update 的对象)的列 Name(更新之前的值)
+//   - R4: item: 每项的当前元素的字段 Name;env: 消息的 id;if: 如果 Args[0] 则 Args[1] 否则 Args[2];null: 空
 //   - const: 字面值 Value(数字 / 文本 / true / false;枚举 = 数据库值);now: 请求开始的时刻
 //   - "+" / "-": 加减;"=" / "<>" / "<" / "<=" / ">" / ">=": 比较(空 → 不成立);and: 全部成立
 //

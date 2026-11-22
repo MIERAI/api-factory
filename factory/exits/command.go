@@ -165,7 +165,13 @@ func checkCommand(kind string, s *spec.Spec) []string {
 var OpKinds = map[string]string{"新建": "insert", "幂等新建": "insert_idempotent", "更新": "update", "删除": "delete"}
 
 // OpKeys: 一个操作可以写的键(除了种类本身)。
-var OpKeys = []string{"键", "值", "设置", "条件", "不满足", "乐观锁", "找不到时"}
+var OpKeys = []string{"键", "值", "设置", "条件", "不满足", "乐观锁", "找不到时", "仅当"}
+
+// SkipWord: 不满足: 跳过(R4: 条件不成立不是错误,这个操作不做)。UpdatedWord: 仅当 操作名.已更新(前面的更新真的更新了)。
+const (
+	SkipWord    = "跳过"
+	UpdatedWord = "已更新"
+)
 
 // CreatedWord: 输出 来自 操作名.新建 = 幂等新建是否真的插入了。
 const CreatedWord = "新建"
@@ -173,9 +179,12 @@ const CreatedWord = "新建"
 func init() {
 	Register(&Exit{
 		Kind: "command", Name: "组合命令", Cardinality: "one", Command: true,
-		DesignKeys: []string{"操作"},
-		Parse:      parseOps,
-		Check:      checkComposite,
+		DesignKeys: []string{"操作", "发出"},
+		Parse: func(d Design, p *spec.Pattern) {
+			parseOps(d, p)
+			p.Command.Emit = parseEmits(d, d.Node("发出"), "发出")
+		},
+		Check: checkComposite,
 		IR: func(s *spec.Spec, api *ir.API) error {
 			api.Command = &ir.Command{Op: "command"}
 			return nil
@@ -229,7 +238,13 @@ func parseOps(d Design, p *spec.Pattern) {
 			case "条件":
 				op.Cond = strings.TrimSpace(v.Value)
 			case "不满足":
-				op.Unmet = strings.TrimSpace(v.Value)
+				if u := strings.TrimSpace(v.Value); u == SkipWord {
+					op.Skip = true
+				} else {
+					op.Unmet = u
+				}
+			case "仅当":
+				op.Only = strings.TrimSpace(v.Value)
 			case "找不到时":
 				op.NotFound = v.Value
 			default:
@@ -335,13 +350,17 @@ func checkComposite(s *spec.Spec) []string {
 		default:
 			add("%s: kind %q (insert / insert_idempotent / update / delete)", op.Name, op.Kind)
 		}
-		if (op.Cond != "") != (op.Unmet != "") {
-			add("%s: cond and unmet go together (a condition needs the business reason code of its failure)", op.Name)
+		if (op.Cond != "") != (op.Unmet != "" || op.Skip) {
+			add("%s: cond and unmet (or skip) go together (a condition needs the business reason code of its failure)", op.Name)
+		}
+		if op.Skip && op.Unmet != "" {
+			add("%s: skip and unmet are exclusive", op.Name)
 		}
 		if op.Unmet != "" && (!reasonCode(op.Unmet) || codes[op.Unmet]) {
 			add("%s: unmet %q must be an UPPER_SNAKE business reason code (not an error code)", op.Name, op.Unmet)
 		}
 	}
+	out = append(out, checkMessaging(c, "pattern command: ")...)
 	for _, o := range c.Output {
 		if !names[o.Op] {
 			add("output %s: op %q does not exist", o.Field, o.Op)

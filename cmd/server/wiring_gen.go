@@ -3,11 +3,14 @@
 package main
 
 import (
+	"context"
+
 	"connectrpc.com/connect"
 
 	"apifactory/gen/db"
 	"apifactory/gen/factory/catalog/v1/catalogv1connect"
 	"apifactory/gen/factory/jobs/v1/jobsv1connect"
+	"apifactory/gen/factory/ledger/v1/ledgerv1connect"
 	"apifactory/gen/factory/logistics/v1/logisticsv1connect"
 	"apifactory/gen/factory/receipts/v1/receiptsv1connect"
 	"apifactory/gen/factory/runs/v1/runsv1connect"
@@ -16,20 +19,27 @@ import (
 	"apifactory/gen/factory/shop/v1/shopv1connect"
 	cataloghandler "apifactory/internal/handler/catalog"
 	jobshandler "apifactory/internal/handler/jobs"
+	ledgerhandler "apifactory/internal/handler/ledger"
 	logisticshandler "apifactory/internal/handler/logistics"
 	receiptshandler "apifactory/internal/handler/receipts"
 	runshandler "apifactory/internal/handler/runs"
 	saleshandler "apifactory/internal/handler/sales"
 	scheduleshandler "apifactory/internal/handler/schedules"
 	shophandler "apifactory/internal/handler/shop"
+	"github.com/MIERAI/api-factory-runtime/consume"
+	"github.com/MIERAI/api-factory-runtime/message"
+	"github.com/MIERAI/api-factory-runtime/outbox"
 	"github.com/MIERAI/api-factory-runtime/server"
+	"github.com/MIERAI/api-factory-runtime/topology"
 	"github.com/MIERAI/api-factory-runtime/txn"
 )
 
 func services(deps server.Deps, opts ...connect.HandlerOption) []server.Service {
 	q := db.New(deps.Pool)
 	var out []server.Service
-	tx := txn.New(deps.Pool) // 命令(写入)的事务执行器
+	tx := txn.New(deps.Pool)          // 命令(写入)的事务执行器
+	ob := outbox.NewWriter("factory") // 发出的消息(envelope.source = 服务名)
+	var consumers []*consume.Consumer // 消息处理器的消费循环
 	{
 		path, h := catalogv1connect.NewCatalogServiceHandler(cataloghandler.New(q, deps.Pager, deps.Shards), opts...)
 		out = append(out, server.Service{Path: path, Handler: h})
@@ -37,6 +47,19 @@ func services(deps server.Deps, opts ...connect.HandlerOption) []server.Service 
 	{
 		path, h := jobsv1connect.NewJobServiceHandler(jobshandler.New(q, deps.Pager, deps.Shards, tx), opts...)
 		out = append(out, server.Service{Path: path, Handler: h})
+	}
+	{
+		h := ledgerhandler.New(q, deps.Pager, deps.Shards, tx, ob)
+		path, hh := ledgerv1connect.NewLedgerServiceHandler(h, opts...)
+		out = append(out, server.Service{Path: path, Handler: hh})
+		consumers = append(consumers, &consume.Consumer{Queue: "factory.account.debit", Handler: h.DebitAccounts, Exec: tx, Broker: deps.AMQP,
+			Accept: []consume.Accept{{Type: "account.debit", Versions: []int{1}}}})
+		consumers = append(consumers, &consume.Consumer{Queue: "factory.account.opened", Handler: h.RecordAccountOpened, Exec: tx, Broker: deps.AMQP,
+			Accept: []consume.Accept{{Type: "account.opened", Versions: []int{1}}}})
+		consumers = append(consumers, &consume.Consumer{Queue: "factory.account.reverse", Handler: h.ReverseDebits, Exec: tx, Broker: deps.AMQP,
+			Accept: []consume.Accept{{Type: "account.reverse", Versions: []int{1}}}})
+		consumers = append(consumers, &consume.Consumer{Queue: "factory.account.settle", Handler: h.SettleDebits, Exec: tx, Broker: deps.AMQP,
+			Accept: []consume.Accept{{Type: "account.settle", Versions: []int{1}}}})
 	}
 	{
 		path, h := logisticsv1connect.NewLogisticServiceHandler(logisticshandler.New(q, deps.Pager, deps.Shards), opts...)
@@ -62,5 +85,33 @@ func services(deps server.Deps, opts ...connect.HandlerOption) []server.Service 
 		path, h := shopv1connect.NewShopServiceHandler(shophandler.New(q, deps.Pager, deps.Shards), opts...)
 		out = append(out, server.Service{Path: path, Handler: h})
 	}
-	return out
+	return append(out, messaging(deps, consumers)...)
+}
+
+// messaging: 消息(R4)。进程内投递的测试入口(只在 FACTORY_TEST_FAULTS=1 时响应)+ 有 AMQP_URL 时:
+// 拓扑(交换机 / 队列 / 重试 / DLQ,参数不一致 = 启动失败)、outbox 的中继(每个数据库一个在工作)、每个处理器的消费循环。
+func messaging(deps server.Deps, consumers []*consume.Consumer) []server.Service {
+	test := server.Service{Path: consume.TestPath, Handler: consume.TestHandler(consumers...)}
+	if deps.AMQP == nil { // 没有 AMQP_URL: outbox 只写不发(本地开发 / 进程内的验收)
+		return []server.Service{test}
+	}
+	spec := topology.Spec{Retry: topology.DefaultRetry, Queues: []topology.Queue{
+		{Name: "factory.account.debit", Subscriptions: []topology.Subscription{{Kind: message.Command, Type: "account.debit"}}},
+		{Name: "factory.account.opened", Subscriptions: []topology.Subscription{{Kind: message.Event, Type: "account.opened"}}},
+		{Name: "factory.account.reverse", Subscriptions: []topology.Subscription{{Kind: message.Command, Type: "account.reverse"}}},
+		{Name: "factory.account.settle", Subscriptions: []topology.Subscription{{Kind: message.Command, Type: "account.settle"}}},
+	}}
+	deps.Workers.Go("topology", func(ctx context.Context) error {
+		if err := topology.Ensure(ctx, deps.AMQP, spec); err != nil {
+			return err
+		}
+		<-ctx.Done()
+		return nil
+	})
+	relay := &outbox.Relay{DB: deps.Pool, Broker: deps.AMQP}
+	deps.Workers.Go("outbox relay", relay.Run)
+	for _, c := range consumers {
+		deps.Workers.Go("consume "+c.Queue, c.Run)
+	}
+	return []server.Service{test}
 }

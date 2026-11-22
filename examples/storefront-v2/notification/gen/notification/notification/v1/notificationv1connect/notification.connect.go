@@ -26,6 +26,9 @@ const _ = connect.IsAtLeastVersion1_13_0
 const (
 	// NotificationServiceName is the fully-qualified name of the NotificationService service.
 	NotificationServiceName = "notification.notification.v1.NotificationService"
+	// NotificationMessageHandlerServiceName is the fully-qualified name of the
+	// NotificationMessageHandlerService service.
+	NotificationMessageHandlerServiceName = "notification.notification.v1.NotificationMessageHandlerService"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -39,6 +42,12 @@ const (
 	// NotificationServiceListNotificationsByOrderProcedure is the fully-qualified name of the
 	// NotificationService's ListNotificationsByOrder RPC.
 	NotificationServiceListNotificationsByOrderProcedure = "/notification.notification.v1.NotificationService/ListNotificationsByOrder"
+	// NotificationMessageHandlerServiceRecordOrderCancelledProcedure is the fully-qualified name of the
+	// NotificationMessageHandlerService's RecordOrderCancelled RPC.
+	NotificationMessageHandlerServiceRecordOrderCancelledProcedure = "/notification.notification.v1.NotificationMessageHandlerService/RecordOrderCancelled"
+	// NotificationMessageHandlerServiceRecordOrderConfirmedProcedure is the fully-qualified name of the
+	// NotificationMessageHandlerService's RecordOrderConfirmed RPC.
+	NotificationMessageHandlerServiceRecordOrderConfirmedProcedure = "/notification.notification.v1.NotificationMessageHandlerService/RecordOrderConfirmed"
 )
 
 // NotificationServiceClient is a client for the notification.notification.v1.NotificationService
@@ -115,4 +124,109 @@ type UnimplementedNotificationServiceHandler struct{}
 
 func (UnimplementedNotificationServiceHandler) ListNotificationsByOrder(context.Context, *connect.Request[v1.ListNotificationsByOrderRequest]) (*connect.Response[v1.ListNotificationsByOrderResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("notification.notification.v1.NotificationService.ListNotificationsByOrder is not implemented"))
+}
+
+// NotificationMessageHandlerServiceClient is a client for the
+// notification.notification.v1.NotificationMessageHandlerService service.
+type NotificationMessageHandlerServiceClient interface {
+	// 收到订单取消的事件,记一条通知(同一个事件只记一次)(收到 order.cancelled v1;入口 = RabbitMQ 的队列,不是 HTTP)
+	RecordOrderCancelled(context.Context, *connect.Request[v1.RecordOrderCancelledRequest]) (*connect.Response[v1.RecordOrderCancelledResponse], error)
+	// 收到订单完成的事件,记一条通知(同一个事件只记一次)(收到 order.confirmed v1;入口 = RabbitMQ 的队列,不是 HTTP)
+	RecordOrderConfirmed(context.Context, *connect.Request[v1.RecordOrderConfirmedRequest]) (*connect.Response[v1.RecordOrderConfirmedResponse], error)
+}
+
+// NewNotificationMessageHandlerServiceClient constructs a client for the
+// notification.notification.v1.NotificationMessageHandlerService service. By default, it uses the
+// Connect protocol with the binary Protobuf Codec, asks for gzipped responses, and sends
+// uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the connect.WithGRPC() or
+// connect.WithGRPCWeb() options.
+//
+// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
+// http://api.acme.com or https://acme.com/grpc).
+func NewNotificationMessageHandlerServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) NotificationMessageHandlerServiceClient {
+	baseURL = strings.TrimRight(baseURL, "/")
+	notificationMessageHandlerServiceMethods := v1.File_notification_notification_v1_notification_proto.Services().ByName("NotificationMessageHandlerService").Methods()
+	return &notificationMessageHandlerServiceClient{
+		recordOrderCancelled: connect.NewClient[v1.RecordOrderCancelledRequest, v1.RecordOrderCancelledResponse](
+			httpClient,
+			baseURL+NotificationMessageHandlerServiceRecordOrderCancelledProcedure,
+			connect.WithSchema(notificationMessageHandlerServiceMethods.ByName("RecordOrderCancelled")),
+			connect.WithClientOptions(opts...),
+		),
+		recordOrderConfirmed: connect.NewClient[v1.RecordOrderConfirmedRequest, v1.RecordOrderConfirmedResponse](
+			httpClient,
+			baseURL+NotificationMessageHandlerServiceRecordOrderConfirmedProcedure,
+			connect.WithSchema(notificationMessageHandlerServiceMethods.ByName("RecordOrderConfirmed")),
+			connect.WithClientOptions(opts...),
+		),
+	}
+}
+
+// notificationMessageHandlerServiceClient implements NotificationMessageHandlerServiceClient.
+type notificationMessageHandlerServiceClient struct {
+	recordOrderCancelled *connect.Client[v1.RecordOrderCancelledRequest, v1.RecordOrderCancelledResponse]
+	recordOrderConfirmed *connect.Client[v1.RecordOrderConfirmedRequest, v1.RecordOrderConfirmedResponse]
+}
+
+// RecordOrderCancelled calls
+// notification.notification.v1.NotificationMessageHandlerService.RecordOrderCancelled.
+func (c *notificationMessageHandlerServiceClient) RecordOrderCancelled(ctx context.Context, req *connect.Request[v1.RecordOrderCancelledRequest]) (*connect.Response[v1.RecordOrderCancelledResponse], error) {
+	return c.recordOrderCancelled.CallUnary(ctx, req)
+}
+
+// RecordOrderConfirmed calls
+// notification.notification.v1.NotificationMessageHandlerService.RecordOrderConfirmed.
+func (c *notificationMessageHandlerServiceClient) RecordOrderConfirmed(ctx context.Context, req *connect.Request[v1.RecordOrderConfirmedRequest]) (*connect.Response[v1.RecordOrderConfirmedResponse], error) {
+	return c.recordOrderConfirmed.CallUnary(ctx, req)
+}
+
+// NotificationMessageHandlerServiceHandler is an implementation of the
+// notification.notification.v1.NotificationMessageHandlerService service.
+type NotificationMessageHandlerServiceHandler interface {
+	// 收到订单取消的事件,记一条通知(同一个事件只记一次)(收到 order.cancelled v1;入口 = RabbitMQ 的队列,不是 HTTP)
+	RecordOrderCancelled(context.Context, *connect.Request[v1.RecordOrderCancelledRequest]) (*connect.Response[v1.RecordOrderCancelledResponse], error)
+	// 收到订单完成的事件,记一条通知(同一个事件只记一次)(收到 order.confirmed v1;入口 = RabbitMQ 的队列,不是 HTTP)
+	RecordOrderConfirmed(context.Context, *connect.Request[v1.RecordOrderConfirmedRequest]) (*connect.Response[v1.RecordOrderConfirmedResponse], error)
+}
+
+// NewNotificationMessageHandlerServiceHandler builds an HTTP handler from the service
+// implementation. It returns the path on which to mount the handler and the handler itself.
+//
+// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
+// and JSON codecs. They also support gzip compression.
+func NewNotificationMessageHandlerServiceHandler(svc NotificationMessageHandlerServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	notificationMessageHandlerServiceMethods := v1.File_notification_notification_v1_notification_proto.Services().ByName("NotificationMessageHandlerService").Methods()
+	notificationMessageHandlerServiceRecordOrderCancelledHandler := connect.NewUnaryHandler(
+		NotificationMessageHandlerServiceRecordOrderCancelledProcedure,
+		svc.RecordOrderCancelled,
+		connect.WithSchema(notificationMessageHandlerServiceMethods.ByName("RecordOrderCancelled")),
+		connect.WithHandlerOptions(opts...),
+	)
+	notificationMessageHandlerServiceRecordOrderConfirmedHandler := connect.NewUnaryHandler(
+		NotificationMessageHandlerServiceRecordOrderConfirmedProcedure,
+		svc.RecordOrderConfirmed,
+		connect.WithSchema(notificationMessageHandlerServiceMethods.ByName("RecordOrderConfirmed")),
+		connect.WithHandlerOptions(opts...),
+	)
+	return "/notification.notification.v1.NotificationMessageHandlerService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case NotificationMessageHandlerServiceRecordOrderCancelledProcedure:
+			notificationMessageHandlerServiceRecordOrderCancelledHandler.ServeHTTP(w, r)
+		case NotificationMessageHandlerServiceRecordOrderConfirmedProcedure:
+			notificationMessageHandlerServiceRecordOrderConfirmedHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+
+// UnimplementedNotificationMessageHandlerServiceHandler returns CodeUnimplemented from all methods.
+type UnimplementedNotificationMessageHandlerServiceHandler struct{}
+
+func (UnimplementedNotificationMessageHandlerServiceHandler) RecordOrderCancelled(context.Context, *connect.Request[v1.RecordOrderCancelledRequest]) (*connect.Response[v1.RecordOrderCancelledResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("notification.notification.v1.NotificationMessageHandlerService.RecordOrderCancelled is not implemented"))
+}
+
+func (UnimplementedNotificationMessageHandlerServiceHandler) RecordOrderConfirmed(context.Context, *connect.Request[v1.RecordOrderConfirmedRequest]) (*connect.Response[v1.RecordOrderConfirmedResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("notification.notification.v1.NotificationMessageHandlerService.RecordOrderConfirmed is not implemented"))
 }

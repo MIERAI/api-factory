@@ -1,0 +1,51 @@
+# ============================================================================
+# RecordAccountOpened: 收到 account.opened → 记一条账户的动态(消息处理器: 以事件 id 为主键的幂等新建)
+# ============================================================================
+API: RecordAccountOpened
+说明: 收到开户的事件,记一条账户的动态(100 万以上记成大额开户)
+背景: 事件至少投递一次(重投、重发都会有)。同一个事件只能记一次,以事件 id 为主键
+负责人: platform-team
+风险: 低
+
+种类: 消息处理
+收到: account.opened
+
+操作:
+  - 记录:
+      幂等新建: account_activity
+      键: [event_id]
+      值:
+        event_id: 信封.id
+        account_id: 消息.account_id
+        kind: "如果 消息.balance >= 1000000 则 LARGE_OPENED 否则 OPENED"
+        balance: 消息.balance
+        recorded_at: 现在
+
+结果:
+  成功: {}
+
+业务规则:
+  - 情况: 第一次收到这个事件
+    结果: 记一条动态(开户金额 100 万以上 = 大额开户)
+  - 情况: 同一个事件(同一个 id)再来
+    结果: 不再记(平台的去重;即使去重记录没了,事件 id 的主键也挡住)
+
+例子:
+  现在: "2026-11-22 10:00"
+  准备数据:
+    account_activity: []
+  用例:
+    - 说明: 普通开户 → 记一条 OPENED
+      消息: { account_id: "ACC-002", balance: 1200, opened_at: "2026-11-22 09:59" }
+      结果: 成功
+      发出: []
+      之后:
+        account_activity:
+          - { event_id: "$信封.id", account_id: "ACC-002", kind: OPENED, balance: 1200, recorded_at: "2026-11-22 10:00" }
+    - 说明: 100 万以上 → 大额开户
+      消息: { account_id: "ACC-003", balance: 1000000, opened_at: "2026-11-22 09:59" }
+      结果: 成功
+      发出: []
+      之后:
+        account_activity:
+          - { event_id: "$信封.id", account_id: "ACC-003", kind: LARGE_OPENED, balance: 1000000 }

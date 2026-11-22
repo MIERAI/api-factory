@@ -41,7 +41,7 @@ func (c *ctx) commandBindings(a *API, table string, e *errs) {
 		cmd = &spec.Command{}
 		a.Pattern.Command = cmd
 	}
-	if a.Kind == "command" { // 组合命令(R3-2): 输入只是值,操作里引用(composite.go)
+	if a.Kind == "command" || a.Kind == "message" { // 组合命令(R3-2)/ 消息处理器(R4): 输入只是值,操作里引用(composite.go)
 		c.compositeOps(a, e)
 		return
 	}
