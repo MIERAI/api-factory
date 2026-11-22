@@ -118,4 +118,12 @@ acceptance:
           steps: []
           now: "2026-11-02T01:00:00Z"
 logic_examples: []
-review_decisions: []
+review_decisions:
+    - question: 说明里写的是「指定した分数以上」,但筛选是「created_at 小于 现在 − N 分钟」,用例 1 也写明恰好 30 分钟前创建的任務不算。恰好经过 N 分钟的任務到底算不算滞留?
+      decision: 已经直接修改了设计书
+    - question: 如果写入方出错,导致一个 status 已经是 SUCCEEDED 或 FAILED 的任務 finished_at 却为空,它算不算「终わっていない」任務?
+      decision: 已经直接修改了设计书
+    - question: 满足条件的滞留任務超过 50 件时(例如处理停摆、积压了 80 件),现在整个请求会返回错误而不是返回前 50 件。这是你想要的吗?
+      decision: 已经直接修改了设计书
+    - question: 因为只看今天 0 点以后创建的任務,stale_minutes 大于「从今天 0 点到现在的分钟数」时结果一定是空(例如 10:00 时指定 700),指定 1440 则任何时候都一定是空。允许这样的值是你想要的吗?
+      decision: 保持现在的行为
