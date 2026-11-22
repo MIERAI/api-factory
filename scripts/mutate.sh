@@ -220,7 +220,7 @@ run "每项: 只处理第一项"                           $DA 's/for _, it := r
 run "消息处理: 事件 id 的主键取了消息的字段"         $RA 's/\{Name: "event_id", Value: env\.ID\}/{Name: "event_id", Value: m.GetAccountId()}/'
 run "消息处理: 如果 的边界 >= 写成 >"              $RA 's/int64\(m\.GetBalance\(\)\) >= int64\(1000000\)/int64(m.GetBalance()) > int64(1000000)/'
 run "跳过: 条件不成立当成错误"                     $RV 's/\} else if txn\.ReasonOf\(err\) != txn\.Unmet \{ \/\/ 条件不成立: 跳过/} else { \/\/ 条件不成立: 跳过/'
-run "仅当 已更新: 跳过时也退回"                     $RV 's/if updated2 \{ \/\/ 仅当/if updated2 || true { \/\/ 仅当/'
+run "仅当 已更新: 跳过时也退回"                     $RV 's/if updated3 \{ \/\/ 仅当 检查/if updated3 || true { \/\/ 仅当 检查/'
 run "墓碑写成 HELD(迟到的扣款照样扣)"              $RV 's/\{Name: "status", Value: int32\(3\)\},/{Name: "status", Value: int32(1)},/'
 run "死信的结果提交了(不进 DLQ)"                   $SD 's/return consume\.Poison\(errors\.New\("ALREADY_REVERSED: [^"]*"\)\)/_ = errors.New; return nil/'
 [[ -n ${PLAN:-} ]] && exit 0
