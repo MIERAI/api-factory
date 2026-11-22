@@ -194,10 +194,12 @@ type Filter struct {
 	Column  string   `yaml:"column"`
 	Columns []string `yaml:"columns,omitempty"` // 多列的筛选单元(有效期包含: [开始, 结束]);Column = 第一列
 	Op      string   `yaml:"op"`                // eq / gt / gte / lt / lte / prefix
+	// Grouped: 分组(+ 名次)之后的筛选(HAVING 一类): 列是计算 / 名次的输出名,接在 rank 之后、输出之前
+	Grouped bool `yaml:"grouped,omitempty"`
 }
 
 // FilterOps: 运算符 → SQL。prefix 由 SQL 生成器特别处理(转义 % _ \,按字面匹配)。
-var FilterOps = map[string]string{"eq": "=", "gt": ">", "gte": ">=", "lt": "<", "lte": "<=", "prefix": "LIKE"}
+var FilterOps = map[string]string{"eq": "=", "gt": ">", "gte": ">=", "lt": "<", "lte": "<=", "prefix": "LIKE", "contains": "LIKE"}
 
 type LogicExample struct {
 	Name    string         `yaml:"name"`

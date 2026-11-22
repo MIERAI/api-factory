@@ -158,6 +158,7 @@ func Reference() (string, error) {
 		id, _ := lib.FilterID(n)
 		row(n, "`"+id+"`", "`"+lib.Filters[n]+"`")
 	}
+	w("\n`前缀匹配` / `包含` 按字面匹配(`%%` `_` `\\` 不是通配符),按字节比较(大小写不同 = 不同)。**`包含` 用不上 btree 索引**(前面是通配符,大表会全表扫描,`make perf` 会警告):数据量大时建 pg_trgm 的 GIN 索引(`USING gin (列 gin_trgm_ops)`),或者改用 `前缀匹配`。\n")
 
 	w("\n## 派生参数\n\n`派生参数:` 下面每个名字一个: 筛选的值由 `现在` 和输入计算,**不出现在请求里**。键: %s。\n\n", code(DerivedKeys()))
 	w("```yaml\n派生参数:\n  stuck_before: { 计算: 现在 - stuck_minutes 分钟, 筛选: updated_at 小于 }\n  month_start:  { 计算: 月初(base_date - 1 个月), 筛选: sales_date 大于等于 }\n```\n\n")

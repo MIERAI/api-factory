@@ -53,7 +53,12 @@ func (e *diffEnv) stepInput(ps core.Params, idx int) (*core.Result, error) {
 }
 
 // replaceStep: 第 idx 步换成 f(输入)的结果,后面的步骤照常 → 规范文本(和 evalCanon 一样;出错 → "error")。
-func (e *diffEnv) replaceStep(ps core.Params, idx int, f func(in *core.Result) ([]core.Row, core.Schema, error)) string {
+func (e *diffEnv) replaceStep(ps core.Params, idx int, f func(in *core.Result) ([]core.Row, core.Schema, error)) (out string) {
+	defer func() { // 错误的实现改了列的类型(合计写成件数之后,分组之后的筛选拿十进制的参数比较整数)→ 算不出来 = "error"
+		if r := recover(); r != nil {
+			out = "error"
+		}
+	}()
 	in, err := e.stepInput(ps, idx)
 	if err != nil {
 		return "error"
@@ -237,6 +242,7 @@ func (e *diffEnv) groupTargets() []sensTarget {
 			}})
 		}
 	}
+	out = append(out, e.havingTargets()...)
 	if ri := groupIndex(p, "rank"); ri >= 0 {
 		rs := p.Steps[ri]
 		for _, wrong := range []string{"dense_rank", "row_number"} {
@@ -279,6 +285,63 @@ func (e *diffEnv) groupTargets() []sensTarget {
 				})
 			}})
 		}
+	}
+	return out
+}
+
+// havingTargets: 分组之后的筛选(HAVING 一类)的覆盖条件:
+//   - 比较的边界: <= ↔ <、>= ↔ >(名次 ≤ N 写成 < N、合计 ≥ 下限写成 > 下限)
+//   - 名次 ≤ N(< N)且有并列跨过 N: 结果的行数 > N(只取 N 行的实现 = row_number ≤ N / LIMIT N 要看得出来;
+//     row_number 的错误实现由 groupTargets 的「RANK 写成 row_number」覆盖,这里要求数据里真的出现这种请求)
+func (e *diffEnv) havingTargets() []sensTarget {
+	p := e.api.Pipeline
+	ri := groupIndex(p, "rank")
+	rankCol := ""
+	if ri >= 0 {
+		rankCol = p.Steps[ri].As
+	}
+	flip := map[string]string{"<": "<=", "<=": "<", ">": ">=", ">=": ">"}
+	var out []sensTarget
+	for i, st := range p.Steps {
+		if st.Kind != "filter" || !strings.Contains(st.From, "$分组之后") {
+			continue
+		}
+		var walk func(x *core.Expr)
+		walk = func(x *core.Expr) {
+			if x == nil {
+				return
+			}
+			if x.Op == "cmp" && len(x.Args) == 2 && x.Args[0].Op == "col" && x.Args[1].Op == "param" {
+				i, node, col, param := i, x, x.Args[0].Name, x.Args[1].Name
+				if f, ok := flip[x.Name]; ok {
+					out = append(out, sensTarget{desc: fmt.Sprintf("分组之后的筛选的边界(%s %s 写成 %s)", col, node.Name, f), mutate: func(p *core.Pipeline) *core.Pipeline {
+						return replaceIn(p, i, node, &core.Expr{Op: "cmp", Name: f, Args: node.Args})
+					}})
+				}
+				if col == rankCol && (x.Name == "<=" || x.Name == "<") {
+					strict := x.Name == "<"
+					out = append(out, sensTarget{desc: fmt.Sprintf("名次 %s %s: 并列跨过 N(结果多于 N 行)", node.Name, param), cond: func(ps core.Params) bool {
+						n, ok := ps[param].(int64)
+						if !ok {
+							return false
+						}
+						if strict {
+							n--
+						}
+						rows, err := e.Eval(ps)
+						if err != nil || int64(len(rows)) <= n {
+							return false
+						}
+						// 名次 ≤ N 的行多于 N 行 = 有并列跨过 N(其他的分组之后的筛选不能把行数减到 N 以下)
+						return true
+					}})
+				}
+			}
+			for _, a := range x.Args {
+				walk(a)
+			}
+		}
+		walk(st.Pred)
 	}
 	return out
 }

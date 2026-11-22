@@ -110,7 +110,7 @@ func Compile(specs []*spec.Spec) (*ir.Plan, error) {
 				return nil, fmt.Errorf("%s: %w", s.Path, err)
 			}
 			for _, f := range filters {
-				api.Filters = append(api.Filters, ir.Filter{Field: f.Name, Column: f.Column.Name, ColumnType: f.Column.Type, Op: f.Op, SQLOp: f.SQLOp, Presence: f.Presence, Columns: f.Columns})
+				api.Filters = append(api.Filters, ir.Filter{Field: f.Name, Column: f.Column.Name, ColumnType: f.Column.Type, Op: f.Op, SQLOp: f.SQLOp, Presence: f.Presence, Columns: f.Columns, Grouped: f.Grouped})
 			}
 			if sh, err := shardOf(s, filters); err != nil {
 				return nil, fmt.Errorf("%s: %w", s.Path, err)

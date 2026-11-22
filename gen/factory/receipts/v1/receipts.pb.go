@@ -374,6 +374,189 @@ func (x *ListStoreLineRankingResponse) GetStores() []*StoreLineRank {
 }
 
 // 売上明細(1 行 = レシートの 1 明細)
+type RankedStore struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 店舗コード
+	StoreCode int32 `protobuf:"varint,1,opt,name=store_code,json=storeCode,proto3" json:"store_code,omitempty"`
+	// 売上金額の合計(十進数の文字列)
+	Total string `protobuf:"bytes,2,opt,name=total,proto3" json:"total,omitempty"`
+	// 明細の件数
+	Lines int64 `protobuf:"varint,3,opt,name=lines,proto3" json:"lines,omitempty"`
+	// 順位(合計の多い順。同額は同順位、次の順位は飛ばす)
+	Rank          int64 `protobuf:"varint,4,opt,name=rank,proto3" json:"rank,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RankedStore) Reset() {
+	*x = RankedStore{}
+	mi := &file_factory_receipts_v1_receipts_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RankedStore) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RankedStore) ProtoMessage() {}
+
+func (x *RankedStore) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_receipts_v1_receipts_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RankedStore.ProtoReflect.Descriptor instead.
+func (*RankedStore) Descriptor() ([]byte, []int) {
+	return file_factory_receipts_v1_receipts_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *RankedStore) GetStoreCode() int32 {
+	if x != nil {
+		return x.StoreCode
+	}
+	return 0
+}
+
+func (x *RankedStore) GetTotal() string {
+	if x != nil {
+		return x.Total
+	}
+	return ""
+}
+
+func (x *RankedStore) GetLines() int64 {
+	if x != nil {
+		return x.Lines
+	}
+	return 0
+}
+
+func (x *RankedStore) GetRank() int64 {
+	if x != nil {
+		return x.Rank
+	}
+	return 0
+}
+
+// 売上日を指定して、明細の売上金額を店別に合計し、合計の順位が N 位以内の店をすべて返す(同順位の店は全部含めるので、N 店を超えることがある)
+type ListStoreRankingTopNRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 売上日
+	SalesDate string `protobuf:"bytes,1,opt,name=sales_date,json=salesDate,proto3" json:"sales_date,omitempty"`
+	// 順位の上限(この順位以内の店をすべて返す)
+	TopN int32 `protobuf:"varint,2,opt,name=top_n,json=topN,proto3" json:"top_n,omitempty"`
+	// 合計の下限(含。不指定 = 下限なし。順位をつけたあとで除く)
+	MinTotal      *string `protobuf:"bytes,3,opt,name=min_total,json=minTotal,proto3,oneof" json:"min_total,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListStoreRankingTopNRequest) Reset() {
+	*x = ListStoreRankingTopNRequest{}
+	mi := &file_factory_receipts_v1_receipts_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListStoreRankingTopNRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListStoreRankingTopNRequest) ProtoMessage() {}
+
+func (x *ListStoreRankingTopNRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_receipts_v1_receipts_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListStoreRankingTopNRequest.ProtoReflect.Descriptor instead.
+func (*ListStoreRankingTopNRequest) Descriptor() ([]byte, []int) {
+	return file_factory_receipts_v1_receipts_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *ListStoreRankingTopNRequest) GetSalesDate() string {
+	if x != nil {
+		return x.SalesDate
+	}
+	return ""
+}
+
+func (x *ListStoreRankingTopNRequest) GetTopN() int32 {
+	if x != nil {
+		return x.TopN
+	}
+	return 0
+}
+
+func (x *ListStoreRankingTopNRequest) GetMinTotal() string {
+	if x != nil && x.MinTotal != nil {
+		return *x.MinTotal
+	}
+	return ""
+}
+
+// 売上日を指定して、明細の売上金額を店別に合計し、合計の順位が N 位以内の店をすべて返す(同順位の店は全部含めるので、N 店を超えることがある)
+type ListStoreRankingTopNResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 最多 1000 件;超过时返回错误(不会截断)
+	Stores        []*RankedStore `protobuf:"bytes,1,rep,name=stores,proto3" json:"stores,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListStoreRankingTopNResponse) Reset() {
+	*x = ListStoreRankingTopNResponse{}
+	mi := &file_factory_receipts_v1_receipts_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListStoreRankingTopNResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListStoreRankingTopNResponse) ProtoMessage() {}
+
+func (x *ListStoreRankingTopNResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_receipts_v1_receipts_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListStoreRankingTopNResponse.ProtoReflect.Descriptor instead.
+func (*ListStoreRankingTopNResponse) Descriptor() ([]byte, []int) {
+	return file_factory_receipts_v1_receipts_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *ListStoreRankingTopNResponse) GetStores() []*RankedStore {
+	if x != nil {
+		return x.Stores
+	}
+	return nil
+}
+
+// 売上明細(1 行 = レシートの 1 明細)
 type StoreSalesTotal struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 店舗コード
@@ -392,7 +575,7 @@ type StoreSalesTotal struct {
 
 func (x *StoreSalesTotal) Reset() {
 	*x = StoreSalesTotal{}
-	mi := &file_factory_receipts_v1_receipts_proto_msgTypes[6]
+	mi := &file_factory_receipts_v1_receipts_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -404,7 +587,7 @@ func (x *StoreSalesTotal) String() string {
 func (*StoreSalesTotal) ProtoMessage() {}
 
 func (x *StoreSalesTotal) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_receipts_v1_receipts_proto_msgTypes[6]
+	mi := &file_factory_receipts_v1_receipts_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -417,7 +600,7 @@ func (x *StoreSalesTotal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StoreSalesTotal.ProtoReflect.Descriptor instead.
 func (*StoreSalesTotal) Descriptor() ([]byte, []int) {
-	return file_factory_receipts_v1_receipts_proto_rawDescGZIP(), []int{6}
+	return file_factory_receipts_v1_receipts_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *StoreSalesTotal) GetStoreCode() int32 {
@@ -470,7 +653,7 @@ type ListStoreSalesTotalsRequest struct {
 
 func (x *ListStoreSalesTotalsRequest) Reset() {
 	*x = ListStoreSalesTotalsRequest{}
-	mi := &file_factory_receipts_v1_receipts_proto_msgTypes[7]
+	mi := &file_factory_receipts_v1_receipts_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -482,7 +665,7 @@ func (x *ListStoreSalesTotalsRequest) String() string {
 func (*ListStoreSalesTotalsRequest) ProtoMessage() {}
 
 func (x *ListStoreSalesTotalsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_receipts_v1_receipts_proto_msgTypes[7]
+	mi := &file_factory_receipts_v1_receipts_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -495,7 +678,7 @@ func (x *ListStoreSalesTotalsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListStoreSalesTotalsRequest.ProtoReflect.Descriptor instead.
 func (*ListStoreSalesTotalsRequest) Descriptor() ([]byte, []int) {
-	return file_factory_receipts_v1_receipts_proto_rawDescGZIP(), []int{7}
+	return file_factory_receipts_v1_receipts_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ListStoreSalesTotalsRequest) GetPageSize() int32 {
@@ -531,7 +714,7 @@ type ListStoreSalesTotalsResponse struct {
 
 func (x *ListStoreSalesTotalsResponse) Reset() {
 	*x = ListStoreSalesTotalsResponse{}
-	mi := &file_factory_receipts_v1_receipts_proto_msgTypes[8]
+	mi := &file_factory_receipts_v1_receipts_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -543,7 +726,7 @@ func (x *ListStoreSalesTotalsResponse) String() string {
 func (*ListStoreSalesTotalsResponse) ProtoMessage() {}
 
 func (x *ListStoreSalesTotalsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_receipts_v1_receipts_proto_msgTypes[8]
+	mi := &file_factory_receipts_v1_receipts_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -556,7 +739,7 @@ func (x *ListStoreSalesTotalsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListStoreSalesTotalsResponse.ProtoReflect.Descriptor instead.
 func (*ListStoreSalesTotalsResponse) Descriptor() ([]byte, []int) {
-	return file_factory_receipts_v1_receipts_proto_rawDescGZIP(), []int{8}
+	return file_factory_receipts_v1_receipts_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ListStoreSalesTotalsResponse) GetStores() []*StoreSalesTotal {
@@ -588,7 +771,7 @@ type StoreLineTotal struct {
 
 func (x *StoreLineTotal) Reset() {
 	*x = StoreLineTotal{}
-	mi := &file_factory_receipts_v1_receipts_proto_msgTypes[9]
+	mi := &file_factory_receipts_v1_receipts_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -600,7 +783,7 @@ func (x *StoreLineTotal) String() string {
 func (*StoreLineTotal) ProtoMessage() {}
 
 func (x *StoreLineTotal) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_receipts_v1_receipts_proto_msgTypes[9]
+	mi := &file_factory_receipts_v1_receipts_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -613,7 +796,7 @@ func (x *StoreLineTotal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StoreLineTotal.ProtoReflect.Descriptor instead.
 func (*StoreLineTotal) Descriptor() ([]byte, []int) {
-	return file_factory_receipts_v1_receipts_proto_rawDescGZIP(), []int{9}
+	return file_factory_receipts_v1_receipts_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *StoreLineTotal) GetStoreCode() int32 {
@@ -648,7 +831,7 @@ type ListTopLineStoresRequest struct {
 
 func (x *ListTopLineStoresRequest) Reset() {
 	*x = ListTopLineStoresRequest{}
-	mi := &file_factory_receipts_v1_receipts_proto_msgTypes[10]
+	mi := &file_factory_receipts_v1_receipts_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -660,7 +843,7 @@ func (x *ListTopLineStoresRequest) String() string {
 func (*ListTopLineStoresRequest) ProtoMessage() {}
 
 func (x *ListTopLineStoresRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_receipts_v1_receipts_proto_msgTypes[10]
+	mi := &file_factory_receipts_v1_receipts_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -673,7 +856,7 @@ func (x *ListTopLineStoresRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTopLineStoresRequest.ProtoReflect.Descriptor instead.
 func (*ListTopLineStoresRequest) Descriptor() ([]byte, []int) {
-	return file_factory_receipts_v1_receipts_proto_rawDescGZIP(), []int{10}
+	return file_factory_receipts_v1_receipts_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ListTopLineStoresRequest) GetSalesDate() string {
@@ -694,7 +877,7 @@ type ListTopLineStoresResponse struct {
 
 func (x *ListTopLineStoresResponse) Reset() {
 	*x = ListTopLineStoresResponse{}
-	mi := &file_factory_receipts_v1_receipts_proto_msgTypes[11]
+	mi := &file_factory_receipts_v1_receipts_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -706,7 +889,7 @@ func (x *ListTopLineStoresResponse) String() string {
 func (*ListTopLineStoresResponse) ProtoMessage() {}
 
 func (x *ListTopLineStoresResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_receipts_v1_receipts_proto_msgTypes[11]
+	mi := &file_factory_receipts_v1_receipts_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -719,7 +902,7 @@ func (x *ListTopLineStoresResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTopLineStoresResponse.ProtoReflect.Descriptor instead.
 func (*ListTopLineStoresResponse) Descriptor() ([]byte, []int) {
-	return file_factory_receipts_v1_receipts_proto_rawDescGZIP(), []int{11}
+	return file_factory_receipts_v1_receipts_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ListTopLineStoresResponse) GetStores() []*StoreLineTotal {
@@ -765,7 +948,22 @@ const file_factory_receipts_v1_receipts_proto_rawDesc = "" +
 	"\n" +
 	"_date_from\"Z\n" +
 	"\x1cListStoreLineRankingResponse\x12:\n" +
-	"\x06stores\x18\x01 \x03(\v2\".factory.receipts.v1.StoreLineRankR\x06stores\"\xb4\x01\n" +
+	"\x06stores\x18\x01 \x03(\v2\".factory.receipts.v1.StoreLineRankR\x06stores\"l\n" +
+	"\vRankedStore\x12\x1d\n" +
+	"\n" +
+	"store_code\x18\x01 \x01(\x05R\tstoreCode\x12\x14\n" +
+	"\x05total\x18\x02 \x01(\tR\x05total\x12\x14\n" +
+	"\x05lines\x18\x03 \x01(\x03R\x05lines\x12\x12\n" +
+	"\x04rank\x18\x04 \x01(\x03R\x04rank\"\xc0\x01\n" +
+	"\x1bListStoreRankingTopNRequest\x129\n" +
+	"\n" +
+	"sales_date\x18\x01 \x01(\tB\x1a\xbaH\x17r\x152\x13^\\d{4}-\\d{2}-\\d{2}$R\tsalesDate\x12\x1e\n" +
+	"\x05top_n\x18\x02 \x01(\x05B\t\xbaH\x06\x1a\x04\x18d(\x01R\x04topN\x128\n" +
+	"\tmin_total\x18\x03 \x01(\tB\x16\xbaH\x13r\x112\x0f^-?\\d+(\\.\\d+)?$H\x00R\bminTotal\x88\x01\x01B\f\n" +
+	"\n" +
+	"_min_total\"X\n" +
+	"\x1cListStoreRankingTopNResponse\x128\n" +
+	"\x06stores\x18\x01 \x03(\v2 .factory.receipts.v1.RankedStoreR\x06stores\"\xb4\x01\n" +
 	"\x0fStoreSalesTotal\x12\x1d\n" +
 	"\n" +
 	"store_code\x18\x01 \x01(\x05R\tstoreCode\x12\x14\n" +
@@ -794,10 +992,11 @@ const file_factory_receipts_v1_receipts_proto_rawDesc = "" +
 	"\n" +
 	"sales_date\x18\x01 \x01(\tB\x1a\xbaH\x17r\x152\x13^\\d{4}-\\d{2}-\\d{2}$R\tsalesDate\"X\n" +
 	"\x19ListTopLineStoresResponse\x12;\n" +
-	"\x06stores\x18\x01 \x03(\v2#.factory.receipts.v1.StoreLineTotalR\x06stores2\xf2\x03\n" +
+	"\x06stores\x18\x01 \x03(\v2#.factory.receipts.v1.StoreLineTotalR\x06stores2\xef\x04\n" +
 	"\x0eReceiptService\x12r\n" +
 	"\x11ListCategorySales\x12-.factory.receipts.v1.ListCategorySalesRequest\x1a..factory.receipts.v1.ListCategorySalesResponse\x12{\n" +
 	"\x14ListStoreLineRanking\x120.factory.receipts.v1.ListStoreLineRankingRequest\x1a1.factory.receipts.v1.ListStoreLineRankingResponse\x12{\n" +
+	"\x14ListStoreRankingTopN\x120.factory.receipts.v1.ListStoreRankingTopNRequest\x1a1.factory.receipts.v1.ListStoreRankingTopNResponse\x12{\n" +
 	"\x14ListStoreSalesTotals\x120.factory.receipts.v1.ListStoreSalesTotalsRequest\x1a1.factory.receipts.v1.ListStoreSalesTotalsResponse\x12r\n" +
 	"\x11ListTopLineStores\x12-.factory.receipts.v1.ListTopLineStoresRequest\x1a..factory.receipts.v1.ListTopLineStoresResponseB/Z-apifactory/gen/factory/receipts/v1;receiptsv1b\x06proto3"
 
@@ -813,7 +1012,7 @@ func file_factory_receipts_v1_receipts_proto_rawDescGZIP() []byte {
 	return file_factory_receipts_v1_receipts_proto_rawDescData
 }
 
-var file_factory_receipts_v1_receipts_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_factory_receipts_v1_receipts_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_factory_receipts_v1_receipts_proto_goTypes = []any{
 	(*CategorySale)(nil),                 // 0: factory.receipts.v1.CategorySale
 	(*ListCategorySalesRequest)(nil),     // 1: factory.receipts.v1.ListCategorySalesRequest
@@ -821,31 +1020,37 @@ var file_factory_receipts_v1_receipts_proto_goTypes = []any{
 	(*StoreLineRank)(nil),                // 3: factory.receipts.v1.StoreLineRank
 	(*ListStoreLineRankingRequest)(nil),  // 4: factory.receipts.v1.ListStoreLineRankingRequest
 	(*ListStoreLineRankingResponse)(nil), // 5: factory.receipts.v1.ListStoreLineRankingResponse
-	(*StoreSalesTotal)(nil),              // 6: factory.receipts.v1.StoreSalesTotal
-	(*ListStoreSalesTotalsRequest)(nil),  // 7: factory.receipts.v1.ListStoreSalesTotalsRequest
-	(*ListStoreSalesTotalsResponse)(nil), // 8: factory.receipts.v1.ListStoreSalesTotalsResponse
-	(*StoreLineTotal)(nil),               // 9: factory.receipts.v1.StoreLineTotal
-	(*ListTopLineStoresRequest)(nil),     // 10: factory.receipts.v1.ListTopLineStoresRequest
-	(*ListTopLineStoresResponse)(nil),    // 11: factory.receipts.v1.ListTopLineStoresResponse
+	(*RankedStore)(nil),                  // 6: factory.receipts.v1.RankedStore
+	(*ListStoreRankingTopNRequest)(nil),  // 7: factory.receipts.v1.ListStoreRankingTopNRequest
+	(*ListStoreRankingTopNResponse)(nil), // 8: factory.receipts.v1.ListStoreRankingTopNResponse
+	(*StoreSalesTotal)(nil),              // 9: factory.receipts.v1.StoreSalesTotal
+	(*ListStoreSalesTotalsRequest)(nil),  // 10: factory.receipts.v1.ListStoreSalesTotalsRequest
+	(*ListStoreSalesTotalsResponse)(nil), // 11: factory.receipts.v1.ListStoreSalesTotalsResponse
+	(*StoreLineTotal)(nil),               // 12: factory.receipts.v1.StoreLineTotal
+	(*ListTopLineStoresRequest)(nil),     // 13: factory.receipts.v1.ListTopLineStoresRequest
+	(*ListTopLineStoresResponse)(nil),    // 14: factory.receipts.v1.ListTopLineStoresResponse
 }
 var file_factory_receipts_v1_receipts_proto_depIdxs = []int32{
 	0,  // 0: factory.receipts.v1.ListCategorySalesResponse.categories:type_name -> factory.receipts.v1.CategorySale
 	3,  // 1: factory.receipts.v1.ListStoreLineRankingResponse.stores:type_name -> factory.receipts.v1.StoreLineRank
-	6,  // 2: factory.receipts.v1.ListStoreSalesTotalsResponse.stores:type_name -> factory.receipts.v1.StoreSalesTotal
-	9,  // 3: factory.receipts.v1.ListTopLineStoresResponse.stores:type_name -> factory.receipts.v1.StoreLineTotal
-	1,  // 4: factory.receipts.v1.ReceiptService.ListCategorySales:input_type -> factory.receipts.v1.ListCategorySalesRequest
-	4,  // 5: factory.receipts.v1.ReceiptService.ListStoreLineRanking:input_type -> factory.receipts.v1.ListStoreLineRankingRequest
-	7,  // 6: factory.receipts.v1.ReceiptService.ListStoreSalesTotals:input_type -> factory.receipts.v1.ListStoreSalesTotalsRequest
-	10, // 7: factory.receipts.v1.ReceiptService.ListTopLineStores:input_type -> factory.receipts.v1.ListTopLineStoresRequest
-	2,  // 8: factory.receipts.v1.ReceiptService.ListCategorySales:output_type -> factory.receipts.v1.ListCategorySalesResponse
-	5,  // 9: factory.receipts.v1.ReceiptService.ListStoreLineRanking:output_type -> factory.receipts.v1.ListStoreLineRankingResponse
-	8,  // 10: factory.receipts.v1.ReceiptService.ListStoreSalesTotals:output_type -> factory.receipts.v1.ListStoreSalesTotalsResponse
-	11, // 11: factory.receipts.v1.ReceiptService.ListTopLineStores:output_type -> factory.receipts.v1.ListTopLineStoresResponse
-	8,  // [8:12] is the sub-list for method output_type
-	4,  // [4:8] is the sub-list for method input_type
-	4,  // [4:4] is the sub-list for extension type_name
-	4,  // [4:4] is the sub-list for extension extendee
-	0,  // [0:4] is the sub-list for field type_name
+	6,  // 2: factory.receipts.v1.ListStoreRankingTopNResponse.stores:type_name -> factory.receipts.v1.RankedStore
+	9,  // 3: factory.receipts.v1.ListStoreSalesTotalsResponse.stores:type_name -> factory.receipts.v1.StoreSalesTotal
+	12, // 4: factory.receipts.v1.ListTopLineStoresResponse.stores:type_name -> factory.receipts.v1.StoreLineTotal
+	1,  // 5: factory.receipts.v1.ReceiptService.ListCategorySales:input_type -> factory.receipts.v1.ListCategorySalesRequest
+	4,  // 6: factory.receipts.v1.ReceiptService.ListStoreLineRanking:input_type -> factory.receipts.v1.ListStoreLineRankingRequest
+	7,  // 7: factory.receipts.v1.ReceiptService.ListStoreRankingTopN:input_type -> factory.receipts.v1.ListStoreRankingTopNRequest
+	10, // 8: factory.receipts.v1.ReceiptService.ListStoreSalesTotals:input_type -> factory.receipts.v1.ListStoreSalesTotalsRequest
+	13, // 9: factory.receipts.v1.ReceiptService.ListTopLineStores:input_type -> factory.receipts.v1.ListTopLineStoresRequest
+	2,  // 10: factory.receipts.v1.ReceiptService.ListCategorySales:output_type -> factory.receipts.v1.ListCategorySalesResponse
+	5,  // 11: factory.receipts.v1.ReceiptService.ListStoreLineRanking:output_type -> factory.receipts.v1.ListStoreLineRankingResponse
+	8,  // 12: factory.receipts.v1.ReceiptService.ListStoreRankingTopN:output_type -> factory.receipts.v1.ListStoreRankingTopNResponse
+	11, // 13: factory.receipts.v1.ReceiptService.ListStoreSalesTotals:output_type -> factory.receipts.v1.ListStoreSalesTotalsResponse
+	14, // 14: factory.receipts.v1.ReceiptService.ListTopLineStores:output_type -> factory.receipts.v1.ListTopLineStoresResponse
+	10, // [10:15] is the sub-list for method output_type
+	5,  // [5:10] is the sub-list for method input_type
+	5,  // [5:5] is the sub-list for extension type_name
+	5,  // [5:5] is the sub-list for extension extendee
+	0,  // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_factory_receipts_v1_receipts_proto_init() }
@@ -855,15 +1060,16 @@ func file_factory_receipts_v1_receipts_proto_init() {
 	}
 	file_factory_receipts_v1_receipts_proto_msgTypes[0].OneofWrappers = []any{}
 	file_factory_receipts_v1_receipts_proto_msgTypes[4].OneofWrappers = []any{}
-	file_factory_receipts_v1_receipts_proto_msgTypes[6].OneofWrappers = []any{}
 	file_factory_receipts_v1_receipts_proto_msgTypes[7].OneofWrappers = []any{}
+	file_factory_receipts_v1_receipts_proto_msgTypes[9].OneofWrappers = []any{}
+	file_factory_receipts_v1_receipts_proto_msgTypes[10].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_factory_receipts_v1_receipts_proto_rawDesc), len(file_factory_receipts_v1_receipts_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   12,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

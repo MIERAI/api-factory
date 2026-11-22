@@ -17,6 +17,9 @@ service ReceiptService {
   // 明細の件数で店舗に順位をつけて、全店を返す(件数が同じ店は同じ順位。次の順位は飛ばす。例 1, 2, 2, 4)
   rpc ListStoreLineRanking(ListStoreLineRankingRequest) returns (ListStoreLineRankingResponse);
 
+  // 売上日を指定して、明細の売上金額を店別に合計し、合計の順位が N 位以内の店をすべて返す(同順位の店は全部含めるので、N 店を超えることがある)
+  rpc ListStoreRankingTopN(ListStoreRankingTopNRequest) returns (ListStoreRankingTopNResponse);
+
   // 明細を店別に集計して、店舗コード順にページ単位で返す(売上日の下限で絞り込める)
   rpc ListStoreSalesTotals(ListStoreSalesTotalsRequest) returns (ListStoreSalesTotalsResponse);
 
@@ -74,6 +77,34 @@ message ListStoreLineRankingRequest {
 message ListStoreLineRankingResponse {
   // 最多 1000 件;超过时返回错误(不会截断)
   repeated StoreLineRank stores = 1;
+}
+
+// 売上明細(1 行 = レシートの 1 明細)
+message RankedStore {
+  // 店舗コード
+  int32 store_code = 1;
+  // 売上金額の合計(十進数の文字列)
+  string total = 2;
+  // 明細の件数
+  int64 lines = 3;
+  // 順位(合計の多い順。同額は同順位、次の順位は飛ばす)
+  int64 rank = 4;
+}
+
+// 売上日を指定して、明細の売上金額を店別に合計し、合計の順位が N 位以内の店をすべて返す(同順位の店は全部含めるので、N 店を超えることがある)
+message ListStoreRankingTopNRequest {
+  // 売上日
+  string sales_date = 1 [(buf.validate.field).string.pattern = "^\\d{4}-\\d{2}-\\d{2}$"];
+  // 順位の上限(この順位以内の店をすべて返す)
+  int32 top_n = 2 [(buf.validate.field).int32.gte = 1, (buf.validate.field).int32.lte = 100];
+  // 合計の下限(含。不指定 = 下限なし。順位をつけたあとで除く)
+  optional string min_total = 3 [(buf.validate.field).string.pattern = "^-?\\d+(\\.\\d+)?$"];
+}
+
+// 売上日を指定して、明細の売上金額を店別に合計し、合計の順位が N 位以内の店をすべて返す(同順位の店は全部含めるので、N 店を超えることがある)
+message ListStoreRankingTopNResponse {
+  // 最多 1000 件;超过时返回错误(不会截断)
+  repeated RankedStore stores = 1;
 }
 
 // 売上明細(1 行 = レシートの 1 明細)

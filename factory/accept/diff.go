@@ -831,7 +831,7 @@ func (e *diffEnv) scalarFor(col string, kind core.Kind, unique bool, i int) any 
 		}
 	}
 	// 和派生参数比较的列: 约 2/3 的行落在某个探针的边界上(−1 / 正好 / +1)。唯一列也这样(重复的行被数据库拒绝、跳过)
-	if len(e.tm.cmps) > 0 && (kind == core.Date || kind == core.Timestamp) && e.rnd.Intn(3) != 0 {
+	if len(e.tm.cmps) > 0 && (kind == core.Date || kind == core.Timestamp || e.tm.ymdCol[col]) && e.rnd.Intn(3) != 0 {
 		if v := e.boundaryValue(col); v != nil {
 			return v
 		}
@@ -1139,6 +1139,9 @@ func (e *diffEnv) requests() []core.Params {
 		ps := core.Params{}
 		for _, d := range e.userParams() {
 			f := e.filter[d.Name]
+			if f.Grouped { // 分组之后的筛选: 值取自分组之后的行(其他参数定了之后,见 fillGrouped)
+				continue
+			}
 			if d.List { // 列表参数: 0~3 个值(锚的值 / 别的行的值 / 不存在的值);必填至少 1 个
 				n := e.rnd.Intn(4)
 				if i == 0 && !d.Required {
@@ -1199,6 +1202,21 @@ func (e *diffEnv) requests() []core.Params {
 					continue
 				}
 			}
+			if f.Op == "contains" { // 包含: 取中间的一段(有时从 % / _ 开始: 按字面匹配)
+				s := []rune(v.(string))
+				from := e.rnd.Intn(len(s) + 1)
+				for j, r := range s {
+					if (r == '%' || r == '_') && e.rnd.Intn(2) == 0 {
+						from = j
+						break
+					}
+				}
+				to := from + e.rnd.Intn(len(s)-from+1)
+				v = string(s[from:to])
+				if v == "" && !d.Required {
+					continue
+				}
+			}
 			if f.Op == "prefix" {
 				s := []rune(v.(string))
 				cut := e.rnd.Intn(len(s) + 1)
@@ -1216,6 +1234,7 @@ func (e *diffEnv) requests() []core.Params {
 			}
 			ps[d.Name] = v
 		}
+		ps = e.fillGrouped(ps, i == 0)
 		key := e.describe(ps)
 		if seen[key] {
 			continue
@@ -1540,7 +1559,7 @@ func (e *diffEnv) missingFor(col string, k core.Kind) any {
 	return missing(k)
 }
 
-// trapPrefixes: 前缀匹配的陷阱(% _ 在开头 / 中间 / 结尾)。按字面匹配时几乎不命中,当成通配符时会命中很多行
+// trapPrefixes: 前缀匹配 / 包含的陷阱(% _ 在开头 / 中间 / 结尾)。按字面匹配时几乎不命中,当成通配符时会命中很多行
 var trapPrefixes = []string{"%", "a%", "%a", "_", "a_", "_b"}
 
 // sweep: 确定性的扫值请求(不消耗随机数)。每个筛选参数单独取它的列在来源里出现的值(最多 5 个)+ 不存在的值;
@@ -1559,6 +1578,16 @@ func (e *diffEnv) sweep(seen map[string]bool) []core.Params {
 	removed := e.removedRows()
 	for _, d := range params {
 		f := e.filter[d.Name]
+		if f.Grouped { // 分组之后的筛选: 分组之后出现的每个值(和 +1: 名次的并列跨过 N 的边界)
+			base := e.widest(params)
+			for _, v := range e.groupedVals(base, f.Column, 8) {
+				add(withValue(base, d.Name, v))
+				if x, ok := v.(int64); ok {
+					add(withValue(base, d.Name, x+1))
+				}
+			}
+			continue
+		}
 		// 这一列在来源里出现的值(规范文本排序,确定)
 		byVal := map[string]core.Row{}
 		valOf := map[string]any{}
@@ -1669,7 +1698,7 @@ func (e *diffEnv) sweep(seen map[string]bool) []core.Params {
 				}
 			}
 		}
-		if f.Op == "prefix" {
+		if f.Op == "prefix" || f.Op == "contains" {
 			var anchor core.Row
 			if len(keys) > 0 {
 				anchor = byVal[keys[0]]
@@ -1690,7 +1719,7 @@ func (e *diffEnv) sweep(seen map[string]bool) []core.Params {
 			all := core.Params{}
 			for _, o := range params {
 				ov := r[e.filter[o.Name].Column]
-				if ov == nil || e.filter[o.Name].Op == "prefix" {
+				if ov == nil || e.filter[o.Name].Op == "prefix" || e.filter[o.Name].Op == "contains" {
 					continue
 				}
 				if o.List {
@@ -2069,6 +2098,15 @@ func (e *diffEnv) sensTargets() []sensTarget {
 					targets = append(targets, sensTarget{step: i, node: a, desc: fmt.Sprintf("%s 的「或者」第 %d 项", st.From, j+1), falseNode: true})
 				}
 			}
+			if x.Op == "contains" { // 包含: 写成前缀匹配的实现要看得出来(一致的位置在中间 / 末尾的行)
+				i, node := i, x
+				targets = append(targets, sensTarget{step: i, node: x, desc: st.From + " 的包含(写成前缀匹配)", mutate: func(p *core.Pipeline) *core.Pipeline {
+					mut := *p
+					mut.Steps = append([]core.Step(nil), p.Steps...)
+					mut.Steps[i].Pred = replaceExpr(p.Steps[i].Pred, node, core.StartsWith(node.Args[0], node.Name))
+					return &mut
+				}})
+			}
 			if x.Op == "in_tuples" { // 组属于: 按列各自"属于"(组的交叉组合也算命中)的实现要看得出来
 				i, node := i, x
 				var each []*core.Expr
@@ -2190,7 +2228,7 @@ func refersParam(x *core.Expr) bool {
 		return false
 	}
 	switch x.Op {
-	case "param", "absent", "in_list", "starts_with", "tuple_after", "in_tuples", "now":
+	case "param", "absent", "in_list", "starts_with", "contains", "tuple_after", "in_tuples", "now":
 		return true
 	}
 	for _, a := range x.Args {
@@ -2358,8 +2396,11 @@ func (e *diffEnv) directed(reqs []core.Params, seen map[string]bool) []core.Para
 			if n >= 3 {
 				break
 			}
-			for shift := 0; shift <= 3 && n < 3; shift++ {
-				ps := fromRow(r, shift)
+			for shift := 0; shift <= 3+len(e.tm.probes) && n < 3; shift++ {
+				ps := fromRow(r, min(shift, 3))
+				if shift > 3 { // 派生参数: 同一行配上每一组探针(边界附近的行只对某几组探针起作用)
+					ps = e.withProbe(ps, shift-4)
+				}
 				k := e.describe(ps)
 				if seen[k] {
 					continue
@@ -2627,6 +2668,9 @@ func (e *diffEnv) widest(params []core.ParamDecl) core.Params {
 			}
 			count[k]++
 		}
+		if f.Grouped { // 分组之后的筛选: 其他参数定了之后再取(下面)
+			continue
+		}
 		if len(keys) == 0 {
 			ps[d.Name] = e.missingFor(f.Column, d.Type.Kind)
 			continue
@@ -2656,6 +2700,21 @@ func (e *diffEnv) widest(params []core.ParamDecl) core.Params {
 			if _, isList := ps[d.Name].([]any); !isList {
 				ps[d.Name] = []any{ps[d.Name]}
 			}
+		}
+	}
+	for _, d := range params { // 分组之后的筛选(必填): 分组之后的值里限制最少的
+		f := e.filter[d.Name]
+		if !d.Required || !f.Grouped {
+			continue
+		}
+		vals := e.groupedVals(ps, f.Column, 1<<20)
+		switch {
+		case len(vals) == 0:
+			ps[d.Name] = e.groupedMissing(f.Column, d.Type.Kind)
+		case f.Op == "lt" || f.Op == "lte":
+			ps[d.Name] = vals[len(vals)-1]
+		default:
+			ps[d.Name] = vals[0]
 		}
 	}
 	return ps
@@ -2715,4 +2774,91 @@ func (e *diffEnv) rowsBeforeLimit(ps core.Params) (int, error) {
 		return 0, err
 	}
 	return len(res.Rows), nil
+}
+
+// groupedIdx: 第一个分组之后的筛选的位置(没有 → -1)。
+func (e *diffEnv) groupedIdx() int {
+	p := e.api.Pipeline
+	seen := false
+	for i, st := range p.Steps {
+		if st.Kind == "group" || st.Kind == "rank" {
+			seen = true
+			continue
+		}
+		if seen && st.Kind == "filter" && strings.Contains(st.From, "$分组之后") {
+			return i
+		}
+	}
+	return -1
+}
+
+// groupedVals: 分组之后的筛选的列在分组之后出现的值(请求 ps 的其他条件下;规范文本排序,最多 n 个)。
+func (e *diffEnv) groupedVals(ps core.Params, col string, n int) []any {
+	gi := e.groupedIdx()
+	if gi < 0 {
+		return nil
+	}
+	q := core.Params{}
+	for k, v := range ps {
+		if !e.filter[k].Grouped {
+			q[k] = v
+		}
+	}
+	in, err := e.stepInput(e.complete(q), gi)
+	if err != nil {
+		return nil
+	}
+	var out []any
+	seen := map[string]bool{}
+	for _, r := range in.Rows {
+		if v := r[col]; v != nil && !seen[core.Canonical(v)] {
+			seen[core.Canonical(v)] = true
+			out = append(out, v)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return compareAny(out[i], out[j]) < 0 })
+	if len(out) > n {
+		out = out[:n]
+	}
+	return out
+}
+
+// fillGrouped: 请求里分组之后的筛选的参数: 分组之后出现的值(整数 ±1),可选的有时不传(first: 全部不传)。
+func (e *diffEnv) fillGrouped(ps core.Params, first bool) core.Params {
+	for _, d := range e.userParams() {
+		f := e.filter[d.Name]
+		if !f.Grouped || d.List {
+			continue
+		}
+		if !d.Required && (first || e.rnd.Intn(4) == 0) {
+			continue
+		}
+		vals := e.groupedVals(ps, f.Column, 1<<20)
+		if len(vals) == 0 { // 分组之后没有行(其他条件不命中): 整数取 1(名次 ≤ 1 一类的合法值),其他取不存在的值
+			ps[d.Name] = e.groupedMissing(f.Column, d.Type.Kind)
+			continue
+		}
+		v := vals[e.rnd.Intn(len(vals))]
+		if x, ok := v.(int64); ok {
+			v = x + int64([]int{-1, 0, 0, 1}[e.rnd.Intn(4)])
+		}
+		ps[d.Name] = v
+	}
+	return ps
+}
+
+func withValue(ps core.Params, k string, v any) core.Params {
+	out := core.Params{}
+	for a, b := range ps {
+		out[a] = b
+	}
+	out[k] = v
+	return out
+}
+
+func (e *diffEnv) groupedMissing(col string, k core.Kind) any {
+	if k == core.Int32 || k == core.Int64 {
+		return int64(1)
+	}
+	return e.missingFor(col, k)
 }

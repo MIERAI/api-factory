@@ -51,6 +51,9 @@ const (
 	// SaleServiceListEffectivePriceChangesProcedure is the fully-qualified name of the SaleService's
 	// ListEffectivePriceChanges RPC.
 	SaleServiceListEffectivePriceChangesProcedure = "/factory.sales.v1.SaleService/ListEffectivePriceChanges"
+	// SaleServiceListPrevMonthLastPricesProcedure is the fully-qualified name of the SaleService's
+	// ListPrevMonthLastPrices RPC.
+	SaleServiceListPrevMonthLastPricesProcedure = "/factory.sales.v1.SaleService/ListPrevMonthLastPrices"
 	// SaleServiceListPrevMonthSalesProcedure is the fully-qualified name of the SaleService's
 	// ListPrevMonthSales RPC.
 	SaleServiceListPrevMonthSalesProcedure = "/factory.sales.v1.SaleService/ListPrevMonthSales"
@@ -98,6 +101,8 @@ type SaleServiceClient interface {
 	ListDiscountedSales(context.Context, *connect.Request[v1.ListDiscountedSalesRequest]) (*connect.Response[v1.ListDiscountedSalesResponse], error)
 	// 店舗と指示日を指定して、売価が実際に変わる売価変更の指示を返す
 	ListEffectivePriceChanges(context.Context, *connect.Request[v1.ListEffectivePriceChangesRequest]) (*connect.Response[v1.ListEffectivePriceChangesResponse], error)
+	// 店舗と基準日(YYYYMMDD の整数)を指定して、基準日の前月(1 日〜末日)に取ったスナップショットのうち、商品ごとに最後の 1 件を返す
+	ListPrevMonthLastPrices(context.Context, *connect.Request[v1.ListPrevMonthLastPricesRequest]) (*connect.Response[v1.ListPrevMonthLastPricesResponse], error)
 	// 店舗と基準日を指定して、基準日の前月(1 日〜末日)の日別売上を古い日から返す
 	ListPrevMonthSales(context.Context, *connect.Request[v1.ListPrevMonthSalesRequest]) (*connect.Response[v1.ListPrevMonthSalesResponse], error)
 	// 商品コードを指定して、各店の売価変更の指示を新しい指示日から返す(分页)
@@ -161,6 +166,12 @@ func NewSaleServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			httpClient,
 			baseURL+SaleServiceListEffectivePriceChangesProcedure,
 			connect.WithSchema(saleServiceMethods.ByName("ListEffectivePriceChanges")),
+			connect.WithClientOptions(opts...),
+		),
+		listPrevMonthLastPrices: connect.NewClient[v1.ListPrevMonthLastPricesRequest, v1.ListPrevMonthLastPricesResponse](
+			httpClient,
+			baseURL+SaleServiceListPrevMonthLastPricesProcedure,
+			connect.WithSchema(saleServiceMethods.ByName("ListPrevMonthLastPrices")),
 			connect.WithClientOptions(opts...),
 		),
 		listPrevMonthSales: connect.NewClient[v1.ListPrevMonthSalesRequest, v1.ListPrevMonthSalesResponse](
@@ -239,6 +250,7 @@ type saleServiceClient struct {
 	listCurrentPrices         *connect.Client[v1.ListCurrentPricesRequest, v1.ListCurrentPricesResponse]
 	listDiscountedSales       *connect.Client[v1.ListDiscountedSalesRequest, v1.ListDiscountedSalesResponse]
 	listEffectivePriceChanges *connect.Client[v1.ListEffectivePriceChangesRequest, v1.ListEffectivePriceChangesResponse]
+	listPrevMonthLastPrices   *connect.Client[v1.ListPrevMonthLastPricesRequest, v1.ListPrevMonthLastPricesResponse]
 	listPrevMonthSales        *connect.Client[v1.ListPrevMonthSalesRequest, v1.ListPrevMonthSalesResponse]
 	listPriceChangeHistory    *connect.Client[v1.ListPriceChangeHistoryRequest, v1.ListPriceChangeHistoryResponse]
 	listPriceChangesForStores *connect.Client[v1.ListPriceChangesForStoresRequest, v1.ListPriceChangesForStoresResponse]
@@ -275,6 +287,11 @@ func (c *saleServiceClient) ListDiscountedSales(ctx context.Context, req *connec
 // ListEffectivePriceChanges calls factory.sales.v1.SaleService.ListEffectivePriceChanges.
 func (c *saleServiceClient) ListEffectivePriceChanges(ctx context.Context, req *connect.Request[v1.ListEffectivePriceChangesRequest]) (*connect.Response[v1.ListEffectivePriceChangesResponse], error) {
 	return c.listEffectivePriceChanges.CallUnary(ctx, req)
+}
+
+// ListPrevMonthLastPrices calls factory.sales.v1.SaleService.ListPrevMonthLastPrices.
+func (c *saleServiceClient) ListPrevMonthLastPrices(ctx context.Context, req *connect.Request[v1.ListPrevMonthLastPricesRequest]) (*connect.Response[v1.ListPrevMonthLastPricesResponse], error) {
+	return c.listPrevMonthLastPrices.CallUnary(ctx, req)
 }
 
 // ListPrevMonthSales calls factory.sales.v1.SaleService.ListPrevMonthSales.
@@ -344,6 +361,8 @@ type SaleServiceHandler interface {
 	ListDiscountedSales(context.Context, *connect.Request[v1.ListDiscountedSalesRequest]) (*connect.Response[v1.ListDiscountedSalesResponse], error)
 	// 店舗と指示日を指定して、売価が実際に変わる売価変更の指示を返す
 	ListEffectivePriceChanges(context.Context, *connect.Request[v1.ListEffectivePriceChangesRequest]) (*connect.Response[v1.ListEffectivePriceChangesResponse], error)
+	// 店舗と基準日(YYYYMMDD の整数)を指定して、基準日の前月(1 日〜末日)に取ったスナップショットのうち、商品ごとに最後の 1 件を返す
+	ListPrevMonthLastPrices(context.Context, *connect.Request[v1.ListPrevMonthLastPricesRequest]) (*connect.Response[v1.ListPrevMonthLastPricesResponse], error)
 	// 店舗と基準日を指定して、基準日の前月(1 日〜末日)の日別売上を古い日から返す
 	ListPrevMonthSales(context.Context, *connect.Request[v1.ListPrevMonthSalesRequest]) (*connect.Response[v1.ListPrevMonthSalesResponse], error)
 	// 商品コードを指定して、各店の売価変更の指示を新しい指示日から返す(分页)
@@ -403,6 +422,12 @@ func NewSaleServiceHandler(svc SaleServiceHandler, opts ...connect.HandlerOption
 		SaleServiceListEffectivePriceChangesProcedure,
 		svc.ListEffectivePriceChanges,
 		connect.WithSchema(saleServiceMethods.ByName("ListEffectivePriceChanges")),
+		connect.WithHandlerOptions(opts...),
+	)
+	saleServiceListPrevMonthLastPricesHandler := connect.NewUnaryHandler(
+		SaleServiceListPrevMonthLastPricesProcedure,
+		svc.ListPrevMonthLastPrices,
+		connect.WithSchema(saleServiceMethods.ByName("ListPrevMonthLastPrices")),
 		connect.WithHandlerOptions(opts...),
 	)
 	saleServiceListPrevMonthSalesHandler := connect.NewUnaryHandler(
@@ -483,6 +508,8 @@ func NewSaleServiceHandler(svc SaleServiceHandler, opts ...connect.HandlerOption
 			saleServiceListDiscountedSalesHandler.ServeHTTP(w, r)
 		case SaleServiceListEffectivePriceChangesProcedure:
 			saleServiceListEffectivePriceChangesHandler.ServeHTTP(w, r)
+		case SaleServiceListPrevMonthLastPricesProcedure:
+			saleServiceListPrevMonthLastPricesHandler.ServeHTTP(w, r)
 		case SaleServiceListPrevMonthSalesProcedure:
 			saleServiceListPrevMonthSalesHandler.ServeHTTP(w, r)
 		case SaleServiceListPriceChangeHistoryProcedure:
@@ -532,6 +559,10 @@ func (UnimplementedSaleServiceHandler) ListDiscountedSales(context.Context, *con
 
 func (UnimplementedSaleServiceHandler) ListEffectivePriceChanges(context.Context, *connect.Request[v1.ListEffectivePriceChangesRequest]) (*connect.Response[v1.ListEffectivePriceChangesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.sales.v1.SaleService.ListEffectivePriceChanges is not implemented"))
+}
+
+func (UnimplementedSaleServiceHandler) ListPrevMonthLastPrices(context.Context, *connect.Request[v1.ListPrevMonthLastPricesRequest]) (*connect.Response[v1.ListPrevMonthLastPricesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.sales.v1.SaleService.ListPrevMonthLastPrices is not implemented"))
 }
 
 func (UnimplementedSaleServiceHandler) ListPrevMonthSales(context.Context, *connect.Request[v1.ListPrevMonthSalesRequest]) (*connect.Response[v1.ListPrevMonthSalesResponse], error) {

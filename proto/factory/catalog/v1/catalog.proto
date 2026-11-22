@@ -32,6 +32,9 @@ service CatalogService {
 
   // 商品コードを指定して、その商品のラベルを最後に変わった順に返す(いつ変わったかも返す)
   rpc ListRecentLabelChanges(ListRecentLabelChangesRequest) returns (ListRecentLabelChangesResponse);
+
+  // 商品名に指定の文字列を含む商品(現在の値)を、カテゴリで絞って返す
+  rpc SearchProductsByName(SearchProductsByNameRequest) returns (SearchProductsByNameResponse);
 }
 
 // 商品コードとラベルコードを指定して、ラベルの現在の文言を返す。なければ found = false
@@ -211,4 +214,28 @@ message ListRecentLabelChangesRequest {
 message ListRecentLabelChangesResponse {
   // 最多 100 件;超过时返回错误(不会截断)
   repeated LabelChange product_label = 1;
+}
+
+// 商品マスタの現在の値(商品コードごとに最新に登録された行)
+message ProductHit {
+  // 商品コード
+  string product_code = 1;
+  // 商品名
+  optional string name = 2;
+  // 標準売価
+  optional string price = 3;
+}
+
+// 商品名に指定の文字列を含む商品(現在の値)を、カテゴリで絞って返す
+message SearchProductsByNameRequest {
+  // カテゴリ
+  string category = 1 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 20];
+  // 商品名に含まれる文字列(部分一致。% _ は文字として扱う)
+  string keyword = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 40];
+}
+
+// 商品名に指定の文字列を含む商品(現在の値)を、カテゴリで絞って返す
+message SearchProductsByNameResponse {
+  // 最多 100 件;超过时返回错误(不会截断)
+  repeated ProductHit products = 1;
 }

@@ -1199,6 +1199,171 @@ func (x *ListRecentLabelChangesResponse) GetProductLabel() []*LabelChange {
 	return nil
 }
 
+// 商品マスタの現在の値(商品コードごとに最新に登録された行)
+type ProductHit struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 商品コード
+	ProductCode string `protobuf:"bytes,1,opt,name=product_code,json=productCode,proto3" json:"product_code,omitempty"`
+	// 商品名
+	Name *string `protobuf:"bytes,2,opt,name=name,proto3,oneof" json:"name,omitempty"`
+	// 標準売価
+	Price         *string `protobuf:"bytes,3,opt,name=price,proto3,oneof" json:"price,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProductHit) Reset() {
+	*x = ProductHit{}
+	mi := &file_factory_catalog_v1_catalog_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProductHit) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProductHit) ProtoMessage() {}
+
+func (x *ProductHit) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_catalog_v1_catalog_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProductHit.ProtoReflect.Descriptor instead.
+func (*ProductHit) Descriptor() ([]byte, []int) {
+	return file_factory_catalog_v1_catalog_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *ProductHit) GetProductCode() string {
+	if x != nil {
+		return x.ProductCode
+	}
+	return ""
+}
+
+func (x *ProductHit) GetName() string {
+	if x != nil && x.Name != nil {
+		return *x.Name
+	}
+	return ""
+}
+
+func (x *ProductHit) GetPrice() string {
+	if x != nil && x.Price != nil {
+		return *x.Price
+	}
+	return ""
+}
+
+// 商品名に指定の文字列を含む商品(現在の値)を、カテゴリで絞って返す
+type SearchProductsByNameRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// カテゴリ
+	Category string `protobuf:"bytes,1,opt,name=category,proto3" json:"category,omitempty"`
+	// 商品名に含まれる文字列(部分一致。% _ は文字として扱う)
+	Keyword       string `protobuf:"bytes,2,opt,name=keyword,proto3" json:"keyword,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SearchProductsByNameRequest) Reset() {
+	*x = SearchProductsByNameRequest{}
+	mi := &file_factory_catalog_v1_catalog_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SearchProductsByNameRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SearchProductsByNameRequest) ProtoMessage() {}
+
+func (x *SearchProductsByNameRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_catalog_v1_catalog_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SearchProductsByNameRequest.ProtoReflect.Descriptor instead.
+func (*SearchProductsByNameRequest) Descriptor() ([]byte, []int) {
+	return file_factory_catalog_v1_catalog_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *SearchProductsByNameRequest) GetCategory() string {
+	if x != nil {
+		return x.Category
+	}
+	return ""
+}
+
+func (x *SearchProductsByNameRequest) GetKeyword() string {
+	if x != nil {
+		return x.Keyword
+	}
+	return ""
+}
+
+// 商品名に指定の文字列を含む商品(現在の値)を、カテゴリで絞って返す
+type SearchProductsByNameResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 最多 100 件;超过时返回错误(不会截断)
+	Products      []*ProductHit `protobuf:"bytes,1,rep,name=products,proto3" json:"products,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SearchProductsByNameResponse) Reset() {
+	*x = SearchProductsByNameResponse{}
+	mi := &file_factory_catalog_v1_catalog_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SearchProductsByNameResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SearchProductsByNameResponse) ProtoMessage() {}
+
+func (x *SearchProductsByNameResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_catalog_v1_catalog_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SearchProductsByNameResponse.ProtoReflect.Descriptor instead.
+func (*SearchProductsByNameResponse) Descriptor() ([]byte, []int) {
+	return file_factory_catalog_v1_catalog_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *SearchProductsByNameResponse) GetProducts() []*ProductHit {
+	if x != nil {
+		return x.Products
+	}
+	return nil
+}
+
 var File_factory_catalog_v1_catalog_proto protoreflect.FileDescriptor
 
 const file_factory_catalog_v1_catalog_proto_rawDesc = "" +
@@ -1306,7 +1471,19 @@ const file_factory_catalog_v1_catalog_proto_rawDesc = "" +
 	"\fproduct_code\x18\x01 \x01(\tB\x13\xbaH\x10r\x0e\x10\x01\x18\x142\b^[0-9]+$R\vproductCode\x12?\n" +
 	"\rchanged_since\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\fchangedSince\"f\n" +
 	"\x1eListRecentLabelChangesResponse\x12D\n" +
-	"\rproduct_label\x18\x01 \x03(\v2\x1f.factory.catalog.v1.LabelChangeR\fproductLabel2\xd5\x06\n" +
+	"\rproduct_label\x18\x01 \x03(\v2\x1f.factory.catalog.v1.LabelChangeR\fproductLabel\"v\n" +
+	"\n" +
+	"ProductHit\x12!\n" +
+	"\fproduct_code\x18\x01 \x01(\tR\vproductCode\x12\x17\n" +
+	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\x19\n" +
+	"\x05price\x18\x03 \x01(\tH\x01R\x05price\x88\x01\x01B\a\n" +
+	"\x05_nameB\b\n" +
+	"\x06_price\"i\n" +
+	"\x1bSearchProductsByNameRequest\x12%\n" +
+	"\bcategory\x18\x01 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18\x14R\bcategory\x12#\n" +
+	"\akeyword\x18\x02 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18(R\akeyword\"Z\n" +
+	"\x1cSearchProductsByNameResponse\x12:\n" +
+	"\bproducts\x18\x01 \x03(\v2\x1e.factory.catalog.v1.ProductHitR\bproducts2\xd0\a\n" +
 	"\x0eCatalogService\x12j\n" +
 	"\x0fGetProductLabel\x12*.factory.catalog.v1.GetProductLabelRequest\x1a+.factory.catalog.v1.GetProductLabelResponse\x12\x7f\n" +
 	"\x16ListLabelsByLabelCodes\x121.factory.catalog.v1.ListLabelsByLabelCodesRequest\x1a2.factory.catalog.v1.ListLabelsByLabelCodesResponse\x12p\n" +
@@ -1314,7 +1491,8 @@ const file_factory_catalog_v1_catalog_proto_rawDesc = "" +
 	"\x11ListProductLabels\x12,.factory.catalog.v1.ListProductLabelsRequest\x1a-.factory.catalog.v1.ListProductLabelsResponse\x12p\n" +
 	"\x11ListProductMaster\x12,.factory.catalog.v1.ListProductMasterRequest\x1a-.factory.catalog.v1.ListProductMasterResponse\x12\x7f\n" +
 	"\x16ListProductsByCategory\x121.factory.catalog.v1.ListProductsByCategoryRequest\x1a2.factory.catalog.v1.ListProductsByCategoryResponse\x12\x7f\n" +
-	"\x16ListRecentLabelChanges\x121.factory.catalog.v1.ListRecentLabelChangesRequest\x1a2.factory.catalog.v1.ListRecentLabelChangesResponseB-Z+apifactory/gen/factory/catalog/v1;catalogv1b\x06proto3"
+	"\x16ListRecentLabelChanges\x121.factory.catalog.v1.ListRecentLabelChangesRequest\x1a2.factory.catalog.v1.ListRecentLabelChangesResponse\x12y\n" +
+	"\x14SearchProductsByName\x12/.factory.catalog.v1.SearchProductsByNameRequest\x1a0.factory.catalog.v1.SearchProductsByNameResponseB-Z+apifactory/gen/factory/catalog/v1;catalogv1b\x06proto3"
 
 var (
 	file_factory_catalog_v1_catalog_proto_rawDescOnce sync.Once
@@ -1328,7 +1506,7 @@ func file_factory_catalog_v1_catalog_proto_rawDescGZIP() []byte {
 	return file_factory_catalog_v1_catalog_proto_rawDescData
 }
 
-var file_factory_catalog_v1_catalog_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
+var file_factory_catalog_v1_catalog_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_factory_catalog_v1_catalog_proto_goTypes = []any{
 	(*GetProductLabelRequest)(nil),         // 0: factory.catalog.v1.GetProductLabelRequest
 	(*GetProductLabelResponse)(nil),        // 1: factory.catalog.v1.GetProductLabelResponse
@@ -1351,7 +1529,10 @@ var file_factory_catalog_v1_catalog_proto_goTypes = []any{
 	(*LabelChange)(nil),                    // 18: factory.catalog.v1.LabelChange
 	(*ListRecentLabelChangesRequest)(nil),  // 19: factory.catalog.v1.ListRecentLabelChangesRequest
 	(*ListRecentLabelChangesResponse)(nil), // 20: factory.catalog.v1.ListRecentLabelChangesResponse
-	(*timestamppb.Timestamp)(nil),          // 21: google.protobuf.Timestamp
+	(*ProductHit)(nil),                     // 21: factory.catalog.v1.ProductHit
+	(*SearchProductsByNameRequest)(nil),    // 22: factory.catalog.v1.SearchProductsByNameRequest
+	(*SearchProductsByNameResponse)(nil),   // 23: factory.catalog.v1.SearchProductsByNameResponse
+	(*timestamppb.Timestamp)(nil),          // 24: google.protobuf.Timestamp
 }
 var file_factory_catalog_v1_catalog_proto_depIdxs = []int32{
 	2,  // 0: factory.catalog.v1.ListLabelsByLabelCodesResponse.product_label:type_name -> factory.catalog.v1.LabelOfCode
@@ -1360,28 +1541,31 @@ var file_factory_catalog_v1_catalog_proto_depIdxs = []int32{
 	9,  // 3: factory.catalog.v1.ListProductLabelsResponse.product_label:type_name -> factory.catalog.v1.ProductLabel
 	12, // 4: factory.catalog.v1.ListProductMasterResponse.product_master:type_name -> factory.catalog.v1.ProductMaster
 	15, // 5: factory.catalog.v1.ListProductsByCategoryResponse.product_master:type_name -> factory.catalog.v1.CategoryProduct
-	21, // 6: factory.catalog.v1.LabelChange.changed_at:type_name -> google.protobuf.Timestamp
-	21, // 7: factory.catalog.v1.ListRecentLabelChangesRequest.changed_since:type_name -> google.protobuf.Timestamp
+	24, // 6: factory.catalog.v1.LabelChange.changed_at:type_name -> google.protobuf.Timestamp
+	24, // 7: factory.catalog.v1.ListRecentLabelChangesRequest.changed_since:type_name -> google.protobuf.Timestamp
 	18, // 8: factory.catalog.v1.ListRecentLabelChangesResponse.product_label:type_name -> factory.catalog.v1.LabelChange
-	0,  // 9: factory.catalog.v1.CatalogService.GetProductLabel:input_type -> factory.catalog.v1.GetProductLabelRequest
-	3,  // 10: factory.catalog.v1.CatalogService.ListLabelsByLabelCodes:input_type -> factory.catalog.v1.ListLabelsByLabelCodesRequest
-	7,  // 11: factory.catalog.v1.CatalogService.ListLabelsByPairs:input_type -> factory.catalog.v1.ListLabelsByPairsRequest
-	10, // 12: factory.catalog.v1.CatalogService.ListProductLabels:input_type -> factory.catalog.v1.ListProductLabelsRequest
-	13, // 13: factory.catalog.v1.CatalogService.ListProductMaster:input_type -> factory.catalog.v1.ListProductMasterRequest
-	16, // 14: factory.catalog.v1.CatalogService.ListProductsByCategory:input_type -> factory.catalog.v1.ListProductsByCategoryRequest
-	19, // 15: factory.catalog.v1.CatalogService.ListRecentLabelChanges:input_type -> factory.catalog.v1.ListRecentLabelChangesRequest
-	1,  // 16: factory.catalog.v1.CatalogService.GetProductLabel:output_type -> factory.catalog.v1.GetProductLabelResponse
-	4,  // 17: factory.catalog.v1.CatalogService.ListLabelsByLabelCodes:output_type -> factory.catalog.v1.ListLabelsByLabelCodesResponse
-	8,  // 18: factory.catalog.v1.CatalogService.ListLabelsByPairs:output_type -> factory.catalog.v1.ListLabelsByPairsResponse
-	11, // 19: factory.catalog.v1.CatalogService.ListProductLabels:output_type -> factory.catalog.v1.ListProductLabelsResponse
-	14, // 20: factory.catalog.v1.CatalogService.ListProductMaster:output_type -> factory.catalog.v1.ListProductMasterResponse
-	17, // 21: factory.catalog.v1.CatalogService.ListProductsByCategory:output_type -> factory.catalog.v1.ListProductsByCategoryResponse
-	20, // 22: factory.catalog.v1.CatalogService.ListRecentLabelChanges:output_type -> factory.catalog.v1.ListRecentLabelChangesResponse
-	16, // [16:23] is the sub-list for method output_type
-	9,  // [9:16] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	21, // 9: factory.catalog.v1.SearchProductsByNameResponse.products:type_name -> factory.catalog.v1.ProductHit
+	0,  // 10: factory.catalog.v1.CatalogService.GetProductLabel:input_type -> factory.catalog.v1.GetProductLabelRequest
+	3,  // 11: factory.catalog.v1.CatalogService.ListLabelsByLabelCodes:input_type -> factory.catalog.v1.ListLabelsByLabelCodesRequest
+	7,  // 12: factory.catalog.v1.CatalogService.ListLabelsByPairs:input_type -> factory.catalog.v1.ListLabelsByPairsRequest
+	10, // 13: factory.catalog.v1.CatalogService.ListProductLabels:input_type -> factory.catalog.v1.ListProductLabelsRequest
+	13, // 14: factory.catalog.v1.CatalogService.ListProductMaster:input_type -> factory.catalog.v1.ListProductMasterRequest
+	16, // 15: factory.catalog.v1.CatalogService.ListProductsByCategory:input_type -> factory.catalog.v1.ListProductsByCategoryRequest
+	19, // 16: factory.catalog.v1.CatalogService.ListRecentLabelChanges:input_type -> factory.catalog.v1.ListRecentLabelChangesRequest
+	22, // 17: factory.catalog.v1.CatalogService.SearchProductsByName:input_type -> factory.catalog.v1.SearchProductsByNameRequest
+	1,  // 18: factory.catalog.v1.CatalogService.GetProductLabel:output_type -> factory.catalog.v1.GetProductLabelResponse
+	4,  // 19: factory.catalog.v1.CatalogService.ListLabelsByLabelCodes:output_type -> factory.catalog.v1.ListLabelsByLabelCodesResponse
+	8,  // 20: factory.catalog.v1.CatalogService.ListLabelsByPairs:output_type -> factory.catalog.v1.ListLabelsByPairsResponse
+	11, // 21: factory.catalog.v1.CatalogService.ListProductLabels:output_type -> factory.catalog.v1.ListProductLabelsResponse
+	14, // 22: factory.catalog.v1.CatalogService.ListProductMaster:output_type -> factory.catalog.v1.ListProductMasterResponse
+	17, // 23: factory.catalog.v1.CatalogService.ListProductsByCategory:output_type -> factory.catalog.v1.ListProductsByCategoryResponse
+	20, // 24: factory.catalog.v1.CatalogService.ListRecentLabelChanges:output_type -> factory.catalog.v1.ListRecentLabelChangesResponse
+	23, // 25: factory.catalog.v1.CatalogService.SearchProductsByName:output_type -> factory.catalog.v1.SearchProductsByNameResponse
+	18, // [18:26] is the sub-list for method output_type
+	10, // [10:18] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_factory_catalog_v1_catalog_proto_init() }
@@ -1399,13 +1583,14 @@ func file_factory_catalog_v1_catalog_proto_init() {
 	file_factory_catalog_v1_catalog_proto_msgTypes[15].OneofWrappers = []any{}
 	file_factory_catalog_v1_catalog_proto_msgTypes[16].OneofWrappers = []any{}
 	file_factory_catalog_v1_catalog_proto_msgTypes[18].OneofWrappers = []any{}
+	file_factory_catalog_v1_catalog_proto_msgTypes[21].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_factory_catalog_v1_catalog_proto_rawDesc), len(file_factory_catalog_v1_catalog_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   21,
+			NumMessages:   24,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

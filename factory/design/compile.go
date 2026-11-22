@@ -18,6 +18,7 @@ import (
 	"apifactory/factory/adapter"
 	"apifactory/factory/cells"
 	"apifactory/factory/compiler"
+	"apifactory/factory/core"
 	"apifactory/factory/constraints"
 	"apifactory/factory/kinds"
 	"apifactory/factory/sources"
@@ -111,6 +112,17 @@ func CompileDir(dir string, m *adapter.Manifest) ([]string, error) {
 			cols = append(cols, compiler.Column{Name: c.Name, Type: c.SQLType, NotNull: c.NotNull})
 		}
 		cat[name] = cols
+	}
+	for name, t := range d.Tables { // 编码(整数里的日期): 列必须是整数
+		for col := range t.ColEncode {
+			ok := false
+			for _, x := range cat[name] {
+				ok = ok || (x.Name == col && (x.Type == "int4" || x.Type == "int8" || x.Type == "integer" || x.Type == "bigint"))
+			}
+			if !ok {
+				return nil, fmt.Errorf("%s/领域.yaml: 表 %s 的列 %s: 编码 %s 只能用于整数的列", dir, name, col, EncodingYMD)
+			}
+		}
 	}
 	tz, err := time.LoadLocation(d.TZ)
 	if err != nil {
@@ -305,6 +317,16 @@ func (c *ctx) inputField(a *API, in *Input, e *errs) *field {
 	}
 	f := &field{Name: in.Name, Type: pt, Desc: in.Desc, kind: kind}
 	typ, _ := kinds.ByName(elemType)
+	if in.Encoding != "" { // 整数编码的日期: 不合法的日期 → 参数错误(proto 的 CEL;核心的 ymd 认为合法的范围)
+		switch {
+		case in.Encoding != EncodingYMD:
+			e.add(in.Line, "输入 %s: 编码 只能是 %s", in.Name, EncodingYMD)
+		case isList || typ == nil || (typ.Core != core.Int32 && typ.Core != core.Int64):
+			e.add(in.Line, "输入 %s: 编码 %s 只能用于 整数32 / 整数64 的输入(不是列表)", in.Name, EncodingYMD)
+		default:
+			f.Rules = append(f.Rules, fmt.Sprintf("cel = {id: \"%s.ymd\", message: \"%s must be a valid date (YYYYMMDD)\", expression: \"%s\"}", in.Name, in.Name, ymdCEL))
+		}
+	}
 	// 约束(范围 / 长度 / 个数 …)由注册表编译(factory/constraints;列表时元素级的约束用于每个元素)
 	rules, cerrs := constraints.Compile(constraints.Ctx{
 		ProtoType: pt, List: isList, Required: in.Required, HasPattern: typ != nil && typ.Pattern != "",
@@ -453,18 +475,34 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 				continue
 			}
 			cols := strings.Split(parts[0], "~") // 多列的单元: 开始列~结束列
-			for _, col := range cols {
-				if _, has := c.column(table, col); !has {
-					e.add(in.Line, "输入 %s: 筛选的列 %s 不在表 %s 里", in.Name, col, table)
+			// 分组之后的筛选(HAVING 一类): 列是计算 / 名次的输出名(分组键不算: 分组键的筛选放在分组之前,结果一样,索引能用)
+			grouped := false
+			if a.Pattern.Group != nil && len(cols) == 1 {
+				_, isOut := groupedCol(cols[0])
+				isKey := false
+				for _, k := range a.Pattern.Group.Keys {
+					isKey = isKey || k == cols[0]
+				}
+				if isOut && !isKey {
+					if _, src := c.column(table, cols[0]); src {
+						e.add(in.Line, "输入 %s: 筛选的列 %s 既是表 %s 的列,又是分组之后的输出名(计算 / 排名),分不清筛选放在分组之前还是之后。请给计算 / 排名的输出改名", in.Name, cols[0], table)
+						continue
+					}
+					grouped = true
 				}
 			}
-			sf := spec.Filter{Column: cols[0], Op: op}
+			for _, col := range cols {
+				if _, has := c.column(table, col); !has && !grouped {
+					e.add(in.Line, "输入 %s: 筛选的列 %s 不在表 %s 里(分组之后的筛选: 写计算 / 排名的输出名)", in.Name, col, table)
+				}
+			}
+			sf := spec.Filter{Column: cols[0], Op: op, Grouped: grouped}
 			if len(cols) > 1 {
 				sf.Columns = cols
 			}
-			if op == "prefix" { // 前缀不是完整的值: 带格式的类型(邮编 …)的前缀永远通不过格式校验
+			if op == "prefix" || op == "contains" { // 前缀 / 一部分不是完整的值: 带格式的类型(邮编 …)永远通不过格式校验
 				if k, ok := kinds.ByName(strings.TrimSuffix(in.Type, "列表")); ok && k.Pattern != "" {
-					e.add(in.Line, "输入 %s: 前缀匹配的输入不能是带格式的类型 %s(前缀不是完整的%s,会被格式校验拒绝),请用 文本", in.Name, k.Name, k.Name)
+					e.add(in.Line, "输入 %s: %s的输入不能是带格式的类型 %s(不是完整的%s,会被格式校验拒绝),请用 文本", in.Name, c.lib.FilterName(op), k.Name, k.Name)
 				}
 			}
 			filters[in.Name] = sf
@@ -750,6 +788,14 @@ func (c *ctx) machineDomain() *spec.Domain {
 				ent.Columns = map[string]spec.ColumnMeta{}
 			}
 			ent.Columns[col] = spec.ColumnMeta{Enum: &spec.EnumMeta{Proto: c.pkg + "." + en, Values: vals}, OnUnknown: "unspecified"}
+		}
+		for col, enc := range t.ColEncode {
+			if ent.Columns == nil {
+				ent.Columns = map[string]spec.ColumnMeta{}
+			}
+			m := ent.Columns[col]
+			m.Encoding = enc
+			ent.Columns[col] = m
 		}
 		for _, r := range t.Rules {
 			ent.Invariants = append(ent.Invariants, spec.Invariant{Rule: r.Text, Enforced: r.Enforced})

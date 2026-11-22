@@ -393,6 +393,12 @@ func (p *Pipeline) eval(e *Expr, r Row, schema Schema, params Params) (any, erro
 			return nil, err
 		}
 		return strings.HasPrefix(a.(string), params[e.Name].(string)), nil
+	case "contains":
+		a, err := p.eval(e.Args[0], r, schema, params)
+		if err != nil || a == nil || absent(params, e.Name) {
+			return nil, err
+		}
+		return strings.Contains(a.(string), params[e.Name].(string)), nil
 	case "json_field":
 		a, err := p.eval(e.Args[0], r, schema, params)
 		if err != nil || a == nil {
@@ -452,6 +458,12 @@ func (p *Pipeline) eval(e *Expr, r Row, schema Schema, params Params) (any, erro
 			return nil, fmt.Errorf("now(): 参数 %s 没有给(测试要固定请求开始的时刻)", NowParam)
 		}
 		return t.UTC(), nil
+	case "ymd":
+		x, err := p.eval(e.Args[0], r, schema, params)
+		if err != nil || x == nil {
+			return nil, err
+		}
+		return YMDDate(x.(int64), e.Loose), nil
 	case "add", "trunc":
 		t, err := p.typeOf(e.Args[0], schema)
 		if err != nil {

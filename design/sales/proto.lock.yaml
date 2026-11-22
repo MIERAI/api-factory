@@ -45,6 +45,10 @@
         total: 1
         unchanged: 4
         undecided: 6
+    LastPrice:
+        price: 3
+        product_code: 1
+        snap_ymd: 2
     ListCurrentPricesRequest:
         as_of: 4
         page_size: 1
@@ -65,6 +69,11 @@
         store_code: 1
     ListEffectivePriceChangesResponse:
         price_changes: 1
+    ListPrevMonthLastPricesRequest:
+        base_ymd: 2
+        store_code: 1
+    ListPrevMonthLastPricesResponse:
+        prices: 1
     ListPrevMonthSalesRequest:
         base_date: 2
         store_code: 1

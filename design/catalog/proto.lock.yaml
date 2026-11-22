@@ -54,6 +54,10 @@
         label_code: 2
         product_code: 1
         text: 3
+    ProductHit:
+        name: 2
+        price: 3
+        product_code: 1
     ProductLabel:
         display_text: 5
         label: 4
@@ -67,3 +71,8 @@
         name: 2
         price: 4
         product_code: 1
+    SearchProductsByNameRequest:
+        category: 1
+        keyword: 2
+    SearchProductsByNameResponse:
+        products: 1

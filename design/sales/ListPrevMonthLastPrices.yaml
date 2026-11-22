@@ -1,0 +1,83 @@
+# ============================================================================
+# ListPrevMonthLastPrices: 基準日の前月に取った売価スナップショットの、商品ごとの最後の 1 件
+#   (整数编码的日期 YYYYMMDD: 列も入力も整数のまま。派生参数で前月の期間を計算 + 每组取一条)
+# ============================================================================
+API: ListPrevMonthLastPrices
+说明: 店舗と基準日(YYYYMMDD の整数)を指定して、基準日の前月(1 日〜末日)に取ったスナップショットのうち、商品ごとに最後の 1 件を返す
+背景: 旧システムの月次売価レポートの置き換え。日付は旧システムに合わせて整数 YYYYMMDD のまま(リクエストもレスポンスも)。
+  「前月」= 基準日の 1 か月前の日が属する月(3/31 → 2 月。月末の扱いは Postgres と同じ)。
+  スナップショットの表には取込のバグで存在しない日付(20260230 など)が混ざることがあり、そういう行はどの月にも入らない
+负责人: sales-team
+风险: 低
+
+种类: 多条
+数据来源: price_snapshots
+
+输入:
+  store_code: { 类型: 整数32, 必填: 是, 范围: "> 0", 说明: 店舗コード, 筛选: store_code 等于 }
+  base_ymd:   { 类型: 整数32, 必填: 是, 编码: YYYYMMDD, 说明: 基準日(YYYYMMDD の整数。存在しない日付は参数错误) }
+
+派生参数:
+  month_start: { 计算: 月初(base_ymd - 1 个月), 筛选: snap_ymd 大于等于, 说明: 前月の 1 日 }
+  month_end:   { 计算: 月初(base_ymd) - 1 天, 筛选: snap_ymd 小于等于, 说明: 前月の末日 }
+
+每组取一条: { 按: [store_code, product_code], 取: snap_ymd 最大 }
+
+输出:
+  product_code: 商品コード
+  snap_ymd:     スナップショット日(YYYYMMDD の整数)
+  price:        売価
+
+排序: [product_code 小到大]
+上限: 500
+输出行名: LastPrice
+输出列表名: prices
+
+业务规则:
+  - 情况: 存在しない日付のスナップショット(20260230、20260300、20261301 など)
+    结果: どの月にも入らない(日付に繰り上げて 3/2 や 2/28 として扱うことはしない)。商品の「最後の 1 件」にもならない
+  - 情况: 基準日が存在しない日付(20260230 など)
+    结果: 参数错误
+  - 情况: 前月にスナップショットがない商品
+    结果: 返さない(前々月以前の値で埋めない)
+  - 情况: 商品が 500 を超える
+    结果: エラー(FAILED_PRECONDITION)。途中で切り捨てない
+
+例子:
+  准备数据:
+    price_snapshots:
+      - { store_code: 1, product_code: A, snap_ymd: 20260131, price: 90 }    # 1 月(前月が 2 月のときは入らない)
+      - { store_code: 1, product_code: A, snap_ymd: 20260210, price: 100 }
+      - { store_code: 1, product_code: A, snap_ymd: 20260228, price: 110 }   # 2 月の最後
+      - { store_code: 1, product_code: A, snap_ymd: 20260301, price: 120 }
+      - { store_code: 1, product_code: B, snap_ymd: 20260205, price: 50 }
+      - { store_code: 1, product_code: B, snap_ymd: 20260230, price: 55 }    # 存在しない日付(3/2 に繰り上げない)
+      - { store_code: 1, product_code: C, snap_ymd: 20260300, price: 70 }    # 存在しない日付(2/28 に繰り下げない)
+      - { store_code: 1, product_code: C, snap_ymd: 20260331, price: 75 }
+      - { store_code: 1, product_code: D, snap_ymd: 20240229, price: 30 }    # 閏年の 2/29
+      - { store_code: 2, product_code: A, snap_ymd: 20260215, price: 999 }
+  用例:
+    - 说明: 3/15 の前月 = 2 月。A は 2/28 の 110、B は 2/5 の 50(20260230 は存在しない日付なので 2 月にも入らない)。C は 2 月に有効な行がない
+      输入: { store_code: 1, base_ymd: 20260315 }
+      结果: { prices: [{ product_code: A, snap_ymd: 20260228, price: "110" }, { product_code: B, snap_ymd: 20260205, price: "50" }] }
+    - 说明: 4/10 の前月 = 3 月。B の 20260230 を 3/2 と読まない(B は出ない)。C の 20260300 も読まない → C は 3/31 の 75
+      输入: { store_code: 1, base_ymd: 20260410 }
+      结果: { prices: [{ product_code: A, snap_ymd: 20260301, price: "120" }, { product_code: C, snap_ymd: 20260331, price: "75" }] }
+    - 说明: 3/31 の前月 = 2 月(1 か月前に 31 日がない → 2 月の末日の月)
+      输入: { store_code: 1, base_ymd: 20260331 }
+      结果: { prices: [{ product_code: A, snap_ymd: 20260228 }, { product_code: B, snap_ymd: 20260205 }] }
+    - 说明: 閏年。2024/3/31 の前月 = 2024 年 2 月(2/29 まで)
+      输入: { store_code: 1, base_ymd: 20240331 }
+      结果: { prices: [{ product_code: D, snap_ymd: 20240229, price: "30" }] }
+    - 说明: 2/1 の前月 = 1 月(A の 1/31 だけ)
+      输入: { store_code: 1, base_ymd: 20260201 }
+      结果: { prices: [{ product_code: A, snap_ymd: 20260131, price: "90" }] }
+    - 说明: 別の店舗
+      输入: { store_code: 2, base_ymd: 20260301 }
+      结果: { prices: [{ product_code: A, snap_ymd: 20260215, price: "999" }] }
+    - 说明: 基準日が存在しない日付(2/30)
+      输入: { store_code: 1, base_ymd: 20260230 }
+      结果: 参数错误
+    - 说明: 基準日の月が 13
+      输入: { store_code: 1, base_ymd: 20261301 }
+      结果: 参数错误

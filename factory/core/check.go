@@ -206,7 +206,7 @@ func nullRejects(e *Expr, p *Pipeline) (cols map[string]bool, all bool) {
 	case "cmp": // 任一边 NULL → UNKNOWN
 		col(e.Args[0])
 		col(e.Args[1])
-	case "in_list", "starts_with": // 第一个参数 NULL → UNKNOWN
+	case "in_list", "starts_with", "contains": // 第一个参数 NULL → UNKNOWN
 		col(e.Args[0])
 	case "in_tuples": // 任一列 NULL → FALSE
 		for _, a := range e.Args {
@@ -612,7 +612,7 @@ func (p *Pipeline) typeOf(e *Expr, cur Schema) (Type, error) {
 			return Type{}, fmt.Errorf("参数 %s 没有声明", e.Name)
 		}
 		return boolT(false), nil
-	case "in_list", "starts_with":
+	case "in_list", "starts_with", "contains":
 		d := p.Param(e.Name)
 		if d == nil {
 			return Type{}, fmt.Errorf("参数 %s 没有声明", e.Name)
@@ -628,7 +628,7 @@ func (p *Pipeline) typeOf(e *Expr, cur Schema) (Type, error) {
 			return boolT(a.Nullable), nil
 		}
 		if d.List || a.Kind != Text || d.Type.Kind != Text {
-			return Type{}, fmt.Errorf("starts_with: 只能用于文本")
+			return Type{}, fmt.Errorf("%s: 只能用于文本", e.Op)
 		}
 		return boolT(a.Nullable || !d.Required), nil
 	case "json_field":
@@ -678,6 +678,18 @@ func (p *Pipeline) typeOf(e *Expr, cur Schema) (Type, error) {
 			return Type{}, fmt.Errorf("now 没有参数")
 		}
 		return Type{Kind: Timestamp}, nil
+	case "ymd":
+		if len(e.Args) != 1 {
+			return Type{}, fmt.Errorf("ymd 需要 1 个参数")
+		}
+		x, err := p.typeOf(e.Args[0], cur)
+		if err != nil {
+			return Type{}, err
+		}
+		if x.Kind != Int32 && x.Kind != Int64 {
+			return Type{}, fmt.Errorf("ymd: 只能用于整数(YYYYMMDD),实际是 %s", x.Kind)
+		}
+		return Type{Kind: Date, Nullable: true}, nil // 不合法的整数 → NULL
 	case "add", "trunc":
 		want := 2
 		units := map[string]bool{Minute: true, Hour: true, Day: true, Month: true}

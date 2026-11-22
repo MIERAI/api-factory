@@ -337,6 +337,71 @@
     ]
   },
   {
+    "id": "catalog.search-products-by-name",
+    "method": "SearchProductsByName",
+    "summary": "商品名に指定の文字列を含む商品(現在の値)を、カテゴリで絞って返す",
+    "path": "/factory.catalog.v1.CatalogService/SearchProductsByName",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "先頭・途中・末尾のどこに含まれても一致。8 は今の名前が「なし」なので出ない、9 は削除済み、7 はカテゴリが違う",
+        "request": {
+          "category": "fruit",
+          "keyword": "りんご"
+        },
+        "response": {
+          "products": [
+            {
+              "name": "青りんご",
+              "price": "100",
+              "product_code": "1"
+            },
+            {
+              "name": "りんごジュース",
+              "price": "150",
+              "product_code": "2"
+            },
+            {
+              "name": "50%オフりんご",
+              "price": "50",
+              "product_code": "3"
+            }
+          ]
+        }
+      },
+      {
+        "name": "% は文字として探す(50円みかん には一致しない)",
+        "request": {
+          "category": "fruit",
+          "keyword": "50%"
+        },
+        "response": {
+          "products": [
+            {
+              "name": "50%オフりんご",
+              "product_code": "3"
+            }
+          ]
+        }
+      },
+      {
+        "name": "_ も文字として探す(axb には一致しない)",
+        "request": {
+          "category": "fruit",
+          "keyword": "a_b"
+        },
+        "response": {
+          "products": [
+            {
+              "name": "a_b",
+              "product_code": "5"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
     "id": "jobs.get-job-status",
     "method": "GetJobStatus",
     "summary": "按 id 返回一个任务的处理状态",
@@ -1267,6 +1332,84 @@
     ]
   },
   {
+    "id": "receipts.list-store-ranking-top-n",
+    "method": "ListStoreRankingTopN",
+    "summary": "売上日を指定して、明細の売上金額を店別に合計し、合計の順位が N 位以内の店をすべて返す(同順位の店は全部含めるので、N 店を超えることがある)",
+    "path": "/factory.receipts.v1.ReceiptService/ListStoreRankingTopN",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "合計 10, 8, 8, 5, 0 → 順位 1, 2, 2, 4, 5。top_n = 2 は 2 位の同額 2 店を両方返す(3 店。N 店で打ち切らない)",
+        "request": {
+          "sales_date": "2026-11-01",
+          "top_n": 2
+        },
+        "response": {
+          "stores": [
+            {
+              "lines": 1,
+              "rank": 1,
+              "store_code": 1,
+              "total": "10"
+            },
+            {
+              "lines": 2,
+              "rank": 2,
+              "store_code": 2,
+              "total": "8"
+            },
+            {
+              "lines": 1,
+              "rank": 2,
+              "store_code": 3,
+              "total": "8"
+            }
+          ]
+        }
+      },
+      {
+        "name": "top_n = 3 → 3 位の店はいない(順位が 2 から 4 に飛ぶ)ので同じ 3 店",
+        "request": {
+          "sales_date": "2026-11-01",
+          "top_n": 3
+        },
+        "response": {
+          "stores": [
+            {
+              "rank": 1,
+              "store_code": 1
+            },
+            {
+              "rank": 2,
+              "store_code": 2
+            },
+            {
+              "rank": 2,
+              "store_code": 3
+            }
+          ]
+        }
+      },
+      {
+        "name": "top_n = 1 → 1 位だけ",
+        "request": {
+          "sales_date": "2026-11-01",
+          "top_n": 1
+        },
+        "response": {
+          "stores": [
+            {
+              "lines": 1,
+              "rank": 1,
+              "store_code": 1,
+              "total": "10"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
     "id": "receipts.list-store-sales-totals",
     "method": "ListStoreSalesTotals",
     "summary": "明細を店別に集計して、店舗コード順にページ単位で返す(売上日の下限で絞り込める)",
@@ -1666,6 +1809,76 @@
             },
             {
               "product_code": "F"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "sales.list-prev-month-last-prices",
+    "method": "ListPrevMonthLastPrices",
+    "summary": "店舗と基準日(YYYYMMDD の整数)を指定して、基準日の前月(1 日〜末日)に取ったスナップショットのうち、商品ごとに最後の 1 件を返す",
+    "path": "/factory.sales.v1.SaleService/ListPrevMonthLastPrices",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "3/15 の前月 = 2 月。A は 2/28 の 110、B は 2/5 の 50(20260230 は存在しない日付なので 2 月にも入らない)。C は 2 月に有効な行がない",
+        "request": {
+          "base_ymd": 20260315,
+          "store_code": 1
+        },
+        "response": {
+          "prices": [
+            {
+              "price": "110",
+              "product_code": "A",
+              "snap_ymd": 20260228
+            },
+            {
+              "price": "50",
+              "product_code": "B",
+              "snap_ymd": 20260205
+            }
+          ]
+        }
+      },
+      {
+        "name": "4/10 の前月 = 3 月。B の 20260230 を 3/2 と読まない(B は出ない)。C の 20260300 も読まない → C は 3/31 の 75",
+        "request": {
+          "base_ymd": 20260410,
+          "store_code": 1
+        },
+        "response": {
+          "prices": [
+            {
+              "price": "120",
+              "product_code": "A",
+              "snap_ymd": 20260301
+            },
+            {
+              "price": "75",
+              "product_code": "C",
+              "snap_ymd": 20260331
+            }
+          ]
+        }
+      },
+      {
+        "name": "3/31 の前月 = 2 月(1 か月前に 31 日がない → 2 月の末日の月)",
+        "request": {
+          "base_ymd": 20260331,
+          "store_code": 1
+        },
+        "response": {
+          "prices": [
+            {
+              "product_code": "A",
+              "snap_ymd": 20260228
+            },
+            {
+              "product_code": "B",
+              "snap_ymd": 20260205
             }
           ]
         }

@@ -135,6 +135,7 @@ type Filter struct {
 	SQLOp      string   `json:"sql_op"` // = / > / ...
 	Presence   bool     `json:"presence,omitempty"`
 	Columns    []string `json:"columns,omitempty"` // 多列的筛选单元(有效期包含: 开始, 结束)
+	Grouped    bool     `json:"grouped,omitempty"` // 分组之后的筛选(列 = 计算 / 名次的输出名)
 }
 
 type GetByID struct {

@@ -150,6 +150,7 @@ type Table struct {
 	Policy     string            // mutable / versioned
 	ColDesc    map[string]string // 列 → 说明
 	ColEnum    map[string]string // 列 → 枚举名
+	ColEncode  map[string]string // 列 → 编码(整数列里的日期: YYYYMMDD)
 	Rules      []Rule
 	Storage    *spec.Storage // 存储: JSON版本(逻辑表 → 物理表的映射)
 	ShardBy    string        // 分库: 分库键的列(按店铺分库等)
@@ -212,7 +213,7 @@ func loadDomain(dir string) (*Domain, error) {
 	}
 	for _, p := range pairs(get(root, "表")) {
 		checkKeys(e, p.Val, "表 "+p.Key, append([]string{"说明", "主键", "更新方式", "列", "规则", "存储", "分库"}, sources.AllKeys()...)...)
-		t := &Table{Name: p.Key, Desc: str(p.Val, "说明"), PrimaryKey: strList(get(p.Val, "主键")), ColDesc: map[string]string{}, ColEnum: map[string]string{}}
+		t := &Table{Name: p.Key, Desc: str(p.Val, "说明"), PrimaryKey: strList(get(p.Val, "主键")), ColDesc: map[string]string{}, ColEnum: map[string]string{}, ColEncode: map[string]string{}}
 		switch str(p.Val, "更新方式") {
 		case "", "可以更新":
 			t.Policy = "mutable"
@@ -242,10 +243,16 @@ func loadDomain(dir string) (*Domain, error) {
 				t.ColDesc[c.Key] = c.Val.Value
 				continue
 			}
-			checkKeys(e, c.Val, "表 "+p.Key+" 的列 "+c.Key, "说明", "枚举")
+			checkKeys(e, c.Val, "表 "+p.Key+" 的列 "+c.Key, "说明", "枚举", "编码")
 			t.ColDesc[c.Key] = str(c.Val, "说明")
 			if en := str(c.Val, "枚举"); en != "" {
 				t.ColEnum[c.Key] = en
+			}
+			if enc := str(c.Val, "编码"); enc != "" {
+				if enc != EncodingYMD {
+					e.add(c.Line, "表 %s 的列 %s: 编码 只能是 %s(整数里的日期)", p.Key, c.Key, EncodingYMD)
+				}
+				t.ColEncode[c.Key] = enc
 			}
 		}
 		if rs := get(p.Val, "规则"); rs != nil {
@@ -389,6 +396,7 @@ type Input struct {
 	Constraints map[string]string // 约束(factory/constraints): 范围 / 长度 / 个数 …
 	Desc        string
 	Filter      string // "created_at 大于等于"
+	Encoding    string // 编码: YYYYMMDD(整数的输入当作日期: 派生参数里可以算月初 / 加减;不合法的日期 → 参数错误)
 	Line        int
 	Group       []*Input // 类型 组列表: 一个组的字段(名字 = 列名;组里的字段都要指定)
 }
@@ -523,7 +531,7 @@ func loadAPI(path string) (*API, error) {
 	for _, p := range pairs(get(root, "输入")) {
 		checkKeys(e, p.Val, "输入 "+p.Key, append(InputKeys(), constraints.Keys()...)...)
 		in := &Input{Name: p.Key, Type: str(p.Val, "类型"), Required: str(p.Val, "必填") == "是",
-			Desc: str(p.Val, "说明"), Filter: str(p.Val, "筛选"), Line: p.Line, Constraints: map[string]string{}}
+			Desc: str(p.Val, "说明"), Filter: str(p.Val, "筛选"), Encoding: str(p.Val, "编码"), Line: p.Line, Constraints: map[string]string{}}
 		for _, k := range constraints.Keys() {
 			if v := str(p.Val, k); v != "" {
 				in.Constraints[k] = v
@@ -756,7 +764,15 @@ func strOrList(n *yaml.Node) []string {
 func LookupKeys() []string { return []string{"表", "条件", "列", "找不到时"} }
 
 // InputKeys: 输入可以写的键(约束的键另外由 factory/constraints 决定)。
-func InputKeys() []string { return []string{"类型", "必填", "说明", "筛选", "组"} }
+func InputKeys() []string { return []string{"类型", "必填", "说明", "筛选", "组", "编码"} }
+
+// EncodingYMD: 整数编码的日期(20260131 = 2026-01-31)。列(领域的 列: { 编码 })和输入(编码)都可以写。
+const EncodingYMD = "YYYYMMDD"
+
+// ymdCEL: 整数是合法的 YYYYMMDD(年 1000~9999、月 1~12、日 1~那个月的天数;闰年按公历)。核心的 ymd 认为合法的范围。
+const ymdCEL = "this >= 10000101 && this <= 99991231 && (this / 100) % 100 >= 1 && (this / 100) % 100 <= 12 && this % 100 >= 1 && " +
+	"this % 100 <= [31, ((this / 10000) % 4 == 0 && ((this / 10000) % 100 != 0 || (this / 10000) % 400 == 0)) ? 29 : 28, " +
+	"31, 30, 31, 30, 31, 31, 30, 31, 30, 31][(this / 100) % 100 - 1]"
 
 // GroupListType: 组的列表(每个组几个字段,和 筛选: 组属于 一起用: 有一个组逐列相等就留下)。
 const GroupListType = "组列表"

@@ -51,6 +51,9 @@ type sqlGen struct {
 	params []ParamDecl
 	index  map[string]int
 	n      int // 别名计数
+	// pos: 正在写的表达式在 WHERE 的肯定位置(只经过 and / or,不在 not 之下)。这里 UNKNOWN 和 FALSE 的效果一样
+	// (都不留下这一行),ymd 的比较可以改写成整数列上的比较(见 ymdCmp)
+	pos bool
 }
 
 // Options: SQL 的写法。
@@ -95,7 +98,7 @@ func ToSQL(p *Pipeline, opt Options) (*SQL, error) {
 			if lv.busy() {
 				lv = g.wrap(lv, false)
 			}
-			w, err := g.expr(st.Pred, lv)
+			w, err := g.where(st.Pred, lv)
 			if err != nil {
 				return nil, err
 			}
@@ -219,7 +222,7 @@ func (g *sqlGen) childSQL(lv *sqlLevel, st Step) (string, error) {
 		where = append(where, fmt.Sprintf("%s = %s", g.col(child, k.Key), g.col(lv, k.Col)))
 	}
 	if st.Pred != nil {
-		w, err := g.expr(st.Pred, child)
+		w, err := g.where(st.Pred, child)
 		if err != nil {
 			return "", err
 		}
@@ -453,7 +456,24 @@ func (g *sqlGen) param(name string) (string, *ParamDecl) {
 	return ref + "::" + cast, d
 }
 
+// where: WHERE 里的条件(肯定位置)。
+func (g *sqlGen) where(e *Expr, lv *sqlLevel) (string, error) {
+	saved := g.pos
+	g.pos = true
+	defer func() { g.pos = saved }()
+	return g.expr(e, lv)
+}
+
 func (g *sqlGen) expr(e *Expr, lv *sqlLevel) (string, error) {
+	if e.Op != "and" && e.Op != "or" { // 肯定位置只穿过 and / or(not、比较的两边、函数的参数都不是)
+		saved := g.pos
+		defer func() { g.pos = saved }()
+		if e.Op == "cmp" && saved && len(e.Args) == 2 && e.Args[0].Op == "ymd" {
+			g.pos = false
+			return g.ymdCmp(e, lv)
+		}
+		g.pos = false
+	}
 	sub := func(x *Expr) (string, error) { return g.expr(x, lv) }
 	switch e.Op {
 	case "col":
@@ -526,6 +546,13 @@ func (g *sqlGen) expr(e *Expr, lv *sqlLevel) (string, error) {
 		}
 		p, _ := g.param(e.Name)
 		return fmt.Sprintf(`(%s LIKE replace(replace(replace(%s, '\', '\\'), '%%', '\%%'), '_', '\_') || '%%')`, a, p), nil
+	case "contains": // 前后都是 %: 和 starts_with 同样的转义(按字面)。LIKE 而不是 strpos: pg_trgm 的 GIN 索引能用
+		a, err := sub(e.Args[0])
+		if err != nil {
+			return "", err
+		}
+		p, _ := g.param(e.Name)
+		return fmt.Sprintf(`(%s LIKE '%%' || replace(replace(replace(%s, '\', '\\'), '%%', '\%%'), '_', '\_') || '%%')`, a, p), nil
 	case "json_field":
 		a, err := sub(e.Args[0])
 		if err != nil {
@@ -583,6 +610,13 @@ func (g *sqlGen) expr(e *Expr, lv *sqlLevel) (string, error) {
 	case "now":
 		s, _ := g.param(NowParam)
 		return s, nil
+	case "ymd":
+		x, err := sub(e.Args[0])
+		if err != nil {
+			return "", err
+		}
+		// 外层的 CASE 先确认年月的范围,内层才用 make_date(不合法的月不会传给 make_date;Postgres 的 CASE 化简不会先算没有走到的分支)
+		return fmt.Sprintf("(CASE WHEN %s THEN make_date((%s / 10000)::int4, (%s / 100 %% 100)::int4, (%s %% 100)::int4) END)", ymdValidSQL(x), x, x, x), nil
 	case "add":
 		x, err := sub(e.Args[0])
 		if err != nil {
@@ -689,3 +723,25 @@ func quoteIdent(s string) string {
 func quoteLit(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
 
 func indent(s string) string { return "    " + strings.ReplaceAll(s, "\n", "\n    ") }
+
+// ymdValidSQL: 整数 x 是合法的 YYYYMMDD(年 1000~9999、月 1~12、日 1~那个月的天数)。不会报错: 月不合法时不算那个月的天数。
+func ymdValidSQL(x string) string {
+	return fmt.Sprintf("(CASE WHEN %s BETWEEN 10000101 AND 99991231 AND %s / 100 %% 100 BETWEEN 1 AND 12 THEN %s %% 100 BETWEEN 1 AND "+
+		"extract(day from make_date((%s / 10000)::int4, (%s / 100 %% 100)::int4, 1) + interval '1 month' - interval '1 day')::int4 ELSE FALSE END)", x, x, x, x, x)
+}
+
+// ymdCmp: 肯定位置的 cmp(op, ymd(x), v) → (x op <v 的 YYYYMMDD>) AND <x 合法>。
+// 合法的 YYYYMMDD 的整数顺序 = 日期的顺序(年 1000~9999 都是 8 位),所以合法的 x 上两者相同;
+// 不合法的 x: 原来是 UNKNOWN,改写后是 FALSE —— 在肯定位置效果一样(不留下这一行)。v 为 NULL → 两边都不是 TRUE。
+// 比较按 x 本来的编码(整数)进行: x 是列时,列上的 btree 索引能用(v 的整数在执行前就算好了)。
+func (g *sqlGen) ymdCmp(e *Expr, lv *sqlLevel) (string, error) {
+	x, err := g.expr(e.Args[0].Args[0], lv)
+	if err != nil {
+		return "", err
+	}
+	v, err := g.expr(e.Args[1], lv)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("((%s %s (to_char(%s, 'YYYYMMDD'))::int4) AND %s)", x, e.Name, v, ymdValidSQL(x)), nil
+}

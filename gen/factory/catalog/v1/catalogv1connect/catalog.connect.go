@@ -57,6 +57,9 @@ const (
 	// CatalogServiceListRecentLabelChangesProcedure is the fully-qualified name of the CatalogService's
 	// ListRecentLabelChanges RPC.
 	CatalogServiceListRecentLabelChangesProcedure = "/factory.catalog.v1.CatalogService/ListRecentLabelChanges"
+	// CatalogServiceSearchProductsByNameProcedure is the fully-qualified name of the CatalogService's
+	// SearchProductsByName RPC.
+	CatalogServiceSearchProductsByNameProcedure = "/factory.catalog.v1.CatalogService/SearchProductsByName"
 )
 
 // CatalogServiceClient is a client for the factory.catalog.v1.CatalogService service.
@@ -75,6 +78,8 @@ type CatalogServiceClient interface {
 	ListProductsByCategory(context.Context, *connect.Request[v1.ListProductsByCategoryRequest]) (*connect.Response[v1.ListProductsByCategoryResponse], error)
 	// 商品コードを指定して、その商品のラベルを最後に変わった順に返す(いつ変わったかも返す)
 	ListRecentLabelChanges(context.Context, *connect.Request[v1.ListRecentLabelChangesRequest]) (*connect.Response[v1.ListRecentLabelChangesResponse], error)
+	// 商品名に指定の文字列を含む商品(現在の値)を、カテゴリで絞って返す
+	SearchProductsByName(context.Context, *connect.Request[v1.SearchProductsByNameRequest]) (*connect.Response[v1.SearchProductsByNameResponse], error)
 }
 
 // NewCatalogServiceClient constructs a client for the factory.catalog.v1.CatalogService service. By
@@ -130,6 +135,12 @@ func NewCatalogServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(catalogServiceMethods.ByName("ListRecentLabelChanges")),
 			connect.WithClientOptions(opts...),
 		),
+		searchProductsByName: connect.NewClient[v1.SearchProductsByNameRequest, v1.SearchProductsByNameResponse](
+			httpClient,
+			baseURL+CatalogServiceSearchProductsByNameProcedure,
+			connect.WithSchema(catalogServiceMethods.ByName("SearchProductsByName")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -142,6 +153,7 @@ type catalogServiceClient struct {
 	listProductMaster      *connect.Client[v1.ListProductMasterRequest, v1.ListProductMasterResponse]
 	listProductsByCategory *connect.Client[v1.ListProductsByCategoryRequest, v1.ListProductsByCategoryResponse]
 	listRecentLabelChanges *connect.Client[v1.ListRecentLabelChangesRequest, v1.ListRecentLabelChangesResponse]
+	searchProductsByName   *connect.Client[v1.SearchProductsByNameRequest, v1.SearchProductsByNameResponse]
 }
 
 // GetProductLabel calls factory.catalog.v1.CatalogService.GetProductLabel.
@@ -179,6 +191,11 @@ func (c *catalogServiceClient) ListRecentLabelChanges(ctx context.Context, req *
 	return c.listRecentLabelChanges.CallUnary(ctx, req)
 }
 
+// SearchProductsByName calls factory.catalog.v1.CatalogService.SearchProductsByName.
+func (c *catalogServiceClient) SearchProductsByName(ctx context.Context, req *connect.Request[v1.SearchProductsByNameRequest]) (*connect.Response[v1.SearchProductsByNameResponse], error) {
+	return c.searchProductsByName.CallUnary(ctx, req)
+}
+
 // CatalogServiceHandler is an implementation of the factory.catalog.v1.CatalogService service.
 type CatalogServiceHandler interface {
 	// 商品コードとラベルコードを指定して、ラベルの現在の文言を返す。なければ found = false
@@ -195,6 +212,8 @@ type CatalogServiceHandler interface {
 	ListProductsByCategory(context.Context, *connect.Request[v1.ListProductsByCategoryRequest]) (*connect.Response[v1.ListProductsByCategoryResponse], error)
 	// 商品コードを指定して、その商品のラベルを最後に変わった順に返す(いつ変わったかも返す)
 	ListRecentLabelChanges(context.Context, *connect.Request[v1.ListRecentLabelChangesRequest]) (*connect.Response[v1.ListRecentLabelChangesResponse], error)
+	// 商品名に指定の文字列を含む商品(現在の値)を、カテゴリで絞って返す
+	SearchProductsByName(context.Context, *connect.Request[v1.SearchProductsByNameRequest]) (*connect.Response[v1.SearchProductsByNameResponse], error)
 }
 
 // NewCatalogServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -246,6 +265,12 @@ func NewCatalogServiceHandler(svc CatalogServiceHandler, opts ...connect.Handler
 		connect.WithSchema(catalogServiceMethods.ByName("ListRecentLabelChanges")),
 		connect.WithHandlerOptions(opts...),
 	)
+	catalogServiceSearchProductsByNameHandler := connect.NewUnaryHandler(
+		CatalogServiceSearchProductsByNameProcedure,
+		svc.SearchProductsByName,
+		connect.WithSchema(catalogServiceMethods.ByName("SearchProductsByName")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/factory.catalog.v1.CatalogService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case CatalogServiceGetProductLabelProcedure:
@@ -262,6 +287,8 @@ func NewCatalogServiceHandler(svc CatalogServiceHandler, opts ...connect.Handler
 			catalogServiceListProductsByCategoryHandler.ServeHTTP(w, r)
 		case CatalogServiceListRecentLabelChangesProcedure:
 			catalogServiceListRecentLabelChangesHandler.ServeHTTP(w, r)
+		case CatalogServiceSearchProductsByNameProcedure:
+			catalogServiceSearchProductsByNameHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -297,4 +324,8 @@ func (UnimplementedCatalogServiceHandler) ListProductsByCategory(context.Context
 
 func (UnimplementedCatalogServiceHandler) ListRecentLabelChanges(context.Context, *connect.Request[v1.ListRecentLabelChangesRequest]) (*connect.Response[v1.ListRecentLabelChangesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.catalog.v1.CatalogService.ListRecentLabelChanges is not implemented"))
+}
+
+func (UnimplementedCatalogServiceHandler) SearchProductsByName(context.Context, *connect.Request[v1.SearchProductsByNameRequest]) (*connect.Response[v1.SearchProductsByNameResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.catalog.v1.CatalogService.SearchProductsByName is not implemented"))
 }

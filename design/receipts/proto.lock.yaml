@@ -15,6 +15,12 @@
         date_from: 1
     ListStoreLineRankingResponse:
         stores: 1
+    ListStoreRankingTopNRequest:
+        min_total: 3
+        sales_date: 1
+        top_n: 2
+    ListStoreRankingTopNResponse:
+        stores: 1
     ListStoreSalesTotalsRequest:
         category: 3
         date_from: 4
@@ -27,6 +33,11 @@
         sales_date: 1
     ListTopLineStoresResponse:
         stores: 1
+    RankedStore:
+        lines: 3
+        rank: 4
+        store_code: 1
+        total: 2
     StoreLineRank:
         lines: 2
         quantity: 3

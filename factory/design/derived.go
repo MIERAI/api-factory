@@ -206,6 +206,9 @@ func (c *ctx) compileDerived(a *API, table string, e *errs) (map[string]spec.Der
 			if !ok {
 				return "", false
 			}
+			if in.Encoding == EncodingYMD { // 整数编码的日期: 在计算里是日期(ymd(参数))
+				return core.Date, true
+			}
 			k, ok := kinds.ByName(in.Type)
 			if !ok || k.Core == "" {
 				return "", false
@@ -216,12 +219,18 @@ func (c *ctx) compileDerived(a *API, table string, e *errs) (map[string]spec.Der
 			e.add(d.Line, "派生参数 %s: 计算 %q: %v", d.Name, d.Expr, err)
 			continue
 		}
+		x = wrapYMDParams(x, func(name string) bool { in := inputs[name]; return in != nil && in.Encoding == EncodingYMD })
 		usesNow = usesNow || now
 		ins := map[string]string{}
 		for n, k := range used {
 			in := inputs[n]
 			if in.Filter != "" {
 				e.add(in.Line, "输入 %s: 用在派生参数 %s 里的输入不能再写 筛选(要筛选两次的话,另写一个派生参数)", n, d.Name)
+			}
+			if in.Encoding == EncodingYMD { // 请求里是整数(参数的类型),计算里按 ymd 读成日期
+				if t, ok := kinds.ByName(in.Type); ok && t.Core != "" {
+					k = t.Core
+				}
 			}
 			ins[n] = string(k)
 		}
@@ -241,9 +250,16 @@ func (c *ctx) compileDerived(a *API, table string, e *errs) (map[string]spec.Der
 			continue
 		}
 		col := parts[0]
-		if _, has := c.column(table, col); !has {
+		cc, has := c.column(table, col)
+		if !has {
 			e.add(d.Line, "派生参数 %s: 筛选的列 %s 不在表 %s 里", d.Name, col, table)
 			continue
+		}
+		if k, ok := kinds.BySQL(cc.Type); ok && (k.Core == core.Int32 || k.Core == core.Int64) {
+			if t := c.d.Tables[table]; t == nil || t.ColEncode[col] != EncodingYMD {
+				e.add(d.Line, "派生参数 %s: 列 %s 是整数。整数里存的是日期(YYYYMMDD)的话,在领域的列上写 编码: %s", d.Name, col, EncodingYMD)
+				continue
+			}
 		}
 		text, err := core.Format(x)
 		if err != nil {
@@ -253,4 +269,20 @@ func (c *ctx) compileDerived(a *API, table string, e *errs) (map[string]spec.Der
 		out[d.Name] = spec.Derived{Expr: text, Column: col, Op: op, Inputs: ins, TimeZone: c.d.TZ}
 	}
 	return out, usesNow
+}
+
+// wrapYMDParams: 整数编码的日期的输入 → ymd(参数)(计算里当作日期)。
+func wrapYMDParams(x *core.Expr, encoded func(string) bool) *core.Expr {
+	if x == nil {
+		return nil
+	}
+	if x.Op == "param" && encoded(x.Name) {
+		return core.YMD(x)
+	}
+	c := *x
+	c.Args = nil
+	for _, a := range x.Args {
+		c.Args = append(c.Args, wrapYMDParams(a, encoded))
+	}
+	return &c
 }

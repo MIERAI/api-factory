@@ -87,6 +87,8 @@ func comparable(a, b Kind) bool {
 //	absent       Name = 参数名: 标量没有指定 / 列表为空或没有指定。"不传"只在这里定义
 //	in_list      Args[0] 属于参数 Name 的列表。Args[0] 为 NULL → UNKNOWN;空列表 → FALSE
 //	starts_with  Args[0] 以参数 Name 开头(按字面,% _ \ 不是通配符);任一边 NULL → UNKNOWN
+//	contains     Args[0] 包含参数 Name(任何位置;按字面,% _ \ 不是通配符;空字符串 → TRUE);任一边 NULL → UNKNOWN。
+//	             按字节比较(和 starts_with 一样)。btree 索引用不上(前面有通配符),大表要配 pg_trgm 的 GIN 索引
 //	json_field   Args[0](json)里键 Name 的值转换成 Type。键不存在 / JSON null → NULL;格式错 → 查询失败
 //	tuple_after  Args(列)按 Desc 方向严格在参数 Params 之后(keyset 游标)。参数 Params[0] 没有指定 → TRUE
 //	in_tuples    组的列表: Params 是同样长的列表参数(第 i 个组 = 每个参数的第 i 个值)。
@@ -97,6 +99,10 @@ func comparable(a, b Kind) bool {
 //	             时间的 day / month 按领域的时区(Zone)的日历加(minute / hour 是绝对时长)。任一边 NULL → NULL
 //	trunc        Args[0] 截到 Name ∈ day month 的开始。时间先换算到领域的时区(Zone)再截,结果是那个时刻;
 //	             日期的结果还是日期。NULL → NULL
+//	ymd          Args[0](整数)按 YYYYMMDD 编码读成日期(旧的表结构常见: 20260131 = 2026-01-31)。
+//	             不是合法的日期(20260230、20261301、0、负数、1000 年之前)→ NULL(比较是 UNKNOWN: 永远不命中)。NULL → NULL。
+//	             SQL 后端: 在条件的肯定位置(filter 里,不在 not 之下)的 cmp(op, ymd(x), v) 写成 x op <v 的 YYYYMMDD 整数>
+//	             AND <x 是合法的日期>(按列本来的编码比较: 整数列上的索引能用);其他位置按 CASE 换算
 type Expr struct {
 	Op     string   `json:"op"`
 	Name   string   `json:"name,omitempty"`
@@ -107,6 +113,9 @@ type Expr struct {
 	Desc   bool     `json:"desc,omitempty"`
 	Neg    bool     `json:"neg,omitempty"`  // add: 减
 	Zone   string   `json:"zone,omitempty"` // add / trunc: 领域的时区(IANA 名;空 = UTC)
+	// Loose: 只给差分测试的"错误实现"用(参考求值器认,SQL 后端和 IR 里没有)。ymd: 不合法的日期按日历进位
+	// (20260230 → 2026-03-02、20260100 → 2025-12-31、20261301 → 2027-01-01;不检查就 make_date / time.Date 的实现)
+	Loose bool `json:"-"`
 }
 
 // NowParam: now() 的值在参考求值器的 Params 里的键,也是 SQL 里的参数名(sqlc.arg(factory_now))。
@@ -122,6 +131,9 @@ const (
 )
 
 func Now() *Expr { return &Expr{Op: "now"} }
+
+// YMD: 整数(YYYYMMDD)→ 日期(不合法 → NULL)。
+func YMD(x *Expr) *Expr { return &Expr{Op: "ymd", Args: []*Expr{x}} }
 
 // Add: x + n 个单位(neg: 减)。zone: 时间的 day / month 按哪个时区的日历。
 func Add(x, n *Expr, unit string, neg bool, zone string) *Expr {
@@ -176,6 +188,9 @@ func Absent(param string) *Expr          { return &Expr{Op: "absent", Name: para
 func InList(x *Expr, param string) *Expr { return &Expr{Op: "in_list", Name: param, Args: []*Expr{x}} }
 func StartsWith(x *Expr, param string) *Expr {
 	return &Expr{Op: "starts_with", Name: param, Args: []*Expr{x}}
+}
+func Contains(x *Expr, param string) *Expr {
+	return &Expr{Op: "contains", Name: param, Args: []*Expr{x}}
 }
 func JSONField(x *Expr, key string, t Type) *Expr {
 	return &Expr{Op: "json_field", Name: key, Type: &t, Args: []*Expr{x}}

@@ -22,6 +22,7 @@ type resolvedFilter struct {
 	Presence bool      // true: 未指定时不筛选
 	List     bool      // 列表参数(repeated)
 	Columns  []string  // 多列的筛选单元(第一列 = Column)
+	Grouped  bool      // 分组之后的筛选(Column = 分组之后的列: 计算 / 名次)
 }
 
 func resolveFilters(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalog) ([]resolvedFilter, error) {
@@ -48,10 +49,25 @@ func resolveFilters(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalog
 		}
 		used[name] = true
 		col, ok := cat.column(table, f.Column)
+		if f.Grouped { // 分组之后的筛选: 列在分组之后的列里(计算 / 名次)
+			grouped, err := GroupedColumns(table, cat.tables[table], s.Pattern.Group, s.Pattern.Rank)
+			if err != nil {
+				return nil, err
+			}
+			ok = false
+			for _, g := range grouped {
+				if g.Name == f.Column {
+					col, ok = g, true
+				}
+			}
+			if !ok || len(f.Columns) > 0 || f.Op == "in_tuples" {
+				return nil, fmt.Errorf("datasource.filters.%s: column %q is not a grouped column (aggregate / rank)", name, f.Column)
+			}
+		}
 		if !ok {
 			return nil, fmt.Errorf("datasource.filters.%s: column %q is not in table %s", name, f.Column, table)
 		}
-		rf := resolvedFilter{Field: fd, Name: name, Column: col, Op: f.Op, SQLOp: spec.FilterOps[f.Op], Presence: fd.HasPresence()}
+		rf := resolvedFilter{Field: fd, Name: name, Column: col, Op: f.Op, SQLOp: spec.FilterOps[f.Op], Presence: fd.HasPresence(), Grouped: f.Grouped}
 		for _, c := range f.Columns {
 			if _, ok := cat.column(table, c); !ok {
 				return nil, fmt.Errorf("datasource.filters.%s: column %q is not in table %s", name, c, table)

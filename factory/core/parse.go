@@ -6,7 +6,7 @@ package core
 //	arg   = expr | 运算符(= <> < <= > >=)
 //
 // ident 由调用方绑定(单元的参数: 列 → col(x),值 → param(y))。
-// 元件名: cmp and or not is_null absent in_list starts_with now add trunc。
+// 元件名: cmp and or not is_null absent in_list starts_with contains now add trunc ymd。
 // 时间运算(派生参数的值): now()、add(x, n, 单位)、trunc(x, 单位);n = 整数常量(可以带 -)或名字(带 - = 减),
 // 单位 = minute / hour / day / month(写在单位的位置上,不经过 bind)。时区由调用方另外设置(SetZone)。
 
@@ -177,7 +177,7 @@ func (p *parser) expr() (*Expr, error) {
 			return nil, fmt.Errorf("in_tuples 的参数必须是 列组 和 值组")
 		}
 		return &Expr{Op: "in_tuples", Args: args[0].Args, Params: args[1].Params}, nil
-	case "in_list", "starts_with":
+	case "in_list", "starts_with", "contains":
 		if err := need(2); err != nil {
 			return nil, err
 		}
@@ -191,6 +191,11 @@ func (p *parser) expr() (*Expr, error) {
 			return nil, err
 		}
 		return Now(), nil
+	case "ymd":
+		if err := need(1); err != nil {
+			return nil, err
+		}
+		return YMD(args[0]), nil
 	case "add":
 		if err := need(3); err != nil {
 			return nil, err
@@ -230,7 +235,7 @@ func SetZone(e *Expr, zone string) {
 	}
 }
 
-// Format: 表达式 → ParseExpr 能读回的文本(派生参数写进式样书用)。只支持时间运算用到的元件: now / param / const / add / trunc。
+// Format: 表达式 → ParseExpr 能读回的文本(派生参数写进式样书用)。只支持时间运算用到的元件: now / param / const / add / trunc / ymd。
 func Format(e *Expr) (string, error) {
 	switch e.Op {
 	case "now":
@@ -260,6 +265,12 @@ func Format(e *Expr) (string, error) {
 			return "", err
 		}
 		return fmt.Sprintf("trunc(%s, %s)", x, e.Name), nil
+	case "ymd":
+		x, err := Format(e.Args[0])
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("ymd(%s)", x), nil
 	}
 	return "", fmt.Errorf("format: 不支持 %s", e.Op)
 }
