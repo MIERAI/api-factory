@@ -154,6 +154,12 @@ behavior:
       then: 整条消息按毒消息处理(DLQ),什么都不写,不发出 account.settled;不再判定 ALREADY_REVERSED / AMOUNT_MISMATCH / HELD_SHORT
     - when: 这笔转账在消息里没有列出的账户上有已撤销的扣款,而列出的账户都是 HELD
       then: 只按列出的账户判定:照样结算列出的账户,发出 account.settled。「有的 HELD、有的已撤销 → 整条不提交」只适用于消息里列出的账户(由发消息的一方保证列全)
+    - when: 消息里的 amount 和扣款记录的金额不一致
+      then: 不提交,进 DLQ(AMOUNT_MISMATCH,需要人处理),不发出 account.settled
+    - when: held 小于要结算的扣款金额
+      then: 不提交,进 DLQ(HELD_SHORTAGE,需要人处理),不发出 account.settled
+    - when: 消息只列出这笔转账的部分账户
+      then: 只结算列出的账户,照常发出 account.settled;没列出的扣款保持不变,由发送方保证列全
 acceptance:
     fixtures:
         accounts:
@@ -421,3 +427,9 @@ review_decisions:
       decision: 保持现在的行为(找不到扣款最优先 → 毒消息)
     - question: '消息里只列出了 HELD 的账户、而这笔转账在没列出的账户上已经撤销时,是照样结算成功,还是进 DLQ(ALREADY_REVERSED)?例: transfer 8 的 ACC-001 已撤销、ACC-002 是 HELD,消息只写了 { ACC-002, 5 }。'
       decision: 保持现在的行为(只看消息里列出的账户)
+    - question: '消息里每项的 amount 和 debits 里记的扣款金额不一样时(例: 消息写 ACC-001 结算 40,扣款记录是 50),要怎么处理?'
+      decision: 金额不一致 → 进 DLQ
+    - question: '账户的 held 比要结算的扣款金额还少时(例: held 是 20,扣款 50),要怎么处理?'
+      decision: 作为业务异常进 DLQ
+    - question: 一笔转账在 ACC-001 和 ACC-002 都有扣款,但结算消息只列了 ACC-001 时,只结算 ACC-001 就发出 account.settled 可以吗?
+      decision: 保持现在的行为

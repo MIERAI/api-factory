@@ -56,3 +56,27 @@
     回答: "保持现在的行为,改 account.debit_failed 的说明"
     补充规则: { 情况: "同一笔转账再来,新的账户余额不够(INSUFFICIENT_FUNDS)", 结果: "这条命令写的东西全部回滚,发出 account.debit_failed(INSUFFICIENT_FUNDS);之前的命令已经记过的账户不受影响,仍然是 HELD。转账的流程收到 debit_failed 后,需要对这笔转账发撤销(account.reverse),把之前扣下的退回" }
     来自: "DebitAccounts 的审查 2026-11-22 20261122-220455-claude-ledger.debit-accounts"
+
+  - 问题: "同一条命令里,一个账户有墓碑(金额一致),另一个账户记过但金额不同时,回答 account.debit_failed(REVERSED) 还是进 DLQ(AMOUNT_MISMATCH)?例: transfer 9 在 ACC-001 有墓碑 30,在 ACC-002 已记 HELD 20,新命令写 transfer 9 [ACC-001 扣 30, ACC-002 扣 25]"
+    选项: ["金额不一致优先,进 DLQ(保持现在的行为)", "墓碑优先,回答 REVERSED(改设计)"]
+    回答: "金额不一致优先,进 DLQ(保持现在的行为)"
+    补充规则: { 情况: "同一条命令里,一个账户有墓碑,另一个账户记过的金额和命令不同", 结果: "死信 AMOUNT_MISMATCH(进 DLQ),不回答 account.debit_failed(REVERSED)。AMOUNT_MISMATCH 的检查排在 REVERSED 之前" }
+    来自: "DebitAccounts 的审查 2026-11-22 20261122-223347-claude-ledger.debit-accounts"
+
+  - 问题: "一笔转账里只有部分账户有 REVERSED 的墓碑时,没有墓碑的账户还扣不扣?例: 转账 9 的消息是 [ACC-002 扣 50, ACC-001 扣 30],只有 ACC-001 有墓碑。"
+    选项: ["保持现在的行为", "有墓碑就整笔不扣", "当作毒消息"]
+    回答: "这条命令里有墓碑的账户 → 整条命令不扣(现在的行为)"
+    补充规则: { 情况: "这条命令里列出的某个账户有 REVERSED 的墓碑", 结果: "整条命令回滚: 一个账户都不扣、不记,回答 account.debit_failed(REVERSED)。只看命令里列出的账户。同一条命令里还有余额不够 / 不存在的账户时,余额不够 / 不存在优先(不回答 REVERSED)" }
+    来自: "DebitAccounts 的审查 2026-11-22 20261122-223347-claude-ledger.debit-accounts"
+
+  - 问题: "同一个转账号、同一个账户已经记过扣款,但新命令里的金额不一样时,怎么办?例: 转账 7 在 ACC-001 已记 HELD 50,又来一条转账 7、ACC-001 扣 80 的命令。"
+    选项: ["保持现在的行为", "当作毒消息", "回答实际记录的金额"]
+    回答: "死信 AMOUNT_MISMATCH(现在的行为)"
+    补充规则: { 情况: "同一转账号、同一账户已有扣款记录,新命令的金额和记录的金额不同", 结果: "死信 AMOUNT_MISMATCH(进 DLQ,人来处理),什么都不写" }
+    来自: "DebitAccounts 的审查 2026-11-22 20261122-223347-claude-ledger.debit-accounts"
+
+  - 问题: "一条命令里同时有余额不够的账户和不存在的账户时,应该回答 INSUFFICIENT_FUNDS,还是当作毒消息?例: [ACC-002 扣 101, NONE-1 扣 1] 和 [NONE-1 扣 1, ACC-002 扣 101]。"
+    选项: ["保持现在的行为", "账户不存在优先"]
+    回答: "按账户 id 的顺序决定(现在的行为)"
+    补充规则: { 情况: "命令里同时有余额不够的账户和不存在的账户", 结果: "按账户 id 的顺序(处理器按账户 id 排序加锁,防死锁),第一个出问题的账户决定结果: 余额不够的账户 id 在前 → account.debit_failed(INSUFFICIENT_FUNDS);不存在的账户 id 在前 → 毒消息" }
+    来自: "DebitAccounts 的审查 2026-11-22 20261122-223347-claude-ledger.debit-accounts"

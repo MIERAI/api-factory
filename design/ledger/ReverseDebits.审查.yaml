@@ -20,3 +20,9 @@
     回答: "已经直接修改了设计书"
     改了设计: "和 SettleDebits 一样: 只读的检查更新(held >= 撤销.amount,不满足: 跳过)+ 结果 HELD_SHORT(处理: 死信)+ 例子"
     来自: "ReverseDebits 的审查 2026-11-22 20261122-221242-claude-ledger.reverse-debits"
+
+  - 问题: "转账 7 在 ACC-001 上的扣款已经是 SETTLED(已结算),这时收到撤销:现在会跳过(钱不退回),但仍然发出 account.reversed。发起方会以为补偿已经完成,这是想要的吗?"
+    选项: ["保持现在的行为", "已结算的撤销进 DLQ"]
+    回答: "已结算的撤销进 DLQ"
+    补充规则: { 情况: "要撤销的扣款已经是 SETTLED", 结果: "整条消息失败,什么都不写,不发出 account.reversed,进 DLQ 由人处理;已经是 REVERSED(重复撤销或墓碑)的照样跳过" }
+    来自: "ReverseDebits 的审查 2026-11-22 20261122-223518-claude-ledger.reverse-debits"
