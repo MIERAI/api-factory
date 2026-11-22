@@ -40,6 +40,10 @@ t0 = time.time()
 raw = subprocess.run(["bash", "scripts/mutate.sh"], env={**os.environ, "PLAN": "1"}, capture_output=True).stdout.decode()
 parts = raw.split("\0")[:-1]
 muts = [tuple(parts[i:i + 3]) for i in range(0, len(parts), 3)]
+if os.environ.get("MARGIN_SHARD"):  # CI 的分片 "k/N": 清单里第 i 个变异归 i % N == k 的分片(N 个分片合起来 = 全部,判定不变)
+    k, n = (int(x) for x in os.environ["MARGIN_SHARD"].split("/"))
+    assert 0 <= k < n, "MARGIN_SHARD 写成 k/N(0 <= k < N)"
+    muts = [m for i, m in enumerate(muts) if i % n == k]
 if os.environ.get("MUTANTS"):  # 只跑名字匹配的变异(迭代时用;margin 的门槛要全部)
     muts = [m for m in muts if re.search(os.environ["MUTANTS"], m[0])]
 
