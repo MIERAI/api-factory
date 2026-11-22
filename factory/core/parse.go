@@ -6,7 +6,7 @@ package core
 //	arg   = expr | 运算符(= <> < <= > >=)
 //
 // ident 由调用方绑定(单元的参数: 列 → col(x),值 → param(y))。
-// 元件名: cmp and or not is_null absent in_list starts_with contains now add trunc ymd。
+// 元件名: cmp and or not is_null absent in_list starts_with contains now add trunc ymd local_date。
 // 时间运算(派生参数的值): now()、add(x, n, 单位)、trunc(x, 单位);n = 整数常量(可以带 -)或名字(带 - = 减),
 // 单位 = minute / hour / day / month(写在单位的位置上,不经过 bind)。时区由调用方另外设置(SetZone)。
 
@@ -196,6 +196,11 @@ func (p *parser) expr() (*Expr, error) {
 			return nil, err
 		}
 		return YMD(args[0]), nil
+	case "local_date": // 时区由调用方另外设置(SetZone)
+		if err := need(1); err != nil {
+			return nil, err
+		}
+		return LocalDate(args[0], ""), nil
 	case "add":
 		if err := need(3); err != nil {
 			return nil, err
@@ -222,12 +227,12 @@ func (p *parser) expr() (*Expr, error) {
 
 var timeUnits = map[string]bool{Minute: true, Hour: true, Day: true, Month: true}
 
-// SetZone: 表达式里的 add / trunc 用领域的时区(时间的天 / 月按这个时区的日历)。
+// SetZone: 表达式里的 add / trunc / local_date 用领域的时区(时间的天 / 月按这个时区的日历)。
 func SetZone(e *Expr, zone string) {
 	if e == nil {
 		return
 	}
-	if e.Op == "add" || e.Op == "trunc" {
+	if e.Op == "add" || e.Op == "trunc" || e.Op == "local_date" {
 		e.Zone = zone
 	}
 	for _, a := range e.Args {
@@ -265,12 +270,12 @@ func Format(e *Expr) (string, error) {
 			return "", err
 		}
 		return fmt.Sprintf("trunc(%s, %s)", x, e.Name), nil
-	case "ymd":
+	case "ymd", "local_date":
 		x, err := Format(e.Args[0])
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("ymd(%s)", x), nil
+		return fmt.Sprintf("%s(%s)", e.Op, x), nil
 	}
 	return "", fmt.Errorf("format: 不支持 %s", e.Op)
 }

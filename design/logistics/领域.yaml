@@ -60,3 +60,12 @@
       label:       追跡ラベル(英大文字 2 桁 + 数字 6 桁)
       weight:      梱包の重量 kg(十进制)
       sealed_at:   封緘時刻(未封緘は空)
+  carrier_contracts:
+    说明: 配送業者と倉庫の契約(有効期間つき。契約を更新すると開始日の違う行が増える)
+    主键: [carrier_id, warehouse_code, valid_from]
+    更新方式: 可以更新
+    列:
+      carrier_id:     配送業者 ID
+      warehouse_code: 倉庫コード
+      valid_from:     契約の開始日(含む)
+      valid_to:       契約の終了日(含む。空 = 期限なし)

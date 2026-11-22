@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"buf.build/go/protovalidate"
 	"github.com/jackc/pgx/v5"
@@ -54,10 +55,12 @@ type diffEnv struct {
 	rows   []core.Row
 	rowDB  []*pgx.Conn          // 分库: 每一行在哪个库(期待值只用请求所在的库的行: 版本的选择在各个库里分别进行)
 	filter map[string]ir.Filter // 参数名 → 筛选
-	exit   *exits.Exit          // 出口(期待值的定义)
-	input  protoreflect.MessageDescriptor
-	json   map[string][]jsonKey // JSON 列 → 流水线里读到的键(json_field)
-	out    core.Schema          // 流水线最后的列(响应的值按这里的类型表示)
+	// shortMissing: 列 → 截到输入的最大长度的"不存在的值"(只有 长度 约束的文本)
+	shortMissing map[string]string
+	exit         *exits.Exit // 出口(期待值的定义)
+	input        protoreflect.MessageDescriptor
+	json         map[string][]jsonKey // JSON 列 → 流水线里读到的键(json_field)
+	out          core.Schema          // 流水线最后的列(响应的值按这里的类型表示)
 	// anchors: 请求参数取值的来源 = 来源部分(scan / 来源单元)的输出。
 	// 普通的表 = 物理行;JSON版本 = 展开后的逻辑行(筛选的列在物理表里不存在)
 	anchors   []core.Row
@@ -225,6 +228,7 @@ func (e *diffEnv) collect() {
 	}
 	// 参数的约束(范围 / 格式 …,factory/constraints)→ 被它筛选的列(多列单元的每一列)的值域
 	e.domains = map[string]*constraints.Domain{}
+	e.shortMissing = map[string]string{}
 	for _, f := range e.api.Filters {
 		if rf := e.api.Request.Field(f.Field); f.Op == "in_tuples" && rf != nil && rf.Message != nil { // 组的字段各自的约束
 			for i := range rf.Message.Fields {
@@ -236,6 +240,12 @@ func (e *diffEnv) collect() {
 		}
 		d := constraints.DomainOf(e.api.Request.Field(f.Field))
 		if d == nil {
+			// 只有 长度 的文本: 默认的"不存在的值"比最大长度长时截短(否则请求被校验拒绝,永远测不到 0 行)
+			if n, ok := constraints.MaxLen(e.api.Request.Field(f.Field)); ok && f.Column != "" {
+				if m, isText := missing(core.Text).(string); isText && utf8.RuneCountInString(m) > n && n > 0 {
+					e.shortMissing[f.Column] = string([]rune(m)[:n])
+				}
+			}
 			continue
 		}
 		cols := f.Columns
@@ -1246,8 +1256,13 @@ func (e *diffEnv) requests() []core.Params {
 		out = append(out, ps)
 	}
 	out = append(out, e.sweep(seen)...)
-	out = append(out, e.directed(out, seen)...)
-	return e.spreadProbes(out) // 派生参数: 每个请求带一组探针(now + 输入)
+	// 派生参数: 每个请求带一组探针(now + 输入)。定向补请求之前就配好: 补请求时数的"已经起作用的请求"
+	// 必须是最后真的发出去的请求(没有探针的请求在求值时补的那一组,和之后配上的那一组不一样)
+	out = e.spreadProbes(out)
+	for _, ps := range out {
+		seen[e.describe(ps)] = true
+	}
+	return append(out, e.directed(out, seen)...)
 }
 
 func (e *diffEnv) describe(ps core.Params) string {
@@ -1559,6 +1574,9 @@ func (e *diffEnv) missingFor(col string, k core.Kind) any {
 	if d, ok := e.domains[col]; ok && d.Missing != nil {
 		return d.Missing
 	}
+	if m, ok := e.shortMissing[col]; ok && k == core.Text {
+		return m
+	}
 	return missing(k)
 }
 
@@ -1815,6 +1833,9 @@ func (e *diffEnv) Missing(param string, i int) any {
 		if _, isInt := d.Missing.(int64); !isInt {
 			return nil
 		}
+	}
+	if _, ok := e.shortMissing[col]; ok { // 截短的: 加后缀会超过最大长度
+		return nil
 	}
 	switch v := base.(type) {
 	case int64:

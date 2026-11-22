@@ -43,6 +43,7 @@ type childTable struct {
 	fkCols []string      // 子表的关联列
 	pkCols []string      // 父行的列(逐个对应)
 	lt     *logicalTable // 子表是逻辑表(diffsource.go)
+	pred   *core.Expr    // 嵌套的固定条件(子表的列): 正好上限 / 上限 + 1 的父行按通过条件的子行数造
 }
 
 // initChildren: 从流水线的 nest / child_agg 推出子表(initOthers 之后调用: from = 列 → 物理的出处)。
@@ -61,6 +62,9 @@ func (e *diffEnv) initChildren(from map[string]origin) {
 		}
 		if st.Kind == "nest" {
 			ct.max = st.N
+			if ct.pred == nil {
+				ct.pred = st.Pred
+			}
 		}
 		if ct.owner != "" {
 			continue
@@ -166,7 +170,7 @@ func (e *diffEnv) loadChildren() error {
 		for _, c := range ct.fkCols {
 			fk[c] = true
 		}
-		perParent, global := map[string]bool{}, map[string]bool{} // 父行内的序号 / 全局的序号
+		perParent, global, halved := map[string]bool{}, map[string]bool{}, map[string]bool{} // 父行内的序号 / 全局的序号 / 父行内每两行一个序号
 		for _, set := range sets {
 			var rest []string
 			hasFK := false
@@ -181,7 +185,20 @@ func (e *diffEnv) loadChildren() error {
 			case len(set) == 1 && !hasFK:
 				global[set[0]] = true
 			case hasFK && len(rest) > 0:
-				perParent[rest[len(rest)-1]] = true
+				// 父行内的序号放在最后一个不和 今天 / 现在 比较的列上(比较的列要取边界的值,取序号就测不到边界)
+				pick := rest[len(rest)-1]
+				for i := len(rest) - 1; i >= 0; i-- {
+					if !e.boundaryCol(ct.table, rest[i]) {
+						pick = rest[i]
+						break
+					}
+				}
+				perParent[pick] = true
+				if pick != rest[len(rest)-1] {
+					// 唯一键里还有取边界值的列: 序号每两行一个(同一个值的两行由边界的列区分;重复 → 被拒绝,下面会补),
+					// 嵌套的排序的第一列才有并列的行(第二列的方向 / 少最后一列 要靠它测)
+					halved[pick] = true
+				}
 			}
 		}
 		var names, holders []string
@@ -197,12 +214,15 @@ func (e *diffEnv) loadChildren() error {
 		ident := pgx.Identifier{ct.table}.Sanitize()
 		insert := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", ident, strings.Join(names, ", "), strings.Join(holders, ", "))
 		seq := 0
-		put := func(parent core.Row, j int) error {
+		// keep 不为空: 造好的行先过 keep,不过的不插入
+		put := func(parent core.Row, j int, keep func(map[string]any) bool) (map[string]any, bool, error) {
 			physical := map[string]any{}
 			for _, c := range ins {
 				switch {
 				case global[c.Name]:
 					physical[c.Name] = e.relatedValue(c, seq, true, dom[c.Name])
+				case perParent[c.Name] && halved[c.Name]:
+					physical[c.Name] = e.relatedValue(c, j/2, true, dom[c.Name])
 				case perParent[c.Name]:
 					physical[c.Name] = e.relatedValue(c, j, true, dom[c.Name])
 				default:
@@ -218,6 +238,9 @@ func (e *diffEnv) loadChildren() error {
 				}
 				physical[c] = parent[ct.pkCols[i]]
 			}
+			if keep != nil && !keep(physical) {
+				return physical, false, nil
+			}
 			var args []any
 			for _, c := range ins {
 				args = append(args, sqlValue(physical[c.Name]))
@@ -226,14 +249,19 @@ func (e *diffEnv) loadChildren() error {
 			if ct.shard != nil {
 				var err error
 				if conn, err = e.db.forKey(physical[ct.shard.Column]); err != nil {
-					return err
+					return nil, false, err
 				}
 			}
-			_, _ = conn.Exec(e.ctx, insert, args...) // 违反约束的行被拒绝,跳过
-			return nil
+			_, err := conn.Exec(e.ctx, insert, args...) // 违反约束的行被拒绝,跳过
+			return physical, err == nil, nil
 		}
 		if ct.owner != "" {
-			for _, parent := range e.parentRows(ct.owner, saved) {
+			parents := e.parentRows(ct.owner, saved)
+			pred := ct.pred
+			if pred != nil && usesAny(pred, gen) { // 条件里有生成列: 插入之前算不出来 → 和没有固定条件一样造
+				pred = nil
+			}
+			for pi, parent := range parents {
 				skip := false
 				for _, c := range ct.pkCols {
 					skip = skip || parent[c] == nil
@@ -242,20 +270,53 @@ func (e *diffEnv) loadChildren() error {
 					continue
 				}
 				n := e.childCount(ct.max)
+				if pred != nil && n > ct.max {
+					// 通过条件的子行超过上限 → 整页的请求报错: 这样的父行多了,一览 / 分页几乎每页都报错。
+					// 平均造 3 个左右,只放在后一半的父行里(父行大多按键的顺序造: 第一页的请求不报错,分页出口才测得到)
+					// (上限 + 1 的父行约 1/5: 后一半里每个以 30/父行数 的概率保留)
+					if pi < len(parents)/2 || e.rnd.Intn(len(parents)) >= 30 {
+						n = ct.max
+					}
+				}
+				if pred != nil && n >= ct.max && n > 0 {
+					// 嵌套有固定条件: 正好上限 / 上限 + 1 指的是通过条件的子行(否则被条件筛掉后几乎到不了上限)。
+					// 子行的 今天 / 现在 的边界值都取同一个探针,只插入在那个探针下通过的行
+					// (不通过的也插入的话,换一个探针时通过的行可能多于 n: 本来正好上限的父行在别的请求里超过上限)
+					// 不通过的行只插入在所有的探针下都不通过的(去掉条件的错误实现靠它们看出来)
+					probe := e.pinProbe()
+					counts := false
+					keep := func(row map[string]any) bool {
+						counts = e.childPasses(ct, row, probe)
+						return counts || e.childFailsAll(ct, row)
+					}
+					passed := 0
+					for j := 0; passed < n && j < 10*(n+1); j++ {
+						_, ok, err := put(parent, j, keep)
+						if err != nil {
+							e.tm.pin = nil
+							return err
+						}
+						if ok && counts {
+							passed++
+						}
+					}
+					e.tm.pin = nil
+					continue
+				}
 				for j := 0; j < n; j++ {
-					if err := put(parent, j); err != nil {
+					if _, _, err := put(parent, j, nil); err != nil {
 						return err
 					}
 				}
 			}
 			for j := 0; j < 3; j++ {
-				if err := put(nil, j); err != nil {
+				if _, _, err := put(nil, j, nil); err != nil {
 					return err
 				}
 			}
 		} else { // 父行的出处不明(关联列来自计算): 随机的值
 			for j := 0; j < diffRows*max(e.scale, 1); j++ {
-				if err := put(nil, j); err != nil {
+				if _, _, err := put(nil, j, nil); err != nil {
 					return err
 				}
 			}
@@ -497,6 +558,12 @@ func (e *diffEnv) checkDomains(table string, cols []core.NamedType) (map[string]
 
 // relatedValue: 关联的表 / 子表的一列的值。有 CHECK 的列从通过的值里取(唯一的列用通过的写法 + 序号)。
 func (e *diffEnv) relatedValue(c core.NamedType, i int, unique bool, d *checkedDomain) any {
+	// 子表的固定条件里和 今天 / 现在 比较的列: 约 2/3 的行落在某个探针的边界上(diff_time.go)
+	if len(e.tm.cmps) > 0 && !unique && e.rnd.Intn(3) != 0 {
+		if v := e.boundaryOf(c.Name); v != nil {
+			return v
+		}
+	}
 	if d == nil {
 		if unique {
 			if c.Type.Kind == core.JSON {
@@ -516,6 +583,62 @@ func (e *diffEnv) relatedValue(c core.NamedType, i int, unique bool, d *checkedD
 		return e.scalar(c.Type.Kind, unique, i) // 一个候选值都不通过: 和以前一样(行会被拒绝)
 	}
 	return d.values[e.rnd.Intn(len(d.values))]
+}
+
+// usesAny: 表达式里用到 cols 里的列。
+func usesAny(x *core.Expr, cols map[string]bool) bool {
+	if x == nil {
+		return false
+	}
+	if x.Op == "col" && cols[x.Name] {
+		return true
+	}
+	for _, a := range x.Args {
+		if usesAny(a, cols) {
+			return true
+		}
+	}
+	return false
+}
+
+// pinProbe: 接下来造的子行的边界值都取这个探针(没有探针 → nil)。
+func (e *diffEnv) pinProbe() core.Params {
+	if len(e.tm.probes) == 0 {
+		return nil
+	}
+	e.tm.pin = e.tm.probes[e.rnd.Intn(len(e.tm.probes))]
+	return e.tm.pin
+}
+
+// childPasses: 子行 row 在探针 probe 下通过嵌套的固定条件(参考求值器算)。算不了 → 当作通过。
+func (e *diffEnv) childPasses(ct *childTable, row map[string]any, probe core.Params) bool {
+	pl := &core.Pipeline{Params: e.api.Pipeline.Params, Steps: []core.Step{core.Scan(ct.table, ct.cols...), core.Filter(ct.pred)}}
+	r := core.Row{}
+	for _, c := range ct.cols {
+		r[c.Name] = row[c.Name]
+	}
+	res, err := core.Eval(pl, map[string][]core.Row{ct.table: {r}}, probe)
+	return err != nil || len(res.Rows) == 1
+}
+
+// childFailsAll: 子行 row 在所有的探针下都不通过嵌套的固定条件(没有探针 = 不依赖请求: 算一次)。
+func (e *diffEnv) childFailsAll(ct *childTable, row map[string]any) bool {
+	probes := e.tm.probes
+	if len(probes) == 0 {
+		probes = []core.Params{nil}
+	}
+	pl := &core.Pipeline{Params: e.api.Pipeline.Params, Steps: []core.Step{core.Scan(ct.table, ct.cols...), core.Filter(ct.pred)}}
+	r := core.Row{}
+	for _, c := range ct.cols {
+		r[c.Name] = row[c.Name]
+	}
+	for _, probe := range probes {
+		res, err := core.Eval(pl, map[string][]core.Row{ct.table: {r}}, probe)
+		if err != nil || len(res.Rows) > 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // childTablesIn: 子表在库 conn 里的行(conn = nil: 全部)。

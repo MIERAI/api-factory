@@ -9,12 +9,13 @@ package design
 // 计算的写法(从左到右):
 //
 //	值   = 项 { (+ | -) 个数 单位 }
-//	项   = 现在 | 输入名 | 月初(值) | 日初(值) | (值)
+//	项   = 现在 | 今天 | 输入名 | 月初(值) | 日初(值) | (值)
 //	个数 = 整数 | 输入名(整数的输入)
 //	单位 = 分钟 | 小时 | 天 | 个月(月)
 //
-// 现在 = 请求开始的时刻(服务器的时钟;测试时由例子的 现在 固定)。月初 / 日初 = 截到那个月 / 那一天的开始,
-// 时间先换算到领域的时区。月的加减按 Postgres(1/31 + 1 个月 = 2/28)。译成核心代数: now / add / trunc。
+// 现在 = 请求开始的时刻(服务器的时钟;测试时由例子的 现在 固定)。今天 = 现在 在领域的时区里的日期(日期,
+// 和日期的列 / 整数编码的日期的列比较)。月初 / 日初 = 截到那个月 / 那一天的开始,
+// 时间先换算到领域的时区。月的加减按 Postgres(1/31 + 1 个月 = 2/28)。译成核心代数: now / add / trunc / local_date。
 
 import (
 	"fmt"
@@ -137,10 +138,13 @@ func (p *exprParser) term() (*core.Expr, error) {
 	w := p.word()
 	switch w {
 	case "":
-		return nil, fmt.Errorf("第 %d 个字符: 要写 现在 / 输入名 / 月初(…) / 日初(…)", p.pos+1)
+		return nil, fmt.Errorf("第 %d 个字符: 要写 现在 / 今天 / 输入名 / 月初(…) / 日初(…)", p.pos+1)
 	case "现在":
 		p.usesNow = true
 		return core.Now(), nil
+	case "今天": // 时区由编译器另外设置(core.SetZone: 领域的时区)
+		p.usesNow = true
+		return core.Today(""), nil
 	case "月初", "日初":
 		if !p.peek('(') {
 			return nil, fmt.Errorf("%s 后面要写 (…)", w)
@@ -162,7 +166,7 @@ func (p *exprParser) term() (*core.Expr, error) {
 	}
 	k, ok := p.input(w)
 	if !ok {
-		return nil, fmt.Errorf("%s 不是输入(可以写 现在 / 输入名 / 月初(…) / 日初(…))", w)
+		return nil, fmt.Errorf("%s 不是输入(可以写 现在 / 今天 / 输入名 / 月初(…) / 日初(…))", w)
 	}
 	if k != core.Date && k != core.Timestamp {
 		return nil, fmt.Errorf("输入 %s 不是日期 / 时间(只能当个数用)", w)
@@ -261,6 +265,12 @@ func (c *ctx) compileDerived(a *API, table string, e *errs) (map[string]spec.Der
 				continue
 			}
 		}
+		if xt, err := (&core.Pipeline{Params: derivedParams(ins)}).TypeOf(x, nil); err == nil {
+			if k, ok := kinds.BySQL(cc.Type); ok && k.Core == core.Timestamp && xt.Kind == core.Date {
+				e.add(d.Line, "派生参数 %s: 计算的结果是日期(今天 / 日期的输入),列 %s 是时间: 时间的列请和 日初(现在) 这类时间比较", d.Name, col)
+				continue
+			}
+		}
 		text, err := core.Format(x)
 		if err != nil {
 			e.add(d.Line, "派生参数 %s: %v", d.Name, err)
@@ -269,6 +279,15 @@ func (c *ctx) compileDerived(a *API, table string, e *errs) (map[string]spec.Der
 		out[d.Name] = spec.Derived{Expr: text, Column: col, Op: op, Inputs: ins, TimeZone: c.d.TZ}
 	}
 	return out, usesNow
+}
+
+// derivedParams: 计算里用到的输入的声明(请求里的类型: 整数编码的日期是整数,计算里是 ymd(参数)),算计算的结果的类型用。
+func derivedParams(ins map[string]string) []core.ParamDecl {
+	var out []core.ParamDecl
+	for n, k := range ins {
+		out = append(out, core.ParamDecl{Name: n, Type: core.Type{Kind: core.Kind(k)}})
+	}
+	return out
 }
 
 // wrapYMDParams: 整数编码的日期的输入 → ymd(参数)(计算里当作日期)。

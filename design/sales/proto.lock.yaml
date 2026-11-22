@@ -101,6 +101,12 @@
         store_code: 1
     ListPricesAsOfResponse:
         store_prices: 1
+    ListRecentSnapshotsRequest:
+        days: 2
+        product_code: 3
+        store_code: 1
+    ListRecentSnapshotsResponse:
+        snapshots: 1
     ListStorePricesByPrefixRequest:
         product_prefix: 2
         store_code: 1
@@ -111,6 +117,12 @@
         date_to: 3
         store_code: 1
     ListStoreSalesByPeriodResponse:
+        daily_sales: 1
+    ListStoreSalesRangeRequest:
+        from: 2
+        store_code: 1
+        to: 3
+    ListStoreSalesRangeResponse:
         daily_sales: 1
     ListStoreSalesRequest:
         sales_date: 1
@@ -149,6 +161,14 @@
         old_price: 4
         proc_date: 2
         store_code: 1
+    RangeSale:
+        amount: 2
+        discount: 3
+        sales_date: 1
+    RecentSnapshot:
+        price: 3
+        product_code: 1
+        snap_ymd: 2
     StoreDaySale:
         amount: 2
         closed_on: 4

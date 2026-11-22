@@ -1054,6 +1054,77 @@
     ]
   },
   {
+    "id": "logistics.list-carrier-contracts",
+    "method": "ListCarrierContracts",
+    "summary": "配送業者を、今日有効な倉庫契約(倉庫コード順)と契約数つきで返す",
+    "path": "/factory.logistics.v1.LogisticService/ListCarrierContracts",
+    "pattern": "list_keyset",
+    "cases": [
+      {
+        "name": "日本の 3/1 08:30。今日始まる契約・今日終わる契約は有効、昨日終わった契約・明日始まる契約は無効",
+        "request": {},
+        "response": {
+          "carriers": [
+            {
+              "active_count": 2,
+              "carrier_id": 1,
+              "contracts": [
+                {
+                  "valid_from": "2026-03-01",
+                  "valid_to": "$absent",
+                  "warehouse_code": "W1"
+                },
+                {
+                  "valid_from": "2025-04-01",
+                  "valid_to": "2026-03-01",
+                  "warehouse_code": "W2"
+                }
+              ],
+              "upcoming_count": 1
+            },
+            {
+              "active_count": 0,
+              "carrier_id": 2,
+              "contracts": [],
+              "upcoming_count": 0
+            },
+            {
+              "active_count": 0,
+              "carrier_id": 3,
+              "contracts": [],
+              "upcoming_count": 0
+            }
+          ]
+        }
+      },
+      {
+        "name": "日本の 3/2 00:00 では W2 の契約は終了、W3 の契約が始まる",
+        "request": {
+          "partner_code": "P1"
+        },
+        "response": {
+          "carriers": [
+            {
+              "active_count": 2,
+              "carrier_id": 1,
+              "contracts": [
+                {
+                  "valid_from": "2026-03-01",
+                  "warehouse_code": "W1"
+                },
+                {
+                  "valid_from": "2026-03-02",
+                  "warehouse_code": "W3"
+                }
+              ],
+              "upcoming_count": 0
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
     "id": "logistics.list-shipment-packages",
     "method": "ListShipmentPackages",
     "summary": "出荷日の出荷を、封緘済みの梱包(重い順)と梱包の集計つきで返す",
@@ -2443,6 +2514,73 @@
     ]
   },
   {
+    "id": "sales.list-recent-snapshots",
+    "method": "ListRecentSnapshots",
+    "summary": "店舗の、今日を含む直近 days 日分(days = 0 なら今日だけ)の売価スナップショットを新しい日から返す",
+    "path": "/factory.sales.v1.SaleService/ListRecentSnapshots",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "日本の 3/1 08:30(UTC ではまだ 2/28)。今日 = 3/1、days = 1 → 2/28〜3/1。存在しない 2/29 と未来の 3/2 は返さない",
+        "request": {
+          "days": 1,
+          "store_code": 1
+        },
+        "response": {
+          "snapshots": [
+            {
+              "price": "103",
+              "product_code": "A",
+              "snap_ymd": 20260301
+            },
+            {
+              "price": "51",
+              "product_code": "B",
+              "snap_ymd": 20260301
+            },
+            {
+              "price": "102",
+              "product_code": "A",
+              "snap_ymd": 20260228
+            }
+          ]
+        }
+      },
+      {
+        "name": "days = 0 → 今日だけ。商品で絞り込む",
+        "request": {
+          "days": 0,
+          "product_code": "A",
+          "store_code": 1
+        },
+        "response": {
+          "snapshots": [
+            {
+              "product_code": "A",
+              "snap_ymd": 20260301
+            }
+          ]
+        }
+      },
+      {
+        "name": "別の時刻(日本の 3/2 00:00)では今日 = 3/2",
+        "request": {
+          "days": 0,
+          "store_code": 1
+        },
+        "response": {
+          "snapshots": [
+            {
+              "price": "104",
+              "product_code": "A",
+              "snap_ymd": 20260302
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
     "id": "sales.list-store-prices-by-prefix",
     "method": "ListStorePricesByPrefix",
     "summary": "店舗を指定して、商品コードの前方一致で売価(有効期間つき)を返す",
@@ -2573,6 +2711,64 @@
               "sales_date": "2026-11-02"
             }
           ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "sales.list-store-sales-range",
+    "method": "ListStoreSalesRange",
+    "summary": "店舗と期間(from〜to、両端を含む)を指定して、日別の売上を古い日から返す",
+    "path": "/factory.sales.v1.SaleService/ListStoreSalesRange",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "両端を含む",
+        "request": {
+          "from": "2026-11-01",
+          "store_code": 1,
+          "to": "2026-11-02"
+        },
+        "response": {
+          "daily_sales": [
+            {
+              "amount": "100",
+              "sales_date": "2026-11-01"
+            },
+            {
+              "amount": "110",
+              "discount": "5",
+              "sales_date": "2026-11-02"
+            }
+          ]
+        }
+      },
+      {
+        "name": "to を省略 = from 以降すべて",
+        "request": {
+          "from": "2026-11-02",
+          "store_code": 1
+        },
+        "response": {
+          "daily_sales": [
+            {
+              "sales_date": "2026-11-02"
+            },
+            {
+              "sales_date": "2026-11-03"
+            }
+          ]
+        }
+      },
+      {
+        "name": "from が to より後 → 空",
+        "request": {
+          "from": "2026-11-03",
+          "store_code": 1,
+          "to": "2026-11-01"
+        },
+        "response": {
+          "daily_sales": []
         }
       }
     ]

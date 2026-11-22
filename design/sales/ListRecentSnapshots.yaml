@@ -1,0 +1,71 @@
+# ============================================================================
+# ListRecentSnapshots: 直近 N 日(今日を含む)の売価スナップショット
+#   派生参数の 今天(領域の時区での今日の日付)と整数编码的日期(YYYYMMDD)の列の比較
+# ============================================================================
+API: ListRecentSnapshots
+说明: 店舗の、今日を含む直近 days 日分(days = 0 なら今日だけ)の売価スナップショットを新しい日から返す
+背景: 売場の売価チェック。「今日」は店舗のある日本の日付(UTC ではない。日本の 0 時〜9 時は UTC ではまだ前日)。
+  スナップショット日は旧システムの整数 YYYYMMDD のまま。存在しない日付(20260230 など)の行は返さない。
+  1 店舗の直近のスナップショットは 100 件程度の前提で、200 件を超えたらエラーにして期間を短くしてもらう
+负责人: sales-team
+风险: 低
+
+种类: 多条
+数据来源: price_snapshots
+
+输入:
+  store_code:   { 类型: 整数32, 必填: 是, 范围: "> 0", 说明: 店舗コード, 筛选: store_code 等于 }
+  days:         { 类型: 整数32, 必填: 是, 范围: 0~31, 说明: 何日前まで(0 = 今日だけ) }
+  product_code: { 类型: 文本, 必填: 否, 长度: 1~32, 说明: 商品コード(省略 = 全商品), 筛选: product_code 等于 }
+
+派生参数:
+  since: { 计算: 今天 - days 天, 筛选: snap_ymd 大于等于, 说明: 期間の最初の日 }
+  until: { 计算: 今天, 筛选: snap_ymd 小于等于, 说明: 今日(未来の日付のスナップショットは返さない) }
+
+输出:
+  product_code: 商品コード
+  snap_ymd:     スナップショット日(YYYYMMDD の整数)
+  price:        売価
+
+排序: [snap_ymd 新到旧, product_code 小到大]
+上限: 200
+输出行名: RecentSnapshot
+输出列表名: snapshots
+
+业务规则:
+  - 情况: 日本では日付が変わったが UTC ではまだ前日(日本の 0 時〜9 時)
+    结果: 今日 = 日本の日付(UTC の日付ではない)
+  - 情况: 存在しない日付のスナップショット(20260230 など)
+    结果: 返さない
+  - 情况: 未来の日付のスナップショット(予約された売価)
+    结果: 返さない
+  - 情况: 期間内のスナップショットが 200 件を超える
+    结果: エラー(FAILED_PRECONDITION)。途中で切り捨てない
+
+例子:
+  现在: "2026-03-01 08:30"
+  准备数据:
+    price_snapshots:
+      - { store_code: 1, product_code: A, snap_ymd: 20260226, price: 100 }
+      - { store_code: 1, product_code: A, snap_ymd: 20260227, price: 101 }
+      - { store_code: 1, product_code: A, snap_ymd: 20260228, price: 102 }
+      - { store_code: 1, product_code: A, snap_ymd: 20260301, price: 103 }
+      - { store_code: 1, product_code: A, snap_ymd: 20260302, price: 104 }   # 未来
+      - { store_code: 1, product_code: B, snap_ymd: 20260229, price: 50 }    # 存在しない日付(平年)
+      - { store_code: 1, product_code: B, snap_ymd: 20260301, price: 51 }
+      - { store_code: 2, product_code: A, snap_ymd: 20260301, price: 999 }
+  用例:
+    - 说明: 日本の 3/1 08:30(UTC ではまだ 2/28)。今日 = 3/1、days = 1 → 2/28〜3/1。存在しない 2/29 と未来の 3/2 は返さない
+      输入: { store_code: 1, days: 1 }
+      结果:
+        snapshots:
+          - { snap_ymd: 20260301, product_code: A, price: "103" }
+          - { snap_ymd: 20260301, product_code: B, price: "51" }
+          - { snap_ymd: 20260228, product_code: A, price: "102" }
+    - 说明: days = 0 → 今日だけ。商品で絞り込む
+      输入: { store_code: 1, days: 0, product_code: A }
+      结果: { snapshots: [{ snap_ymd: 20260301, product_code: A }] }
+    - 说明: 別の時刻(日本の 3/2 00:00)では今日 = 3/2
+      现在: "2026-03-02 00:00"
+      输入: { store_code: 1, days: 0 }
+      结果: { snapshots: [{ snap_ymd: 20260302, product_code: A, price: "104" }] }
