@@ -44,3 +44,9 @@
     回答: "保持现在的行为"
     补充规则: { 情况: "审批中的文档收到版本不一致的批准(进 DLQ)之后", 结果: "文档不变: 继续按间隔重发 review.request,提交 1 小时还没有结论 → EXPIRED,发出 document.expired;处理 DLQ 的人要在期限内处理" }
     来自: "DocumentReview 的审查 2026-11-23 20261123-012823-claude-approvals.document-review"
+
+  - 问题: "审批中的文档收到版本不一致的批准进 DLQ 之后会继续重发 review.request。评审服务对重发再回答一次同样的错版本批准时,要再进一次 DLQ,还是按「重发引起的第二个回答 → 忽略」忽略?例: 09:59 提交 revision 2,10:05 收到 review.approved revision 1 → 进 DLQ;10:06 重发,10:06:10 又收到 review.approved revision 1。"
+    选项: ["保持现在的行为(每一条都进 DLQ)", "改成 AI 实现: 同一个文档的错版本批准只进 DLQ 一次"]
+    回答: "保持现在的行为(每一条都进 DLQ)"
+    补充规则: { 情况: "审批中的文档收到版本不一致的批准,包括重发 review.request 引起的第二条、第三条", 结果: "每一条都拒绝(进 DLQ),文档不变。「重发引起的第二个回答 → 忽略」只适用于文档已经离开 REVIEWING 之后才到的回答" }
+    来自: "DocumentReview 的审查 2026-11-23 20261123-013308-claude-approvals.document-review"

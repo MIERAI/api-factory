@@ -297,6 +297,8 @@ behavior:
       then: '按状态图自动分类(状态机不逐个写): 有这个消息的转移的状态在现在的状态之前(从它能走到现在的状态: REVIEWING → PUBLISHING / PUBLISHED / REJECTED / EXPIRED,PUBLISHING → PUBLISHED)→ 忽略(不改文档,不发消息);否则 → 拒绝(进 DLQ)。例: PUBLISHING / PUBLISHED / REJECTED / EXPIRED 收到 review.approved / review.rejected → 忽略;PUBLISHED 收到 publish.done → 忽略;REVIEWING / REJECTED / EXPIRED 收到 publish.done → 拒绝'
     - when: 审批中的文档收到版本不一致的批准(进 DLQ)之后
       then: '文档不变: 继续按间隔重发 review.request,提交 1 小时还没有结论 → EXPIRED,发出 document.expired;处理 DLQ 的人要在期限内处理'
+    - when: 审批中的文档收到版本不一致的批准,包括重发 review.request 引起的第二条、第三条
+      then: 每一条都拒绝(进 DLQ),文档不变。「重发引起的第二个回答 → 忽略」只适用于文档已经离开 REVIEWING 之后才到的回答
 acceptance:
     fixtures:
         document_reviewers:
@@ -584,3 +586,5 @@ review_decisions:
       decision: 通用规则:已经过去的阶段的回答忽略
     - question: '评审人批准了错的版本(进 DLQ、等人处理)之后,文档还在审批中,现在会继续每 2 分钟重发 review.request,到提交 1 小时还会变成 EXPIRED。这是想要的吗?例: 09:59 提交 revision 2,10:05 收到 review.approved revision 1 → 进 DLQ;10:06、10:08…继续重发,10:59 文档过期。'
       decision: 保持现在的行为
+    - question: '审批中的文档收到版本不一致的批准进 DLQ 之后会继续重发 review.request。评审服务对重发再回答一次同样的错版本批准时,要再进一次 DLQ,还是按「重发引起的第二个回答 → 忽略」忽略?例: 09:59 提交 revision 2,10:05 收到 review.approved revision 1 → 进 DLQ;10:06 重发,10:06:10 又收到 review.approved revision 1。'
+      decision: 保持现在的行为(每一条都进 DLQ)
