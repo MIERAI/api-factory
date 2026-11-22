@@ -10,6 +10,10 @@
         labels: 4
         name: 2
         product_code: 1
+    CategoryWithShelfLabels:
+        category: 1
+        products: 3
+        title: 2
     GetProductLabelRequest:
         label_code: 2
         product_code: 1
@@ -34,6 +38,12 @@
         category: 1
     ListCategoryProductsResponse:
         products: 1
+    ListCategoryShelfLabelsRequest:
+        page_size: 1
+        page_token: 2
+    ListCategoryShelfLabelsResponse:
+        categories: 1
+        next_page_token: 2
     ListLabelsByLabelCodesRequest:
         label_codes: 1
         product_prefix: 2
@@ -50,6 +60,10 @@
         product_codes: 1
     ListLabelsWithProductResponse:
         labels: 1
+    ListProductCostsRequest:
+        category: 1
+    ListProductCostsResponse:
+        products: 1
     ListProductLabelsRequest:
         product_code: 1
     ListProductLabelsResponse:
@@ -74,6 +88,13 @@
         label_code: 2
         product_code: 1
         text: 3
+    ProductCostRow:
+        current_cost: 5
+        current_from: 6
+        launch_cost: 4
+        launched_on: 3
+        name: 2
+        product_code: 1
     ProductHit:
         name: 2
         price: 3
@@ -99,3 +120,7 @@
         keyword: 2
     SearchProductsByNameResponse:
         products: 1
+    ShelfProduct:
+        name: 2
+        product_code: 1
+        shelf_text: 3

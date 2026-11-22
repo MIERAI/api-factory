@@ -37,3 +37,15 @@ CREATE TABLE IF NOT EXISTS category_events (
 );
 CREATE INDEX IF NOT EXISTS category_events_key_idx
     ON category_events ((data ->> 'category'), registered_at DESC, id DESC);
+
+-- 商品の原価の履歴(追加型。自然キー [product_code, cost_kind, valid_from])。日付は旧システムの整数 YYYYMMDD
+-- (逻辑表への按日期的关联 + 整数编码的日期の例: R2.7)。商品ごとに全区分の版を引くので product_code の式索引
+CREATE TABLE IF NOT EXISTS product_cost_events (
+    id            BIGINT      PRIMARY KEY,
+    data          JSONB       NOT NULL,
+    action_type   INTEGER     NOT NULL DEFAULT 0,
+    registered_by TEXT        NOT NULL DEFAULT 'factory',
+    registered_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS product_cost_events_code_idx
+    ON product_cost_events ((data ->> 'product_code'), registered_at DESC, id DESC);

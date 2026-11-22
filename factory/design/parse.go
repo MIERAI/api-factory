@@ -769,6 +769,12 @@ func (r tableReader) Column(name, desc, enum string) {
 		r.t.ColEnum[name] = enum
 	}
 }
+func (r tableReader) Encoding(line int, name, enc string) {
+	if enc != EncodingYMD {
+		r.e.add(line, "表 %s 的字段 %s: 编码 只能是 %s(整数里的日期)", r.name, name, EncodingYMD)
+	}
+	r.t.ColEncode[name] = enc
+}
 
 // TopKeys: 设计稿顶层的键(所有种类共用;各种类另外的键在出口的注册表里)。
 func TopKeys() []string {

@@ -86,6 +86,7 @@ func TestCertificationSource(t *testing.T) {
 		`CREATE TABLE ev_p (id int8 PRIMARY KEY, data jsonb NOT NULL, action int4 NOT NULL, reg int8 NOT NULL)`,
 		`CREATE TABLE ev_l (id int8 PRIMARY KEY, data jsonb NOT NULL, action int4 NOT NULL, reg int8 NOT NULL)`,
 		`CREATE TABLE ev_c (id int8 PRIMARY KEY, data jsonb NOT NULL, action int4 NOT NULL, reg int8 NOT NULL)`,
+		`CREATE TABLE ev_h (id int8 PRIMARY KEY, data jsonb NOT NULL, action int4 NOT NULL, reg int8 NOT NULL)`,
 	} {
 		if _, err := conn.Exec(ctx, q); err != nil {
 			t.Fatal(err)
@@ -221,6 +222,61 @@ func TestCertificationSource(t *testing.T) {
 	cp := ChildAgg("product", prodCols, []JoinKey{{"cat", "cat"}}, nil, Count("n"), Agg{Name: "total", Func: "sum", Col: "price"})
 	cp.Source = prod
 	env.check("child_agg 逻辑表(非键列关联: 不下推)", &Pipeline{Steps: []Step{pmScan, cp, Sort(byK)}}, nil)
+	// 5'. R2.7: 逻辑表和按日期 / 对方的列 = 常量 / 嵌套里的关联的组合。
+	// 原价的历史(逻辑表,键 code + kind + from;from / to 是 YYYYMMDD 的整数): 旧版本的值、删除、逻辑删除、不合法的日期
+	for _, x := range []struct {
+		action int64
+		data   string
+	}{
+		{0, `{"code": "a", "kind": "S", "from": 20251201, "to": null, "v": "a-1201-old"}`},
+		{0, `{"code": "a", "kind": "S", "from": 20251201, "to": null, "v": "a-1201"}`},     // 新版本
+		{0, `{"code": "a", "kind": "S", "from": 20260101, "to": 20260101, "v": "a-0101"}`}, // 一天(含)
+		{0, `{"code": "a", "kind": "X", "from": 20251231, "to": null, "v": "a-X"}`},        // 区分不同
+		{0, `{"code": "a", "kind": "S", "from": 20251232, "to": null, "v": "a-bad"}`},      // 不合法的开始
+		{0, `{"code": "A", "kind": "S", "from": 20251231, "to": null, "v": "A-1231"}`},
+		{1, `{"code": "A", "kind": "S", "from": 20251231}`},                                 // 删除 → A 没有
+		{0, `{"code": "9", "kind": "S", "from": 20251230, "to": 20261301, "v": "9-badto"}`}, // 不合法的结束
+		{0, `{"code": "9", "kind": "S", "from": 20250101, "to": null, "v": "9-old"}`},
+		{0, `{"code": "zz", "kind": "S", "from": 20251231, "to": null, "v": "zz", "del": "1"}`}, // 逻辑删除
+		{0, `{"code": "zz", "kind": "S", "from": 20251101, "to": null, "v": "zz-1101"}`},
+		{0, `{"code": "d", "kind": "S", "from": 20260102, "to": null, "v": "d-future"}`},
+	} {
+		ev("ev_h", x.action, x.data)
+	}
+	hFields := []srcField{{"code", Text}, {"kind", Text}, {"from", Int32}, {"to", Int32}, {"v", Text}}
+	hist := jsonSource("ev_h", hFields, []string{"code", "kind", "from"}, []string{"code", "kind", "from"})
+	histCols := srcCols(hFields, []string{"code", "kind", "from"})
+	kindS := Cmp("=", Col("kind"), Const("S", Type{Kind: Text}))
+	asOfHist := func(m string, endIn bool) Step {
+		st := Lookup("cost", histCols, [][]string{{"code", "kind", "from"}}, []JoinKey{{"code", "code"}}, []TakeCol{{"h_v", "v"}, {"h_from", "from"}}, m)
+		st.Source, st.Pred = hist, kindS
+		st.AsOf = &AsOf{Start: "from", End: "to", EndIn: endIn, Ref: Today("Asia/Tokyo"), YMD: true}
+		return st
+	}
+	for _, now := range []string{"2025-12-31T14:00:00Z", "2025-12-31T15:00:00Z", "2026-01-01T15:00:00Z"} {
+		for _, m := range []string{"keep", "drop"} {
+			env.check(fmt.Sprintf("lookup 逻辑表 按日期 YYYYMMDD %s now=%s", m, now), &Pipeline{Steps: []Step{pmScan, asOfHist(m, true), Sort(byK)}}, Params{NowParam: ts(now)})
+		}
+		env.check("lookup 逻辑表 按日期 结束不含 now="+now, &Pipeline{Steps: []Step{pmScan, asOfHist("keep", false), Sort(byK)}}, Params{NowParam: ts(now)})
+	}
+	// 对方的列 = 常量(逻辑表,没有按日期): 标签的 lc = 'x'(键 code + lc → 唯一)
+	lx := Lookup("label", labCols, [][]string{{"code", "lc"}}, []JoinKey{{"code", "code"}}, []TakeCol{{"x_text", "text"}}, "keep")
+	lx.Source, lx.Pred = lab, Cmp("=", Col("lc"), Const("x", Type{Kind: Text}))
+	env.check("lookup 逻辑表 对方的列 = 常量", &Pipeline{Steps: []Step{pmScan, lx, Sort(byK)}}, nil)
+	// 嵌套里的关联: 子表是逻辑表(标签),子行上关联逻辑表(商品,按 code)和逻辑表的对方的列 = 常量 —— 子流水线 = 逻辑表的来源 + lookup
+	for _, m := range []string{"keep", "drop"} {
+		lp := lookupP(m)
+		src := append(append([]Step(nil), lab...), lp)
+		sch, err := Check(&Pipeline{Steps: src})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cols := []NamedType(sch)
+		n := Nest("label", cols, [][]string{{"code", "lc"}}, []JoinKey{{"code", "code"}}, nil, []SortKey{{"lc", false}}, 3, "labels",
+			[]TakeCol{{"lc", "lc"}, {"text", "text"}, {"p_name", "p_name"}})
+		n.Source = src
+		env.check("nest 逻辑表的子行上关联逻辑表 "+m, &Pipeline{Steps: []Step{pmScan, n, Sort(byK)}}, nil)
+	}
 	// 6. 下推真的发生了: 关联条件(键)在取最新之前(DISTINCT ON 的那一层的 WHERE 里)
 	s, err := ToSQL(&Pipeline{Steps: []Step{pmScan, lookupP("keep")}}, Options{})
 	if err != nil {

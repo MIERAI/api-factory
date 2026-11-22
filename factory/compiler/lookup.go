@@ -151,6 +151,7 @@ func lookupStep(s *spec.Spec, cat *catalog, keys map[string][][]string, lib *cel
 			return st, nil, fmt.Errorf("%s: 按日期的结束 %s 不是 %s 的列", at, a.End, l.Table)
 		}
 		var ref *core.Expr
+		refYMD := false // 参照是整数编码的日期的列: 按 ymd 读成日期
 		switch {
 		case a.Ref == "今天":
 			ref = core.Today(whereOpt(s, table).Zone)
@@ -158,10 +159,27 @@ func lookupStep(s *spec.Spec, cat *catalog, keys map[string][][]string, lib *cel
 			ref = core.Now()
 		case has(cols, a.Ref):
 			ref = core.Col(a.Ref)
+			refYMD = s.Domain != nil && encoding(s, table, a.Ref) == ymdEncoding
 		default:
 			return st, nil, fmt.Errorf("%s: 按日期的参照 %s 不是当前行的列(也不是 今天 / 现在)", at, a.Ref)
 		}
-		st.AsOf = &core.AsOf{Start: a.Start, End: a.End, EndIn: a.EndIn, Ref: ref}
+		// 整数编码的日期(编码: YYYYMMDD): 开始 / 结束列是整数,参照按日期比较(SQL: 参照换成整数;不合法的列的值不匹配)
+		startYMD := s.Domain != nil && encoding(s, l.Table, a.Start) == ymdEncoding
+		if a.End != "" && startYMD != (s.Domain != nil && encoding(s, l.Table, a.End) == ymdEncoding) {
+			return st, nil, fmt.Errorf("%s: 按日期的开始 %s 和结束 %s 的编码不同(要都写 编码: YYYYMMDD,或都不写)", at, a.Start, a.End)
+		}
+		if startYMD {
+			switch {
+			case ref.Op == "now":
+				return st, nil, fmt.Errorf("%s: 按日期的开始 %s 是整数编码的日期(YYYYMMDD),参照要是日期(今天 / 日期的列),不能是 现在", at, a.Start)
+			case ref.Op == "col" && !refYMD && !isDateCol(cols, a.Ref):
+				return st, nil, fmt.Errorf("%s: 按日期的开始 %s 是整数编码的日期(YYYYMMDD),参照 %s 要是日期(或整数编码的日期 / 今天)", at, a.Start, a.Ref)
+			}
+		}
+		if refYMD {
+			ref = core.YMD(ref) // 不合法的参照 → 空 → 不匹配
+		}
+		st.AsOf = &core.AsOf{Start: a.Start, End: a.End, EndIn: a.EndIn, Ref: ref, YMD: startYMD}
 	}
 	onKeys := map[string]bool{}
 	for c := range core.PinnedCols(st.Pred) {
@@ -404,6 +422,21 @@ func withParentRule(at, table, other string, cur, dst spec.Entity) error {
 		return fmt.Errorf("%s: %s 是 分库: 随父,%s 不分库: 随父的表只能从分库的表关联(行在父行的那个库里)", at, other, table)
 	case cur.ShardWithParent && !dst.ShardWithParent:
 		return fmt.Errorf("%s: %s 是 分库: 随父,只能再关联随父的表(%s 不是: 确认不了在同一个库里)", at, table, other)
+	}
+	return nil
+}
+
+// isDateCol / catCol: 目录里的列(按日期的参照 / 开始的类型检查)。
+func isDateCol(cs []catColumn, n string) bool {
+	c := catCol(cs, n)
+	return c != nil && c.Type == "date"
+}
+
+func catCol(cs []catColumn, n string) *catColumn {
+	for i := range cs {
+		if cs[i].Name == n {
+			return &cs[i]
+		}
 	}
 	return nil
 }

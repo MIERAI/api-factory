@@ -42,6 +42,37 @@ entities:
         policy: mutable
         columns: {}
         invariants: []
+    store_notices:
+        natural_key:
+            - store_code
+            - notice_no
+        policy: versioned
+        storage:
+            kind: json_versions
+            table: store_notice_events
+            data_column: data
+            action_column: action_type
+            delete_value: 1
+            order_by:
+                - registered_at
+                - id
+            logical_delete:
+                key: deleted
+                value: "1"
+            fields:
+                - name: store_code
+                  type: int4
+                - name: notice_no
+                  type: int4
+                - name: title
+                  type: text
+                - name: posted_ymd
+                  type: int4
+        shard_by: store_code
+        columns:
+            posted_ymd:
+                encoding: YYYYMMDD
+        invariants: []
     store_prices:
         natural_key:
             - store_code
@@ -49,6 +80,30 @@ entities:
             - valid_from
         policy: mutable
         shard_by: store_code
+        columns: {}
+        invariants: []
+    store_product_names:
+        natural_key:
+            - product_code
+        policy: versioned
+        storage:
+            kind: json_versions
+            table: store_product_name_events
+            data_column: data
+            action_column: action_type
+            delete_value: 1
+            order_by:
+                - registered_at
+                - id
+            logical_delete:
+                key: deleted
+                value: "1"
+            fields:
+                - name: product_code
+                  type: text
+                - name: name
+                  type: text
+        shard_with_parent: true
         columns: {}
         invariants: []
 review_decisions: []

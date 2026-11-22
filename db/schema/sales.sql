@@ -61,3 +61,25 @@ CREATE TABLE IF NOT EXISTS local_products (
     product_code TEXT PRIMARY KEY,
     name         TEXT NOT NULL
 );
+
+-- 店舗の DB ごとの商品名(追加型の JSON 版本表。分库: 随父 の逻辑表の例: R2.7)。店舗コードはなく、売価と同じ店舗の DB にある
+CREATE TABLE IF NOT EXISTS store_product_name_events (
+    id            BIGINT      PRIMARY KEY,
+    data          JSONB       NOT NULL,
+    action_type   INTEGER     NOT NULL DEFAULT 0,
+    registered_by TEXT        NOT NULL DEFAULT 'factory',
+    registered_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS store_product_name_events_code_idx
+    ON store_product_name_events ((data ->> 'product_code'), registered_at DESC, id DESC);
+
+-- 店舗へのお知らせ(追加型の JSON 版本表。店舗コードで分库)。掲載日は整数 YYYYMMDD
+CREATE TABLE IF NOT EXISTS store_notice_events (
+    id            BIGINT      PRIMARY KEY,
+    data          JSONB       NOT NULL,
+    action_type   INTEGER     NOT NULL DEFAULT 0,
+    registered_by TEXT        NOT NULL DEFAULT 'factory',
+    registered_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS store_notice_events_store_idx
+    ON store_notice_events ((data ->> 'store_code'), registered_at DESC, id DESC);

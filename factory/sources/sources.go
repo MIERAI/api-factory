@@ -23,7 +23,8 @@ type Domain interface {
 	PrimaryKey() []string // 主键
 	CheckKeys(n *yaml.Node, where string, keys ...string)
 	Err(line int, format string, args ...any)
-	Column(name, desc, enum string) // 登记逻辑列的说明 / 枚举
+	Column(name, desc, enum string)      // 登记逻辑列的说明 / 枚举
+	Encoding(line int, name, enc string) // 登记逻辑列的编码(整数里的日期: YYYYMMDD;不认识的编码报错)
 }
 
 // Column: 逻辑表的列(注入 catalog,之后当普通的表用)。

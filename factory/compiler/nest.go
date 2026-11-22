@@ -3,6 +3,7 @@ package compiler
 // 一对多: 嵌套(datasource.nests → 核心的 nest)和子聚合(datasource.child_aggs → 核心的 child_agg)。
 //
 //   - 子表必须在同一个库里(db/schema 里的普通的表,或 存储: JSON版本 等来源单元展开的逻辑表: 子行 = 每个自然键最新的一行)
+//   - 嵌套里的关联: 子表的来源(scan,或逻辑表的来源的展开)+ lookup …;对方也可以是逻辑表(lookup 的 Source)
 //   - 分库: 父表和子表都分库时,条件里要有「父表的分库键 = 子表的分库键」(子行在同一个库里);只有一边分库 → 编译失败
 //   - 嵌套的顺序: 排序的列 + 条件里子表的列要覆盖子表的主键 / 唯一键(核心的 DRC: 子行的顺序是全序)
 //   - 加的列: 嵌套 = 子行的列表(目录里的类型是 NestType: 只能输出,不能筛选 / 排序);子聚合 = 标量(之后和来源的列一样)
@@ -86,15 +87,17 @@ func childSteps(s *spec.Spec, cat *catalog, keys map[string][][]string, cols []c
 			return st, nil, fmt.Errorf("%s: 分库的表和子表,条件里要有「%s = %s」(两边的分库键相等 → 子行在同一个库里)", at, src, dst)
 		}
 		if len(lookups) > 0 {
-			if len(st.Source) > 0 {
-				return st, nil, fmt.Errorf("%s: 子表 %s 是逻辑表(存储: …),嵌套里的关联还不支持逻辑表的子表", at, child)
+			// 子表的来源: 普通的表 = scan;逻辑表 = 来源的展开(relatedSource 已经放在 st.Source 里)。后面接 lookup
+			src := st.Source
+			if len(src) == 0 {
+				scan, err := scanStep(child, cat)
+				if err != nil {
+					return st, nil, fmt.Errorf("%s: %w", at, err)
+				}
+				scan.From = at + " 的子表"
+				src = []core.Step{scan}
 			}
-			scan, err := scanStep(child, cat)
-			if err != nil {
-				return st, nil, fmt.Errorf("%s: %w", at, err)
-			}
-			scan.From = at + " 的子表"
-			src := []core.Step{scan}
+			src = append([]core.Step(nil), src...)
 			childShard := map[string]bool{}
 			if sb := entity(child).ShardBy; sb != "" {
 				childShard[sb] = true
@@ -104,9 +107,6 @@ func childSteps(s *spec.Spec, cat *catalog, keys map[string][][]string, cols []c
 				lst, next, err := lookupStep(s, cat, keys, lib, l, fmt.Sprintf("%s 的关联 %s", at, l.Name), child, ext, childShard)
 				if err != nil {
 					return st, nil, err
-				}
-				if len(lst.Source) > 0 {
-					return st, nil, fmt.Errorf("%s 的关联 %s: 对方 %s 是逻辑表(存储: …),嵌套里的关联还不支持逻辑表", at, l.Name, l.Table)
 				}
 				ext = next
 				src = append(src, lst)

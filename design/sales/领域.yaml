@@ -66,3 +66,25 @@
       new_price:    新売価(未定は空)
       old_price:    旧売価(新規は空)
       deal_id:      取引ID(空 = 通常の売変。99999999 = 強制送信)
+  store_product_names:
+    说明: 店舗の DB ごとの商品名(追加型。変更のたびに版を追加)。店舗コードの列はない(売価と同じ店舗の DB にある)
+    存储: JSON版本
+    原始表: store_product_name_events
+    主键: [product_code]
+    分库: 随父
+    逻辑删除: deleted = 1
+    字段:
+      product_code: { 类型: 文本, 说明: 商品コード }
+      name:         { 类型: 文本, 说明: 商品名(その店舗での表示名) }
+  store_notices:
+    说明: 店舗へのお知らせ(追加型。変更のたびに版を追加)。店舗ごとの DB に分かれている
+    存储: JSON版本
+    原始表: store_notice_events
+    主键: [store_code, notice_no]
+    分库: store_code
+    逻辑删除: deleted = 1
+    字段:
+      store_code: { 类型: 整数32, 说明: 店舗コード }
+      notice_no:  { 类型: 整数32, 说明: お知らせ番号(店舗内で一意) }
+      title:      { 类型: 文本,   说明: 件名 }
+      posted_ymd: { 类型: 整数32, 编码: YYYYMMDD, 说明: 掲載日(YYYYMMDD) }

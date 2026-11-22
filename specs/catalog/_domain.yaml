@@ -27,6 +27,41 @@ entities:
                   type: int4
         columns: {}
         invariants: []
+    product_cost:
+        natural_key:
+            - product_code
+            - cost_kind
+            - valid_from
+        policy: versioned
+        storage:
+            kind: json_versions
+            table: product_cost_events
+            data_column: data
+            action_column: action_type
+            delete_value: 1
+            order_by:
+                - registered_at
+                - id
+            logical_delete:
+                key: deleted
+                value: "1"
+            fields:
+                - name: product_code
+                  type: text
+                - name: cost_kind
+                  type: text
+                - name: valid_from
+                  type: int4
+                - name: valid_to
+                  type: int4
+                - name: cost
+                  type: numeric
+        columns:
+            valid_from:
+                encoding: YYYYMMDD
+            valid_to:
+                encoding: YYYYMMDD
+        invariants: []
     product_label:
         natural_key:
             - product_code

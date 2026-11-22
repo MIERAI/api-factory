@@ -777,7 +777,18 @@ func nestedLookupTargets(i int, st core.Step, name string) []sensTarget {
 		out = append(out, sensTarget{desc: fmt.Sprintf("%s 的找不到时(%s)", at, flip), mutate: with(j, func(s *core.Step) {
 			s.Missing = map[bool]string{true: "drop", false: "keep"}[keep]
 		})})
-		out = append(out, sensTarget{desc: at + " 找到的行(总是找不到的实现)", mutate: with(j, func(s *core.Step) { s.Table = "\x00none" })})
+		out = append(out, sensTarget{desc: at + " 找到的行(总是找不到的实现)", mutate: with(j, func(s *core.Step) { s.Table, s.Source = "\x00none", nil })})
+		for _, t := range sourceTargets(j, l, at) { // 对方是逻辑表: 取最旧 / 不处理删除 / 不取最新(作用在子表的来源里的那一步)
+			t := t
+			out = append(out, sensTarget{desc: t.desc, mutate: func(p *core.Pipeline) *core.Pipeline {
+				mut := *p
+				mut.Steps = append([]core.Step(nil), p.Steps...)
+				s := mut.Steps[i]
+				s.Source = t.mutate(&core.Pipeline{Steps: s.Source}).Steps
+				mut.Steps[i] = s
+				return &mut
+			}})
+		}
 		for _, m := range asOfMutations(l) {
 			m := m
 			out = append(out, sensTarget{desc: at + " " + m.desc, mutate: with(j, m.f)})

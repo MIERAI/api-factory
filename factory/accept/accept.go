@@ -651,9 +651,19 @@ func enumNames(e *ir.Enum) []string {
 // 行的顺序 = 登记的顺序: 登记顺序列按类型合成单调递增的值(时间 +1 秒 / 整数 +1)。
 // "$action": "delete" → 操作列 = 删除值;"logical_delete" → JSON 里加上逻辑删除的键。
 func loadStorageRows(ctx context.Context, d *dbs, plan *ir.Plan, st *ir.Storage, rows []map[string]any) error {
+	return loadStorageRowsAt(ctx, d, plan, st, rows, nil)
+}
+
+// loadStorageRowsAt: place(i) = 第 i 行写进的库(差分测试: 分库: 随父 的逻辑表的版本写进父行的库)。
+// place = nil: 分库的表按逻辑行的分库键;分库: 随父 = 每个分库都写一份(例子: 父行在哪个库都找得到);其他 = 主库。
+func loadStorageRowsAt(ctx context.Context, d *dbs, plan *ir.Plan, st *ir.Storage, rows []map[string]any, place func(i int) []*pgx.Conn) error {
 	ident := pgx.Identifier{st.Table}.Sanitize()
 	sh := plan.Shard(st.View)
+	withParent := plan.WithParent(st.View)
 	targets, err := d.targets(sh)
+	if withParent {
+		targets, err = d.all()
+	}
 	if err != nil {
 		return err
 	}
@@ -717,14 +727,25 @@ func loadStorageRows(ctx context.Context, d *dbs, plan *ir.Plan, st *ir.Storage,
 			holders[j] = "$" + strconv.Itoa(j+1)
 		}
 		sql := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", ident, strings.Join(cols, ","), strings.Join(holders, ","))
-		target := conn
-		if sh != nil { // 分库: 按逻辑行的分库键
-			if target, err = d.forKey(row[sh.Column]); err != nil {
+		conns := []*pgx.Conn{conn}
+		switch {
+		case place != nil:
+			conns = place(i)
+		case sh != nil: // 分库: 按逻辑行的分库键
+			target, err := d.forKey(row[sh.Column])
+			if err != nil {
+				return err
+			}
+			conns = []*pgx.Conn{target}
+		case withParent: // 分库: 随父: 每个分库
+			if conns, err = d.shards(); err != nil {
 				return err
 			}
 		}
-		if _, err := target.Exec(ctx, sql, args...); err != nil {
-			return fmt.Errorf("insert %v: %w", row, err)
+		for _, target := range conns {
+			if _, err := target.Exec(ctx, sql, args...); err != nil {
+				return fmt.Errorf("insert %v: %w", row, err)
+			}
 		}
 	}
 	return nil
