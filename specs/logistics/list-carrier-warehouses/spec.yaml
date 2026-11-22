@@ -70,6 +70,8 @@ behavior:
       then: 契約は表示する。地域名は空(末尾に並ぶ)
     - when: ある業者の契約が 10 件を超える
       then: その業者が入るページの要求だけが FAILED_PRECONDITION になる(切り捨てない)
+    - when: 配送業者に契約が 1 件も無い
+      then: その業者も一覧に出す。contracts は空(0 件)
 acceptance:
     fixtures:
         carrier_contracts:
@@ -169,4 +171,6 @@ acceptance:
                         - warehouse_code: W4
           steps: []
 logic_examples: []
-review_decisions: []
+review_decisions:
+    - question: '契約が 1 件も無い配送業者(例: 自社便で倉庫契約がまだ無い業者)も一覧に出しますか?'
+      decision: 保持现在的行为(出す)
