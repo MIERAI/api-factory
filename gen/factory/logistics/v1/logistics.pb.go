@@ -208,7 +208,7 @@ type ListShipmentPackagesRequest struct {
 	PageToken string `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
 	// 出荷日
 	ShippedOn string `protobuf:"bytes,3,opt,name=shipped_on,json=shippedOn,proto3" json:"shipped_on,omitempty"`
-	// 倉庫コード(不指定 = 全倉庫)
+	// 倉庫コード(不指定 = 全倉庫。空文字は参数错误)
 	WarehouseCode *string `protobuf:"bytes,4,opt,name=warehouse_code,json=warehouseCode,proto3,oneof" json:"warehouse_code,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -919,14 +919,14 @@ const file_factory_logistics_v1_logistics_proto_rawDesc = "" +
 	"\rpackage_count\x18\x04 \x01(\x03R\fpackageCount\x12#\n" +
 	"\rsealed_weight\x18\x05 \x01(\tR\fsealedWeight\x12B\n" +
 	"\x0ffirst_sealed_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\rfirstSealedAt\x12@\n" +
-	"\x0elast_sealed_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\flastSealedAt\"\xde\x01\n" +
+	"\x0elast_sealed_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\flastSealedAt\"\xe9\x01\n" +
 	"\x1bListShipmentPackagesRequest\x12&\n" +
 	"\tpage_size\x18\x01 \x01(\x05B\t\xbaH\x06\x1a\x04\x18d(\x00R\bpageSize\x12\x1d\n" +
 	"\n" +
 	"page_token\x18\x02 \x01(\tR\tpageToken\x129\n" +
 	"\n" +
-	"shipped_on\x18\x03 \x01(\tB\x1a\xbaH\x17r\x152\x13^\\d{4}-\\d{2}-\\d{2}$R\tshippedOn\x12*\n" +
-	"\x0ewarehouse_code\x18\x04 \x01(\tH\x00R\rwarehouseCode\x88\x01\x01B\x11\n" +
+	"shipped_on\x18\x03 \x01(\tB\x1a\xbaH\x17r\x152\x13^\\d{4}-\\d{2}-\\d{2}$R\tshippedOn\x125\n" +
+	"\x0ewarehouse_code\x18\x04 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18\bH\x00R\rwarehouseCode\x88\x01\x01B\x11\n" +
 	"\x0f_warehouse_code\"\x8a\x01\n" +
 	"\x1cListShipmentPackagesResponse\x12B\n" +
 	"\tshipments\x18\x01 \x03(\v2$.factory.logistics.v1.PackedShipmentR\tshipments\x12&\n" +
