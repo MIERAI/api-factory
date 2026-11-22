@@ -65,6 +65,25 @@ spec-review     generate                verify               deploy
     连接信息在 Secret Manager(`<SERVICE>-database-url` 等)。第一次部署(服务还不存在)不能用 `--no-traffic`,先普通部署一次
 - 真实环境的部署后检查只做只读的(健康检查 / 认证);对新版本跑验收会清空并灌测试数据,只用于模拟
 
+## 其他项目(给另一个仓库 / 另一个数据库生成服务)
+
+工厂不只给本仓库生成。一个**项目** = 一个 Go 模块 + 它自己的数据库,目录结构和本仓库一样(`design/`、`db/schema/` 由人写,
+其余由工厂生成)。生成的代码只依赖项目自己的模块和公开的运行时 [api-factory-runtime](https://github.com/MIERAI/api-factory-runtime),
+工厂本身(生成器、核心代数、审查、验证)不进入项目。
+
+```sh
+factory init ../shop/services/catalog --module github.com/you/shop/services/catalog   # 脚手架: go.mod、buf、cmd/server、factory.yaml
+# 写 design/<领域>/ 和 db/schema/*.sql
+factory --project ../shop/services/catalog design
+factory --project ../shop/services/catalog check
+factory --project ../shop/services/catalog prepare        # → proto、gen/、internal/handler、cmd/server/wiring_gen.go
+```
+
+- `--project DIR`: 工厂切换到项目根目录;工厂自己的资源(factory.yaml 的默认值、适配器)仍从工厂目录读(`factory/proj`)
+- 项目的 `factory.yaml` 只写项目的键(proto 的包名前缀),按键覆盖工厂的;生成代码的模块名 = 项目 go.mod 的 module
+- `examples/` 下的项目(现在: storefront v2 的样例,见 `docs/design/storefront-v2-readiness.md`)由 `make projects` /
+  CI 的 verify ⑤ 检查: 设计 → 生成物是最新的 → 编译 → 用项目自己的数据库验收。工厂遇到做不到的,记在 `examples/storefront-v2/GAPS.md`
+
 ## 架构: 各环节通过文件契约串起来
 
 ```

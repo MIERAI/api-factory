@@ -5,6 +5,7 @@
 package design
 
 import (
+	"apifactory/factory/proj"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -30,7 +31,7 @@ type Config struct {
 }
 
 func LoadConfig() (Config, error) {
-	b, err := os.ReadFile("factory.yaml")
+	b, err := proj.Config()
 	if err != nil {
 		return Config{}, err
 	}
