@@ -184,7 +184,7 @@
 
 | 需要的东西 | 层 | 理由 |
 |---|---|---|
-| Dockerfile、健康检查、指标端口 | 工厂(项目模板) | 每个服务都一样,能从项目确定地推出来 |
+| Dockerfile、健康检查、指标端口 | 工厂(项目模板) | 每个服务都一样,能从项目确定地推出来。已做: `factory/proj/packaging.go` 从 go.mod 生成 `Dockerfile` / `.dockerignore`(init 写、`--project` 的 prepare 重写);探针 `/livez` `/readyz` `/healthz` 和 `METRICS_PORT` 由运行时提供,镜像定为 `PORT=8080` `METRICS_PORT=9090` |
 | k8s 清单 | 平台 | 部署方式是平台的选择;工厂只产出镜像能用的东西 |
 | 跨服务的消息契约对得上(每条被消费的消息有发送方、字段兼容) | 工厂(跨项目的静态检查) | 工厂看得到所有项目的设计书,能检查;不需要真的跑起来 |
 | 多个服务真的连起来跑(saga 走完一圈) | 手写(端到端测试)+ 平台(环境) | 系统测试;工厂证明的是每个服务和契约,不是整个系统 |
@@ -197,4 +197,36 @@
 
 就绪度(storefront-v2-readiness.md)数的是 **API 的个数**。它不等于工作量: 一个系统里还有手写的钩子、端到端测试、平台的配置。
 所以另外要量 **手写占比**: 一个使用工厂的项目里,人写的代码(钩子的函数体、逃生口)占全部代码的比例,`factory stats` 按项目报告
-(待做)。API 个数和手写占比一起看,才能说"工厂做了多少"。
+(`factory --project DIR stats`;实现 `factory/proj/lines.go`)。API 个数和手写占比一起看,才能说"工厂做了多少"。
+
+**量的范围** = 服务代码(镜像里编译的东西,和生成的 Dockerfile 复制的范围相同):
+
+- `cmd/`、`internal/`、`gen/` 下的 `*.go`,不含 `*_test.go`(测试不进镜像;手写的端到端测试属于"手写"层,另算)
+- `db/queries/*.sql`
+- 不量: `design/`(设计书是输入)、`specs/` `proto/`(从设计书生成的中间产物)、`db/schema/`(设计的一部分)、Dockerfile 等配置
+
+**生成 / 手写的界线**(按文件):
+
+- **生成** = 文件开头的注释块(第一个代码行之前)里有 Go 的标准标记 `Code generated … DO NOT EDIT.`(`//` `--` `#` 注释都认)。
+  标记写在 package 之后不算
+- **手写** = 其余所有文件: compute 的逻辑(`*_logic.go`)、custom 处理器、`cmd/server/main.go` 这类项目自己的文件(init 写一次,
+  之后归项目,所以算手写)
+- **例外**: `db/queries/` 里从 `datasource.sql`(逃生口)抄出来的查询带生成标记,但内容是人写的 → 手写(标记里
+  `from specs/…/spec.yaml` 指向的式样书写了 `datasource.sql`)
+- 行 = 非空行(注释算)
+
+报告两个比例: **手写 / (手写 + 生成)**;和更保守的 **生成只算工厂自己的输出**(标记里有 `by protoc-gen-…` / `by sqlc` 的
+部分不算进分母 —— 工厂给 protoc 的输出再加一行自己的标记,所以看注释块里的全部标记)。
+
+2026-11-22 的数字:
+
+| 项目 | 生成(工厂 / protoc·sqlc) | 手写 | 手写占比 | 只算工厂 |
+|---|---|---|---|---|
+| 本仓库 | 20041(6718 / 13323) | 592(internal/ 394 = 6 个 compute 逻辑, cmd/ 169, 逃生 SQL 29) | 2.9% | 8.1% |
+| storefront-v2/catalog | 1768(514 / 1254) | 5(cmd/server/main.go) | 0.3% | 1.0% |
+| storefront-v2/inventory | 1093(347 / 746) | 5 | 0.5% | 1.4% |
+| storefront-v2/notification | 556(180 / 376) | 5 | 0.9% | 2.7% |
+| storefront-v2/order | 1396(475 / 921) | 5 | 0.4% | 1.0% |
+| storefront-v2/payment | 793(245 / 548) | 5 | 0.6% | 2.0% |
+
+storefront-v2 现在只有工厂能做的 API(就绪度 13/28),所以手写几乎为 0;剩下的 API 进来(钩子、逃生口)时这个数才有意义。
