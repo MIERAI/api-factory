@@ -62,6 +62,7 @@ var certDomain = map[string][]any{
 const certRows = 60
 
 type certEnv struct {
+	table  string // 空 = "c"
 	t      *testing.T
 	ctx    context.Context
 	conn   *pgx.Conn
@@ -389,7 +390,11 @@ func TestCertification(t *testing.T) {
 }
 
 func (e *certEnv) tables() map[string][]Row {
-	m := map[string][]Row{"c": e.rows}
+	table := e.table // 时间运算的认证用自己的表名
+	if table == "" {
+		table = "c"
+	}
+	m := map[string][]Row{table: e.rows}
 	for k, v := range e.others {
 		m[k] = v
 	}

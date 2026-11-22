@@ -46,6 +46,9 @@ service JobService {
 
   // まだ終わっていない任務を古い順に返す(分页)
   rpc ListPendingJobs(ListPendingJobsRequest) returns (ListPendingJobsResponse);
+
+  // 今日作成されて、作成から指定した分数を超えても終わっていない任務を古い順に返す(ちょうど N 分前に作成された任務は含まない)
+  rpc ListStalePendingJobs(ListStalePendingJobsRequest) returns (ListStalePendingJobsResponse);
 }
 
 // 按 id 返回一个任务的处理状态
@@ -265,4 +268,28 @@ message ListPendingJobsResponse {
   repeated PendingJob jobs = 1;
   // 还有下一页时不为空
   string next_page_token = 2;
+}
+
+// 任务
+message StalePendingJob {
+  // 任務 id
+  int64 id = 1;
+  // 任務の種類
+  string job_type = 2;
+  // 処理状態
+  JobStatus status = 3;
+  // 作成時刻
+  google.protobuf.Timestamp created_at = 4;
+}
+
+// 今日作成されて、作成から指定した分数を超えても終わっていない任務を古い順に返す(ちょうど N 分前に作成された任務は含まない)
+message ListStalePendingJobsRequest {
+  // 作成からこの分数を超えて終わっていなければ滞留(ちょうどこの分数は含まない)
+  int32 stale_minutes = 1 [(buf.validate.field).int32.gte = 1, (buf.validate.field).int32.lte = 1440];
+}
+
+// 今日作成されて、作成から指定した分数を超えても終わっていない任務を古い順に返す(ちょうど N 分前に作成された任務は含まない)
+message ListStalePendingJobsResponse {
+  // 最多 200 件;超过时返回错误(不会截断)
+  repeated StalePendingJob jobs = 1;
 }

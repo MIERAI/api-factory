@@ -82,8 +82,24 @@ func Run(ctx context.Context, baseURL, fixturesDB string, plan *ir.Plan, specs [
 		}
 		url := fmt.Sprintf("%s/%s.%s/%s", strings.TrimRight(baseURL, "/"), api.ProtoPackage, api.Service, api.Method)
 		out := &api.Response
+		// 用到 now() 的 API: 没有固定 now 的用例(自动生成的校验用例)用第一个人写用例的 now(结果才可复现)
+		defaultNow := ""
+		if api.Pipeline != nil && api.Pipeline.UsesNow() {
+			for _, c := range s.Acceptance.Cases {
+				if c.Now != "" {
+					defaultNow = c.Now
+					break
+				}
+			}
+		}
+		pin := func(c spec.Case) spec.Case {
+			if c.Now == "" {
+				c.Now = defaultNow
+			}
+			return c
+		}
 		for _, c := range s.Acceptance.Cases {
-			ok, detail := runCase(url, c, out)
+			ok, detail := runCase(url, pin(c), out)
 			results = append(results, Result{Spec: s.ID(), Case: c.Name, Passed: ok, Detail: detail})
 		}
 		// 自动生成的机制测试(gen/acceptance/<id>.yaml)
@@ -99,7 +115,7 @@ func Run(ctx context.Context, baseURL, fixturesDB string, plan *ir.Plan, specs [
 					}
 				}
 				for _, c := range suite.Cases {
-					ok, detail := runCase(url, c, out)
+					ok, detail := runCase(url, pin(c), out)
 					results = append(results, Result{Spec: s.ID(), Suite: "auto:" + suite.Name, Case: c.Name, Passed: ok, Detail: detail})
 				}
 			}
@@ -197,6 +213,13 @@ func foreignRefs(ctx context.Context, conn *pgx.Conn) (map[string][]string, erro
 	return out, rows.Err()
 }
 
+// NowKey: 请求(map)里的这个键不是请求字段,是请求开始的时刻(RFC 3339): 验收执行器把它作为请求头 X-Factory-Now 发出
+// (服务器在 FACTORY_TEST_CLOCK=1 时认)。差分测试的请求带着它,用例(spec.Case.Now)也转换成它。
+const NowKey = "$now"
+
+// NowHeader: 测试时固定请求开始时刻的请求头(和运行时的 clock.Header 一致)。
+const NowHeader = "X-Factory-Now"
+
 func runCase(url string, c spec.Case, out *ir.Message) (bool, string) {
 	var prev map[string]any
 	steps := c.AllSteps()
@@ -205,6 +228,9 @@ func runCase(url string, c spec.Case, out *ir.Message) (bool, string) {
 		req, err := substitute(st.Request, prev)
 		if err != nil {
 			return false, fmt.Sprintf("step %d: %v", i+1, err)
+		}
+		if _, ok := req[NowKey]; !ok && c.Now != "" {
+			req[NowKey] = c.Now
 		}
 		ok, detail, got := runStep(url, req, st.Expect, out)
 		if len(steps) > 1 {
@@ -217,6 +243,17 @@ func runCase(url string, c spec.Case, out *ir.Message) (bool, string) {
 		prev = got
 	}
 	return true, strings.Join(details, " | ")
+}
+
+// withoutNow: 去掉 NowKey 的副本(请求体里不能有它)。
+func withoutNow(req map[string]any) map[string]any {
+	out := make(map[string]any, len(req))
+	for k, v := range req {
+		if k != NowKey {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 // substitute 把 "$prev.<field>" 替换成上一步响应里的值。
@@ -237,8 +274,15 @@ func substitute(req map[string]any, prev map[string]any) (map[string]any, error)
 }
 
 func runStep(url string, reqBody map[string]any, expect spec.Expect, out *ir.Message) (bool, string, map[string]any) {
+	now, _ := reqBody[NowKey].(string)
+	if now != "" {
+		reqBody = withoutNow(reqBody)
+	}
 	body, _ := json.Marshal(reqBody)
 	req, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	if now != "" {
+		req.Header.Set(NowHeader, now)
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Connect-Protocol-Version", "1")
 	if t := os.Getenv("API_TOKEN"); t != "" { // 部署后的验收: 服务器 AUTH_MODE=token

@@ -117,7 +117,12 @@ func Compile(specs []*spec.Spec) (*ir.Plan, error) {
 			} else {
 				api.Shard = sh
 			}
-			pl, err := buildPipeline(s, lib, cols, filters, cat, view, lsteps)
+			presence := map[string]bool{} // 请求字段 → 有没有 presence(派生参数的输入用)
+			for j := 0; j < md.Input().Fields().Len(); j++ {
+				fd := md.Input().Fields().Get(j)
+				presence[string(fd.Name())] = fd.HasPresence()
+			}
+			pl, err := buildPipeline(s, lib, cols, filters, cat, view, lsteps, presence)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", s.Path, err)
 			}

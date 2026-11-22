@@ -160,6 +160,7 @@ gen/acceptance/*.yaml                 [AI 实现] factory ai(模型和角色在 
 | handler 骨架、wiring | `factory prepare` |
 | 请求↔查询↔响应的映射 | `factory prepare`(proto 描述符 + gen/db 的 AST) |
 | 分页(游标、多取一行、token 签名/绑定) | `list_keyset` 插件 + `api-factory-runtime/paging` |
+| 查询里的"现在"(派生参数的 `现在`) | `api-factory-runtime/clock`(请求开始的时刻;测试时 `FACTORY_TEST_CLOCK=1` + 请求头 `X-Factory-Now` 固定) |
 
 ## 模型对照试验
 

@@ -26,5 +26,9 @@ entities:
                         6: ORDER_STATUS_CONFIRMED
                         7: ORDER_STATUS_CANCELLED
                 on_unknown: unspecified
-        invariants: []
+        invariants:
+            - rule: status 只能是 1~7
+              enforced: true
+            - rule: updated_at 不早于 created_at
+              enforced: false
 review_decisions: []

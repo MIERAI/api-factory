@@ -673,6 +673,49 @@ func (p *Pipeline) typeOf(e *Expr, cur Schema) (Type, error) {
 			}
 		}
 		return boolT(false), nil
+	case "now":
+		if len(e.Args) != 0 {
+			return Type{}, fmt.Errorf("now 没有参数")
+		}
+		return Type{Kind: Timestamp}, nil
+	case "add", "trunc":
+		want := 2
+		units := map[string]bool{Minute: true, Hour: true, Day: true, Month: true}
+		if e.Op == "trunc" {
+			want, units = 1, map[string]bool{Day: true, Month: true}
+		}
+		if len(e.Args) != want {
+			return Type{}, fmt.Errorf("%s 需要 %d 个参数", e.Op, want)
+		}
+		if !units[e.Name] {
+			return Type{}, fmt.Errorf("%s: 单位 %q 不对", e.Op, e.Name)
+		}
+		if e.Zone != "" {
+			if _, err := loadZone(e.Zone); err != nil {
+				return Type{}, fmt.Errorf("%s: 时区 %q: %v", e.Op, e.Zone, err)
+			}
+		}
+		x, err := p.typeOf(e.Args[0], cur)
+		if err != nil {
+			return Type{}, err
+		}
+		if x.Kind != Date && x.Kind != Timestamp {
+			return Type{}, fmt.Errorf("%s: 只能用于日期 / 时间,实际是 %s", e.Op, x.Kind)
+		}
+		if x.Kind == Date && (e.Name == Minute || e.Name == Hour) {
+			return Type{}, fmt.Errorf("%s: 日期只能加减天 / 月", e.Op)
+		}
+		if e.Op == "add" {
+			n, err := p.typeOf(e.Args[1], cur)
+			if err != nil {
+				return Type{}, err
+			}
+			if n.Kind != Int32 && n.Kind != Int64 {
+				return Type{}, fmt.Errorf("add: 个数必须是整数,实际是 %s", n.Kind)
+			}
+			x.Nullable = x.Nullable || n.Nullable
+		}
+		return x, nil
 	}
 	return Type{}, fmt.Errorf("不认识的表达式元件 %q", e.Op)
 }

@@ -17,6 +17,10 @@
     ListOrdersByCustomerResponse:
         next_page_token: 2
         orders: 1
+    ListStuckOrdersRequest:
+        stuck_minutes: 1
+    ListStuckOrdersResponse:
+        orders: 1
     OrderItem:
         amount: 5
         line_no: 1
@@ -38,3 +42,10 @@
         items_total: 6
         status: 2
         total: 3
+    StuckOrder:
+        created_at: 5
+        customer_id: 2
+        id: 1
+        status: 3
+        total: 4
+        updated_at: 6

@@ -338,6 +338,8 @@ type API struct {
 	ListField  string       // 一览的列表字段名(默认: 表名)
 	Rules      []Behavior
 	Fixtures   *yaml.Node
+	Now        string     // 例子.现在: 用例的请求开始时刻(用到 现在 的 API 必须固定;用例可以各自写 现在)
+	Derived    []*Derived // 派生参数(不出现在请求里)
 	Cases      []*yaml.Node
 	LogicCases []*yaml.Node
 	Reviewed   []QA // X.审查.yaml
@@ -412,14 +414,14 @@ func loadAPI(path string) (*API, error) {
 	}
 	e := &errs{file: path}
 	baseKeys := TopKeys()
-	checkKeys(e, get(root, "例子"), "例子", "准备数据", "用例")
+	checkKeys(e, get(root, "例子"), "例子", "准备数据", "用例", "现在")
 	checkKeys(e, get(root, "分页"), "分页", "默认每页", "每页最多")
 	a := &API{
 		Path: path, Name: str(root, "API"), Desc: str(root, "说明"), Background: str(root, "背景"),
 		Owner: str(root, "负责人"), Source: str(root, "数据来源"), UseColumns: strList(get(root, "使用的列")),
 		InputRules: strList(get(root, "输入之间的规则")), Where: strList(get(root, "固定条件")),
-		ItemName: str(root, "输出行名"), ListField: str(root, "输出列表名"),
-		Fixtures: get(get(root, "例子"), "准备数据"),
+		ItemName:   str(root, "输出行名"), ListField: str(root, "输出列表名"),
+		Fixtures: get(get(root, "例子"), "准备数据"), Now: str(get(root, "例子"), "现在"),
 	}
 	if a.Name == "" {
 		e.add(root.Line, "缺少 API(API 的英文名,例如 ListJobs)")
@@ -552,6 +554,14 @@ func loadAPI(path string) (*API, error) {
 		}
 		a.Inputs = append(a.Inputs, in)
 	}
+	for _, p := range pairs(get(root, "派生参数")) {
+		checkKeys(e, p.Val, "派生参数 "+p.Key, DerivedKeys()...)
+		d := &Derived{Name: p.Key, Expr: str(p.Val, "计算"), Filter: str(p.Val, "筛选"), Desc: str(p.Val, "说明"), Line: p.Line}
+		if d.Expr == "" || d.Filter == "" {
+			e.add(p.Line, "派生参数 %s: 要写 计算 和 筛选(例: { 计算: 现在 - 5 分钟, 筛选: updated_at 小于 })", p.Key)
+		}
+		a.Derived = append(a.Derived, d)
+	}
 	for _, p := range pairs(get(root, "输出")) {
 		o := &Output{Name: p.Key, Line: p.Line}
 		if p.Val.Kind == yaml.ScalarNode {
@@ -588,7 +598,7 @@ func loadAPI(path string) (*API, error) {
 	if c := get(get(root, "例子"), "用例"); c != nil {
 		a.Cases = c.Content
 		for _, x := range c.Content {
-			checkKeys(e, x, "用例", "说明", "输入", "结果")
+			checkKeys(e, x, "用例", "说明", "输入", "结果", "现在")
 		}
 	}
 	if c := get(root, "计算例子"); c != nil {
@@ -709,7 +719,7 @@ func (r tableReader) Column(name, desc, enum string) {
 
 // TopKeys: 设计稿顶层的键(所有种类共用;各种类另外的键在出口的注册表里)。
 func TopKeys() []string {
-	return []string{"API", "说明", "背景", "负责人", "风险", "种类", "数据来源", "关联", "嵌套", "子聚合", "输入", "输入之间的规则", "固定条件",
+	return []string{"API", "说明", "背景", "负责人", "风险", "种类", "数据来源", "关联", "嵌套", "子聚合", "输入", "输入之间的规则", "固定条件", "派生参数",
 		"输出", "输出行名", "输出列表名", "业务规则", "例子", "计算例子"}
 }
 

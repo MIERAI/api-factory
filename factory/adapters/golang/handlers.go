@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"apifactory/factory/core"
 	"apifactory/factory/ir"
 )
 
@@ -240,6 +241,14 @@ func (g *genCtx) paramAssignments(skip func(string) bool) ([]string, error) {
 		if skip(f.Name) {
 			continue
 		}
+		if norm(f.Name) == norm(core.NowParam) { // now(): 请求开始的时刻(运行时的时钟;测试时由请求头固定),不来自请求
+			if f.Type != "time.Time" {
+				return nil, fmt.Errorf("query param %s: type %s, want time.Time", f.Name, f.Type)
+			}
+			g.use(runtimeModule+"/clock", "")
+			lines = append(lines, fmt.Sprintf("%s: clock.Now(ctx),", f.Name))
+			continue
+		}
 		if e, ok, err := g.memberExpr(f.Name, f.Type); ok || err != nil { // 组的列表的一个字段
 			if err != nil {
 				return nil, err
@@ -298,6 +307,9 @@ func (g *genCtx) queryCall0() (string, error) {
 			return "", err
 		}
 		return fmt.Sprintf("h.q.%s(ctx, db.%s{\n%s\n})", name, g.query.ParamType, strings.Join(lines, "\n")), nil
+	case norm(g.query.ParamName) == norm(core.NowParam): // 唯一的参数是 now()
+		g.use(runtimeModule+"/clock", "")
+		return fmt.Sprintf("h.q.%s(ctx, clock.Now(ctx))", name), nil
 	default:
 		rf, err := g.requestField(g.query.ParamName)
 		if err != nil {

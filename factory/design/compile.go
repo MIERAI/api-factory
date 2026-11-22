@@ -659,6 +659,13 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 	s.Pattern = a.Pattern
 	s.Pattern.Kind = a.Kind
 	s.Datasource = spec.Datasource{Table: table, Filters: filters, Where: a.Where, Lookups: lookups, Nests: nests, ChildAggs: childAggs}
+	derived, usesNow := c.compileDerived(a, table, e)
+	if len(derived) > 0 {
+		if a.Exit.AI && a.Kind == "custom" {
+			e.add(1, "派生参数 不能用于 %s(查询由 AI 写)", a.Exit.Name)
+		}
+		s.Datasource.Derived = derived
+	}
 	for _, w := range a.Where { // 固定条件: 写法 / 列名 / 常量的类型在这里就检查
 		if _, err := where.Parse(w, compiler.WhereTypes(c.cat[table])); err != nil {
 			e.add(1, "%v", err)
@@ -682,7 +689,7 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 	if len(lookups)+len(nests)+len(childAggs) > 0 { // 例子: 准备数据按表的真实的列
 		c.cat[table] = rawCols
 	}
-	if err := c.examples(a, s, req, resp, itemKey); err != nil {
+	if err := c.examples(a, s, req, resp, itemKey, usesNow); err != nil {
 		return nil, "", err
 	}
 	var related []string // 准备数据里没写的关联 / 嵌套 / 子聚合的表 = 空表(不能留着别的用例的数据)

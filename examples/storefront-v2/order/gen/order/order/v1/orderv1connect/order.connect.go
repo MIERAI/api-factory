@@ -41,6 +41,9 @@ const (
 	// OrderServiceListOrdersByCustomerProcedure is the fully-qualified name of the OrderService's
 	// ListOrdersByCustomer RPC.
 	OrderServiceListOrdersByCustomerProcedure = "/order.order.v1.OrderService/ListOrdersByCustomer"
+	// OrderServiceListStuckOrdersProcedure is the fully-qualified name of the OrderService's
+	// ListStuckOrders RPC.
+	OrderServiceListStuckOrdersProcedure = "/order.order.v1.OrderService/ListStuckOrders"
 )
 
 // OrderServiceClient is a client for the order.order.v1.OrderService service.
@@ -49,6 +52,8 @@ type OrderServiceClient interface {
 	GetOrder(context.Context, *connect.Request[v1.GetOrderRequest]) (*connect.Response[v1.GetOrderResponse], error)
 	// 返回一个顾客的订单(新到旧,分页),每个订单带明细的行数和明细金额的合计
 	ListOrdersByCustomer(context.Context, *connect.Request[v1.ListOrdersByCustomerRequest]) (*connect.Response[v1.ListOrdersByCustomerResponse], error)
+	// 返回在等待状态(库存预留 / 支付 / 库存确认 / 库存释放)里停留超过指定分钟数的订单,最后一次状态转移早的在前
+	ListStuckOrders(context.Context, *connect.Request[v1.ListStuckOrdersRequest]) (*connect.Response[v1.ListStuckOrdersResponse], error)
 }
 
 // NewOrderServiceClient constructs a client for the order.order.v1.OrderService service. By
@@ -74,6 +79,12 @@ func NewOrderServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(orderServiceMethods.ByName("ListOrdersByCustomer")),
 			connect.WithClientOptions(opts...),
 		),
+		listStuckOrders: connect.NewClient[v1.ListStuckOrdersRequest, v1.ListStuckOrdersResponse](
+			httpClient,
+			baseURL+OrderServiceListStuckOrdersProcedure,
+			connect.WithSchema(orderServiceMethods.ByName("ListStuckOrders")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -81,6 +92,7 @@ func NewOrderServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 type orderServiceClient struct {
 	getOrder             *connect.Client[v1.GetOrderRequest, v1.GetOrderResponse]
 	listOrdersByCustomer *connect.Client[v1.ListOrdersByCustomerRequest, v1.ListOrdersByCustomerResponse]
+	listStuckOrders      *connect.Client[v1.ListStuckOrdersRequest, v1.ListStuckOrdersResponse]
 }
 
 // GetOrder calls order.order.v1.OrderService.GetOrder.
@@ -93,12 +105,19 @@ func (c *orderServiceClient) ListOrdersByCustomer(ctx context.Context, req *conn
 	return c.listOrdersByCustomer.CallUnary(ctx, req)
 }
 
+// ListStuckOrders calls order.order.v1.OrderService.ListStuckOrders.
+func (c *orderServiceClient) ListStuckOrders(ctx context.Context, req *connect.Request[v1.ListStuckOrdersRequest]) (*connect.Response[v1.ListStuckOrdersResponse], error) {
+	return c.listStuckOrders.CallUnary(ctx, req)
+}
+
 // OrderServiceHandler is an implementation of the order.order.v1.OrderService service.
 type OrderServiceHandler interface {
 	// 返回一个订单和它的明细(按行号)
 	GetOrder(context.Context, *connect.Request[v1.GetOrderRequest]) (*connect.Response[v1.GetOrderResponse], error)
 	// 返回一个顾客的订单(新到旧,分页),每个订单带明细的行数和明细金额的合计
 	ListOrdersByCustomer(context.Context, *connect.Request[v1.ListOrdersByCustomerRequest]) (*connect.Response[v1.ListOrdersByCustomerResponse], error)
+	// 返回在等待状态(库存预留 / 支付 / 库存确认 / 库存释放)里停留超过指定分钟数的订单,最后一次状态转移早的在前
+	ListStuckOrders(context.Context, *connect.Request[v1.ListStuckOrdersRequest]) (*connect.Response[v1.ListStuckOrdersResponse], error)
 }
 
 // NewOrderServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -120,12 +139,20 @@ func NewOrderServiceHandler(svc OrderServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(orderServiceMethods.ByName("ListOrdersByCustomer")),
 		connect.WithHandlerOptions(opts...),
 	)
+	orderServiceListStuckOrdersHandler := connect.NewUnaryHandler(
+		OrderServiceListStuckOrdersProcedure,
+		svc.ListStuckOrders,
+		connect.WithSchema(orderServiceMethods.ByName("ListStuckOrders")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/order.order.v1.OrderService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case OrderServiceGetOrderProcedure:
 			orderServiceGetOrderHandler.ServeHTTP(w, r)
 		case OrderServiceListOrdersByCustomerProcedure:
 			orderServiceListOrdersByCustomerHandler.ServeHTTP(w, r)
+		case OrderServiceListStuckOrdersProcedure:
+			orderServiceListStuckOrdersHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -141,4 +168,8 @@ func (UnimplementedOrderServiceHandler) GetOrder(context.Context, *connect.Reque
 
 func (UnimplementedOrderServiceHandler) ListOrdersByCustomer(context.Context, *connect.Request[v1.ListOrdersByCustomerRequest]) (*connect.Response[v1.ListOrdersByCustomerResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("order.order.v1.OrderService.ListOrdersByCustomer is not implemented"))
+}
+
+func (UnimplementedOrderServiceHandler) ListStuckOrders(context.Context, *connect.Request[v1.ListStuckOrdersRequest]) (*connect.Response[v1.ListStuckOrdersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("order.order.v1.OrderService.ListStuckOrders is not implemented"))
 }

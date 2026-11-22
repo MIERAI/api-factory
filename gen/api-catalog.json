@@ -730,6 +730,60 @@
     ]
   },
   {
+    "id": "jobs.list-stale-pending-jobs",
+    "method": "ListStalePendingJobs",
+    "summary": "今日作成されて、作成から指定した分数を超えても終わっていない任務を古い順に返す(ちょうど N 分前に作成された任務は含まない)",
+    "path": "/factory.jobs.v1.JobService/ListStalePendingJobs",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "作成から 30 分を超えた今日の任務(ちょうど 30 分前に作成された 3 は含まない;昨日の任務は含まない;FAILED でも finished_at が空の 6 は含む)",
+        "request": {
+          "stale_minutes": 30
+        },
+        "response": {
+          "jobs": [
+            {
+              "id": 2
+            },
+            {
+              "id": 6,
+              "status": "JOB_STATUS_FAILED"
+            }
+          ]
+        }
+      },
+      {
+        "name": "29 分にすると、30 分前の任務も入る",
+        "request": {
+          "stale_minutes": 29
+        },
+        "response": {
+          "jobs": [
+            {
+              "id": 2
+            },
+            {
+              "id": 6
+            },
+            {
+              "id": 3
+            }
+          ]
+        }
+      },
+      {
+        "name": "日付が変わった直後は、昨日の任務は対象外",
+        "request": {
+          "stale_minutes": 1
+        },
+        "response": {
+          "jobs": []
+        }
+      }
+    ]
+  },
+  {
     "id": "logistics.list-shipment-packages",
     "method": "ListShipmentPackages",
     "summary": "出荷日の出荷を、封緘済みの梱包(重い順)と梱包の集計つきで返す",
@@ -1612,6 +1666,71 @@
             },
             {
               "product_code": "F"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "sales.list-prev-month-sales",
+    "method": "ListPrevMonthSales",
+    "summary": "店舗と基準日を指定して、基準日の前月(1 日〜末日)の日別売上を古い日から返す",
+    "path": "/factory.sales.v1.SaleService/ListPrevMonthSales",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "3/31 の前月 = 2/1〜2/28(1 か月前に 31 日がない → 2 月の末日)",
+        "request": {
+          "base_date": "2026-03-31",
+          "store_code": 1
+        },
+        "response": {
+          "daily_sales": [
+            {
+              "amount": "110",
+              "discount": "5",
+              "sales_date": "2026-02-01"
+            },
+            {
+              "sales_date": "2026-02-15"
+            },
+            {
+              "sales_date": "2026-02-28"
+            }
+          ]
+        }
+      },
+      {
+        "name": "月初の日でも前月全体",
+        "request": {
+          "base_date": "2026-03-01",
+          "store_code": 1
+        },
+        "response": {
+          "daily_sales": [
+            {
+              "sales_date": "2026-02-01"
+            },
+            {
+              "sales_date": "2026-02-15"
+            },
+            {
+              "sales_date": "2026-02-28"
+            }
+          ]
+        }
+      },
+      {
+        "name": "2/28 の前月 = 1 月(1/31 だけ)",
+        "request": {
+          "base_date": "2026-02-28",
+          "store_code": 1
+        },
+        "response": {
+          "daily_sales": [
+            {
+              "sales_date": "2026-01-31"
             }
           ]
         }

@@ -309,7 +309,7 @@ func (c *ctx) expectItem(item *message, n *yaml.Node) (map[string]any, error) {
 }
 
 // examples: 例子 / 计算例子 → acceptance / logic_examples
-func (c *ctx) examples(a *API, s *spec.Spec, req, resp *message, itemKey string) error {
+func (c *ctx) examples(a *API, s *spec.Spec, req, resp *message, itemKey string, usesNow bool) error {
 	wrap := func(err error) error { return fmt.Errorf("%s: 例子: %w", a.Path, err) }
 	if a.Fixtures != nil {
 		s.Acceptance.Fixtures = map[string][]map[string]any{}
@@ -333,7 +333,25 @@ func (c *ctx) examples(a *API, s *spec.Spec, req, resp *message, itemKey string)
 		if err != nil {
 			return wrap(err)
 		}
-		s.Acceptance.Cases = append(s.Acceptance.Cases, spec.Case{Name: str(n, "说明"), Request: r, Expect: ex})
+		cs := spec.Case{Name: str(n, "说明"), Request: r, Expect: ex}
+		// 现在: 用到 现在 的 API 的用例必须固定请求开始的时刻(用例的 现在 > 例子的 现在),否则结果随时间变
+		now := str(n, "现在")
+		if now == "" {
+			now = a.Now
+		}
+		switch {
+		case usesNow && now == "":
+			return wrap(fmt.Errorf("用例 %q: 派生参数用到了 现在,例子(或这个用例)要写 现在(例: 现在: \"2026-11-01 09:00\",按领域的时区)", cs.Name))
+		case !usesNow && now != "":
+			return wrap(fmt.Errorf("用例 %q: 写了 现在,但没有派生参数用到 现在", cs.Name))
+		case now != "":
+			t, err := c.parseTime(now)
+			if err != nil {
+				return wrap(fmt.Errorf("用例 %q 的 现在: %v", cs.Name, err))
+			}
+			cs.Now = utc(t)
+		}
+		s.Acceptance.Cases = append(s.Acceptance.Cases, cs)
 	}
 	for _, n := range a.LogicCases {
 		le := spec.LogicExample{Name: str(n, "说明")}

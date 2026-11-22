@@ -58,6 +58,9 @@ const (
 	// JobServiceListPendingJobsProcedure is the fully-qualified name of the JobService's
 	// ListPendingJobs RPC.
 	JobServiceListPendingJobsProcedure = "/factory.jobs.v1.JobService/ListPendingJobs"
+	// JobServiceListStalePendingJobsProcedure is the fully-qualified name of the JobService's
+	// ListStalePendingJobs RPC.
+	JobServiceListStalePendingJobsProcedure = "/factory.jobs.v1.JobService/ListStalePendingJobs"
 )
 
 // JobServiceClient is a client for the factory.jobs.v1.JobService service.
@@ -78,6 +81,8 @@ type JobServiceClient interface {
 	ListLatestJobPerType(context.Context, *connect.Request[v1.ListLatestJobPerTypeRequest]) (*connect.Response[v1.ListLatestJobPerTypeResponse], error)
 	// まだ終わっていない任務を古い順に返す(分页)
 	ListPendingJobs(context.Context, *connect.Request[v1.ListPendingJobsRequest]) (*connect.Response[v1.ListPendingJobsResponse], error)
+	// 今日作成されて、作成から指定した分数を超えても終わっていない任務を古い順に返す(ちょうど N 分前に作成された任務は含まない)
+	ListStalePendingJobs(context.Context, *connect.Request[v1.ListStalePendingJobsRequest]) (*connect.Response[v1.ListStalePendingJobsResponse], error)
 }
 
 // NewJobServiceClient constructs a client for the factory.jobs.v1.JobService service. By default,
@@ -139,6 +144,12 @@ func NewJobServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(jobServiceMethods.ByName("ListPendingJobs")),
 			connect.WithClientOptions(opts...),
 		),
+		listStalePendingJobs: connect.NewClient[v1.ListStalePendingJobsRequest, v1.ListStalePendingJobsResponse](
+			httpClient,
+			baseURL+JobServiceListStalePendingJobsProcedure,
+			connect.WithSchema(jobServiceMethods.ByName("ListStalePendingJobs")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -152,6 +163,7 @@ type jobServiceClient struct {
 	listLatestFinishedJobs *connect.Client[v1.ListLatestFinishedJobsRequest, v1.ListLatestFinishedJobsResponse]
 	listLatestJobPerType   *connect.Client[v1.ListLatestJobPerTypeRequest, v1.ListLatestJobPerTypeResponse]
 	listPendingJobs        *connect.Client[v1.ListPendingJobsRequest, v1.ListPendingJobsResponse]
+	listStalePendingJobs   *connect.Client[v1.ListStalePendingJobsRequest, v1.ListStalePendingJobsResponse]
 }
 
 // GetJobStatus calls factory.jobs.v1.JobService.GetJobStatus.
@@ -194,6 +206,11 @@ func (c *jobServiceClient) ListPendingJobs(ctx context.Context, req *connect.Req
 	return c.listPendingJobs.CallUnary(ctx, req)
 }
 
+// ListStalePendingJobs calls factory.jobs.v1.JobService.ListStalePendingJobs.
+func (c *jobServiceClient) ListStalePendingJobs(ctx context.Context, req *connect.Request[v1.ListStalePendingJobsRequest]) (*connect.Response[v1.ListStalePendingJobsResponse], error) {
+	return c.listStalePendingJobs.CallUnary(ctx, req)
+}
+
 // JobServiceHandler is an implementation of the factory.jobs.v1.JobService service.
 type JobServiceHandler interface {
 	// 按 id 返回一个任务的处理状态
@@ -212,6 +229,8 @@ type JobServiceHandler interface {
 	ListLatestJobPerType(context.Context, *connect.Request[v1.ListLatestJobPerTypeRequest]) (*connect.Response[v1.ListLatestJobPerTypeResponse], error)
 	// まだ終わっていない任務を古い順に返す(分页)
 	ListPendingJobs(context.Context, *connect.Request[v1.ListPendingJobsRequest]) (*connect.Response[v1.ListPendingJobsResponse], error)
+	// 今日作成されて、作成から指定した分数を超えても終わっていない任務を古い順に返す(ちょうど N 分前に作成された任務は含まない)
+	ListStalePendingJobs(context.Context, *connect.Request[v1.ListStalePendingJobsRequest]) (*connect.Response[v1.ListStalePendingJobsResponse], error)
 }
 
 // NewJobServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -269,6 +288,12 @@ func NewJobServiceHandler(svc JobServiceHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(jobServiceMethods.ByName("ListPendingJobs")),
 		connect.WithHandlerOptions(opts...),
 	)
+	jobServiceListStalePendingJobsHandler := connect.NewUnaryHandler(
+		JobServiceListStalePendingJobsProcedure,
+		svc.ListStalePendingJobs,
+		connect.WithSchema(jobServiceMethods.ByName("ListStalePendingJobs")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/factory.jobs.v1.JobService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case JobServiceGetJobStatusProcedure:
@@ -287,6 +312,8 @@ func NewJobServiceHandler(svc JobServiceHandler, opts ...connect.HandlerOption) 
 			jobServiceListLatestJobPerTypeHandler.ServeHTTP(w, r)
 		case JobServiceListPendingJobsProcedure:
 			jobServiceListPendingJobsHandler.ServeHTTP(w, r)
+		case JobServiceListStalePendingJobsProcedure:
+			jobServiceListStalePendingJobsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -326,4 +353,8 @@ func (UnimplementedJobServiceHandler) ListLatestJobPerType(context.Context, *con
 
 func (UnimplementedJobServiceHandler) ListPendingJobs(context.Context, *connect.Request[v1.ListPendingJobsRequest]) (*connect.Response[v1.ListPendingJobsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.jobs.v1.JobService.ListPendingJobs is not implemented"))
+}
+
+func (UnimplementedJobServiceHandler) ListStalePendingJobs(context.Context, *connect.Request[v1.ListStalePendingJobsRequest]) (*connect.Response[v1.ListStalePendingJobsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.jobs.v1.JobService.ListStalePendingJobs is not implemented"))
 }

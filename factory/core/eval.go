@@ -446,6 +446,33 @@ func (p *Pipeline) eval(e *Expr, r Row, schema Schema, params Params) (any, erro
 			return true, nil
 		}
 		return false, nil
+	case "now":
+		t, ok := params[NowParam].(time.Time)
+		if !ok {
+			return nil, fmt.Errorf("now(): 参数 %s 没有给(测试要固定请求开始的时刻)", NowParam)
+		}
+		return t.UTC(), nil
+	case "add", "trunc":
+		t, err := p.typeOf(e.Args[0], schema)
+		if err != nil {
+			return nil, err
+		}
+		x, err := p.eval(e.Args[0], r, schema, params)
+		if err != nil || x == nil {
+			return nil, err
+		}
+		if e.Op == "trunc" {
+			return truncTime(x.(time.Time), e.Name, t.Kind, e.Zone)
+		}
+		n, err := p.eval(e.Args[1], r, schema, params)
+		if err != nil || n == nil {
+			return nil, err
+		}
+		k := n.(int64)
+		if e.Neg {
+			k = -k
+		}
+		return addTime(x.(time.Time), k, e.Name, t.Kind, e.Zone)
 	}
 	return nil, fmt.Errorf("eval: unknown expr %q", e.Op)
 }

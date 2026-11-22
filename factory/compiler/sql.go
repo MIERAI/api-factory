@@ -36,6 +36,9 @@ func resolveFilters(s *spec.Spec, md protoreflect.MethodDescriptor, cat *catalog
 		if ex, ok := exits.ByKind(s.PatternKind()); ok && ex.RequestNames(s.Pattern)[name] { // 出口加的字段(page_size …)不是筛选条件
 			continue
 		}
+		if ds.DerivedInputs()[name] { // 派生参数的输入(例: N 分钟)不直接筛选列
+			continue
+		}
 		f, ok := ds.Filters[name]
 		if !ok {
 			f, ok = conventionFilter(name, table, cat)

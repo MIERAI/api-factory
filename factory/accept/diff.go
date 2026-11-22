@@ -79,6 +79,7 @@ type diffEnv struct {
 	fks       map[string][]fkRef             // 表 → 它的外键(关联条件推出来的: 这些列的值要从对方的键里取)
 	view      core.Schema                    // 来源 + 关联之后的列(筛选的列可能是关联加的列)
 	children  []*childTable                  // 嵌套 / 子聚合的子表(在来源的表之后造;diffnest.go)
+	tm        timeState                      // 派生参数(时间运算): 探针、边界(diff_time.go)
 }
 
 // rawCol: 投影成的列 → 物理列(没有投影 → 原样)。
@@ -256,7 +257,7 @@ func (e *diffEnv) collect() {
 // invalid: 请求按 proto 的校验规则(protovalidate,和服务器同一套规则)是否不合法。
 // 随机请求会违反输入之间的规则(例如 created_after < created_before),这时期待 INVALID_ARGUMENT。
 func (e *diffEnv) invalid(req map[string]any) (bool, error) {
-	b, err := json.Marshal(req)
+	b, err := json.Marshal(withoutNow(req))
 	if err != nil {
 		return false, err
 	}
@@ -315,6 +316,7 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 	if env.out, err = core.Check(p); err != nil {
 		return fail("流水线: %v", err)
 	}
+	env.collectDerived()
 	if _, err := conn.Exec(ctx, "SET TimeZone = 'UTC'"); err != nil {
 		return fail("%v", err)
 	}
@@ -347,7 +349,7 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 
 	// 没有输入的 API: 只有一种请求,能变的只有数据 → 跑好几份数据,覆盖条件累计起来判定
 	// (例: 前N条 取最新的 1 行,"最新的那一行被删除"在一份数据里很难碰到)
-	if len(env.userParams()) == 0 {
+	if len(env.userParams()) == 0 && len(env.tm.probes) == 0 {
 		var results []Result
 		var total coverage
 		for k := 0; k < 6; k++ {
@@ -828,6 +830,12 @@ func (e *diffEnv) scalarFor(col string, kind core.Kind, unique bool, i int) any 
 			return v
 		}
 	}
+	// 和派生参数比较的列: 约 2/3 的行落在某个探针的边界上(−1 / 正好 / +1)。唯一列也这样(重复的行被数据库拒绝、跳过)
+	if len(e.tm.cmps) > 0 && (kind == core.Date || kind == core.Timestamp) && e.rnd.Intn(3) != 0 {
+		if v := e.boundaryValue(col); v != nil {
+			return v
+		}
+	}
 	if e.groupCols[col] && !e.nkCols[col] && !unique { // 密集的列: 3 个值(多版本来源的自然键除外: 键要多样)
 		// 每组取一条的键: 约 1/4 的行用独有的值(组里只有一行)。只看"组存不存在"的 API(只输出键)里,
 		// 删除 / 逻辑删除只有在组里只剩这一行时才看得出来(试用: 按 code 去重的存在检查)
@@ -1216,7 +1224,8 @@ func (e *diffEnv) requests() []core.Params {
 		out = append(out, ps)
 	}
 	out = append(out, e.sweep(seen)...)
-	return append(out, e.directed(out, seen)...)
+	out = append(out, e.directed(out, seen)...)
+	return e.spreadProbes(out) // 派生参数: 每个请求带一组探针(now + 输入)
 }
 
 func (e *diffEnv) describe(ps core.Params) string {
@@ -1305,9 +1314,18 @@ func (e *diffEnv) request(ps core.Params) map[string]any {
 		}
 	}
 	for k, v := range ps {
-		if !member[k] {
-			req[k] = e.present(e.filter[k].Column, v)
+		if member[k] {
+			continue
 		}
+		if k == core.NowParam { // now: 请求头 X-Factory-Now(不是请求字段)
+			req[NowKey] = nowText(v)
+			continue
+		}
+		if x, ok := e.presentInput(k, v); ok { // 派生参数的输入: 按参数的类型表示(没有对应的列)
+			req[k] = x
+			continue
+		}
+		req[k] = e.present(e.filter[k].Column, v)
 	}
 	return req
 }
@@ -1316,6 +1334,7 @@ func (e *diffEnv) request(ps core.Params) map[string]any {
 // 和已知的字段都相等的第一行(现存的行优先,再找旧版本);找不到时用数据里不存在的值。
 // 随机 / 扫描 / 定向生成的请求只设了部分字段时也能变成合法的组。
 func (e *diffEnv) align(ps core.Params) core.Params {
+	ps = e.complete(ps) // 派生参数: 缺少探针的请求补上一组(确定的)
 	if len(e.tuples) == 0 {
 		return ps
 	}
@@ -2162,7 +2181,7 @@ func (e *diffEnv) sensTargets() []sensTarget {
 			}
 		}
 	}
-	return append(append(out, e.lookupTargets()...), e.nestTargets()...)
+	return append(append(append(out, e.lookupTargets()...), e.nestTargets()...), e.timeTargets()...) // 关联 / 嵌套 / 派生参数
 }
 
 // refersParam: 表达式里有没有请求参数(param / absent / 列表参数的元件)。
@@ -2171,7 +2190,7 @@ func refersParam(x *core.Expr) bool {
 		return false
 	}
 	switch x.Op {
-	case "param", "absent", "in_list", "starts_with", "tuple_after", "in_tuples":
+	case "param", "absent", "in_list", "starts_with", "tuple_after", "in_tuples", "now":
 		return true
 	}
 	for _, a := range x.Args {

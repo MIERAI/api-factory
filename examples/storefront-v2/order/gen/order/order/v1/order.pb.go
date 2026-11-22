@@ -26,24 +26,24 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// 订单的状态(下单的 saga 依次 预留库存 → 扣款 → 确认;失败时释放)
+// 订单的状态(下单 saga 的步骤)
 type OrderStatus int32
 
 const (
 	OrderStatus_ORDER_STATUS_UNSPECIFIED OrderStatus = 0
-	// 已受理
+	// 已下单(saga 还没开始)
 	OrderStatus_ORDER_STATUS_PENDING OrderStatus = 1
-	// 预留库存中
+	// 等待库存预留
 	OrderStatus_ORDER_STATUS_RESERVING OrderStatus = 2
-	// 扣款中
+	// 等待支付
 	OrderStatus_ORDER_STATUS_CHARGING OrderStatus = 3
-	// 确认中
+	// 等待库存确认
 	OrderStatus_ORDER_STATUS_CONFIRMING OrderStatus = 4
-	// 释放中(失败的补偿)
+	// 等待库存释放(补偿)
 	OrderStatus_ORDER_STATUS_RELEASING OrderStatus = 5
-	// 已确认
+	// 已确认(完成)
 	OrderStatus_ORDER_STATUS_CONFIRMED OrderStatus = 6
-	// 已取消
+	// 已取消(补偿完成)
 	OrderStatus_ORDER_STATUS_CANCELLED OrderStatus = 7
 )
 
@@ -326,7 +326,7 @@ func (x *GetOrderResponse) GetItems() []*OrderItem {
 	return nil
 }
 
-// 订单(1 个订单 1 行。状态由下单的 saga 推进)
+// 订单。saga 的状态记在订单上,每次状态转移都更新 updated_at
 type OrderSummary struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 订单号
@@ -535,6 +535,189 @@ func (x *ListOrdersByCustomerResponse) GetNextPageToken() string {
 	return ""
 }
 
+// 订单。saga 的状态记在订单上,每次状态转移都更新 updated_at
+type StuckOrder struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 订单号
+	Id int64 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	// 顾客 id
+	CustomerId int64 `protobuf:"varint,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`
+	// 状态
+	Status OrderStatus `protobuf:"varint,3,opt,name=status,proto3,enum=order.order.v1.OrderStatus" json:"status,omitempty"`
+	// 合计金额
+	Total string `protobuf:"bytes,4,opt,name=total,proto3" json:"total,omitempty"`
+	// 下单时间
+	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	// 最后一次状态转移的时间
+	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StuckOrder) Reset() {
+	*x = StuckOrder{}
+	mi := &file_order_order_v1_order_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StuckOrder) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StuckOrder) ProtoMessage() {}
+
+func (x *StuckOrder) ProtoReflect() protoreflect.Message {
+	mi := &file_order_order_v1_order_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StuckOrder.ProtoReflect.Descriptor instead.
+func (*StuckOrder) Descriptor() ([]byte, []int) {
+	return file_order_order_v1_order_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *StuckOrder) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *StuckOrder) GetCustomerId() int64 {
+	if x != nil {
+		return x.CustomerId
+	}
+	return 0
+}
+
+func (x *StuckOrder) GetStatus() OrderStatus {
+	if x != nil {
+		return x.Status
+	}
+	return OrderStatus_ORDER_STATUS_UNSPECIFIED
+}
+
+func (x *StuckOrder) GetTotal() string {
+	if x != nil {
+		return x.Total
+	}
+	return ""
+}
+
+func (x *StuckOrder) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *StuckOrder) GetUpdatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return nil
+}
+
+// 返回在等待状态(库存预留 / 支付 / 库存确认 / 库存释放)里停留超过指定分钟数的订单,最后一次状态转移早的在前
+type ListStuckOrdersRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 停留超过这个分钟数算卡住
+	StuckMinutes  int32 `protobuf:"varint,1,opt,name=stuck_minutes,json=stuckMinutes,proto3" json:"stuck_minutes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListStuckOrdersRequest) Reset() {
+	*x = ListStuckOrdersRequest{}
+	mi := &file_order_order_v1_order_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListStuckOrdersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListStuckOrdersRequest) ProtoMessage() {}
+
+func (x *ListStuckOrdersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_order_order_v1_order_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListStuckOrdersRequest.ProtoReflect.Descriptor instead.
+func (*ListStuckOrdersRequest) Descriptor() ([]byte, []int) {
+	return file_order_order_v1_order_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *ListStuckOrdersRequest) GetStuckMinutes() int32 {
+	if x != nil {
+		return x.StuckMinutes
+	}
+	return 0
+}
+
+// 返回在等待状态(库存预留 / 支付 / 库存确认 / 库存释放)里停留超过指定分钟数的订单,最后一次状态转移早的在前
+type ListStuckOrdersResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 最多 100 件;超过时返回错误(不会截断)
+	Orders        []*StuckOrder `protobuf:"bytes,1,rep,name=orders,proto3" json:"orders,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListStuckOrdersResponse) Reset() {
+	*x = ListStuckOrdersResponse{}
+	mi := &file_order_order_v1_order_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListStuckOrdersResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListStuckOrdersResponse) ProtoMessage() {}
+
+func (x *ListStuckOrdersResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_order_order_v1_order_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListStuckOrdersResponse.ProtoReflect.Descriptor instead.
+func (*ListStuckOrdersResponse) Descriptor() ([]byte, []int) {
+	return file_order_order_v1_order_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *ListStuckOrdersResponse) GetOrders() []*StuckOrder {
+	if x != nil {
+		return x.Orders
+	}
+	return nil
+}
+
 var File_order_order_v1_order_proto protoreflect.FileDescriptor
 
 const file_order_order_v1_order_proto_rawDesc = "" +
@@ -577,7 +760,23 @@ const file_order_order_v1_order_proto_rawDesc = "" +
 	"customerId\"|\n" +
 	"\x1cListOrdersByCustomerResponse\x124\n" +
 	"\x06orders\x18\x01 \x03(\v2\x1c.order.order.v1.OrderSummaryR\x06orders\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken*\xed\x01\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xfe\x01\n" +
+	"\n" +
+	"StuckOrder\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x1f\n" +
+	"\vcustomer_id\x18\x02 \x01(\x03R\n" +
+	"customerId\x123\n" +
+	"\x06status\x18\x03 \x01(\x0e2\x1b.order.order.v1.OrderStatusR\x06status\x12\x14\n" +
+	"\x05total\x18\x04 \x01(\tR\x05total\x129\n" +
+	"\n" +
+	"created_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
+	"\n" +
+	"updated_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"I\n" +
+	"\x16ListStuckOrdersRequest\x12/\n" +
+	"\rstuck_minutes\x18\x01 \x01(\x05B\n" +
+	"\xbaH\a\x1a\x05\x18\xa0\v(\x01R\fstuckMinutes\"M\n" +
+	"\x17ListStuckOrdersResponse\x122\n" +
+	"\x06orders\x18\x01 \x03(\v2\x1a.order.order.v1.StuckOrderR\x06orders*\xed\x01\n" +
 	"\vOrderStatus\x12\x1c\n" +
 	"\x18ORDER_STATUS_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14ORDER_STATUS_PENDING\x10\x01\x12\x1a\n" +
@@ -586,10 +785,11 @@ const file_order_order_v1_order_proto_rawDesc = "" +
 	"\x17ORDER_STATUS_CONFIRMING\x10\x04\x12\x1a\n" +
 	"\x16ORDER_STATUS_RELEASING\x10\x05\x12\x1a\n" +
 	"\x16ORDER_STATUS_CONFIRMED\x10\x06\x12\x1a\n" +
-	"\x16ORDER_STATUS_CANCELLED\x10\a2\xd0\x01\n" +
+	"\x16ORDER_STATUS_CANCELLED\x10\a2\xb4\x02\n" +
 	"\fOrderService\x12M\n" +
 	"\bGetOrder\x12\x1f.order.order.v1.GetOrderRequest\x1a .order.order.v1.GetOrderResponse\x12q\n" +
-	"\x14ListOrdersByCustomer\x12+.order.order.v1.ListOrdersByCustomerRequest\x1a,.order.order.v1.ListOrdersByCustomerResponseBHZFgithub.com/MIERAI/storefront/services/order/gen/order/order/v1;orderv1b\x06proto3"
+	"\x14ListOrdersByCustomer\x12+.order.order.v1.ListOrdersByCustomerRequest\x1a,.order.order.v1.ListOrdersByCustomerResponse\x12b\n" +
+	"\x0fListStuckOrders\x12&.order.order.v1.ListStuckOrdersRequest\x1a'.order.order.v1.ListStuckOrdersResponseBHZFgithub.com/MIERAI/storefront/services/order/gen/order/order/v1;orderv1b\x06proto3"
 
 var (
 	file_order_order_v1_order_proto_rawDescOnce sync.Once
@@ -604,7 +804,7 @@ func file_order_order_v1_order_proto_rawDescGZIP() []byte {
 }
 
 var file_order_order_v1_order_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_order_order_v1_order_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_order_order_v1_order_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_order_order_v1_order_proto_goTypes = []any{
 	(OrderStatus)(0),                     // 0: order.order.v1.OrderStatus
 	(*OrderItem)(nil),                    // 1: order.order.v1.OrderItem
@@ -613,25 +813,34 @@ var file_order_order_v1_order_proto_goTypes = []any{
 	(*OrderSummary)(nil),                 // 4: order.order.v1.OrderSummary
 	(*ListOrdersByCustomerRequest)(nil),  // 5: order.order.v1.ListOrdersByCustomerRequest
 	(*ListOrdersByCustomerResponse)(nil), // 6: order.order.v1.ListOrdersByCustomerResponse
-	(*timestamppb.Timestamp)(nil),        // 7: google.protobuf.Timestamp
+	(*StuckOrder)(nil),                   // 7: order.order.v1.StuckOrder
+	(*ListStuckOrdersRequest)(nil),       // 8: order.order.v1.ListStuckOrdersRequest
+	(*ListStuckOrdersResponse)(nil),      // 9: order.order.v1.ListStuckOrdersResponse
+	(*timestamppb.Timestamp)(nil),        // 10: google.protobuf.Timestamp
 }
 var file_order_order_v1_order_proto_depIdxs = []int32{
-	0, // 0: order.order.v1.GetOrderResponse.status:type_name -> order.order.v1.OrderStatus
-	7, // 1: order.order.v1.GetOrderResponse.created_at:type_name -> google.protobuf.Timestamp
-	7, // 2: order.order.v1.GetOrderResponse.updated_at:type_name -> google.protobuf.Timestamp
-	1, // 3: order.order.v1.GetOrderResponse.items:type_name -> order.order.v1.OrderItem
-	0, // 4: order.order.v1.OrderSummary.status:type_name -> order.order.v1.OrderStatus
-	7, // 5: order.order.v1.OrderSummary.created_at:type_name -> google.protobuf.Timestamp
-	4, // 6: order.order.v1.ListOrdersByCustomerResponse.orders:type_name -> order.order.v1.OrderSummary
-	2, // 7: order.order.v1.OrderService.GetOrder:input_type -> order.order.v1.GetOrderRequest
-	5, // 8: order.order.v1.OrderService.ListOrdersByCustomer:input_type -> order.order.v1.ListOrdersByCustomerRequest
-	3, // 9: order.order.v1.OrderService.GetOrder:output_type -> order.order.v1.GetOrderResponse
-	6, // 10: order.order.v1.OrderService.ListOrdersByCustomer:output_type -> order.order.v1.ListOrdersByCustomerResponse
-	9, // [9:11] is the sub-list for method output_type
-	7, // [7:9] is the sub-list for method input_type
-	7, // [7:7] is the sub-list for extension type_name
-	7, // [7:7] is the sub-list for extension extendee
-	0, // [0:7] is the sub-list for field type_name
+	0,  // 0: order.order.v1.GetOrderResponse.status:type_name -> order.order.v1.OrderStatus
+	10, // 1: order.order.v1.GetOrderResponse.created_at:type_name -> google.protobuf.Timestamp
+	10, // 2: order.order.v1.GetOrderResponse.updated_at:type_name -> google.protobuf.Timestamp
+	1,  // 3: order.order.v1.GetOrderResponse.items:type_name -> order.order.v1.OrderItem
+	0,  // 4: order.order.v1.OrderSummary.status:type_name -> order.order.v1.OrderStatus
+	10, // 5: order.order.v1.OrderSummary.created_at:type_name -> google.protobuf.Timestamp
+	4,  // 6: order.order.v1.ListOrdersByCustomerResponse.orders:type_name -> order.order.v1.OrderSummary
+	0,  // 7: order.order.v1.StuckOrder.status:type_name -> order.order.v1.OrderStatus
+	10, // 8: order.order.v1.StuckOrder.created_at:type_name -> google.protobuf.Timestamp
+	10, // 9: order.order.v1.StuckOrder.updated_at:type_name -> google.protobuf.Timestamp
+	7,  // 10: order.order.v1.ListStuckOrdersResponse.orders:type_name -> order.order.v1.StuckOrder
+	2,  // 11: order.order.v1.OrderService.GetOrder:input_type -> order.order.v1.GetOrderRequest
+	5,  // 12: order.order.v1.OrderService.ListOrdersByCustomer:input_type -> order.order.v1.ListOrdersByCustomerRequest
+	8,  // 13: order.order.v1.OrderService.ListStuckOrders:input_type -> order.order.v1.ListStuckOrdersRequest
+	3,  // 14: order.order.v1.OrderService.GetOrder:output_type -> order.order.v1.GetOrderResponse
+	6,  // 15: order.order.v1.OrderService.ListOrdersByCustomer:output_type -> order.order.v1.ListOrdersByCustomerResponse
+	9,  // 16: order.order.v1.OrderService.ListStuckOrders:output_type -> order.order.v1.ListStuckOrdersResponse
+	14, // [14:17] is the sub-list for method output_type
+	11, // [11:14] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_order_order_v1_order_proto_init() }
@@ -645,7 +854,7 @@ func file_order_order_v1_order_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_order_order_v1_order_proto_rawDesc), len(file_order_order_v1_order_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   6,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

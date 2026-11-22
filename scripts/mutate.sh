@@ -142,5 +142,13 @@ run "分组: 最小 ↔ 最大"                   $GC 's/min\(t1\.discount\) AS 
 GP=gen/db/receipts.list-store-sales-totals.sql.go
 run "分组+分页: 全部为空的最大值变成 0"     $GP 's/max\(t1\.discount\) AS max_discount/coalesce(max(t1.discount), 0) AS max_discount/'
 run "分组+分页: 游标 > 写成 >="           $GP 's/\(t3\.store_code\) > \(\$2::int4\)/(t3.store_code) >= (\$2::int4)/'
+SJ=gen/db/jobs.list-stale-pending-jobs.sql.go
+SJH=internal/handler/jobs/list_stale_pending_jobs_gen.go
+run "派生参数: 早于 写成 不晚于(< → <=)"        $SJ 's/t1\.created_at < \(\$1::timestamptz/t1.created_at <= (\$1::timestamptz/'
+run "派生参数: 在 UTC 截日(不是领域的时区)"      $SJ 's/AT TIME ZONE \x27Asia\/Tokyo\x27\)\) AT TIME ZONE \x27Asia\/Tokyo\x27/AT TIME ZONE \x27UTC\x27)) AT TIME ZONE \x27UTC\x27/'
+run "now: 读了系统时钟(不是请求开始的时刻)"      $SJH 's/FactoryNow:(\s+)clock\.Now\(ctx\)/FactoryNow:${1}clock.Now(context.Background())/'
+PM=gen/db/sales.list-prev-month-sales.sql.go
+run "月的加法: 月末没有截到最后一天"              $PM 's/\(\(\$2::date \+ make_interval\(months => \(-1\)\)\)::date\)/((date_trunc(\x27month\x27, \$2::date) + make_interval(months => (-1)))::date + (extract(day from \$2::date)::int - 1))/'
+run "派生参数: 前月の末日を含まない(<= → <)"      $PM 's/t1\.sales_date <= \(\(date_trunc/t1.sales_date < ((date_trunc/'
 [[ -n ${PLAN:-} ]] && exit 0
 go build -o bin/server ./cmd/server; git status --short
