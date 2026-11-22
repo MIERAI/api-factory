@@ -185,6 +185,109 @@ type Command struct {
 	EachKey   []string        `json:"each_key,omitempty"` // 元素的唯一键(执行前按它排序: 加行锁的顺序)
 	Results   []CommandResult `json:"results,omitempty"`
 	Contracts []Contract      `json:"contracts,omitempty"` // 发出的消息的契约
+	// R5: 状态机(Op = machine;docs/design/r5-state-machines.md)
+	Machine *Machine `json:"machine,omitempty"`
+}
+
+// IsMachine: 状态机(R5)。
+func (c *Command) IsMachine() bool { return c != nil && c.Op == "machine" }
+
+// Machine: 状态机。语义(factory/command 的解释器、生成的代码一致):
+//   - 收到 T(实体的键 = 契约的主体字段): UPDATE 实体 SET 状态 = 到, 进入时间 = now, 重发计数 = 0, 版本 + 1
+//     WHERE 键 AND 状态 = 从 [AND 守卫] RETURNING …;成功 → 发出(进入等待状态时先发那个状态的 命令,再发转移的 发出)
+//   - 没有碰到行: 实体不存在 → 拒绝;当前状态 = 从(守卫为假)→ 拒绝;当前状态在 T 的"迟到"集合 → 忽略;其他 → 拒绝
+//     迟到 = 当前状态能从某个有 T 的转移的状态到达(先于当前状态)
+//   - 超时(now): 等待状态 S,进入时间 e,重发计数 n:e + 期限 <= now → 转移到 期限后;否则 e + 超时 + 间隔 × n <= now → 重发
+//     (重发计数 + 1、版本 + 1,进入时间不变,发出 S 的 命令)
+type Machine struct {
+	Name        string              `json:"name"`
+	Table       string              `json:"table"`
+	Key         Column              `json:"key"`
+	State       Column              `json:"state"`
+	Entered     string              `json:"entered"`
+	Version     string              `json:"version"`
+	Attempts    string              `json:"attempts"`
+	Created     string              `json:"created,omitempty"`
+	Start       string              `json:"start,omitempty"`
+	States      []MachineState      `json:"states"`
+	Loads       []MachineLoad       `json:"loads,omitempty"`
+	Transitions []MachineTransition `json:"transitions"`
+	Receives    []MachineReceive    `json:"receives"`
+	Columns     []Column            `json:"columns"` // 读出的实体的列(守卫 / 发出 / 分类要用;RETURNING)
+	Contracts   []Contract          `json:"contracts"`
+}
+
+// MachineState: DB = 状态列的值。
+type MachineState struct {
+	Name          string        `json:"name"`
+	DB            int64         `json:"db"`
+	Final         bool          `json:"final,omitempty"`
+	Command       *CommandEmit  `json:"command,omitempty"`
+	Timeout       int64         `json:"timeout,omitempty"`
+	Every         int64         `json:"every,omitempty"`
+	Deadline      int64         `json:"deadline,omitempty"`
+	DeadlineTo    string        `json:"deadline_to,omitempty"`
+	DeadlineEmits []CommandEmit `json:"deadline_emits,omitempty"`
+}
+
+// MachineTransition: 守卫的表达式里 实体.x = 这一行更新之前的列(ref 实体),消息.x = input。
+type MachineTransition struct {
+	From  string        `json:"from"`
+	On    string        `json:"on"`
+	To    string        `json:"to"`
+	Guard *CmdExpr      `json:"guard,omitempty"`
+	Emits []CommandEmit `json:"emits,omitempty"`
+}
+
+// MachineReceive: 一个收到的消息类型 = 一个处理器(方法 Method,队列 <服务>.<类型>)。KeyField = data 里实体的键(契约的主体);
+// Late = 这个消息在这些状态里是迟到 / 重复(忽略)。
+type MachineReceive struct {
+	Type     string   `json:"type"`
+	Kind     string   `json:"kind"`
+	Version  int      `json:"version"`
+	Method   string   `json:"method"`
+	KeyField string   `json:"key_field"`
+	Late     []string `json:"late,omitempty"`
+}
+
+// MachineLoad: 载入: 子表里 Child = 实体的键 的行(按 OrderBy,最多 Max 行;多于 Max = 数据的问题,报错不截断)。
+type MachineLoad struct {
+	Name    string   `json:"name"`
+	Table   string   `json:"table"`
+	Child   string   `json:"child"`
+	OrderBy []string `json:"order_by"`
+	Desc    []bool   `json:"desc"`
+	Max     int      `json:"max"`
+	Columns []Column `json:"columns"`
+}
+
+// StateByName / StateByDB: 状态的查找。
+func (m *Machine) StateByName(name string) *MachineState {
+	for i := range m.States {
+		if m.States[i].Name == name {
+			return &m.States[i]
+		}
+	}
+	return nil
+}
+
+func (m *Machine) StateByDB(db int64) *MachineState {
+	for i := range m.States {
+		if m.States[i].DB == db {
+			return &m.States[i]
+		}
+	}
+	return nil
+}
+
+// Contract: 消息类型的契约。
+func (m *Machine) Contract(typ string) *Contract {
+	for i := range m.Contracts {
+		if m.Contracts[i].Type == typ {
+			return &m.Contracts[i]
+		}
+	}
+	return nil
 }
 
 // IsHandler: 消息处理器(R4-2)。
@@ -211,6 +314,7 @@ type EmitVal struct {
 	Type  string   `json:"type,omitempty"`
 	List  bool     `json:"list,omitempty"`
 	Expr  *CmdExpr `json:"expr"`
+	Elem  []string `json:"elem,omitempty"` // 列表: 元素里写进消息的字段(= 契约的元素的字段;请求的列表可以多几个字段)
 }
 
 // CommandResult: 消息处理器的结果(见 spec.Result)。Name 为空 = 成功。
@@ -261,6 +365,10 @@ type CommandOp struct {
 	OnlyFlag string `json:"only_flag,omitempty"`
 	Skip     bool   `json:"skip,omitempty"`
 	Updated  bool   `json:"updated,omitempty"` // 后面要用 是否真的更新了(update)
+	// R5: 每项(组合命令): 对请求的列表字段 Each 的每个元素执行(按 EachKey 排序;没有 = 请求里的顺序);
+	// 连续的同一个 Each 的操作是一个循环,后面的操作不能引用循环里的操作
+	Each    string   `json:"each,omitempty"`
+	EachKey []string `json:"each_key,omitempty"`
 }
 
 // CommandVal: 列 ← 表达式(Type / NotNull = 列的)。

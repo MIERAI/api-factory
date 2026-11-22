@@ -1,5 +1,42 @@
 [
   {
+    "id": "approvals.document-review",
+    "method": "DocumentReview",
+    "summary": "文档的审批流程。提交之后请评审人审批,批准之后请发布服务发布;评审人 1 小时没有结论就过期(状态机: 收到 publish.done / review.approved / review.rejected;超时由扫描任务驱动)",
+    "path": "/factory.approvals.v1.ApprovalMessageHandlerService/DocumentReview",
+    "pattern": "machine",
+    "cases": []
+  },
+  {
+    "id": "approvals.submit-document",
+    "method": "SubmitDocument",
+    "summary": "提交一个文档请评审人审批。文档和评审人一起写进去,同时发出 review.request",
+    "path": "/factory.approvals.v1.ApprovalService/SubmitDocument",
+    "pattern": "command",
+    "cases": [
+      {
+        "name": "提交 → 文档 + 评审人,发出 review.request",
+        "request": {
+          "reviewers": [
+            {
+              "reviewer": "bob",
+              "weight": 2
+            },
+            {
+              "reviewer": "alice",
+              "weight": 1
+            }
+          ],
+          "title": "季度报告"
+        },
+        "response": {
+          "status": "DOCUMENT_STATUS_REVIEWING",
+          "submitted_at": "2026-11-22T01:00:00Z"
+        }
+      }
+    ]
+  },
+  {
     "id": "catalog.get-product-label",
     "method": "GetProductLabel",
     "summary": "商品コードとラベルコードを指定して、ラベルの現在の文言を返す。なければ found = false",

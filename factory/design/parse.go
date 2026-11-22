@@ -402,6 +402,7 @@ type Input struct {
 	Lock        string // 命令: 乐观锁的版本列
 	Line        int
 	Group       []*Input // 类型 组列表: 一个组的字段(名字 = 列名;组里的字段都要指定)
+	Unique      []string // 组列表: 元素的唯一键(R5;重复 = 参数错误;每项 按它排序)
 }
 
 type Output struct {
@@ -547,6 +548,19 @@ func loadAPI(path string) (*API, error) {
 		if f := str(p.Val, "必填"); f != "是" && f != "否" {
 			e.add(p.Line, "输入 %s: 必填 只能是 是 / 否", p.Key)
 		}
+		in.Unique = strList(get(p.Val, "唯一"))
+		if len(in.Unique) > 0 && in.Type != GroupListType {
+			e.add(p.Line, "输入 %s: 唯一 只能用于 %s(元素的唯一键)", p.Key, GroupListType)
+		}
+		for _, u := range in.Unique {
+			found := false
+			for _, m := range pairs(get(p.Val, "组")) {
+				found = found || m.Key == u
+			}
+			if !found {
+				e.add(p.Line, "输入 %s: 唯一 的 %s 不是组的字段", p.Key, u)
+			}
+		}
 		if g := get(p.Val, "组"); g != nil {
 			if in.Type != GroupListType {
 				e.add(p.Line, "输入 %s: 只有 类型 %s 才能写 组", p.Key, GroupListType)
@@ -595,7 +609,7 @@ func loadAPI(path string) (*API, error) {
 		}
 		a.Outputs = append(a.Outputs, o)
 	}
-	if len(a.Outputs) == 0 && a.Kind != "message" { // 消息处理器没有响应
+	if len(a.Outputs) == 0 && a.Kind != "message" && a.Kind != "machine" { // 消息处理器 / 状态机没有响应
 		e.add(root.Line, "缺少 输出")
 	}
 	if a.Exit != nil && a.Exit.Parse != nil { // 种类自己的键
@@ -610,7 +624,7 @@ func loadAPI(path string) (*API, error) {
 	if c := get(get(root, "例子"), "用例"); c != nil {
 		a.Cases = c.Content
 		for _, x := range c.Content {
-			checkKeys(e, x, "用例", "说明", "输入", "消息", "结果", "现在", "错误", "之后", "发出")
+			checkKeys(e, x, "用例", "说明", "输入", "消息", "结果", "现在", "错误", "之后", "发出", "超时")
 		}
 	}
 	if c := get(root, "计算例子"); c != nil {
@@ -771,7 +785,7 @@ func LookupKeys() []string { return []string{"表", "条件", "列", "找不到�
 
 // InputKeys: 输入可以写的键(约束的键另外由 factory/constraints 决定)。
 func InputKeys() []string {
-	return []string{"类型", "必填", "说明", "筛选", "组", "编码", "写入", "键", "乐观锁"}
+	return []string{"类型", "必填", "说明", "筛选", "组", "编码", "写入", "键", "乐观锁", "唯一"}
 }
 
 // EncodingYMD: 整数编码的日期(20260131 = 2026-01-31)。列(领域的 列: { 编码 })和输入(编码)都可以写。

@@ -179,6 +179,7 @@ type service struct {
 	Messages    bool
 	Handlers    []handlerInfo
 	HandlerOnly bool
+	Machines    []string // R5: 这个领域的状态机(超时扫描: h.<机器>Due / Fire / Stats)
 }
 
 // handlerInfo: 一个消息处理器(wiring 的消费循环 + 拓扑)。
@@ -205,7 +206,23 @@ func servicesFrom(plan *ir.Plan) []service {
 	commands, unmets := map[string]bool{}, map[string]bool{}
 	messages, handlerSvc := map[string]bool{}, map[string]bool{} // 按 proto 包: 有消息;处理器的服务(不挂载)
 	handlers := map[string][]handlerInfo{}
+	machines := map[string][]string{}
 	for _, a := range plan.APIs {
+		if a.Command.IsMachine() && a.Command.Machine != nil {
+			m := a.Command.Machine
+			messages[a.ProtoPackage] = true
+			handlerSvc[a.ProtoPackage+"."+a.Service] = true
+			src := strings.Split(a.ProtoPackage, ".")[0]
+			for _, r := range m.Receives {
+				kind := "message.Event"
+				if r.Kind == "command" {
+					kind = "message.Command"
+				}
+				handlers[a.ProtoPackage] = append(handlers[a.ProtoPackage], handlerInfo{Method: r.Method, Queue: src + "." + r.Type, Type: r.Type, Kind: kind, Version: r.Version})
+			}
+			machines[a.ProtoPackage] = append(machines[a.ProtoPackage], m.Name)
+			continue
+		}
 		if a.Command != nil {
 			commands[a.ProtoPackage+"."+a.Service] = true
 			if len(a.Command.Unmets()) > 0 {
@@ -254,6 +271,7 @@ func servicesFrom(plan *ir.Plan) []service {
 			Messages:     messages[s.ProtoPackage],
 			Handlers:     handlers[s.ProtoPackage],
 			HandlerOnly:  handlerSvc[s.ProtoPackage+"."+s.Name],
+			Machines:     machines[s.ProtoPackage],
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ConnectPath < out[j].ConnectPath })
@@ -332,6 +350,9 @@ import (
 	"github.com/MIERAI/api-factory-runtime/outbox"
 {{- end}}
 	"github.com/MIERAI/api-factory-runtime/server"
+{{- if .HasMachines}}
+	"github.com/MIERAI/api-factory-runtime/sm"
+{{- end}}
 {{- if .Messages}}
 	"github.com/MIERAI/api-factory-runtime/topology"
 {{- end}}
@@ -354,6 +375,9 @@ func services(deps server.Deps, opts ...connect.HandlerOption) []server.Service 
 	ob := outbox.NewWriter({{printf "%q" .Source}}) // 发出的消息(envelope.source = 服务名)
 	var consumers []*consume.Consumer             // 消息处理器的消费循环
 {{- end}}
+{{- if .HasMachines}}
+	var scanners []*sm.Scanner // 状态机的超时扫描
+{{- end}}
 {{- range .Services}}
 	{
 {{- if .Messages}}
@@ -366,13 +390,18 @@ func services(deps server.Deps, opts ...connect.HandlerOption) []server.Service 
 		consumers = append(consumers, &consume.Consumer{Queue: {{printf "%q" .Queue}}, Handler: h.{{.Method}}, Exec: tx, Broker: deps.AMQP,
 			Accept: []consume.Accept{ {Type: {{printf "%q" .Type}}, Versions: []int{ {{.Version}} } } }})
 {{- end}}
+{{- range .Machines}}
+		scanners = append(scanners, &sm.Scanner{Machine: {{printf "%q" .}}, Exec: tx, Due: h.{{.}}Due, Fire: h.{{.}}Fire, Stats: h.{{.}}Stats})
+{{- end}}
 {{- else}}
 		path, h := {{.ConnectPkg}}.New{{.Service}}Handler({{.Domain}}handler.New(q, deps.Pager, deps.Shards{{if .Commands}}, tx{{end}}), opts...)
 		out = append(out, server.Service{Path: path, Handler: h})
 {{- end}}
 	}
 {{- end}}
-{{- if .Messages}}
+{{- if .HasMachines}}
+	return append(out, messaging(deps, consumers, scanners)...)
+{{- else if .Messages}}
 	return append(out, messaging(deps, consumers)...)
 {{- else}}
 	return out
@@ -380,6 +409,19 @@ func services(deps server.Deps, opts ...connect.HandlerOption) []server.Service 
 }
 {{- if .Messages}}
 
+{{- if .HasMachines}}
+// messaging: 消息(R4)和状态机(R5)。进程内投递 / 跑一轮超时的测试入口(只在 FACTORY_TEST_FAULTS=1 时响应)+ 有 AMQP_URL 时:
+// 拓扑(交换机 / 队列 / 重试 / DLQ,参数不一致 = 启动失败)、outbox 的中继(每个数据库一个在工作)、每个处理器的消费循环、
+// 每个状态机的超时扫描(每个数据库一个在工作;FACTORY_TEST_CLOCK=1 时不自己跑,由测试驱动)。
+func messaging(deps server.Deps, consumers []*consume.Consumer, scanners []*sm.Scanner) []server.Service {
+	test := []server.Service{
+		{Path: consume.TestPath, Handler: consume.TestHandler(consumers...)},
+		{Path: sm.TestPath, Handler: sm.TestHandler(deps.Pool, scanners...)},
+	}
+	if deps.AMQP == nil { // 没有 AMQP_URL: outbox 只写不发(本地开发 / 进程内的验收)
+		return test
+	}
+{{- else}}
 // messaging: 消息(R4)。进程内投递的测试入口(只在 FACTORY_TEST_FAULTS=1 时响应)+ 有 AMQP_URL 时:
 // 拓扑(交换机 / 队列 / 重试 / DLQ,参数不一致 = 启动失败)、outbox 的中继(每个数据库一个在工作)、每个处理器的消费循环。
 func messaging(deps server.Deps, consumers []*consume.Consumer) []server.Service {
@@ -387,6 +429,7 @@ func messaging(deps server.Deps, consumers []*consume.Consumer) []server.Service
 	if deps.AMQP == nil { // 没有 AMQP_URL: outbox 只写不发(本地开发 / 进程内的验收)
 		return []server.Service{test}
 	}
+{{- end}}
 	spec := topology.Spec{Retry: topology.DefaultRetry, Queues: []topology.Queue{
 {{- range .Services}}{{range .Handlers}}
 		{Name: {{printf "%q" .Queue}}, Subscriptions: []topology.Subscription{ {Kind: {{.Kind}}, Type: {{printf "%q" .Type}}} }},
@@ -404,7 +447,14 @@ func messaging(deps server.Deps, consumers []*consume.Consumer) []server.Service
 	for _, c := range consumers {
 		deps.Workers.Go("consume "+c.Queue, c.Run)
 	}
+{{- if .HasMachines}}
+	for _, s := range scanners {
+		deps.Workers.Go("sm timeout "+s.Machine, func(ctx context.Context) error { return s.Run(ctx, deps.Pool) })
+	}
+	return test
+{{- else}}
 	return []server.Service{test}
+{{- end}}
 }
 {{- end}}
 `))
@@ -415,9 +465,11 @@ func writeWiring(services []service) error {
 		Commands    bool
 		Messages    bool
 		HasHandlers bool
+		HasMachines bool
 		Source      string // 服务名(proto 包名的前缀): envelope.source、队列名的前缀
 	}{Services: services}
 	for _, s := range services {
+		data.HasMachines = data.HasMachines || len(s.Machines) > 0
 		data.Commands = data.Commands || s.Commands
 		data.Messages = data.Messages || s.Messages
 		data.HasHandlers = data.HasHandlers || len(s.Handlers) > 0

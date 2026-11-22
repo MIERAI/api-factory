@@ -18,6 +18,9 @@ import (
 
 // commandIR: spec 的 command → IR(列的类型来自 schema;响应的字段 = 写之后的行的列)。
 func commandIR(s *spec.Spec, api *ir.API, cat *catalog, md protoreflect.MethodDescriptor) error {
+	if api.Command.Op == "machine" { // 状态机(R5): machine.go
+		return machineIR(s, api, cat, md)
+	}
 	if api.Command.Op == "command" || api.Command.Op == "message" { // 组合命令(R3-2)/ 消息处理器(R4)
 		if err := compositeIR(s, api, cat); err != nil {
 			return err
@@ -135,7 +138,7 @@ func compositeIR(s *spec.Spec, api *ir.API, cat *catalog) error {
 			},
 			Input:   input,
 			EnumOf:  enumOf,
-			Item:    itemScope(api, c.Each),
+			Item:    itemScope(api, c.Each+op.Each), // 每项: 消息处理器 = API 的;组合命令 = 操作的(R5)
 			RefEnum: refEnumScope(s, tables),
 			Env:     api.Command.Op == "message",
 		}
@@ -161,7 +164,11 @@ func compositeIR(s *spec.Spec, api *ir.API, cat *catalog) error {
 			}
 			return ir.CommandVal{Column: x.Column, Type: col.Type, NotNull: col.NotNull, Expr: tree}, nil
 		}
-		o := ir.CommandOp{Name: op.Name, Kind: op.Kind, Table: table, Conflict: op.Conflict, Unmet: op.Unmet, NotFound: op.NotFound, Skip: op.Skip}
+		o := ir.CommandOp{Name: op.Name, Kind: op.Kind, Table: table, Conflict: op.Conflict, Unmet: op.Unmet, NotFound: op.NotFound, Skip: op.Skip,
+			Each: op.Each, EachKey: op.EachKey}
+		if op.Each != "" && (api.Request.Field(op.Each) == nil || api.Request.Field(op.Each).Message == nil) {
+			return fmt.Errorf("op %s: 每项 %s is not a list of messages", op.Name, op.Each)
+		}
 		if op.Only != "" {
 			o.Only, o.OnlyFlag, _ = strings.Cut(op.Only, ".")
 		}

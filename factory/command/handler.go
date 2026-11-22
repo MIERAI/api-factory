@@ -183,11 +183,20 @@ func evalEmits(list []ir.CommandEmit, ec *evalCtx, items []Inputs) []Msg {
 		m := Msg{Type: em.Type, Data: map[string]any{}}
 		for _, v := range em.Values {
 			if v.List {
+				src := items
+				if v.Expr.Op == "input" && ec.in[v.Expr.Name] != nil { // 组合命令: 请求的列表(R5)
+					src = EachItems(ec.in[v.Expr.Name], nil)
+				}
+				if v.Expr.Op == "ref" && ec.loads != nil { // 状态机: 载入的子行
+					src = ec.loads[v.Expr.Name]
+				}
 				var l []map[string]any
-				for _, it := range items {
+				for _, it := range src {
 					e := map[string]any{}
 					for k, x := range it {
-						e[k] = x
+						if len(v.Elem) == 0 || contains(v.Elem, k) { // 只写契约的元素的字段
+							e[k] = x
+						}
 					}
 					l = append(l, e)
 				}

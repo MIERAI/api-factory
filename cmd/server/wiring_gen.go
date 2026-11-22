@@ -8,6 +8,7 @@ import (
 	"connectrpc.com/connect"
 
 	"apifactory/gen/db"
+	"apifactory/gen/factory/approvals/v1/approvalsv1connect"
 	"apifactory/gen/factory/catalog/v1/catalogv1connect"
 	"apifactory/gen/factory/jobs/v1/jobsv1connect"
 	"apifactory/gen/factory/ledger/v1/ledgerv1connect"
@@ -17,6 +18,7 @@ import (
 	"apifactory/gen/factory/sales/v1/salesv1connect"
 	"apifactory/gen/factory/schedules/v1/schedulesv1connect"
 	"apifactory/gen/factory/shop/v1/shopv1connect"
+	approvalshandler "apifactory/internal/handler/approvals"
 	cataloghandler "apifactory/internal/handler/catalog"
 	jobshandler "apifactory/internal/handler/jobs"
 	ledgerhandler "apifactory/internal/handler/ledger"
@@ -30,6 +32,7 @@ import (
 	"github.com/MIERAI/api-factory-runtime/message"
 	"github.com/MIERAI/api-factory-runtime/outbox"
 	"github.com/MIERAI/api-factory-runtime/server"
+	"github.com/MIERAI/api-factory-runtime/sm"
 	"github.com/MIERAI/api-factory-runtime/topology"
 	"github.com/MIERAI/api-factory-runtime/txn"
 )
@@ -40,6 +43,19 @@ func services(deps server.Deps, opts ...connect.HandlerOption) []server.Service 
 	tx := txn.New(deps.Pool)          // 命令(写入)的事务执行器
 	ob := outbox.NewWriter("factory") // 发出的消息(envelope.source = 服务名)
 	var consumers []*consume.Consumer // 消息处理器的消费循环
+	var scanners []*sm.Scanner        // 状态机的超时扫描
+	{
+		h := approvalshandler.New(q, deps.Pager, deps.Shards, tx, ob)
+		path, hh := approvalsv1connect.NewApprovalServiceHandler(h, opts...)
+		out = append(out, server.Service{Path: path, Handler: hh})
+		consumers = append(consumers, &consume.Consumer{Queue: "factory.review.approved", Handler: h.DocumentReviewOnReviewApproved, Exec: tx, Broker: deps.AMQP,
+			Accept: []consume.Accept{{Type: "review.approved", Versions: []int{1}}}})
+		consumers = append(consumers, &consume.Consumer{Queue: "factory.review.rejected", Handler: h.DocumentReviewOnReviewRejected, Exec: tx, Broker: deps.AMQP,
+			Accept: []consume.Accept{{Type: "review.rejected", Versions: []int{1}}}})
+		consumers = append(consumers, &consume.Consumer{Queue: "factory.publish.done", Handler: h.DocumentReviewOnPublishDone, Exec: tx, Broker: deps.AMQP,
+			Accept: []consume.Accept{{Type: "publish.done", Versions: []int{1}}}})
+		scanners = append(scanners, &sm.Scanner{Machine: "DocumentReview", Exec: tx, Due: h.DocumentReviewDue, Fire: h.DocumentReviewFire, Stats: h.DocumentReviewStats})
+	}
 	{
 		path, h := catalogv1connect.NewCatalogServiceHandler(cataloghandler.New(q, deps.Pager, deps.Shards), opts...)
 		out = append(out, server.Service{Path: path, Handler: h})
@@ -85,17 +101,24 @@ func services(deps server.Deps, opts ...connect.HandlerOption) []server.Service 
 		path, h := shopv1connect.NewShopServiceHandler(shophandler.New(q, deps.Pager, deps.Shards), opts...)
 		out = append(out, server.Service{Path: path, Handler: h})
 	}
-	return append(out, messaging(deps, consumers)...)
+	return append(out, messaging(deps, consumers, scanners)...)
 }
 
-// messaging: 消息(R4)。进程内投递的测试入口(只在 FACTORY_TEST_FAULTS=1 时响应)+ 有 AMQP_URL 时:
-// 拓扑(交换机 / 队列 / 重试 / DLQ,参数不一致 = 启动失败)、outbox 的中继(每个数据库一个在工作)、每个处理器的消费循环。
-func messaging(deps server.Deps, consumers []*consume.Consumer) []server.Service {
-	test := server.Service{Path: consume.TestPath, Handler: consume.TestHandler(consumers...)}
+// messaging: 消息(R4)和状态机(R5)。进程内投递 / 跑一轮超时的测试入口(只在 FACTORY_TEST_FAULTS=1 时响应)+ 有 AMQP_URL 时:
+// 拓扑(交换机 / 队列 / 重试 / DLQ,参数不一致 = 启动失败)、outbox 的中继(每个数据库一个在工作)、每个处理器的消费循环、
+// 每个状态机的超时扫描(每个数据库一个在工作;FACTORY_TEST_CLOCK=1 时不自己跑,由测试驱动)。
+func messaging(deps server.Deps, consumers []*consume.Consumer, scanners []*sm.Scanner) []server.Service {
+	test := []server.Service{
+		{Path: consume.TestPath, Handler: consume.TestHandler(consumers...)},
+		{Path: sm.TestPath, Handler: sm.TestHandler(deps.Pool, scanners...)},
+	}
 	if deps.AMQP == nil { // 没有 AMQP_URL: outbox 只写不发(本地开发 / 进程内的验收)
-		return []server.Service{test}
+		return test
 	}
 	spec := topology.Spec{Retry: topology.DefaultRetry, Queues: []topology.Queue{
+		{Name: "factory.review.approved", Subscriptions: []topology.Subscription{{Kind: message.Event, Type: "review.approved"}}},
+		{Name: "factory.review.rejected", Subscriptions: []topology.Subscription{{Kind: message.Event, Type: "review.rejected"}}},
+		{Name: "factory.publish.done", Subscriptions: []topology.Subscription{{Kind: message.Event, Type: "publish.done"}}},
 		{Name: "factory.account.debit", Subscriptions: []topology.Subscription{{Kind: message.Command, Type: "account.debit"}}},
 		{Name: "factory.account.opened", Subscriptions: []topology.Subscription{{Kind: message.Event, Type: "account.opened"}}},
 		{Name: "factory.account.reverse", Subscriptions: []topology.Subscription{{Kind: message.Command, Type: "account.reverse"}}},
@@ -113,5 +136,8 @@ func messaging(deps server.Deps, consumers []*consume.Consumer) []server.Service
 	for _, c := range consumers {
 		deps.Workers.Go("consume "+c.Queue, c.Run)
 	}
-	return []server.Service{test}
+	for _, s := range scanners {
+		deps.Workers.Go("sm timeout "+s.Machine, func(ctx context.Context) error { return s.Run(ctx, deps.Pool) })
+	}
+	return test
 }

@@ -150,7 +150,7 @@ func withKey(n *yaml.Node, k, v string) *yaml.Node {
 // emittedCase: 用例的 发出(- 类型: { 字段: 值 })。有 发出 的命令 / 消息处理器必须写(什么都不发 = [])。
 func (c *ctx) emittedCase(a *API, n *yaml.Node) (*[]spec.EmittedMsg, error) {
 	cmd := a.Pattern.Command
-	emits := cmd != nil && (len(cmd.Emit) > 0 || a.Kind == "message")
+	emits := cmd != nil && (len(cmd.Emit) > 0 || a.Kind == "message" || a.Kind == "machine")
 	node := get(n, "发出")
 	switch {
 	case node == nil && emits:

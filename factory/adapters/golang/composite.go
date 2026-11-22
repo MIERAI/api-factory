@@ -21,6 +21,9 @@ type cmdGen struct {
 	g    *genCtx
 	idx  map[string]int // 操作名 → 第几个(变量 r1, r2 …)
 	item *ir.Message    // 每项: 元素的 message(变量 it);nil = 没有 每项
+	// R5(状态机): 发出里的 载入.名字(读好的子行的变量);ret = 发出的 return 前面另外的返回值(超时的 Fire: "sm.Fired{…}, ")
+	loads map[string]*loadGen
+	ret   string
 }
 
 func newCmdGen(g *genCtx) *cmdGen {
@@ -69,6 +72,8 @@ func (cg *cmdGen) value(x *ir.CmdExpr) (string, error) {
 		return "env.ID", nil
 	case "null":
 		return "nil", nil
+	case "go": // 状态机的生成器自己组装的值(Go 的表达式;不出现在 IR 里)
+		return x.Value, nil
 	case "if": // 如果 条件 则 a 否则 b(条件只看 输入 / 项 / 常量,在 Go 里算)
 		c, err := cg.cond(x.Args[0])
 		if err != nil {
@@ -133,7 +138,7 @@ func (cg *cmdGen) expr(x *ir.CmdExpr) (string, error) {
 
 func (cg *cmdGen) col(v ir.CommandVal) (string, error) {
 	switch v.Expr.Op {
-	case "input", "ref", "const", "now", "item", "env", "null", "if":
+	case "input", "ref", "const", "now", "item", "env", "null", "if", "go":
 		x, err := cg.value(v.Expr)
 		if err != nil {
 			return "", err
@@ -261,13 +266,33 @@ func genComposite(g *genCtx) (string, error) {
 	idx := cg.idx
 
 	var vars, pre, ops []string
+	blockVars := map[int][]string{} // 每项 的操作(R5): 循环里的变量
+	hasEach := false
 	for i, op := range cmd.Ops {
+		cg.item = nil
+		if op.Each != "" {
+			hasEach = true
+			lf := in.Field(op.Each)
+			if lf == nil || lf.Message == nil {
+				return "", fmt.Errorf("op %s: 每项 %s is not a list of messages", op.Name, op.Each)
+			}
+			cg.item = lf.Message
+		}
 		lit, v, p, err := cg.op(op, i+1)
 		if err != nil {
 			return "", err
 		}
+		if op.Each != "" {
+			if len(p) > 0 {
+				return "", fmt.Errorf("op %s: optional inputs in a 每项 op are not supported", op.Name)
+			}
+			blockVars[i] = v
+			ops = append(ops, lit)
+			continue
+		}
 		vars, pre, ops = append(vars, v...), append(pre, p...), append(ops, lit)
 	}
+	cg.item = nil
 
 	var res []string
 	for i, o := range cmd.Outputs {
@@ -302,7 +327,54 @@ func genComposite(g *genCtx) (string, error) {
 	for _, p := range pre {
 		fmt.Fprintf(&b, "\t%s\n", p)
 	}
-	if len(cmd.Emits) > 0 { // 发出(R4): 写操作和 outbox 同一个事务(message.go)
+	if hasEach { // 每项(R5): 一个事务里按顺序执行,连续的同一个 每项 的操作 = 一个循环
+		g.use("github.com/jackc/pgx/v5", "")
+		var body strings.Builder
+		for i := 0; i < len(cmd.Ops); {
+			op := cmd.Ops[i]
+			if op.Each == "" {
+				fmt.Fprintf(&body, "\t\tif err := txn.RunIn(ctx, tx,\n%s\n\t\t); err != nil {\n\t\t\treturn err\n\t\t}\n", ops[i])
+				i++
+				continue
+			}
+			j := i
+			for j < len(cmd.Ops) && cmd.Ops[j].Each == op.Each {
+				j++
+			}
+			lf := in.Field(op.Each)
+			items := fmt.Sprintf("items%d", i+1)
+			if len(op.EachKey) > 0 {
+				g.use("slices", "")
+				g.use("cmp", "")
+				var keys []string
+				for _, k := range op.EachKey {
+					keys = append(keys, fmt.Sprintf("cmp.Compare(a.Get%s(), b.Get%s())", goCamelCase(k), goCamelCase(k)))
+				}
+				cmpExpr := keys[0]
+				if len(keys) > 1 {
+					cmpExpr = "cmp.Or(" + strings.Join(keys, ", ") + ")"
+				}
+				fmt.Fprintf(&body, "\t\t%s := slices.Clone(m.Get%s())\n\t\tslices.SortStableFunc(%s, func(a, b *%s) int { return %s }) // 按元素的唯一键的顺序执行\n",
+					items, goCamelCase(op.Each), items, g.pbType(lf.Message), cmpExpr)
+			} else {
+				fmt.Fprintf(&body, "\t\t%s := m.Get%s()\n", items, goCamelCase(op.Each))
+			}
+			fmt.Fprintf(&body, "\t\t// 每项 输入.%s\n\t\tfor _, it := range %s {\n", op.Each, items)
+			for k := i; k < j; k++ {
+				for _, v := range blockVars[k] {
+					fmt.Fprintf(&body, "\t\t\t%s\n", v)
+				}
+				fmt.Fprintf(&body, "\t\t\tif err := txn.RunIn(ctx, tx,\n%s\n\t\t\t); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n", ops[k])
+			}
+			body.WriteString("\t\t}\n")
+			i = j
+		}
+		emit, err := cg.emits(cmd.Emits, "\t\t")
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(&b, "\tif err := h.tx.InTx(ctx, func(ctx context.Context, tx pgx.Tx) error {\n%s%s\t}); err != nil {\n\t\treturn nil, writeError(err)\n\t}\n", body.String(), emit)
+	} else if len(cmd.Emits) > 0 { // 发出(R4): 写操作和 outbox 同一个事务(message.go)
 		emit, err := cg.emits(cmd.Emits, "\t\t")
 		if err != nil {
 			return "", err

@@ -7,6 +7,7 @@ package command
 import (
 	"fmt"
 	"math/big"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -60,25 +61,71 @@ func (s *State) Run(ops []ir.CommandOp, in Inputs, now any) ProgResult {
 	for i, op := range ops {
 		refs[op.Name] = i
 	}
-	for i, op := range ops {
+	run := func(i int, item Inputs) bool {
+		op := ops[i]
 		ts := work.Tables[op.Table]
 		if ts == nil {
 			res.Outcome, res.Failed, res.Detail = Invalid, i, "no table "+op.Table
-			return res
+			return false
 		}
-		r, outcome, detail := work.exec(ts, op, &evalCtx{in: in, now: now, prev: res.Ops[:i], refs: refs})
+		r, outcome, detail := work.exec(ts, op, &evalCtx{in: in, item: item, now: now, prev: res.Ops[:i], refs: refs})
 		if outcome != OK {
 			res.Outcome, res.Failed, res.Detail = outcome, i, op.Name+": "+detail
 			if outcome == Unmet {
 				res.Reason = op.Unmet
 			}
 			res.Ops = res.Ops[:i]
-			return res
+			return false
 		}
 		res.Ops[i] = r
+		return true
+	}
+	for i := 0; i < len(ops); {
+		if ops[i].Each == "" {
+			if !run(i, nil) {
+				return res
+			}
+			i++
+			continue
+		}
+		j := i // 每项(R5): 连续的同一个 每项 的操作 = 一个循环,每个元素按顺序执行一遍
+		for j < len(ops) && ops[j].Each == ops[i].Each {
+			j++
+		}
+		for _, it := range EachItems(in[ops[i].Each], ops[i].EachKey) {
+			for k := i; k < j; k++ {
+				if !run(k, it) {
+					return res
+				}
+			}
+		}
+		i = j
 	}
 	s.Tables = work.Tables
 	return res
+}
+
+// EachItems: 请求的列表字段 → 元素(按 keys 排序;没有 keys = 原来的顺序)。
+func EachItems(v any, keys []string) []Inputs {
+	var out []Inputs
+	switch l := v.(type) {
+	case []Inputs:
+		out = append(out, l...)
+	case []any:
+		for _, x := range l {
+			if m, ok := x.(map[string]any); ok {
+				out = append(out, Inputs(m))
+			}
+		}
+	case []map[string]any:
+		for _, m := range l {
+			out = append(out, Inputs(m))
+		}
+	}
+	if len(keys) > 0 {
+		sort.SliceStable(out, func(i, j int) bool { return lessKey(out[i], out[j], keys) })
+	}
+	return out
 }
 
 type evalCtx struct {
@@ -91,6 +138,16 @@ type evalCtx struct {
 	row     Row // update 的对象(更新之前)
 	prev    []OpResult
 	refs    map[string]int
+	loads   map[string][]Inputs // 状态机: 载入的子行(R5)
+}
+
+func contains(xs []string, x string) bool {
+	for _, y := range xs {
+		if y == x {
+			return true
+		}
+	}
+	return false
 }
 
 // exec: 一个操作(状态 = 这个事务里到目前为止的状态)。

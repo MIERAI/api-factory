@@ -71,6 +71,9 @@ type ctx struct {
 	// R4: 消息契约、消息处理器的 RPC(MessageHandlerService: 只是类型的说明,不挂载)
 	contracts   *contractSet
 	handlerRPCs []string
+	// R5: 领域里全部的 API(状态机检查 开始 和别的写接口)、发出里的 载入.名字(状态机编译时设置)
+	apis     []*API
+	loadList func(name string, elem []spec.ContractField) error
 }
 
 type message struct {
@@ -149,7 +152,7 @@ func CompileDir(dir string, m *adapter.Manifest) ([]string, error) {
 		return nil, err
 	}
 	c := &ctx{lib: lib, cfg: cfg, d: d, cat: cat, tz: tz, lock: lock, msgByNm: map[string]*message{},
-		pkg: cfg.PackagePrefix + "." + d.Name + "." + cfg.Version, service: pascal(singular(d.Name)) + "Service", contracts: contracts}
+		pkg: cfg.PackagePrefix + "." + d.Name + "." + cfg.Version, service: pascal(singular(d.Name)) + "Service", contracts: contracts, apis: apis}
 
 	var specs []*spec.Spec
 	var rpcs []string
@@ -207,7 +210,7 @@ func CompileDir(dir string, m *adapter.Manifest) ([]string, error) {
 	}
 	written = append(written, cw...)
 	for _, a := range apis { // R4: 发出 / 消息处理 → 平台表(outbox、去重)进项目的 db/schema(⚖️ E1: 走项目的迁移流程)
-		if cmd := a.Pattern.Command; a.Kind == "message" || (cmd != nil && len(cmd.Emit) > 0) {
+		if cmd := a.Pattern.Command; a.Kind == "message" || a.Kind == "machine" || (cmd != nil && len(cmd.Emit) > 0) {
 			p, err := writePlatformSQL()
 			if err != nil {
 				return nil, err
@@ -391,6 +394,10 @@ func (c *ctx) inputField(a *API, in *Input, e *errs) *field {
 }
 
 func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
+	if a.Kind == "machine" { // 状态机(R5): 没有输入 / 输出;转移和超时由状态图生成(machine.go)
+		s, err := c.compileMachine(a)
+		return s, "", err
+	}
 	e := &errs{file: a.Path}
 	if a.Kind == "message" { // 消息处理器: 输入 = 收到的契约的字段(message.go)
 		c.handlerInputs(a, e)
@@ -473,9 +480,12 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 			if a.Kind == "message" {
 				c.uniqueRule(c.contracts.byTyp[a.Pattern.Command.Receive.Type].Fields, f)
 			}
+			if len(in.Unique) > 0 { // 组列表的 唯一(R5): 重复的元素 = 参数错误
+				c.uniqueRule([]spec.ContractField{{Name: in.Name, Unique: in.Unique}}, f)
+			}
 			req.Fields = append(req.Fields, f)
 		}
-		if in.Type == GroupListType && a.Kind != "message" {
+		if in.Type == GroupListType && a.Kind != "message" && a.Kind != "command" { // 组合命令的组列表: 每项 / 原样发出(composite.go)
 			op, ok := c.lib.FilterID(strings.TrimSpace(in.Filter))
 			if !ok || op != "in_tuples" {
 				e.add(in.Line, "输入 %s: 组列表 的筛选写成 \"组属于\"(组的字段名 = 列名)", in.Name)

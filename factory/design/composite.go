@@ -29,14 +29,26 @@ func (c *ctx) compositeOps(a *API, e *errs) {
 		e.add(1, "组合命令: 不能写 固定条件 / 关联 / 嵌套 / 子聚合 / 派生参数")
 	}
 	inputs := map[string]*Input{}
+	listUse := map[string]bool{} // 组合命令的组列表: 操作的 每项 / 原样发出(R5)
+	for _, op := range cmd.Ops {
+		if op.Each != "" {
+			listUse[op.Each] = true
+		}
+	}
+	for _, em := range cmd.Emit {
+		for _, v := range em.Values {
+			listUse[strings.TrimPrefix(strings.TrimSpace(v.Expr), command.InputPrefix)] = true
+		}
+	}
 	for _, in := range a.Inputs {
 		inputs[in.Name] = in
 		switch {
 		case in.Write != "" || in.Key != "" || in.Lock != "" || in.Filter != "":
 			e.add(in.Line, "输入 %s: 组合命令的输入不写 写入 / 键 / 乐观锁 / 筛选(操作里用 输入.%s 引用)", in.Name, in.Name)
 		case handler && in.Type == GroupListType: // 消息的列表: 每项 / 原样发出
+		case !handler && in.Type == GroupListType && listUse[in.Name]: // 组合命令的组列表: 操作的 每项 / 原样发出
 		case strings.HasSuffix(in.Type, "列表") || in.Type == GroupListType:
-			e.add(in.Line, "输入 %s: 组合命令的输入不能是列表(对列表逐项执行的 每项 只能用于 消息处理)", in.Name)
+			e.add(in.Line, "输入 %s: 组合命令的输入是列表时,要有操作写 每项: 输入.%s(或者原样写进发出的消息);普通的列表还不支持", in.Name, in.Name)
 		}
 	}
 	optionalOK := map[string]bool{} // 可以不传的输入: 只能直接作为 新建 / 幂等新建 的值(不传 = 不写这一列: 默认值 / 空)
@@ -103,9 +115,40 @@ func (c *ctx) compositeOps(a *API, e *errs) {
 		e.add(1, "%v", err)
 	}
 	tables := map[string]string{} // 操作名 → 表
+	blockOf := map[string]int{}   // 每项 的操作 → 循环(第一个操作的下标 + 1;0 = 不在循环里)
+	block := 0
 	for i := range cmd.Ops {
 		op := &cmd.Ops[i]
 		where := "操作 " + op.Name
+		if op.Each != "" { // 操作的 每项(R5): 连续的同一个 每项 = 一个循环
+			if i == 0 || cmd.Ops[i-1].Each != op.Each {
+				block = i + 1
+			}
+			in := inputs[op.Each]
+			switch {
+			case handler:
+				e.add(1, "%s: 消息处理器的 每项 写在 API 上(每项: 消息.列表),不写在操作上", where)
+			case in == nil || in.Type != GroupListType:
+				e.add(1, "%s: 每项 %s 不是组列表的输入", where, op.Each)
+			default:
+				used[op.Each] = true
+				op.EachKey = in.Unique
+			}
+		} else {
+			block = 0
+		}
+		curBlock := block
+		opItem := itemType
+		if in := inputs[op.Each]; op.Each != "" && in != nil && in.Type == GroupListType {
+			opItem = func(name string) (string, error) {
+				for _, g := range in.Group {
+					if g.Name == name {
+						return c.inputSQL(g)
+					}
+				}
+				return "", fmt.Errorf("项.%s: 列表 %s 的元素没有字段 %s", name, op.Each, name)
+			}
+		}
 		t := c.d.Tables[op.Table]
 		if _, ok := c.cat[op.Table]; !ok || t == nil {
 			e.add(1, "%s: 表 %s 不是这个领域的表(领域.yaml 的 表 + db/schema)", where, op.Table)
@@ -128,6 +171,9 @@ func (c *ctx) compositeOps(a *API, e *errs) {
 				if !ok {
 					return "", fmt.Errorf("%s.%s: %s 不是前面的操作(只能引用写在前面的操作)", ref, col, ref)
 				}
+				if b := blockOf[ref]; b != 0 && b != curBlock {
+					return "", fmt.Errorf("%s.%s: %s 是 每项 的操作(每个元素一次),只能在同一个 每项 里引用", ref, col, ref)
+				}
 				if col == exits.CreatedWord {
 					return "", fmt.Errorf("%s.新建 只能用于输出(仅当 在 R4)", ref)
 				}
@@ -138,7 +184,7 @@ func (c *ctx) compositeOps(a *API, e *errs) {
 				return cc.Type, nil
 			},
 			Input:   inputType,
-			Item:    itemType,
+			Item:    opItem,
 			RefEnum: c.refEnum(tables),
 			Env:     handler,
 			Enum: func(table, col, name string) (string, bool) {
@@ -289,6 +335,18 @@ func (c *ctx) compositeOps(a *API, e *errs) {
 			e.add(1, "%s: 操作名重复", where)
 		}
 		tables[op.Name] = op.Table
+		blockOf[op.Name] = curBlock
+	}
+	for _, em := range cmd.Emit { // 发出: 每项 的操作的返回值不能用(哪一个元素?)
+		for _, v := range em.Values {
+			if tree, err := command.ParseExpr(v.Expr, false); err == nil {
+				for _, r := range command.Refs(tree) {
+					if blockOf[r[0]] != 0 {
+						e.add(1, "发出 %s.%s: %s 是 每项 的操作,它的返回值不能写进发出的消息(原样发出 输入.列表)", em.Type, v.Column, r[0])
+					}
+				}
+			}
+		}
 	}
 	c.messaging(a, inputs, inputType, itemType, tables, e) // 发出 / 结果 / 可重入(message_ops.go)
 	for _, in := range a.Inputs {
@@ -316,6 +374,9 @@ func (c *ctx) compositeOps(a *API, e *errs) {
 		switch {
 		case kind == "":
 			e.add(o.Line, "输出 %s: 来自 %s: 没有操作 %s", o.Name, o.From, ref)
+			continue
+		case blockOf[ref] != 0:
+			e.add(o.Line, "输出 %s: 来自 %s: %s 是 每项 的操作(每个元素一次),不能作为输出", o.Name, o.From, ref)
 			continue
 		case col == exits.CreatedWord && kind != "insert_idempotent":
 			e.add(o.Line, "输出 %s: 来自 %s: 新建 只有 幂等新建 有", o.Name, o.From)

@@ -1,0 +1,45 @@
+# 由设计编译器维护,不要手改。proto 的字段编号对外发布后不能变: 只追加,删掉的字段编号保留(reserved)
+字段编号:
+    DocumentExpiredV1:
+        doc_id: 1
+    DocumentPublishedV1:
+        doc_id: 1
+        revision: 2
+    DocumentRejectedV1:
+        doc_id: 1
+        reason: 2
+    DocumentStatus:
+        DOCUMENT_STATUS_EXPIRED: 5
+        DOCUMENT_STATUS_PUBLISHED: 3
+        DOCUMENT_STATUS_PUBLISHING: 2
+        DOCUMENT_STATUS_REJECTED: 4
+        DOCUMENT_STATUS_REVIEWING: 1
+    PublishDoneV1:
+        doc_id: 1
+    PublishRequestV1:
+        doc_id: 1
+        revision: 2
+    ReviewApprovedV1:
+        doc_id: 1
+        revision: 2
+    ReviewRejectedV1:
+        doc_id: 1
+        reason: 2
+    ReviewRequestV1:
+        doc_id: 1
+        reviewers: 4
+        revision: 2
+        title: 3
+    ReviewRequestV1Reviewer:
+        reviewer: 1
+        weight: 2
+    SubmitDocumentRequest:
+        reviewers: 2
+        title: 1
+    SubmitDocumentResponse:
+        doc_id: 1
+        status: 2
+        submitted_at: 3
+    SubmitDocumentReviewer:
+        reviewer: 1
+        weight: 2

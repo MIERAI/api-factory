@@ -41,3 +41,5 @@ tool (
 	connectrpc.com/connect/cmd/protoc-gen-connect-go
 	google.golang.org/protobuf/cmd/protoc-gen-go
 )
+
+replace github.com/MIERAI/api-factory-runtime => /private/tmp/claude-502/-Users-yangzaiqi-workspace/13ff8649-f6ca-41c2-bce4-b5856e7f3800/scratchpad/afr-r5

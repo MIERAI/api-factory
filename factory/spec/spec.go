@@ -102,6 +102,43 @@ type Command struct {
 	Each      string      `yaml:"each,omitempty"`
 	Results   []Result    `yaml:"results,omitempty"`
 	Contracts []Contract  `yaml:"contracts,omitempty"`
+	// R5(docs/design/r5-state-machines.md): 状态机(种类 machine)。转移 = 每个收到的消息类型一个消息处理器,超时 = 扫描任务
+	Machine *Machine `yaml:"machine,omitempty"`
+}
+
+// Machine: 状态机的声明。状态存在实体表的行上(状态列 = 枚举;状态名 = 枚举的值名)。
+type Machine struct {
+	Entity      string              `yaml:"entity"`            // 实体表
+	State       string              `yaml:"state"`             // 状态列(枚举)
+	Entered     string              `yaml:"entered"`           // 进入时间列(超时的基准;只有转移能写)
+	Version     string              `yaml:"version"`           // 版本列(每次转移 / 重发 + 1;超时扫描的乐观锁)
+	Attempts    string              `yaml:"attempts"`          // 重发计数列(进入新状态时清零)
+	Created     string              `yaml:"created,omitempty"` // 创建时间列(可选: 创建到终态的耗时指标)
+	Start       string              `yaml:"start,omitempty"`   // 初始转移: 同一个领域的组合命令(HTTP)
+	States      []MachineState      `yaml:"states"`
+	Loads       []Nest              `yaml:"loads,omitempty"` // 载入: 发出的消息要用的子行(和嵌套同一种写法)
+	Transitions []MachineTransition `yaml:"transitions"`
+}
+
+// MachineState: 一个状态。终态没有出边;等待状态有 命令(进入时发出、超时重发)和 超时。时间都是秒。
+type MachineState struct {
+	Name         string `yaml:"name"`
+	Final        bool   `yaml:"final,omitempty"`
+	Command      *Emit  `yaml:"command,omitempty"`
+	Timeout      int64  `yaml:"timeout,omitempty"`  // 进入之后多久第一次重发
+	Every        int64  `yaml:"every,omitempty"`    // 之后每隔多久重发
+	Deadline     int64  `yaml:"deadline,omitempty"` // 期限(0 = 没有)
+	DeadlineTo   string `yaml:"deadline_to,omitempty"`
+	DeadlineEmit []Emit `yaml:"deadline_emit,omitempty"`
+}
+
+// MachineTransition: 从 + 收到 [+ 守卫] → 到 + 发出(进入等待状态时另外发出那个状态的 命令)。
+type MachineTransition struct {
+	From  string `yaml:"from"`
+	On    string `yaml:"on"`
+	Guard string `yaml:"guard,omitempty"`
+	To    string `yaml:"to"`
+	Emit  []Emit `yaml:"emit,omitempty"`
 }
 
 // MessageRef: 消息类型 + 契约版本 + 生成的 proto 消息名(data)。
@@ -171,6 +208,9 @@ type CommandOp struct {
 	// Skip = 不满足: 跳过(条件不成立不是错误,这个操作不做;后面用 操作名.列 看到的是现在的行)
 	Only string `yaml:"only,omitempty"`
 	Skip bool   `yaml:"skip,omitempty"`
+	// R5: 每项(组合命令的操作): 对输入的列表的每个元素执行(连续的同一个 每项 的操作 = 一个循环);EachKey = 列表的 唯一(执行顺序)
+	Each    string   `yaml:"each,omitempty"`
+	EachKey []string `yaml:"each_key,omitempty"`
 }
 
 // ColExpr: 列 ← 表达式。
@@ -385,6 +425,9 @@ type Case struct {
 	After *After `yaml:"after,omitempty"`
 	// Emitted: 写进 outbox 的消息(R4: 有 发出 的命令 / 消息处理器的用例必须写;[] = 什么都不发)
 	Emitted *[]EmittedMsg `yaml:"emitted,omitempty"`
+	// Message / Timeout: 状态机的用例(R5): 投递一条消息(类型 + data),或者在 Now 跑一轮超时
+	Message *EmittedMsg `yaml:"message,omitempty"`
+	Timeout bool        `yaml:"timeout,omitempty"`
 }
 
 // EmittedMsg: 用例期待发出的一条消息(data 写出来的字段都比较;没写的字段不比较)。
@@ -589,7 +632,7 @@ func (s *Spec) Check() []string {
 	switch {
 	case ds.SQL != "" && declarative:
 		add("datasource: filters/columns are for the declarative form; with sql, write the conditions in sql (table is allowed as metadata)")
-	case ds.SQL == "" && ds.Table == "" && !(s.Pattern.Command != nil && len(s.Pattern.Command.Ops) > 0): // 组合命令: 操作写自己的表
+	case ds.SQL == "" && ds.Table == "" && !(s.Pattern.Command != nil && (len(s.Pattern.Command.Ops) > 0 || s.Pattern.Command.Machine != nil)): // 组合命令: 操作写自己的表;状态机: 实体
 		add("datasource: table (declarative) or sql (escape hatch) is required")
 	}
 	if ds.SQL != "" && writeSQL.MatchString(ds.SQL) {

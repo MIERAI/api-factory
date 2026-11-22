@@ -192,12 +192,21 @@ func (c *ctx) emits(a *API, list []spec.Emit, sc command.Scope, inputs map[strin
 				continue
 			}
 			seen[v.Column] = true
+			if name, ok := strings.CutPrefix(v.Expr, LoadPrefix); ok && f.Type == ListType && c.loadList != nil { // 状态机: 载入的子行(R5)
+				if err := c.loadList(name, f.Elem); err != nil {
+					e.add(1, "%s %s.%s: %v", where, em.Type, v.Column, err)
+				}
+				continue
+			}
 			if f.Type == ListType {
 				name := strings.TrimPrefix(strings.TrimPrefix(v.Expr, command.InputPrefix), command.MessagePrefix)
 				in := inputs[name]
 				if in == nil || in.Type != GroupListType || !sameElems(in.Group, f.Elem) {
-					e.add(1, "%s %s.%s: 列表字段要原样传一个同样形状的列表(消息.<列表>,元素的字段名和类型相同)", where, em.Type, v.Column)
+					e.add(1, "%s %s.%s: 列表字段要原样传一个列表(消息.<列表> / 输入.<列表>,有契约的元素的每个字段: 名字和类型相同)", where, em.Type, v.Column)
 					continue
+				}
+				if len(f.Unique) > 0 && !sameSet(f.Unique, in.Unique) && a.Kind != "message" {
+					e.add(1, "%s %s.%s: 契约的列表要求 唯一 %v: 输入 %s 也要写 唯一: %v(不然重复的元素会让对方当成毒消息)", where, em.Type, v.Column, f.Unique, name, f.Unique)
 				}
 				v.Expr = command.InputPrefix + name
 				continue
@@ -230,12 +239,26 @@ func (c *ctx) emits(a *API, list []spec.Emit, sc command.Scope, inputs map[strin
 	}
 }
 
+// sameElems: 契约的元素的每个字段,输入的组里都有(名字和类型相同;组可以多几个字段,发出时只写契约的字段)。
 func sameElems(in []*Input, fs []spec.ContractField) bool {
-	if len(in) != len(fs) {
+	for _, f := range fs {
+		found := false
+		for _, g := range in {
+			found = found || (g.Name == f.Name && g.Type == f.Type)
+		}
+		if !found {
+			return false
+		}
+	}
+	return len(fs) > 0
+}
+
+func sameSet(a, b []string) bool {
+	if len(a) != len(b) {
 		return false
 	}
-	for i := range in {
-		if in[i].Name != fs[i].Name || in[i].Type != fs[i].Type {
+	for _, x := range a {
+		if !contains(b, x) {
 			return false
 		}
 	}
