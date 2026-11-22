@@ -171,6 +171,19 @@ run "整数日期: 前月ではなく当月(月初 - 1 个月 が抜けた)" $YM
 SN=gen/db/catalog.search-products-by-name.sql.go
 run "包含: 前缀匹配になった"                      $SN "s/LIKE '%' \|\| replace/LIKE replace/"
 run "包含: % の转义なし(通配符)"                 $SN "s/, '%', '\\\\%'\)/, '%', '%')/"
+# R2.6: 今天(领域时区的日期)/ 固定条件里的 今天 / 参数名是 SQL 的关键字
+RS=gen/db/sales.list-recent-snapshots.sql.go
+run "今天: 按 UTC 的日期(不是领域的时区)"         $RS 's/AT TIME ZONE \x27Asia\/Tokyo\x27/AT TIME ZONE \x27UTC\x27/g'
+run "今天: 未来の日付も返す(上界なし)"            $RS 's/\(t1\.snap_ymd <= \(to_char/(t1.snap_ymd <= 99999999 OR (to_char/'
+CC=gen/db/logistics.list-carrier-contracts.sql.go
+run "嵌套の固定条件: 今日終わる契約を含まない(>= → >)" $CC 's/\(t2\.valid_to >= /(t2.valid_to > /'
+run "嵌套の固定条件: 今日始まる契約を含まない(<= → <)" $CC 's/\(t2\.valid_from <= /(t2.valid_from < /'
+run "嵌套の固定条件: 終了日が空 = 無効"              $CC 's/\(t2\.valid_to IS NULL\) OR //'
+run "子聚合の固定条件: 今天 を UTC で"               $CC 's/\(t5\.valid_from <= \(\(\$1::timestamptz AT TIME ZONE \x27Asia\/Tokyo\x27\)/(t5.valid_from <= ((\$1::timestamptz AT TIME ZONE \x27UTC\x27)/'
+run "子聚合の固定条件: 明日以降 > 写成 >="           $CC 's/\(t7\.valid_from > /(t7.valid_from >= /'
+SRG=gen/db/sales.list-store-sales-range.sql.go
+run "参数名 to: <= 写成 <"                          $SRG 's/\(t1\.sales_date <= \$3::date\)/(t1.sales_date < \$3::date)/'
+run "参数名 from: 被忽略"                           $SRG 's/\(t1\.sales_date >= \$2::date\)/(TRUE)/'
 # 命令工厂(R3-1): 生成的写代码。每个变异都要被 ≥3 个状态差分的请求抓到(factory/accept/command_diff.go)
 UJ=internal/handler/schedules/update_job_schedule_gen.go
 SE=internal/handler/schedules/commands_gen.go

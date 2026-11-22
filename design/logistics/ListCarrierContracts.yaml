@@ -1,0 +1,89 @@
+# ============================================================================
+# ListCarrierContracts: 配送業者 + 今日有効な倉庫契約(嵌套)+ 契約の集計(子聚合)
+#   嵌套 / 子聚合の固定条件で 今天(領域の時区での今日の日付)を使う例子。終了日は空 = 期限なし
+# ============================================================================
+API: ListCarrierContracts
+说明: 配送業者を、今日有効な倉庫契約(倉庫コード順)と契約数つきで返す
+背景: 配車担当が当日の出荷をどの業者に回せるかを確認する。「今日」は倉庫のある日本の日付(UTC ではない)。
+  契約は開始日・終了日とも当日を含む。終了日が空の契約は期限なし。1 業者の有効な契約は最大 20 件の運用で、超える業者はデータの誤り
+  → 切り捨てずに、その業者が入るページの要求をエラーにする
+负责人: logistics-team
+风险: 低
+
+种类: 一览
+数据来源: carriers
+
+嵌套:
+  contracts:
+    表: carrier_contracts
+    条件: [carrier_id = carrier_id]
+    固定条件: valid_from <= 今天 并且 (valid_to 为空 或者 valid_to >= 今天)
+    排序: [warehouse_code 小到大, valid_from 小到大]
+    上限: 20
+    列: [warehouse_code, valid_from, valid_to]
+    行名: ActiveContract
+
+子聚合:
+  active_count:   { 表: carrier_contracts, 条件: [carrier_id = carrier_id], 固定条件: valid_from <= 今天 并且 (valid_to 为空 或者 valid_to >= 今天), 计算: 件数 }
+  upcoming_count: { 表: carrier_contracts, 条件: [carrier_id = carrier_id], 固定条件: valid_from > 今天, 计算: 件数 }
+
+输入:
+  partner_code: { 类型: 文本, 必填: 否, 长度: 1~8, 说明: 取引先コード(不指定 = 全業者。空文字は参数错误), 筛选: partner_code 等于 }
+
+输出:
+  carrier_id:     配送業者 ID
+  name:           配送業者名
+  contracts:      今日有効な倉庫契約(倉庫コード順、同じ倉庫は開始日順。最大 20 件。超える業者が入るページはエラー)
+  active_count:   今日有効な契約の数(なし = 0)
+  upcoming_count: 開始日が明日以降の契約の数(なし = 0)
+
+排序: [carrier_id 小到大]
+分页: { 默认每页: 20, 每页最多: 100 }
+输出行名: ContractedCarrier
+
+业务规则:
+  - 情况: 日本では日付が変わったが UTC ではまだ前日(日本の 0 時〜9 時)
+    结果: 今日 = 日本の日付。その日に始まる契約は有効、前日に終わった契約は無効
+  - 情况: 終了日が空の契約
+    结果: 期限なし(開始日以降ずっと有効)
+  - 情况: ある業者の有効な契約が 20 件を超える
+    结果: その業者が入るページの要求だけが FAILED_PRECONDITION になる(切り捨てない)
+
+例子:
+  现在: "2026-03-01 08:30"     # 日本の 3/1 08:30(UTC ではまだ 2/28)
+  准备数据:
+    carriers:
+      - { carrier_id: 1, name: 東西運輸, partner_code: P1 }
+      - { carrier_id: 2, name: 南北便, partner_code: P2 }
+      - { carrier_id: 3, name: 自社便, partner_code: null }
+    carrier_contracts:
+      - { carrier_id: 1, warehouse_code: W1, valid_from: 2025-04-01, valid_to: 2026-02-28 }   # 昨日で終了
+      - { carrier_id: 1, warehouse_code: W1, valid_from: 2026-03-01, valid_to: null }         # 今日から(更新後)
+      - { carrier_id: 1, warehouse_code: W2, valid_from: 2025-04-01, valid_to: 2026-03-01 }   # 今日まで
+      - { carrier_id: 1, warehouse_code: W3, valid_from: 2026-03-02, valid_to: null }         # 明日から
+      - { carrier_id: 2, warehouse_code: W1, valid_from: 2024-01-01, valid_to: 2025-12-31 }   # 終了済み
+      - { carrier_id: 9, warehouse_code: W1, valid_from: 2024-01-01, valid_to: null }         # 業者マスタに無い
+  用例:
+    - 说明: 日本の 3/1 08:30。今日始まる契約・今日終わる契約は有効、昨日終わった契約・明日始まる契約は無効
+      输入: {}
+      结果:
+        carriers:
+          - carrier_id: 1
+            contracts:
+              - { warehouse_code: W1, valid_from: 2026-03-01, valid_to: 不设置 }
+              - { warehouse_code: W2, valid_from: 2025-04-01, valid_to: 2026-03-01 }
+            active_count: 2
+            upcoming_count: 1
+          - { carrier_id: 2, contracts: [], active_count: 0, upcoming_count: 0 }
+          - { carrier_id: 3, contracts: [], active_count: 0, upcoming_count: 0 }
+    - 说明: 日本の 3/2 00:00 では W2 の契約は終了、W3 の契約が始まる
+      现在: "2026-03-02 00:00"
+      输入: { partner_code: P1 }
+      结果:
+        carriers:
+          - carrier_id: 1
+            contracts:
+              - { warehouse_code: W1, valid_from: 2026-03-01 }
+              - { warehouse_code: W3, valid_from: 2026-03-02 }
+            active_count: 2
+            upcoming_count: 0

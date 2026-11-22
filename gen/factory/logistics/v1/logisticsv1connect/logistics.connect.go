@@ -36,6 +36,9 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// LogisticServiceListCarrierContractsProcedure is the fully-qualified name of the LogisticService's
+	// ListCarrierContracts RPC.
+	LogisticServiceListCarrierContractsProcedure = "/factory.logistics.v1.LogisticService/ListCarrierContracts"
 	// LogisticServiceListShipmentPackagesProcedure is the fully-qualified name of the LogisticService's
 	// ListShipmentPackages RPC.
 	LogisticServiceListShipmentPackagesProcedure = "/factory.logistics.v1.LogisticService/ListShipmentPackages"
@@ -52,6 +55,8 @@ const (
 
 // LogisticServiceClient is a client for the factory.logistics.v1.LogisticService service.
 type LogisticServiceClient interface {
+	// 配送業者を、今日有効な倉庫契約(倉庫コード順)と契約数つきで返す
+	ListCarrierContracts(context.Context, *connect.Request[v1.ListCarrierContractsRequest]) (*connect.Response[v1.ListCarrierContractsResponse], error)
 	// 出荷日の出荷を、封緘済みの梱包(重い順)と梱包の集計つきで返す
 	ListShipmentPackages(context.Context, *connect.Request[v1.ListShipmentPackagesRequest]) (*connect.Response[v1.ListShipmentPackagesResponse], error)
 	// 指定した出荷日の出荷を、倉庫名と配送業者名つきで返す(分页なし)
@@ -73,6 +78,12 @@ func NewLogisticServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 	baseURL = strings.TrimRight(baseURL, "/")
 	logisticServiceMethods := v1.File_factory_logistics_v1_logistics_proto.Services().ByName("LogisticService").Methods()
 	return &logisticServiceClient{
+		listCarrierContracts: connect.NewClient[v1.ListCarrierContractsRequest, v1.ListCarrierContractsResponse](
+			httpClient,
+			baseURL+LogisticServiceListCarrierContractsProcedure,
+			connect.WithSchema(logisticServiceMethods.ByName("ListCarrierContracts")),
+			connect.WithClientOptions(opts...),
+		),
 		listShipmentPackages: connect.NewClient[v1.ListShipmentPackagesRequest, v1.ListShipmentPackagesResponse](
 			httpClient,
 			baseURL+LogisticServiceListShipmentPackagesProcedure,
@@ -102,10 +113,16 @@ func NewLogisticServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 
 // logisticServiceClient implements LogisticServiceClient.
 type logisticServiceClient struct {
+	listCarrierContracts  *connect.Client[v1.ListCarrierContractsRequest, v1.ListCarrierContractsResponse]
 	listShipmentPackages  *connect.Client[v1.ListShipmentPackagesRequest, v1.ListShipmentPackagesResponse]
 	listShipmentsByDay    *connect.Client[v1.ListShipmentsByDayRequest, v1.ListShipmentsByDayResponse]
 	listShipmentsByRegion *connect.Client[v1.ListShipmentsByRegionRequest, v1.ListShipmentsByRegionResponse]
 	listZonedShipments    *connect.Client[v1.ListZonedShipmentsRequest, v1.ListZonedShipmentsResponse]
+}
+
+// ListCarrierContracts calls factory.logistics.v1.LogisticService.ListCarrierContracts.
+func (c *logisticServiceClient) ListCarrierContracts(ctx context.Context, req *connect.Request[v1.ListCarrierContractsRequest]) (*connect.Response[v1.ListCarrierContractsResponse], error) {
+	return c.listCarrierContracts.CallUnary(ctx, req)
 }
 
 // ListShipmentPackages calls factory.logistics.v1.LogisticService.ListShipmentPackages.
@@ -130,6 +147,8 @@ func (c *logisticServiceClient) ListZonedShipments(ctx context.Context, req *con
 
 // LogisticServiceHandler is an implementation of the factory.logistics.v1.LogisticService service.
 type LogisticServiceHandler interface {
+	// 配送業者を、今日有効な倉庫契約(倉庫コード順)と契約数つきで返す
+	ListCarrierContracts(context.Context, *connect.Request[v1.ListCarrierContractsRequest]) (*connect.Response[v1.ListCarrierContractsResponse], error)
 	// 出荷日の出荷を、封緘済みの梱包(重い順)と梱包の集計つきで返す
 	ListShipmentPackages(context.Context, *connect.Request[v1.ListShipmentPackagesRequest]) (*connect.Response[v1.ListShipmentPackagesResponse], error)
 	// 指定した出荷日の出荷を、倉庫名と配送業者名つきで返す(分页なし)
@@ -147,6 +166,12 @@ type LogisticServiceHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewLogisticServiceHandler(svc LogisticServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
 	logisticServiceMethods := v1.File_factory_logistics_v1_logistics_proto.Services().ByName("LogisticService").Methods()
+	logisticServiceListCarrierContractsHandler := connect.NewUnaryHandler(
+		LogisticServiceListCarrierContractsProcedure,
+		svc.ListCarrierContracts,
+		connect.WithSchema(logisticServiceMethods.ByName("ListCarrierContracts")),
+		connect.WithHandlerOptions(opts...),
+	)
 	logisticServiceListShipmentPackagesHandler := connect.NewUnaryHandler(
 		LogisticServiceListShipmentPackagesProcedure,
 		svc.ListShipmentPackages,
@@ -173,6 +198,8 @@ func NewLogisticServiceHandler(svc LogisticServiceHandler, opts ...connect.Handl
 	)
 	return "/factory.logistics.v1.LogisticService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case LogisticServiceListCarrierContractsProcedure:
+			logisticServiceListCarrierContractsHandler.ServeHTTP(w, r)
 		case LogisticServiceListShipmentPackagesProcedure:
 			logisticServiceListShipmentPackagesHandler.ServeHTTP(w, r)
 		case LogisticServiceListShipmentsByDayProcedure:
@@ -189,6 +216,10 @@ func NewLogisticServiceHandler(svc LogisticServiceHandler, opts ...connect.Handl
 
 // UnimplementedLogisticServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedLogisticServiceHandler struct{}
+
+func (UnimplementedLogisticServiceHandler) ListCarrierContracts(context.Context, *connect.Request[v1.ListCarrierContractsRequest]) (*connect.Response[v1.ListCarrierContractsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.logistics.v1.LogisticService.ListCarrierContracts is not implemented"))
+}
 
 func (UnimplementedLogisticServiceHandler) ListShipmentPackages(context.Context, *connect.Request[v1.ListShipmentPackagesRequest]) (*connect.Response[v1.ListShipmentPackagesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.logistics.v1.LogisticService.ListShipmentPackages is not implemented"))

@@ -275,6 +275,8 @@ type Datasource struct {
 	Nests []Nest `yaml:"nests,omitempty"`
 	// ChildAggs: 按父行聚合(核心的 child_agg),接在嵌套之后: 每一行加一列子行的聚合值
 	ChildAggs []ChildAgg `yaml:"child_aggs,omitempty"`
+	// TimeZone: 固定条件(来源 / 嵌套 / 子聚合)里的 今天 按这个时区(领域的时区)。用到 今天 / 现在 时才写
+	TimeZone string `yaml:"time_zone,omitempty"`
 	// Derived: 派生参数(不出现在请求里): 值由 now() 和请求参数计算(核心代数的时间运算),和筛选一样作用在来源的列上
 	Derived map[string]Derived `yaml:"derived,omitempty"`
 	// SQL: 逃生口(JOIN / 聚合 / 复杂条件)。写了 sql 就不写 filters/columns;

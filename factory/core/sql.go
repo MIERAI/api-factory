@@ -64,11 +64,16 @@ type Options struct {
 }
 
 // Sqlc: sqlc 的参数写法(必填 / 列表 → sqlc.arg,可选的标量 → sqlc.narg)。
+// 参数名是 SQL 的关键字(limit、order …)或不是普通的标识符时写成文本('limit'): sqlc 的解析器把 sqlc.arg(limit) 当作语法错误。
 func Sqlc(d ParamDecl, _ int) string {
-	if d.Required || d.List {
-		return "sqlc.arg(" + d.Name + ")"
+	name := d.Name
+	if quoteIdent(name) != name {
+		name = quoteLit(name)
 	}
-	return "sqlc.narg(" + d.Name + ")"
+	if d.Required || d.List {
+		return "sqlc.arg(" + name + ")"
+	}
+	return "sqlc.narg(" + name + ")"
 }
 
 // ToSQL: 流水线 → SQL。
@@ -335,8 +340,34 @@ func constSQL(v any, k Kind) (string, error) {
 
 var plainIdent = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
 
-var reserved = map[string]bool{"from": true, "to": true, "order": true, "group": true, "select": true, "where": true,
-	"user": true, "table": true, "limit": true, "offset": true, "desc": true, "asc": true, "end": true, "default": true}
+// reserved: Postgres 的关键字里不能直接当名字用的(保留的、列名 / 类型名 / 函数名专用的:
+// SELECT word FROM pg_get_keywords() WHERE catcode <> 'U',Postgres 16)。列名、参数名是这些词时加引号。
+var reserved = map[string]bool{
+	"all": true, "analyse": true, "analyze": true, "and": true, "any": true, "array": true, "as": true, "asc": true,
+	"asymmetric": true, "authorization": true, "between": true, "bigint": true, "binary": true, "bit": true,
+	"boolean": true, "both": true, "case": true, "cast": true, "char": true, "character": true, "check": true,
+	"coalesce": true, "collate": true, "collation": true, "column": true, "concurrently": true, "constraint": true,
+	"create": true, "cross": true, "current_catalog": true, "current_date": true, "current_role": true,
+	"current_schema": true, "current_time": true, "current_timestamp": true, "current_user": true, "dec": true,
+	"decimal": true, "default": true, "deferrable": true, "desc": true, "distinct": true, "do": true, "else": true,
+	"end": true, "except": true, "exists": true, "extract": true, "false": true, "fetch": true, "float": true,
+	"for": true, "foreign": true, "freeze": true, "from": true, "full": true, "grant": true, "greatest": true,
+	"group": true, "grouping": true, "having": true, "ilike": true, "in": true, "initially": true, "inner": true,
+	"inout": true, "int": true, "integer": true, "intersect": true, "interval": true, "into": true, "is": true,
+	"isnull": true, "join": true, "json_array": true, "json_arrayagg": true, "json_object": true,
+	"json_objectagg": true, "lateral": true, "leading": true, "least": true, "left": true, "like": true, "limit": true,
+	"localtime": true, "localtimestamp": true, "national": true, "natural": true, "nchar": true, "none": true,
+	"normalize": true, "not": true, "notnull": true, "null": true, "nullif": true, "numeric": true, "offset": true,
+	"on": true, "only": true, "or": true, "order": true, "out": true, "outer": true, "overlaps": true, "overlay": true,
+	"placing": true, "position": true, "precision": true, "primary": true, "real": true, "references": true,
+	"returning": true, "right": true, "row": true, "select": true, "session_user": true, "setof": true, "similar": true,
+	"smallint": true, "some": true, "substring": true, "symmetric": true, "system_user": true, "table": true,
+	"tablesample": true, "then": true, "time": true, "timestamp": true, "to": true, "trailing": true, "treat": true,
+	"trim": true, "true": true, "union": true, "unique": true, "user": true, "using": true, "values": true,
+	"varchar": true, "variadic": true, "verbose": true, "when": true, "where": true, "window": true, "with": true,
+	"xmlattributes": true, "xmlconcat": true, "xmlelement": true, "xmlexists": true, "xmlforest": true,
+	"xmlnamespaces": true, "xmlparse": true, "xmlpi": true, "xmlroot": true, "xmlserialize": true, "xmltable": true,
+}
 
 func quoteIdent(s string) string {
 	if plainIdent.MatchString(s) && !reserved[s] {

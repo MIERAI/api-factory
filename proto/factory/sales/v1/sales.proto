@@ -41,6 +41,9 @@ service SaleService {
   // 店舗の、基準日に有効な売価を返す
   rpc ListPricesAsOf(ListPricesAsOfRequest) returns (ListPricesAsOfResponse);
 
+  // 店舗の、今日を含む直近 days 日分(days = 0 なら今日だけ)の売価スナップショットを新しい日から返す
+  rpc ListRecentSnapshots(ListRecentSnapshotsRequest) returns (ListRecentSnapshotsResponse);
+
   // 店舗を指定して、商品コードの前方一致で売価(有効期間つき)を返す
   rpc ListStorePricesByPrefix(ListStorePricesByPrefixRequest) returns (ListStorePricesByPrefixResponse);
 
@@ -49,6 +52,9 @@ service SaleService {
 
   // 店舗と期間を指定して、日別の売上を新しい日から返す
   rpc ListStoreSalesByPeriod(ListStoreSalesByPeriodRequest) returns (ListStoreSalesByPeriodResponse);
+
+  // 店舗と期間(from〜to、両端を含む)を指定して、日別の売上を古い日から返す
+  rpc ListStoreSalesRange(ListStoreSalesRangeRequest) returns (ListStoreSalesRangeResponse);
 
   // 売上日を指定して、値引きのあった店舗のうち値引き額の大きい店舗を上位 2 件返す
   rpc ListTopDiscountStores(ListTopDiscountStoresRequest) returns (ListTopDiscountStoresResponse);
@@ -342,6 +348,32 @@ message ListPricesAsOfResponse {
   repeated StorePrice store_prices = 1;
 }
 
+// 店別・商品別の売価スナップショット(旧システムから取り込んだ表。日付は整数 YYYYMMDD)
+message RecentSnapshot {
+  // 商品コード
+  string product_code = 1;
+  // スナップショット日(YYYYMMDD の整数)
+  int32 snap_ymd = 2;
+  // 売価
+  string price = 3;
+}
+
+// 店舗の、今日を含む直近 days 日分(days = 0 なら今日だけ)の売価スナップショットを新しい日から返す
+message ListRecentSnapshotsRequest {
+  // 店舗コード
+  int32 store_code = 1 [(buf.validate.field).int32.gt = 0];
+  // 何日前まで(0 = 今日だけ)
+  int32 days = 2 [(buf.validate.field).int32.gte = 0, (buf.validate.field).int32.lte = 31];
+  // 商品コード(省略 = 全商品)
+  optional string product_code = 3 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 32];
+}
+
+// 店舗の、今日を含む直近 days 日分(days = 0 なら今日だけ)の売価スナップショットを新しい日から返す
+message ListRecentSnapshotsResponse {
+  // 最多 200 件;超过时返回错误(不会截断)
+  repeated RecentSnapshot snapshots = 1;
+}
+
 // 店舗を指定して、商品コードの前方一致で売価(有効期間つき)を返す
 message ListStorePricesByPrefixRequest {
   // 店舗コード
@@ -411,6 +443,32 @@ message ListStoreSalesByPeriodRequest {
 message ListStoreSalesByPeriodResponse {
   // 最多 62 件;超过时返回错误(不会截断)
   repeated StoreDaySale daily_sales = 1;
+}
+
+// 日别・店别の売上(一天一店一行)
+message RangeSale {
+  // 売上日
+  string sales_date = 1;
+  // 売上金額
+  string amount = 2;
+  // 値引き額
+  optional string discount = 3;
+}
+
+// 店舗と期間(from〜to、両端を含む)を指定して、日別の売上を古い日から返す
+message ListStoreSalesRangeRequest {
+  // 店舗コード
+  int32 store_code = 1 [(buf.validate.field).int32.gt = 0];
+  // 期間の開始(含む)
+  string from = 2 [(buf.validate.field).string.pattern = "^\\d{4}-\\d{2}-\\d{2}$"];
+  // 期間の終了(含む。省略 = 終わりなし)
+  optional string to = 3 [(buf.validate.field).string.pattern = "^\\d{4}-\\d{2}-\\d{2}$"];
+}
+
+// 店舗と期間(from〜to、両端を含む)を指定して、日別の売上を古い日から返す
+message ListStoreSalesRangeResponse {
+  // 最多 31 件;超过时返回错误(不会截断)
+  repeated RangeSale daily_sales = 1;
 }
 
 // 日别・店别の売上(一天一店一行)

@@ -50,3 +50,13 @@ CREATE TABLE IF NOT EXISTS packages (
     sealed_at   TIMESTAMPTZ,          -- 封緘時刻(未封緘 = 空)
     PRIMARY KEY (shipment_id, package_no)
 );
+
+-- 配送業者と倉庫の契約(有効期間つき: valid_to が空 = 期限なし。valid_to の当日は有効)。
+-- 同じ倉庫との契約を更新すると行が増える(開始日が違う)
+CREATE TABLE IF NOT EXISTS carrier_contracts (
+    carrier_id     BIGINT NOT NULL,
+    warehouse_code TEXT   NOT NULL,
+    valid_from     DATE   NOT NULL,
+    valid_to       DATE,
+    PRIMARY KEY (carrier_id, warehouse_code, valid_from)
+);

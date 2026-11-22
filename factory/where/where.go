@@ -6,7 +6,10 @@
 //	并且式 = 单项 { "并且" 单项 }
 //	单项   = "不是" 单项 | "(" 条件 ")" | 值 比较 值 | 列 "为空" | 列 "不为空"
 //	比较   = "=" | "<>" | "<" | "<=" | ">" | ">="
-//	值     = 列名 | 数字 | '文本' (日期也写成 '2026-01-01')
+//	值     = 列名 | 数字 | '文本' (日期也写成 '2026-01-01') | 今天 | 现在
+//
+// 今天 = 请求开始的时刻在领域的时区里的日期(和日期的列、整数编码的日期的列比较);现在 = 请求开始的时刻(和时间的列比较)。
+// 只有调用方给了 Options.Time 时能写(值依赖请求: 用到的 API 的例子要写 现在)。
 //
 // 例: price_in_tax <> old_price_in_tax 或者 biz_deal_id = 99999999
 //
@@ -25,13 +28,25 @@ import (
 	"apifactory/factory/core"
 )
 
-// Parse: 一个固定条件 → 表达式。colType: 列名 → 类型(不是列 → false)。
+// Parse: 一个固定条件 → 表达式。colType: 列名 → 类型(不是列 → false)。不能写 今天 / 现在。
 func Parse(src string, colType func(string) (core.Type, bool)) (*core.Expr, error) {
+	return ParseOpt(src, colType, Options{})
+}
+
+// Options: 固定条件里能不能写 今天 / 现在,以及它们的解释。
+type Options struct {
+	Time bool                  // 可以写 今天 / 现在
+	Zone string                // 今天 = 这个时区的日期(领域的时区)
+	YMD  func(col string) bool // 整数编码的日期(YYYYMMDD)的列: 和 今天 比较时按日期读(ymd(列))
+}
+
+// ParseOpt: 和 Parse 一样,另外按 opt 认 今天 / 现在。
+func ParseOpt(src string, colType func(string) (core.Type, bool), opt Options) (*core.Expr, error) {
 	toks, err := lex(src)
 	if err != nil {
 		return nil, err
 	}
-	p := &parser{toks: toks, colType: colType}
+	p := &parser{toks: toks, colType: colType, opt: opt}
 	e, err := p.or()
 	if err != nil {
 		return nil, fmt.Errorf("固定条件 %q: %w", src, err)
@@ -40,6 +55,20 @@ func Parse(src string, colType func(string) (core.Type, bool)) (*core.Expr, erro
 		return nil, fmt.Errorf("固定条件 %q: %q 之后有多余的内容", src, p.toks[p.pos-1])
 	}
 	return e, nil
+}
+
+// UsesTime: 条件里有没有 今天 / 现在(值依赖请求开始的时刻)。写法错的条件 → false(由 Parse 报错)。
+func UsesTime(src string) bool {
+	toks, err := lex(src)
+	if err != nil {
+		return false
+	}
+	for _, t := range toks {
+		if t == "今天" || t == "现在" {
+			return true
+		}
+	}
+	return false
 }
 
 // Columns: 条件里用到的列(设计稿的检查用)。
@@ -111,6 +140,39 @@ type parser struct {
 	toks    []string
 	pos     int
 	colType func(string) (core.Type, bool)
+	opt     Options
+}
+
+// timeValue: 今天 / 现在 → 表达式和它的类型(不是 → false)。
+func (p *parser) timeValue(s string) (*core.Expr, core.Kind, bool, error) {
+	if s != "今天" && s != "现在" {
+		return nil, "", false, nil
+	}
+	if !p.opt.Time {
+		return nil, "", true, fmt.Errorf("这里不能写 %s", s)
+	}
+	if s == "今天" {
+		return core.Today(p.opt.Zone), core.Date, true, nil
+	}
+	return core.Now(), core.Timestamp, true, nil
+}
+
+// timeCmp: 列 op 今天 / 现在(swap: 写成 今天 op 列)。列的类型要对得上: 日期 / 整数编码的日期 ↔ 今天,时间 ↔ 现在。
+func (p *parser) timeCmp(op, col string, ct core.Type, v *core.Expr, vk core.Kind, word string, swap bool) (*core.Expr, error) {
+	c := core.Col(col)
+	switch {
+	case vk == core.Date && ct.Kind == core.Date, vk == core.Timestamp && ct.Kind == core.Timestamp:
+	case vk == core.Date && (ct.Kind == core.Int32 || ct.Kind == core.Int64) && p.opt.YMD != nil && p.opt.YMD(col):
+		c = core.YMD(c)
+	case vk == core.Date:
+		return nil, fmt.Errorf("%s 是日期,列 %s 是 %s(今天 只能和日期 / 整数编码的日期的列比较;时间的列用 现在)", word, col, ct.Kind)
+	default:
+		return nil, fmt.Errorf("%s 是时间,列 %s 是 %s(现在 只能和时间的列比较;日期的列用 今天)", word, col, ct.Kind)
+	}
+	if swap {
+		return core.Cmp(op, v, c), nil
+	}
+	return core.Cmp(op, c, v), nil
 }
 
 func (p *parser) peek() string {
@@ -200,6 +262,22 @@ func (p *parser) unary() (*core.Expr, error) {
 	}
 	lt, lcol := p.colType(left)
 	rt, rcol := p.colType(right)
+	lv, lk, lIsTime, err := p.timeValue(left)
+	if err != nil {
+		return nil, err
+	}
+	rv, rk, rIsTime, err := p.timeValue(right)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case lcol && rIsTime && !rcol:
+		return p.timeCmp(op, left, lt, rv, rk, right, false)
+	case rcol && lIsTime && !lcol:
+		return p.timeCmp(op, right, rt, lv, lk, left, true)
+	case lIsTime || rIsTime:
+		return nil, fmt.Errorf("%s %s %s: 今天 / 现在 要和列比较", left, op, right)
+	}
 	switch {
 	case lcol && rcol:
 		return core.Cmp(op, core.Col(left), core.Col(right)), nil
