@@ -236,7 +236,9 @@ func callJSON(url string, reqBody map[string]any, out *ir.Message) (code, msg st
 }
 
 // validator: 请求按 proto 的规则(protovalidate,和服务器同一套)是否不合法。
-type validator struct{ md protoreflect.MessageDescriptor }
+type validator struct {
+	md protoreflect.MessageDescriptor
+}
 
 func (v validator) invalid(req map[string]any) (bool, error) {
 	b, err := json.Marshal(withoutNow(req))

@@ -59,11 +59,11 @@ type progEnv struct {
 	rnd      *rand.Rand
 	val      validator
 	state    *command.State
-	tables   []string                 // 模型里的表(外键的顺序: 被引用的在前)
+	tables   []string                  // 模型里的表(外键的顺序: 被引用的在前)
 	cat      map[string]*command.Table //
-	helper   map[string]*cmdEnv       // 每张表: 值域 / 主键的候选(R3-1 的造数据)
-	keys     map[string][][]any       // 每张表: 主键的候选(数据库的写法)
-	home     map[string][2]string     // 请求字段 → 写进的 表.列(值域、枚举的映射)
+	helper   map[string]*cmdEnv        // 每张表: 值域 / 主键的候选(R3-1 的造数据)
+	keys     map[string][][]any        // 每张表: 主键的候选(数据库的写法)
+	home     map[string][2]string      // 请求字段 → 写进的 表.列(值域、枚举的映射)
 	base     map[string]any
 	t0       time.Time
 	seq      int
@@ -675,7 +675,9 @@ func (e *progEnv) now() any {
 	return v
 }
 
-func (e *progEnv) nowText() string { return e.t0.Add(time.Duration(e.seq) * time.Minute).Format(time.RFC3339Nano) }
+func (e *progEnv) nowText() string {
+	return e.t0.Add(time.Duration(e.seq) * time.Minute).Format(time.RFC3339Nano)
+}
 
 // reply: 服务器的回答。
 type reply struct {
