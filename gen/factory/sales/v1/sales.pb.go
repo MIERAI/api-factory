@@ -554,6 +554,198 @@ func (x *ListCurrentPricesResponse) GetNextPageToken() string {
 }
 
 // 日别・店别の売上(一天一店一行)
+type SaleWithCostRate struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 売上日
+	SalesDate string `protobuf:"bytes,1,opt,name=sales_date,json=salesDate,proto3" json:"sales_date,omitempty"`
+	// 売上金額
+	Amount string `protobuf:"bytes,2,opt,name=amount,proto3" json:"amount,omitempty"`
+	// その日に適用されていた通常の原価率(なし = 不设置)
+	CostRate *string `protobuf:"bytes,3,opt,name=cost_rate,json=costRate,proto3,oneof" json:"cost_rate,omitempty"`
+	// その原価率の適用開始日(なし = 不设置)
+	RateFrom *string `protobuf:"bytes,4,opt,name=rate_from,json=rateFrom,proto3,oneof" json:"rate_from,omitempty"`
+	// 今日の通常の原価率(なし = 不设置)
+	CurrentCostRate *string `protobuf:"bytes,5,opt,name=current_cost_rate,json=currentCostRate,proto3,oneof" json:"current_cost_rate,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *SaleWithCostRate) Reset() {
+	*x = SaleWithCostRate{}
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SaleWithCostRate) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SaleWithCostRate) ProtoMessage() {}
+
+func (x *SaleWithCostRate) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SaleWithCostRate.ProtoReflect.Descriptor instead.
+func (*SaleWithCostRate) Descriptor() ([]byte, []int) {
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *SaleWithCostRate) GetSalesDate() string {
+	if x != nil {
+		return x.SalesDate
+	}
+	return ""
+}
+
+func (x *SaleWithCostRate) GetAmount() string {
+	if x != nil {
+		return x.Amount
+	}
+	return ""
+}
+
+func (x *SaleWithCostRate) GetCostRate() string {
+	if x != nil && x.CostRate != nil {
+		return *x.CostRate
+	}
+	return ""
+}
+
+func (x *SaleWithCostRate) GetRateFrom() string {
+	if x != nil && x.RateFrom != nil {
+		return *x.RateFrom
+	}
+	return ""
+}
+
+func (x *SaleWithCostRate) GetCurrentCostRate() string {
+	if x != nil && x.CurrentCostRate != nil {
+		return *x.CurrentCostRate
+	}
+	return ""
+}
+
+// 店舗の売上を from〜to(両端を含む)で日付順に返す。各日に適用されていた通常の原価率と、今日の通常の原価率をつける
+type ListDailySalesCostRatesRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 店舗コード
+	StoreCode int32 `protobuf:"varint,1,opt,name=store_code,json=storeCode,proto3" json:"store_code,omitempty"`
+	// 期間の開始(含む)
+	From string `protobuf:"bytes,2,opt,name=from,proto3" json:"from,omitempty"`
+	// 期間の終了(含む。省略 = 終わりなし)
+	To            *string `protobuf:"bytes,3,opt,name=to,proto3,oneof" json:"to,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListDailySalesCostRatesRequest) Reset() {
+	*x = ListDailySalesCostRatesRequest{}
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListDailySalesCostRatesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListDailySalesCostRatesRequest) ProtoMessage() {}
+
+func (x *ListDailySalesCostRatesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListDailySalesCostRatesRequest.ProtoReflect.Descriptor instead.
+func (*ListDailySalesCostRatesRequest) Descriptor() ([]byte, []int) {
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *ListDailySalesCostRatesRequest) GetStoreCode() int32 {
+	if x != nil {
+		return x.StoreCode
+	}
+	return 0
+}
+
+func (x *ListDailySalesCostRatesRequest) GetFrom() string {
+	if x != nil {
+		return x.From
+	}
+	return ""
+}
+
+func (x *ListDailySalesCostRatesRequest) GetTo() string {
+	if x != nil && x.To != nil {
+		return *x.To
+	}
+	return ""
+}
+
+// 店舗の売上を from〜to(両端を含む)で日付順に返す。各日に適用されていた通常の原価率と、今日の通常の原価率をつける
+type ListDailySalesCostRatesResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 最多 62 件;超过时返回错误(不会截断)
+	DailySales    []*SaleWithCostRate `protobuf:"bytes,1,rep,name=daily_sales,json=dailySales,proto3" json:"daily_sales,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListDailySalesCostRatesResponse) Reset() {
+	*x = ListDailySalesCostRatesResponse{}
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListDailySalesCostRatesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListDailySalesCostRatesResponse) ProtoMessage() {}
+
+func (x *ListDailySalesCostRatesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListDailySalesCostRatesResponse.ProtoReflect.Descriptor instead.
+func (*ListDailySalesCostRatesResponse) Descriptor() ([]byte, []int) {
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *ListDailySalesCostRatesResponse) GetDailySales() []*SaleWithCostRate {
+	if x != nil {
+		return x.DailySales
+	}
+	return nil
+}
+
+// 日别・店别の売上(一天一店一行)
 type DiscountedSale struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 店舗コード
@@ -568,7 +760,7 @@ type DiscountedSale struct {
 
 func (x *DiscountedSale) Reset() {
 	*x = DiscountedSale{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[7]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -580,7 +772,7 @@ func (x *DiscountedSale) String() string {
 func (*DiscountedSale) ProtoMessage() {}
 
 func (x *DiscountedSale) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[7]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -593,7 +785,7 @@ func (x *DiscountedSale) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DiscountedSale.ProtoReflect.Descriptor instead.
 func (*DiscountedSale) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{7}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *DiscountedSale) GetStoreCode() int32 {
@@ -632,7 +824,7 @@ type ListDiscountedSalesRequest struct {
 
 func (x *ListDiscountedSalesRequest) Reset() {
 	*x = ListDiscountedSalesRequest{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[8]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -644,7 +836,7 @@ func (x *ListDiscountedSalesRequest) String() string {
 func (*ListDiscountedSalesRequest) ProtoMessage() {}
 
 func (x *ListDiscountedSalesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[8]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -657,7 +849,7 @@ func (x *ListDiscountedSalesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListDiscountedSalesRequest.ProtoReflect.Descriptor instead.
 func (*ListDiscountedSalesRequest) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{8}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ListDiscountedSalesRequest) GetPageSize() int32 {
@@ -693,7 +885,7 @@ type ListDiscountedSalesResponse struct {
 
 func (x *ListDiscountedSalesResponse) Reset() {
 	*x = ListDiscountedSalesResponse{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[9]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -705,7 +897,7 @@ func (x *ListDiscountedSalesResponse) String() string {
 func (*ListDiscountedSalesResponse) ProtoMessage() {}
 
 func (x *ListDiscountedSalesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[9]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -718,7 +910,7 @@ func (x *ListDiscountedSalesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListDiscountedSalesResponse.ProtoReflect.Descriptor instead.
 func (*ListDiscountedSalesResponse) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{9}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ListDiscountedSalesResponse) GetDailySales() []*DiscountedSale {
@@ -752,7 +944,7 @@ type EffectivePriceChange struct {
 
 func (x *EffectivePriceChange) Reset() {
 	*x = EffectivePriceChange{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[10]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -764,7 +956,7 @@ func (x *EffectivePriceChange) String() string {
 func (*EffectivePriceChange) ProtoMessage() {}
 
 func (x *EffectivePriceChange) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[10]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -777,7 +969,7 @@ func (x *EffectivePriceChange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EffectivePriceChange.ProtoReflect.Descriptor instead.
 func (*EffectivePriceChange) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{10}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *EffectivePriceChange) GetProductCode() string {
@@ -821,7 +1013,7 @@ type ListEffectivePriceChangesRequest struct {
 
 func (x *ListEffectivePriceChangesRequest) Reset() {
 	*x = ListEffectivePriceChangesRequest{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[11]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -833,7 +1025,7 @@ func (x *ListEffectivePriceChangesRequest) String() string {
 func (*ListEffectivePriceChangesRequest) ProtoMessage() {}
 
 func (x *ListEffectivePriceChangesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[11]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -846,7 +1038,7 @@ func (x *ListEffectivePriceChangesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListEffectivePriceChangesRequest.ProtoReflect.Descriptor instead.
 func (*ListEffectivePriceChangesRequest) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{11}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ListEffectivePriceChangesRequest) GetStoreCode() int32 {
@@ -874,7 +1066,7 @@ type ListEffectivePriceChangesResponse struct {
 
 func (x *ListEffectivePriceChangesResponse) Reset() {
 	*x = ListEffectivePriceChangesResponse{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[12]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -886,7 +1078,7 @@ func (x *ListEffectivePriceChangesResponse) String() string {
 func (*ListEffectivePriceChangesResponse) ProtoMessage() {}
 
 func (x *ListEffectivePriceChangesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[12]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -899,7 +1091,7 @@ func (x *ListEffectivePriceChangesResponse) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use ListEffectivePriceChangesResponse.ProtoReflect.Descriptor instead.
 func (*ListEffectivePriceChangesResponse) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{12}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ListEffectivePriceChangesResponse) GetPriceChanges() []*EffectivePriceChange {
@@ -924,7 +1116,7 @@ type LastPrice struct {
 
 func (x *LastPrice) Reset() {
 	*x = LastPrice{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[13]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -936,7 +1128,7 @@ func (x *LastPrice) String() string {
 func (*LastPrice) ProtoMessage() {}
 
 func (x *LastPrice) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[13]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -949,7 +1141,7 @@ func (x *LastPrice) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LastPrice.ProtoReflect.Descriptor instead.
 func (*LastPrice) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{13}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *LastPrice) GetProductCode() string {
@@ -986,7 +1178,7 @@ type ListPrevMonthLastPricesRequest struct {
 
 func (x *ListPrevMonthLastPricesRequest) Reset() {
 	*x = ListPrevMonthLastPricesRequest{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[14]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -998,7 +1190,7 @@ func (x *ListPrevMonthLastPricesRequest) String() string {
 func (*ListPrevMonthLastPricesRequest) ProtoMessage() {}
 
 func (x *ListPrevMonthLastPricesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[14]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1011,7 +1203,7 @@ func (x *ListPrevMonthLastPricesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPrevMonthLastPricesRequest.ProtoReflect.Descriptor instead.
 func (*ListPrevMonthLastPricesRequest) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{14}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ListPrevMonthLastPricesRequest) GetStoreCode() int32 {
@@ -1039,7 +1231,7 @@ type ListPrevMonthLastPricesResponse struct {
 
 func (x *ListPrevMonthLastPricesResponse) Reset() {
 	*x = ListPrevMonthLastPricesResponse{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[15]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1051,7 +1243,7 @@ func (x *ListPrevMonthLastPricesResponse) String() string {
 func (*ListPrevMonthLastPricesResponse) ProtoMessage() {}
 
 func (x *ListPrevMonthLastPricesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[15]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1064,7 +1256,7 @@ func (x *ListPrevMonthLastPricesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPrevMonthLastPricesResponse.ProtoReflect.Descriptor instead.
 func (*ListPrevMonthLastPricesResponse) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{15}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ListPrevMonthLastPricesResponse) GetPrices() []*LastPrice {
@@ -1089,7 +1281,7 @@ type PrevMonthSale struct {
 
 func (x *PrevMonthSale) Reset() {
 	*x = PrevMonthSale{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[16]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1101,7 +1293,7 @@ func (x *PrevMonthSale) String() string {
 func (*PrevMonthSale) ProtoMessage() {}
 
 func (x *PrevMonthSale) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[16]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1114,7 +1306,7 @@ func (x *PrevMonthSale) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PrevMonthSale.ProtoReflect.Descriptor instead.
 func (*PrevMonthSale) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{16}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *PrevMonthSale) GetSalesDate() string {
@@ -1151,7 +1343,7 @@ type ListPrevMonthSalesRequest struct {
 
 func (x *ListPrevMonthSalesRequest) Reset() {
 	*x = ListPrevMonthSalesRequest{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[17]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1163,7 +1355,7 @@ func (x *ListPrevMonthSalesRequest) String() string {
 func (*ListPrevMonthSalesRequest) ProtoMessage() {}
 
 func (x *ListPrevMonthSalesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[17]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1176,7 +1368,7 @@ func (x *ListPrevMonthSalesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPrevMonthSalesRequest.ProtoReflect.Descriptor instead.
 func (*ListPrevMonthSalesRequest) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{17}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ListPrevMonthSalesRequest) GetStoreCode() int32 {
@@ -1204,7 +1396,7 @@ type ListPrevMonthSalesResponse struct {
 
 func (x *ListPrevMonthSalesResponse) Reset() {
 	*x = ListPrevMonthSalesResponse{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[18]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1216,7 +1408,7 @@ func (x *ListPrevMonthSalesResponse) String() string {
 func (*ListPrevMonthSalesResponse) ProtoMessage() {}
 
 func (x *ListPrevMonthSalesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[18]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1229,7 +1421,7 @@ func (x *ListPrevMonthSalesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPrevMonthSalesResponse.ProtoReflect.Descriptor instead.
 func (*ListPrevMonthSalesResponse) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{18}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ListPrevMonthSalesResponse) GetDailySales() []*PrevMonthSale {
@@ -1256,7 +1448,7 @@ type PriceChange struct {
 
 func (x *PriceChange) Reset() {
 	*x = PriceChange{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[19]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1268,7 +1460,7 @@ func (x *PriceChange) String() string {
 func (*PriceChange) ProtoMessage() {}
 
 func (x *PriceChange) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[19]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1281,7 +1473,7 @@ func (x *PriceChange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PriceChange.ProtoReflect.Descriptor instead.
 func (*PriceChange) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{19}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *PriceChange) GetStoreCode() int32 {
@@ -1331,7 +1523,7 @@ type ListPriceChangeHistoryRequest struct {
 
 func (x *ListPriceChangeHistoryRequest) Reset() {
 	*x = ListPriceChangeHistoryRequest{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[20]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1343,7 +1535,7 @@ func (x *ListPriceChangeHistoryRequest) String() string {
 func (*ListPriceChangeHistoryRequest) ProtoMessage() {}
 
 func (x *ListPriceChangeHistoryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[20]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1356,7 +1548,7 @@ func (x *ListPriceChangeHistoryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPriceChangeHistoryRequest.ProtoReflect.Descriptor instead.
 func (*ListPriceChangeHistoryRequest) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{20}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ListPriceChangeHistoryRequest) GetPageSize() int32 {
@@ -1406,7 +1598,7 @@ type ListPriceChangeHistoryResponse struct {
 
 func (x *ListPriceChangeHistoryResponse) Reset() {
 	*x = ListPriceChangeHistoryResponse{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[21]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1418,7 +1610,7 @@ func (x *ListPriceChangeHistoryResponse) String() string {
 func (*ListPriceChangeHistoryResponse) ProtoMessage() {}
 
 func (x *ListPriceChangeHistoryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[21]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1431,7 +1623,7 @@ func (x *ListPriceChangeHistoryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPriceChangeHistoryResponse.ProtoReflect.Descriptor instead.
 func (*ListPriceChangeHistoryResponse) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{21}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ListPriceChangeHistoryResponse) GetPriceChanges() []*PriceChange {
@@ -1465,7 +1657,7 @@ type StorePriceChange struct {
 
 func (x *StorePriceChange) Reset() {
 	*x = StorePriceChange{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[22]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1477,7 +1669,7 @@ func (x *StorePriceChange) String() string {
 func (*StorePriceChange) ProtoMessage() {}
 
 func (x *StorePriceChange) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[22]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1490,7 +1682,7 @@ func (x *StorePriceChange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StorePriceChange.ProtoReflect.Descriptor instead.
 func (*StorePriceChange) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{22}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *StorePriceChange) GetStoreCode() int32 {
@@ -1538,7 +1730,7 @@ type ListPriceChangesForStoresRequest struct {
 
 func (x *ListPriceChangesForStoresRequest) Reset() {
 	*x = ListPriceChangesForStoresRequest{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[23]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1550,7 +1742,7 @@ func (x *ListPriceChangesForStoresRequest) String() string {
 func (*ListPriceChangesForStoresRequest) ProtoMessage() {}
 
 func (x *ListPriceChangesForStoresRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[23]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1563,7 +1755,7 @@ func (x *ListPriceChangesForStoresRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPriceChangesForStoresRequest.ProtoReflect.Descriptor instead.
 func (*ListPriceChangesForStoresRequest) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{23}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ListPriceChangesForStoresRequest) GetPageSize() int32 {
@@ -1606,7 +1798,7 @@ type ListPriceChangesForStoresResponse struct {
 
 func (x *ListPriceChangesForStoresResponse) Reset() {
 	*x = ListPriceChangesForStoresResponse{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[24]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1618,7 +1810,7 @@ func (x *ListPriceChangesForStoresResponse) String() string {
 func (*ListPriceChangesForStoresResponse) ProtoMessage() {}
 
 func (x *ListPriceChangesForStoresResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[24]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1631,7 +1823,7 @@ func (x *ListPriceChangesForStoresResponse) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use ListPriceChangesForStoresResponse.ProtoReflect.Descriptor instead.
 func (*ListPriceChangesForStoresResponse) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{24}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *ListPriceChangesForStoresResponse) GetPriceChanges() []*StorePriceChange {
@@ -1665,7 +1857,7 @@ type StorePrice struct {
 
 func (x *StorePrice) Reset() {
 	*x = StorePrice{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[25]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1677,7 +1869,7 @@ func (x *StorePrice) String() string {
 func (*StorePrice) ProtoMessage() {}
 
 func (x *StorePrice) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[25]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1690,7 +1882,7 @@ func (x *StorePrice) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StorePrice.ProtoReflect.Descriptor instead.
 func (*StorePrice) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{25}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *StorePrice) GetProductCode() string {
@@ -1734,7 +1926,7 @@ type ListPricesAsOfRequest struct {
 
 func (x *ListPricesAsOfRequest) Reset() {
 	*x = ListPricesAsOfRequest{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[26]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1746,7 +1938,7 @@ func (x *ListPricesAsOfRequest) String() string {
 func (*ListPricesAsOfRequest) ProtoMessage() {}
 
 func (x *ListPricesAsOfRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[26]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1759,7 +1951,7 @@ func (x *ListPricesAsOfRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPricesAsOfRequest.ProtoReflect.Descriptor instead.
 func (*ListPricesAsOfRequest) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{26}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *ListPricesAsOfRequest) GetStoreCode() int32 {
@@ -1787,7 +1979,7 @@ type ListPricesAsOfResponse struct {
 
 func (x *ListPricesAsOfResponse) Reset() {
 	*x = ListPricesAsOfResponse{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[27]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1799,7 +1991,7 @@ func (x *ListPricesAsOfResponse) String() string {
 func (*ListPricesAsOfResponse) ProtoMessage() {}
 
 func (x *ListPricesAsOfResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[27]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1812,7 +2004,7 @@ func (x *ListPricesAsOfResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPricesAsOfResponse.ProtoReflect.Descriptor instead.
 func (*ListPricesAsOfResponse) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{27}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ListPricesAsOfResponse) GetStorePrices() []*StorePrice {
@@ -1837,7 +2029,7 @@ type RecentSnapshot struct {
 
 func (x *RecentSnapshot) Reset() {
 	*x = RecentSnapshot{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[28]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1849,7 +2041,7 @@ func (x *RecentSnapshot) String() string {
 func (*RecentSnapshot) ProtoMessage() {}
 
 func (x *RecentSnapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[28]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1862,7 +2054,7 @@ func (x *RecentSnapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecentSnapshot.ProtoReflect.Descriptor instead.
 func (*RecentSnapshot) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{28}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *RecentSnapshot) GetProductCode() string {
@@ -1901,7 +2093,7 @@ type ListRecentSnapshotsRequest struct {
 
 func (x *ListRecentSnapshotsRequest) Reset() {
 	*x = ListRecentSnapshotsRequest{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[29]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1913,7 +2105,7 @@ func (x *ListRecentSnapshotsRequest) String() string {
 func (*ListRecentSnapshotsRequest) ProtoMessage() {}
 
 func (x *ListRecentSnapshotsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[29]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1926,7 +2118,7 @@ func (x *ListRecentSnapshotsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRecentSnapshotsRequest.ProtoReflect.Descriptor instead.
 func (*ListRecentSnapshotsRequest) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{29}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *ListRecentSnapshotsRequest) GetStoreCode() int32 {
@@ -1961,7 +2153,7 @@ type ListRecentSnapshotsResponse struct {
 
 func (x *ListRecentSnapshotsResponse) Reset() {
 	*x = ListRecentSnapshotsResponse{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[30]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1973,7 +2165,7 @@ func (x *ListRecentSnapshotsResponse) String() string {
 func (*ListRecentSnapshotsResponse) ProtoMessage() {}
 
 func (x *ListRecentSnapshotsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[30]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1986,12 +2178,204 @@ func (x *ListRecentSnapshotsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRecentSnapshotsResponse.ProtoReflect.Descriptor instead.
 func (*ListRecentSnapshotsResponse) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{30}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *ListRecentSnapshotsResponse) GetSnapshots() []*RecentSnapshot {
 	if x != nil {
 		return x.Snapshots
+	}
+	return nil
+}
+
+// 店別の売価(有効期間つき)。店舗ごとの DB に分かれている
+type StorePriceWithName struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 商品コード
+	ProductCode string `protobuf:"bytes,1,opt,name=product_code,json=productCode,proto3" json:"product_code,omitempty"`
+	// 商品名(店舗の商品マスタに無い = 不设置)
+	ProductName *string `protobuf:"bytes,2,opt,name=product_name,json=productName,proto3,oneof" json:"product_name,omitempty"`
+	// 適用開始日
+	ValidFrom string `protobuf:"bytes,3,opt,name=valid_from,json=validFrom,proto3" json:"valid_from,omitempty"`
+	// 適用終了日
+	ValidTo *string `protobuf:"bytes,4,opt,name=valid_to,json=validTo,proto3,oneof" json:"valid_to,omitempty"`
+	// 売価
+	Price         string `protobuf:"bytes,5,opt,name=price,proto3" json:"price,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StorePriceWithName) Reset() {
+	*x = StorePriceWithName{}
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StorePriceWithName) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StorePriceWithName) ProtoMessage() {}
+
+func (x *StorePriceWithName) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StorePriceWithName.ProtoReflect.Descriptor instead.
+func (*StorePriceWithName) Descriptor() ([]byte, []int) {
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *StorePriceWithName) GetProductCode() string {
+	if x != nil {
+		return x.ProductCode
+	}
+	return ""
+}
+
+func (x *StorePriceWithName) GetProductName() string {
+	if x != nil && x.ProductName != nil {
+		return *x.ProductName
+	}
+	return ""
+}
+
+func (x *StorePriceWithName) GetValidFrom() string {
+	if x != nil {
+		return x.ValidFrom
+	}
+	return ""
+}
+
+func (x *StorePriceWithName) GetValidTo() string {
+	if x != nil && x.ValidTo != nil {
+		return *x.ValidTo
+	}
+	return ""
+}
+
+func (x *StorePriceWithName) GetPrice() string {
+	if x != nil {
+		return x.Price
+	}
+	return ""
+}
+
+// 店舗を指定して、売価(有効期間つき)を商品名つきで商品コード順に返す
+type ListStorePriceNamesRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 店舗コード
+	StoreCode int32 `protobuf:"varint,1,opt,name=store_code,json=storeCode,proto3" json:"store_code,omitempty"`
+	// 商品コードの先頭(省略 = 全商品)
+	ProductPrefix *string `protobuf:"bytes,2,opt,name=product_prefix,json=productPrefix,proto3,oneof" json:"product_prefix,omitempty"`
+	// 商品名(店舗の商品マスタの表示名と一致。省略 = 絞らない)
+	ProductName   *string `protobuf:"bytes,3,opt,name=product_name,json=productName,proto3,oneof" json:"product_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListStorePriceNamesRequest) Reset() {
+	*x = ListStorePriceNamesRequest{}
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListStorePriceNamesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListStorePriceNamesRequest) ProtoMessage() {}
+
+func (x *ListStorePriceNamesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListStorePriceNamesRequest.ProtoReflect.Descriptor instead.
+func (*ListStorePriceNamesRequest) Descriptor() ([]byte, []int) {
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *ListStorePriceNamesRequest) GetStoreCode() int32 {
+	if x != nil {
+		return x.StoreCode
+	}
+	return 0
+}
+
+func (x *ListStorePriceNamesRequest) GetProductPrefix() string {
+	if x != nil && x.ProductPrefix != nil {
+		return *x.ProductPrefix
+	}
+	return ""
+}
+
+func (x *ListStorePriceNamesRequest) GetProductName() string {
+	if x != nil && x.ProductName != nil {
+		return *x.ProductName
+	}
+	return ""
+}
+
+// 店舗を指定して、売価(有効期間つき)を商品名つきで商品コード順に返す
+type ListStorePriceNamesResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 最多 300 件;超过时返回错误(不会截断)
+	StorePrices   []*StorePriceWithName `protobuf:"bytes,1,rep,name=store_prices,json=storePrices,proto3" json:"store_prices,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListStorePriceNamesResponse) Reset() {
+	*x = ListStorePriceNamesResponse{}
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListStorePriceNamesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListStorePriceNamesResponse) ProtoMessage() {}
+
+func (x *ListStorePriceNamesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListStorePriceNamesResponse.ProtoReflect.Descriptor instead.
+func (*ListStorePriceNamesResponse) Descriptor() ([]byte, []int) {
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *ListStorePriceNamesResponse) GetStorePrices() []*StorePriceWithName {
+	if x != nil {
+		return x.StorePrices
 	}
 	return nil
 }
@@ -2009,7 +2393,7 @@ type ListStorePricesByPrefixRequest struct {
 
 func (x *ListStorePricesByPrefixRequest) Reset() {
 	*x = ListStorePricesByPrefixRequest{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[31]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2021,7 +2405,7 @@ func (x *ListStorePricesByPrefixRequest) String() string {
 func (*ListStorePricesByPrefixRequest) ProtoMessage() {}
 
 func (x *ListStorePricesByPrefixRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[31]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2034,7 +2418,7 @@ func (x *ListStorePricesByPrefixRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListStorePricesByPrefixRequest.ProtoReflect.Descriptor instead.
 func (*ListStorePricesByPrefixRequest) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{31}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *ListStorePricesByPrefixRequest) GetStoreCode() int32 {
@@ -2062,7 +2446,7 @@ type ListStorePricesByPrefixResponse struct {
 
 func (x *ListStorePricesByPrefixResponse) Reset() {
 	*x = ListStorePricesByPrefixResponse{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[32]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2074,7 +2458,7 @@ func (x *ListStorePricesByPrefixResponse) String() string {
 func (*ListStorePricesByPrefixResponse) ProtoMessage() {}
 
 func (x *ListStorePricesByPrefixResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[32]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2087,7 +2471,7 @@ func (x *ListStorePricesByPrefixResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListStorePricesByPrefixResponse.ProtoReflect.Descriptor instead.
 func (*ListStorePricesByPrefixResponse) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{32}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *ListStorePricesByPrefixResponse) GetStorePrices() []*StorePrice {
@@ -2112,7 +2496,7 @@ type StoreSale struct {
 
 func (x *StoreSale) Reset() {
 	*x = StoreSale{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[33]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2124,7 +2508,7 @@ func (x *StoreSale) String() string {
 func (*StoreSale) ProtoMessage() {}
 
 func (x *StoreSale) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[33]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2137,7 +2521,7 @@ func (x *StoreSale) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StoreSale.ProtoReflect.Descriptor instead.
 func (*StoreSale) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{33}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *StoreSale) GetStoreCode() int32 {
@@ -2174,7 +2558,7 @@ type ListStoreSalesRequest struct {
 
 func (x *ListStoreSalesRequest) Reset() {
 	*x = ListStoreSalesRequest{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[34]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2186,7 +2570,7 @@ func (x *ListStoreSalesRequest) String() string {
 func (*ListStoreSalesRequest) ProtoMessage() {}
 
 func (x *ListStoreSalesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[34]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2199,7 +2583,7 @@ func (x *ListStoreSalesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListStoreSalesRequest.ProtoReflect.Descriptor instead.
 func (*ListStoreSalesRequest) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{34}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *ListStoreSalesRequest) GetSalesDate() string {
@@ -2227,7 +2611,7 @@ type ListStoreSalesResponse struct {
 
 func (x *ListStoreSalesResponse) Reset() {
 	*x = ListStoreSalesResponse{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[35]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2239,7 +2623,7 @@ func (x *ListStoreSalesResponse) String() string {
 func (*ListStoreSalesResponse) ProtoMessage() {}
 
 func (x *ListStoreSalesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[35]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2252,7 +2636,7 @@ func (x *ListStoreSalesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListStoreSalesResponse.ProtoReflect.Descriptor instead.
 func (*ListStoreSalesResponse) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{35}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *ListStoreSalesResponse) GetDailySales() []*StoreSale {
@@ -2279,7 +2663,7 @@ type StoreDaySale struct {
 
 func (x *StoreDaySale) Reset() {
 	*x = StoreDaySale{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[36]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2291,7 +2675,7 @@ func (x *StoreDaySale) String() string {
 func (*StoreDaySale) ProtoMessage() {}
 
 func (x *StoreDaySale) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[36]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2304,7 +2688,7 @@ func (x *StoreDaySale) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StoreDaySale.ProtoReflect.Descriptor instead.
 func (*StoreDaySale) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{36}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *StoreDaySale) GetSalesDate() string {
@@ -2350,7 +2734,7 @@ type ListStoreSalesByPeriodRequest struct {
 
 func (x *ListStoreSalesByPeriodRequest) Reset() {
 	*x = ListStoreSalesByPeriodRequest{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[37]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2362,7 +2746,7 @@ func (x *ListStoreSalesByPeriodRequest) String() string {
 func (*ListStoreSalesByPeriodRequest) ProtoMessage() {}
 
 func (x *ListStoreSalesByPeriodRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[37]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2375,7 +2759,7 @@ func (x *ListStoreSalesByPeriodRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListStoreSalesByPeriodRequest.ProtoReflect.Descriptor instead.
 func (*ListStoreSalesByPeriodRequest) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{37}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *ListStoreSalesByPeriodRequest) GetStoreCode() int32 {
@@ -2410,7 +2794,7 @@ type ListStoreSalesByPeriodResponse struct {
 
 func (x *ListStoreSalesByPeriodResponse) Reset() {
 	*x = ListStoreSalesByPeriodResponse{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[38]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2422,7 +2806,7 @@ func (x *ListStoreSalesByPeriodResponse) String() string {
 func (*ListStoreSalesByPeriodResponse) ProtoMessage() {}
 
 func (x *ListStoreSalesByPeriodResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[38]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2435,7 +2819,7 @@ func (x *ListStoreSalesByPeriodResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListStoreSalesByPeriodResponse.ProtoReflect.Descriptor instead.
 func (*ListStoreSalesByPeriodResponse) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{38}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *ListStoreSalesByPeriodResponse) GetDailySales() []*StoreDaySale {
@@ -2460,7 +2844,7 @@ type RangeSale struct {
 
 func (x *RangeSale) Reset() {
 	*x = RangeSale{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[39]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2472,7 +2856,7 @@ func (x *RangeSale) String() string {
 func (*RangeSale) ProtoMessage() {}
 
 func (x *RangeSale) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[39]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2485,7 +2869,7 @@ func (x *RangeSale) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RangeSale.ProtoReflect.Descriptor instead.
 func (*RangeSale) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{39}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *RangeSale) GetSalesDate() string {
@@ -2524,7 +2908,7 @@ type ListStoreSalesRangeRequest struct {
 
 func (x *ListStoreSalesRangeRequest) Reset() {
 	*x = ListStoreSalesRangeRequest{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[40]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2536,7 +2920,7 @@ func (x *ListStoreSalesRangeRequest) String() string {
 func (*ListStoreSalesRangeRequest) ProtoMessage() {}
 
 func (x *ListStoreSalesRangeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[40]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2549,7 +2933,7 @@ func (x *ListStoreSalesRangeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListStoreSalesRangeRequest.ProtoReflect.Descriptor instead.
 func (*ListStoreSalesRangeRequest) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{40}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *ListStoreSalesRangeRequest) GetStoreCode() int32 {
@@ -2584,7 +2968,7 @@ type ListStoreSalesRangeResponse struct {
 
 func (x *ListStoreSalesRangeResponse) Reset() {
 	*x = ListStoreSalesRangeResponse{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[41]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2596,7 +2980,7 @@ func (x *ListStoreSalesRangeResponse) String() string {
 func (*ListStoreSalesRangeResponse) ProtoMessage() {}
 
 func (x *ListStoreSalesRangeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[41]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2609,7 +2993,7 @@ func (x *ListStoreSalesRangeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListStoreSalesRangeResponse.ProtoReflect.Descriptor instead.
 func (*ListStoreSalesRangeResponse) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{41}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *ListStoreSalesRangeResponse) GetDailySales() []*RangeSale {
@@ -2634,7 +3018,7 @@ type TopDiscountStore struct {
 
 func (x *TopDiscountStore) Reset() {
 	*x = TopDiscountStore{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[42]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2646,7 +3030,7 @@ func (x *TopDiscountStore) String() string {
 func (*TopDiscountStore) ProtoMessage() {}
 
 func (x *TopDiscountStore) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[42]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2659,7 +3043,7 @@ func (x *TopDiscountStore) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TopDiscountStore.ProtoReflect.Descriptor instead.
 func (*TopDiscountStore) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{42}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *TopDiscountStore) GetStoreCode() int32 {
@@ -2694,7 +3078,7 @@ type ListTopDiscountStoresRequest struct {
 
 func (x *ListTopDiscountStoresRequest) Reset() {
 	*x = ListTopDiscountStoresRequest{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[43]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2706,7 +3090,7 @@ func (x *ListTopDiscountStoresRequest) String() string {
 func (*ListTopDiscountStoresRequest) ProtoMessage() {}
 
 func (x *ListTopDiscountStoresRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[43]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2719,7 +3103,7 @@ func (x *ListTopDiscountStoresRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTopDiscountStoresRequest.ProtoReflect.Descriptor instead.
 func (*ListTopDiscountStoresRequest) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{43}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *ListTopDiscountStoresRequest) GetSalesDate() string {
@@ -2740,7 +3124,7 @@ type ListTopDiscountStoresResponse struct {
 
 func (x *ListTopDiscountStoresResponse) Reset() {
 	*x = ListTopDiscountStoresResponse{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[44]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2752,7 +3136,7 @@ func (x *ListTopDiscountStoresResponse) String() string {
 func (*ListTopDiscountStoresResponse) ProtoMessage() {}
 
 func (x *ListTopDiscountStoresResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[44]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2765,7 +3149,7 @@ func (x *ListTopDiscountStoresResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTopDiscountStoresResponse.ProtoReflect.Descriptor instead.
 func (*ListTopDiscountStoresResponse) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{44}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *ListTopDiscountStoresResponse) GetDailySales() []*TopDiscountStore {
@@ -2794,7 +3178,7 @@ type DailySale struct {
 
 func (x *DailySale) Reset() {
 	*x = DailySale{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[45]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2806,7 +3190,7 @@ func (x *DailySale) String() string {
 func (*DailySale) ProtoMessage() {}
 
 func (x *DailySale) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[45]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2819,7 +3203,7 @@ func (x *DailySale) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DailySale.ProtoReflect.Descriptor instead.
 func (*DailySale) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{45}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *DailySale) GetSalesDate() string {
@@ -2878,7 +3262,7 @@ type ListTopSalesRequest struct {
 
 func (x *ListTopSalesRequest) Reset() {
 	*x = ListTopSalesRequest{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[46]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2890,7 +3274,7 @@ func (x *ListTopSalesRequest) String() string {
 func (*ListTopSalesRequest) ProtoMessage() {}
 
 func (x *ListTopSalesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[46]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2903,7 +3287,7 @@ func (x *ListTopSalesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTopSalesRequest.ProtoReflect.Descriptor instead.
 func (*ListTopSalesRequest) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{46}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *ListTopSalesRequest) GetPageSize() int32 {
@@ -2960,7 +3344,7 @@ type ListTopSalesResponse struct {
 
 func (x *ListTopSalesResponse) Reset() {
 	*x = ListTopSalesResponse{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[47]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2972,7 +3356,7 @@ func (x *ListTopSalesResponse) String() string {
 func (*ListTopSalesResponse) ProtoMessage() {}
 
 func (x *ListTopSalesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[47]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2985,7 +3369,7 @@ func (x *ListTopSalesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTopSalesResponse.ProtoReflect.Descriptor instead.
 func (*ListTopSalesResponse) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{47}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *ListTopSalesResponse) GetDailySales() []*DailySale {
@@ -3015,7 +3399,7 @@ type TopStore struct {
 
 func (x *TopStore) Reset() {
 	*x = TopStore{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[48]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3027,7 +3411,7 @@ func (x *TopStore) String() string {
 func (*TopStore) ProtoMessage() {}
 
 func (x *TopStore) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[48]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3040,7 +3424,7 @@ func (x *TopStore) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TopStore.ProtoReflect.Descriptor instead.
 func (*TopStore) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{48}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *TopStore) GetStoreCode() int32 {
@@ -3068,7 +3452,7 @@ type ListTopStoresRequest struct {
 
 func (x *ListTopStoresRequest) Reset() {
 	*x = ListTopStoresRequest{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[49]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3080,7 +3464,7 @@ func (x *ListTopStoresRequest) String() string {
 func (*ListTopStoresRequest) ProtoMessage() {}
 
 func (x *ListTopStoresRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[49]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3093,7 +3477,7 @@ func (x *ListTopStoresRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTopStoresRequest.ProtoReflect.Descriptor instead.
 func (*ListTopStoresRequest) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{49}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *ListTopStoresRequest) GetSalesDate() string {
@@ -3114,7 +3498,7 @@ type ListTopStoresResponse struct {
 
 func (x *ListTopStoresResponse) Reset() {
 	*x = ListTopStoresResponse{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[50]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3126,7 +3510,7 @@ func (x *ListTopStoresResponse) String() string {
 func (*ListTopStoresResponse) ProtoMessage() {}
 
 func (x *ListTopStoresResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[50]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3139,7 +3523,7 @@ func (x *ListTopStoresResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTopStoresResponse.ProtoReflect.Descriptor instead.
 func (*ListTopStoresResponse) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{50}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *ListTopStoresResponse) GetDailySales() []*TopStore {
@@ -3164,7 +3548,7 @@ type UnclosedSale struct {
 
 func (x *UnclosedSale) Reset() {
 	*x = UnclosedSale{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[51]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3176,7 +3560,7 @@ func (x *UnclosedSale) String() string {
 func (*UnclosedSale) ProtoMessage() {}
 
 func (x *UnclosedSale) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[51]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3189,7 +3573,7 @@ func (x *UnclosedSale) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnclosedSale.ProtoReflect.Descriptor instead.
 func (*UnclosedSale) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{51}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *UnclosedSale) GetSalesDate() string {
@@ -3226,7 +3610,7 @@ type ListUnclosedSalesRequest struct {
 
 func (x *ListUnclosedSalesRequest) Reset() {
 	*x = ListUnclosedSalesRequest{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[52]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3238,7 +3622,7 @@ func (x *ListUnclosedSalesRequest) String() string {
 func (*ListUnclosedSalesRequest) ProtoMessage() {}
 
 func (x *ListUnclosedSalesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[52]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3251,7 +3635,7 @@ func (x *ListUnclosedSalesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListUnclosedSalesRequest.ProtoReflect.Descriptor instead.
 func (*ListUnclosedSalesRequest) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{52}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *ListUnclosedSalesRequest) GetStoreCode() int32 {
@@ -3279,7 +3663,7 @@ type ListUnclosedSalesResponse struct {
 
 func (x *ListUnclosedSalesResponse) Reset() {
 	*x = ListUnclosedSalesResponse{}
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[53]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3291,7 +3675,7 @@ func (x *ListUnclosedSalesResponse) String() string {
 func (*ListUnclosedSalesResponse) ProtoMessage() {}
 
 func (x *ListUnclosedSalesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_sales_v1_sales_proto_msgTypes[53]
+	mi := &file_factory_sales_v1_sales_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3304,7 +3688,7 @@ func (x *ListUnclosedSalesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListUnclosedSalesResponse.ProtoReflect.Descriptor instead.
 func (*ListUnclosedSalesResponse) Descriptor() ([]byte, []int) {
-	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{53}
+	return file_factory_sales_v1_sales_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *ListUnclosedSalesResponse) GetDailySales() []*UnclosedSale {
@@ -3368,7 +3752,28 @@ const file_factory_sales_v1_sales_proto_rawDesc = "" +
 	"\x05as_of\x18\x04 \x01(\tB\x1a\xbaH\x17r\x152\x13^\\d{4}-\\d{2}-\\d{2}$R\x04asOf\"\x86\x01\n" +
 	"\x19ListCurrentPricesResponse\x12A\n" +
 	"\fstore_prices\x18\x01 \x03(\v2\x1e.factory.sales.v1.CurrentPriceR\vstorePrices\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"u\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xf0\x01\n" +
+	"\x10SaleWithCostRate\x12\x1d\n" +
+	"\n" +
+	"sales_date\x18\x01 \x01(\tR\tsalesDate\x12\x16\n" +
+	"\x06amount\x18\x02 \x01(\tR\x06amount\x12 \n" +
+	"\tcost_rate\x18\x03 \x01(\tH\x00R\bcostRate\x88\x01\x01\x12 \n" +
+	"\trate_from\x18\x04 \x01(\tH\x01R\brateFrom\x88\x01\x01\x12/\n" +
+	"\x11current_cost_rate\x18\x05 \x01(\tH\x02R\x0fcurrentCostRate\x88\x01\x01B\f\n" +
+	"\n" +
+	"_cost_rateB\f\n" +
+	"\n" +
+	"_rate_fromB\x14\n" +
+	"\x12_current_cost_rate\"\xb0\x01\n" +
+	"\x1eListDailySalesCostRatesRequest\x12&\n" +
+	"\n" +
+	"store_code\x18\x01 \x01(\x05B\a\xbaH\x04\x1a\x02 \x00R\tstoreCode\x12.\n" +
+	"\x04from\x18\x02 \x01(\tB\x1a\xbaH\x17r\x152\x13^\\d{4}-\\d{2}-\\d{2}$R\x04from\x12/\n" +
+	"\x02to\x18\x03 \x01(\tB\x1a\xbaH\x17r\x152\x13^\\d{4}-\\d{2}-\\d{2}$H\x00R\x02to\x88\x01\x01B\x05\n" +
+	"\x03_to\"f\n" +
+	"\x1fListDailySalesCostRatesResponse\x12C\n" +
+	"\vdaily_sales\x18\x01 \x03(\v2\".factory.sales.v1.SaleWithCostRateR\n" +
+	"dailySales\"u\n" +
 	"\x0eDiscountedSale\x12\x1d\n" +
 	"\n" +
 	"store_code\x18\x01 \x01(\x05R\tstoreCode\x12\x16\n" +
@@ -3497,7 +3902,25 @@ const file_factory_sales_v1_sales_proto_rawDesc = "" +
 	"\fproduct_code\x18\x03 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18 H\x00R\vproductCode\x88\x01\x01B\x0f\n" +
 	"\r_product_code\"]\n" +
 	"\x1bListRecentSnapshotsResponse\x12>\n" +
-	"\tsnapshots\x18\x01 \x03(\v2 .factory.sales.v1.RecentSnapshotR\tsnapshots\"\x92\x01\n" +
+	"\tsnapshots\x18\x01 \x03(\v2 .factory.sales.v1.RecentSnapshotR\tsnapshots\"\xd2\x01\n" +
+	"\x12StorePriceWithName\x12!\n" +
+	"\fproduct_code\x18\x01 \x01(\tR\vproductCode\x12&\n" +
+	"\fproduct_name\x18\x02 \x01(\tH\x00R\vproductName\x88\x01\x01\x12\x1d\n" +
+	"\n" +
+	"valid_from\x18\x03 \x01(\tR\tvalidFrom\x12\x1e\n" +
+	"\bvalid_to\x18\x04 \x01(\tH\x01R\avalidTo\x88\x01\x01\x12\x14\n" +
+	"\x05price\x18\x05 \x01(\tR\x05priceB\x0f\n" +
+	"\r_product_nameB\v\n" +
+	"\t_valid_to\"\xd2\x01\n" +
+	"\x1aListStorePriceNamesRequest\x12&\n" +
+	"\n" +
+	"store_code\x18\x01 \x01(\x05B\a\xbaH\x04\x1a\x02 \x00R\tstoreCode\x125\n" +
+	"\x0eproduct_prefix\x18\x02 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18\x14H\x00R\rproductPrefix\x88\x01\x01\x121\n" +
+	"\fproduct_name\x18\x03 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18(H\x01R\vproductName\x88\x01\x01B\x11\n" +
+	"\x0f_product_prefixB\x0f\n" +
+	"\r_product_name\"f\n" +
+	"\x1bListStorePriceNamesResponse\x12G\n" +
+	"\fstore_prices\x18\x01 \x03(\v2$.factory.sales.v1.StorePriceWithNameR\vstorePrices\"\x92\x01\n" +
 	"\x1eListStorePricesByPrefixRequest\x12&\n" +
 	"\n" +
 	"store_code\x18\x01 \x01(\x05B\a\xbaH\x04\x1a\x02 \x00R\tstoreCode\x125\n" +
@@ -3618,11 +4041,12 @@ const file_factory_sales_v1_sales_proto_rawDesc = "" +
 	"_from_date\"\\\n" +
 	"\x19ListUnclosedSalesResponse\x12?\n" +
 	"\vdaily_sales\x18\x01 \x03(\v2\x1e.factory.sales.v1.UnclosedSaleR\n" +
-	"dailySales2\xb4\x11\n" +
+	"dailySales2\xa8\x13\n" +
 	"\vSaleService\x12u\n" +
 	"\x14GetDailySalesSummary\x12-.factory.sales.v1.GetDailySalesSummaryRequest\x1a..factory.sales.v1.GetDailySalesSummaryResponse\x12x\n" +
 	"\x15GetPriceChangeSummary\x12..factory.sales.v1.GetPriceChangeSummaryRequest\x1a/.factory.sales.v1.GetPriceChangeSummaryResponse\x12l\n" +
-	"\x11ListCurrentPrices\x12*.factory.sales.v1.ListCurrentPricesRequest\x1a+.factory.sales.v1.ListCurrentPricesResponse\x12r\n" +
+	"\x11ListCurrentPrices\x12*.factory.sales.v1.ListCurrentPricesRequest\x1a+.factory.sales.v1.ListCurrentPricesResponse\x12~\n" +
+	"\x17ListDailySalesCostRates\x120.factory.sales.v1.ListDailySalesCostRatesRequest\x1a1.factory.sales.v1.ListDailySalesCostRatesResponse\x12r\n" +
 	"\x13ListDiscountedSales\x12,.factory.sales.v1.ListDiscountedSalesRequest\x1a-.factory.sales.v1.ListDiscountedSalesResponse\x12\x84\x01\n" +
 	"\x19ListEffectivePriceChanges\x122.factory.sales.v1.ListEffectivePriceChangesRequest\x1a3.factory.sales.v1.ListEffectivePriceChangesResponse\x12~\n" +
 	"\x17ListPrevMonthLastPrices\x120.factory.sales.v1.ListPrevMonthLastPricesRequest\x1a1.factory.sales.v1.ListPrevMonthLastPricesResponse\x12o\n" +
@@ -3630,7 +4054,8 @@ const file_factory_sales_v1_sales_proto_rawDesc = "" +
 	"\x16ListPriceChangeHistory\x12/.factory.sales.v1.ListPriceChangeHistoryRequest\x1a0.factory.sales.v1.ListPriceChangeHistoryResponse\x12\x84\x01\n" +
 	"\x19ListPriceChangesForStores\x122.factory.sales.v1.ListPriceChangesForStoresRequest\x1a3.factory.sales.v1.ListPriceChangesForStoresResponse\x12c\n" +
 	"\x0eListPricesAsOf\x12'.factory.sales.v1.ListPricesAsOfRequest\x1a(.factory.sales.v1.ListPricesAsOfResponse\x12r\n" +
-	"\x13ListRecentSnapshots\x12,.factory.sales.v1.ListRecentSnapshotsRequest\x1a-.factory.sales.v1.ListRecentSnapshotsResponse\x12~\n" +
+	"\x13ListRecentSnapshots\x12,.factory.sales.v1.ListRecentSnapshotsRequest\x1a-.factory.sales.v1.ListRecentSnapshotsResponse\x12r\n" +
+	"\x13ListStorePriceNames\x12,.factory.sales.v1.ListStorePriceNamesRequest\x1a-.factory.sales.v1.ListStorePriceNamesResponse\x12~\n" +
 	"\x17ListStorePricesByPrefix\x120.factory.sales.v1.ListStorePricesByPrefixRequest\x1a1.factory.sales.v1.ListStorePricesByPrefixResponse\x12c\n" +
 	"\x0eListStoreSales\x12'.factory.sales.v1.ListStoreSalesRequest\x1a(.factory.sales.v1.ListStoreSalesResponse\x12{\n" +
 	"\x16ListStoreSalesByPeriod\x12/.factory.sales.v1.ListStoreSalesByPeriodRequest\x1a0.factory.sales.v1.ListStoreSalesByPeriodResponse\x12r\n" +
@@ -3652,7 +4077,7 @@ func file_factory_sales_v1_sales_proto_rawDescGZIP() []byte {
 	return file_factory_sales_v1_sales_proto_rawDescData
 }
 
-var file_factory_sales_v1_sales_proto_msgTypes = make([]protoimpl.MessageInfo, 54)
+var file_factory_sales_v1_sales_proto_msgTypes = make([]protoimpl.MessageInfo, 60)
 var file_factory_sales_v1_sales_proto_goTypes = []any{
 	(*GetDailySalesSummaryRequest)(nil),       // 0: factory.sales.v1.GetDailySalesSummaryRequest
 	(*GetDailySalesSummaryResponse)(nil),      // 1: factory.sales.v1.GetDailySalesSummaryResponse
@@ -3661,115 +4086,127 @@ var file_factory_sales_v1_sales_proto_goTypes = []any{
 	(*CurrentPrice)(nil),                      // 4: factory.sales.v1.CurrentPrice
 	(*ListCurrentPricesRequest)(nil),          // 5: factory.sales.v1.ListCurrentPricesRequest
 	(*ListCurrentPricesResponse)(nil),         // 6: factory.sales.v1.ListCurrentPricesResponse
-	(*DiscountedSale)(nil),                    // 7: factory.sales.v1.DiscountedSale
-	(*ListDiscountedSalesRequest)(nil),        // 8: factory.sales.v1.ListDiscountedSalesRequest
-	(*ListDiscountedSalesResponse)(nil),       // 9: factory.sales.v1.ListDiscountedSalesResponse
-	(*EffectivePriceChange)(nil),              // 10: factory.sales.v1.EffectivePriceChange
-	(*ListEffectivePriceChangesRequest)(nil),  // 11: factory.sales.v1.ListEffectivePriceChangesRequest
-	(*ListEffectivePriceChangesResponse)(nil), // 12: factory.sales.v1.ListEffectivePriceChangesResponse
-	(*LastPrice)(nil),                         // 13: factory.sales.v1.LastPrice
-	(*ListPrevMonthLastPricesRequest)(nil),    // 14: factory.sales.v1.ListPrevMonthLastPricesRequest
-	(*ListPrevMonthLastPricesResponse)(nil),   // 15: factory.sales.v1.ListPrevMonthLastPricesResponse
-	(*PrevMonthSale)(nil),                     // 16: factory.sales.v1.PrevMonthSale
-	(*ListPrevMonthSalesRequest)(nil),         // 17: factory.sales.v1.ListPrevMonthSalesRequest
-	(*ListPrevMonthSalesResponse)(nil),        // 18: factory.sales.v1.ListPrevMonthSalesResponse
-	(*PriceChange)(nil),                       // 19: factory.sales.v1.PriceChange
-	(*ListPriceChangeHistoryRequest)(nil),     // 20: factory.sales.v1.ListPriceChangeHistoryRequest
-	(*ListPriceChangeHistoryResponse)(nil),    // 21: factory.sales.v1.ListPriceChangeHistoryResponse
-	(*StorePriceChange)(nil),                  // 22: factory.sales.v1.StorePriceChange
-	(*ListPriceChangesForStoresRequest)(nil),  // 23: factory.sales.v1.ListPriceChangesForStoresRequest
-	(*ListPriceChangesForStoresResponse)(nil), // 24: factory.sales.v1.ListPriceChangesForStoresResponse
-	(*StorePrice)(nil),                        // 25: factory.sales.v1.StorePrice
-	(*ListPricesAsOfRequest)(nil),             // 26: factory.sales.v1.ListPricesAsOfRequest
-	(*ListPricesAsOfResponse)(nil),            // 27: factory.sales.v1.ListPricesAsOfResponse
-	(*RecentSnapshot)(nil),                    // 28: factory.sales.v1.RecentSnapshot
-	(*ListRecentSnapshotsRequest)(nil),        // 29: factory.sales.v1.ListRecentSnapshotsRequest
-	(*ListRecentSnapshotsResponse)(nil),       // 30: factory.sales.v1.ListRecentSnapshotsResponse
-	(*ListStorePricesByPrefixRequest)(nil),    // 31: factory.sales.v1.ListStorePricesByPrefixRequest
-	(*ListStorePricesByPrefixResponse)(nil),   // 32: factory.sales.v1.ListStorePricesByPrefixResponse
-	(*StoreSale)(nil),                         // 33: factory.sales.v1.StoreSale
-	(*ListStoreSalesRequest)(nil),             // 34: factory.sales.v1.ListStoreSalesRequest
-	(*ListStoreSalesResponse)(nil),            // 35: factory.sales.v1.ListStoreSalesResponse
-	(*StoreDaySale)(nil),                      // 36: factory.sales.v1.StoreDaySale
-	(*ListStoreSalesByPeriodRequest)(nil),     // 37: factory.sales.v1.ListStoreSalesByPeriodRequest
-	(*ListStoreSalesByPeriodResponse)(nil),    // 38: factory.sales.v1.ListStoreSalesByPeriodResponse
-	(*RangeSale)(nil),                         // 39: factory.sales.v1.RangeSale
-	(*ListStoreSalesRangeRequest)(nil),        // 40: factory.sales.v1.ListStoreSalesRangeRequest
-	(*ListStoreSalesRangeResponse)(nil),       // 41: factory.sales.v1.ListStoreSalesRangeResponse
-	(*TopDiscountStore)(nil),                  // 42: factory.sales.v1.TopDiscountStore
-	(*ListTopDiscountStoresRequest)(nil),      // 43: factory.sales.v1.ListTopDiscountStoresRequest
-	(*ListTopDiscountStoresResponse)(nil),     // 44: factory.sales.v1.ListTopDiscountStoresResponse
-	(*DailySale)(nil),                         // 45: factory.sales.v1.DailySale
-	(*ListTopSalesRequest)(nil),               // 46: factory.sales.v1.ListTopSalesRequest
-	(*ListTopSalesResponse)(nil),              // 47: factory.sales.v1.ListTopSalesResponse
-	(*TopStore)(nil),                          // 48: factory.sales.v1.TopStore
-	(*ListTopStoresRequest)(nil),              // 49: factory.sales.v1.ListTopStoresRequest
-	(*ListTopStoresResponse)(nil),             // 50: factory.sales.v1.ListTopStoresResponse
-	(*UnclosedSale)(nil),                      // 51: factory.sales.v1.UnclosedSale
-	(*ListUnclosedSalesRequest)(nil),          // 52: factory.sales.v1.ListUnclosedSalesRequest
-	(*ListUnclosedSalesResponse)(nil),         // 53: factory.sales.v1.ListUnclosedSalesResponse
+	(*SaleWithCostRate)(nil),                  // 7: factory.sales.v1.SaleWithCostRate
+	(*ListDailySalesCostRatesRequest)(nil),    // 8: factory.sales.v1.ListDailySalesCostRatesRequest
+	(*ListDailySalesCostRatesResponse)(nil),   // 9: factory.sales.v1.ListDailySalesCostRatesResponse
+	(*DiscountedSale)(nil),                    // 10: factory.sales.v1.DiscountedSale
+	(*ListDiscountedSalesRequest)(nil),        // 11: factory.sales.v1.ListDiscountedSalesRequest
+	(*ListDiscountedSalesResponse)(nil),       // 12: factory.sales.v1.ListDiscountedSalesResponse
+	(*EffectivePriceChange)(nil),              // 13: factory.sales.v1.EffectivePriceChange
+	(*ListEffectivePriceChangesRequest)(nil),  // 14: factory.sales.v1.ListEffectivePriceChangesRequest
+	(*ListEffectivePriceChangesResponse)(nil), // 15: factory.sales.v1.ListEffectivePriceChangesResponse
+	(*LastPrice)(nil),                         // 16: factory.sales.v1.LastPrice
+	(*ListPrevMonthLastPricesRequest)(nil),    // 17: factory.sales.v1.ListPrevMonthLastPricesRequest
+	(*ListPrevMonthLastPricesResponse)(nil),   // 18: factory.sales.v1.ListPrevMonthLastPricesResponse
+	(*PrevMonthSale)(nil),                     // 19: factory.sales.v1.PrevMonthSale
+	(*ListPrevMonthSalesRequest)(nil),         // 20: factory.sales.v1.ListPrevMonthSalesRequest
+	(*ListPrevMonthSalesResponse)(nil),        // 21: factory.sales.v1.ListPrevMonthSalesResponse
+	(*PriceChange)(nil),                       // 22: factory.sales.v1.PriceChange
+	(*ListPriceChangeHistoryRequest)(nil),     // 23: factory.sales.v1.ListPriceChangeHistoryRequest
+	(*ListPriceChangeHistoryResponse)(nil),    // 24: factory.sales.v1.ListPriceChangeHistoryResponse
+	(*StorePriceChange)(nil),                  // 25: factory.sales.v1.StorePriceChange
+	(*ListPriceChangesForStoresRequest)(nil),  // 26: factory.sales.v1.ListPriceChangesForStoresRequest
+	(*ListPriceChangesForStoresResponse)(nil), // 27: factory.sales.v1.ListPriceChangesForStoresResponse
+	(*StorePrice)(nil),                        // 28: factory.sales.v1.StorePrice
+	(*ListPricesAsOfRequest)(nil),             // 29: factory.sales.v1.ListPricesAsOfRequest
+	(*ListPricesAsOfResponse)(nil),            // 30: factory.sales.v1.ListPricesAsOfResponse
+	(*RecentSnapshot)(nil),                    // 31: factory.sales.v1.RecentSnapshot
+	(*ListRecentSnapshotsRequest)(nil),        // 32: factory.sales.v1.ListRecentSnapshotsRequest
+	(*ListRecentSnapshotsResponse)(nil),       // 33: factory.sales.v1.ListRecentSnapshotsResponse
+	(*StorePriceWithName)(nil),                // 34: factory.sales.v1.StorePriceWithName
+	(*ListStorePriceNamesRequest)(nil),        // 35: factory.sales.v1.ListStorePriceNamesRequest
+	(*ListStorePriceNamesResponse)(nil),       // 36: factory.sales.v1.ListStorePriceNamesResponse
+	(*ListStorePricesByPrefixRequest)(nil),    // 37: factory.sales.v1.ListStorePricesByPrefixRequest
+	(*ListStorePricesByPrefixResponse)(nil),   // 38: factory.sales.v1.ListStorePricesByPrefixResponse
+	(*StoreSale)(nil),                         // 39: factory.sales.v1.StoreSale
+	(*ListStoreSalesRequest)(nil),             // 40: factory.sales.v1.ListStoreSalesRequest
+	(*ListStoreSalesResponse)(nil),            // 41: factory.sales.v1.ListStoreSalesResponse
+	(*StoreDaySale)(nil),                      // 42: factory.sales.v1.StoreDaySale
+	(*ListStoreSalesByPeriodRequest)(nil),     // 43: factory.sales.v1.ListStoreSalesByPeriodRequest
+	(*ListStoreSalesByPeriodResponse)(nil),    // 44: factory.sales.v1.ListStoreSalesByPeriodResponse
+	(*RangeSale)(nil),                         // 45: factory.sales.v1.RangeSale
+	(*ListStoreSalesRangeRequest)(nil),        // 46: factory.sales.v1.ListStoreSalesRangeRequest
+	(*ListStoreSalesRangeResponse)(nil),       // 47: factory.sales.v1.ListStoreSalesRangeResponse
+	(*TopDiscountStore)(nil),                  // 48: factory.sales.v1.TopDiscountStore
+	(*ListTopDiscountStoresRequest)(nil),      // 49: factory.sales.v1.ListTopDiscountStoresRequest
+	(*ListTopDiscountStoresResponse)(nil),     // 50: factory.sales.v1.ListTopDiscountStoresResponse
+	(*DailySale)(nil),                         // 51: factory.sales.v1.DailySale
+	(*ListTopSalesRequest)(nil),               // 52: factory.sales.v1.ListTopSalesRequest
+	(*ListTopSalesResponse)(nil),              // 53: factory.sales.v1.ListTopSalesResponse
+	(*TopStore)(nil),                          // 54: factory.sales.v1.TopStore
+	(*ListTopStoresRequest)(nil),              // 55: factory.sales.v1.ListTopStoresRequest
+	(*ListTopStoresResponse)(nil),             // 56: factory.sales.v1.ListTopStoresResponse
+	(*UnclosedSale)(nil),                      // 57: factory.sales.v1.UnclosedSale
+	(*ListUnclosedSalesRequest)(nil),          // 58: factory.sales.v1.ListUnclosedSalesRequest
+	(*ListUnclosedSalesResponse)(nil),         // 59: factory.sales.v1.ListUnclosedSalesResponse
 }
 var file_factory_sales_v1_sales_proto_depIdxs = []int32{
 	4,  // 0: factory.sales.v1.ListCurrentPricesResponse.store_prices:type_name -> factory.sales.v1.CurrentPrice
-	7,  // 1: factory.sales.v1.ListDiscountedSalesResponse.daily_sales:type_name -> factory.sales.v1.DiscountedSale
-	10, // 2: factory.sales.v1.ListEffectivePriceChangesResponse.price_changes:type_name -> factory.sales.v1.EffectivePriceChange
-	13, // 3: factory.sales.v1.ListPrevMonthLastPricesResponse.prices:type_name -> factory.sales.v1.LastPrice
-	16, // 4: factory.sales.v1.ListPrevMonthSalesResponse.daily_sales:type_name -> factory.sales.v1.PrevMonthSale
-	19, // 5: factory.sales.v1.ListPriceChangeHistoryResponse.price_changes:type_name -> factory.sales.v1.PriceChange
-	22, // 6: factory.sales.v1.ListPriceChangesForStoresResponse.price_changes:type_name -> factory.sales.v1.StorePriceChange
-	25, // 7: factory.sales.v1.ListPricesAsOfResponse.store_prices:type_name -> factory.sales.v1.StorePrice
-	28, // 8: factory.sales.v1.ListRecentSnapshotsResponse.snapshots:type_name -> factory.sales.v1.RecentSnapshot
-	25, // 9: factory.sales.v1.ListStorePricesByPrefixResponse.store_prices:type_name -> factory.sales.v1.StorePrice
-	33, // 10: factory.sales.v1.ListStoreSalesResponse.daily_sales:type_name -> factory.sales.v1.StoreSale
-	36, // 11: factory.sales.v1.ListStoreSalesByPeriodResponse.daily_sales:type_name -> factory.sales.v1.StoreDaySale
-	39, // 12: factory.sales.v1.ListStoreSalesRangeResponse.daily_sales:type_name -> factory.sales.v1.RangeSale
-	42, // 13: factory.sales.v1.ListTopDiscountStoresResponse.daily_sales:type_name -> factory.sales.v1.TopDiscountStore
-	45, // 14: factory.sales.v1.ListTopSalesResponse.daily_sales:type_name -> factory.sales.v1.DailySale
-	48, // 15: factory.sales.v1.ListTopStoresResponse.daily_sales:type_name -> factory.sales.v1.TopStore
-	51, // 16: factory.sales.v1.ListUnclosedSalesResponse.daily_sales:type_name -> factory.sales.v1.UnclosedSale
-	0,  // 17: factory.sales.v1.SaleService.GetDailySalesSummary:input_type -> factory.sales.v1.GetDailySalesSummaryRequest
-	2,  // 18: factory.sales.v1.SaleService.GetPriceChangeSummary:input_type -> factory.sales.v1.GetPriceChangeSummaryRequest
-	5,  // 19: factory.sales.v1.SaleService.ListCurrentPrices:input_type -> factory.sales.v1.ListCurrentPricesRequest
-	8,  // 20: factory.sales.v1.SaleService.ListDiscountedSales:input_type -> factory.sales.v1.ListDiscountedSalesRequest
-	11, // 21: factory.sales.v1.SaleService.ListEffectivePriceChanges:input_type -> factory.sales.v1.ListEffectivePriceChangesRequest
-	14, // 22: factory.sales.v1.SaleService.ListPrevMonthLastPrices:input_type -> factory.sales.v1.ListPrevMonthLastPricesRequest
-	17, // 23: factory.sales.v1.SaleService.ListPrevMonthSales:input_type -> factory.sales.v1.ListPrevMonthSalesRequest
-	20, // 24: factory.sales.v1.SaleService.ListPriceChangeHistory:input_type -> factory.sales.v1.ListPriceChangeHistoryRequest
-	23, // 25: factory.sales.v1.SaleService.ListPriceChangesForStores:input_type -> factory.sales.v1.ListPriceChangesForStoresRequest
-	26, // 26: factory.sales.v1.SaleService.ListPricesAsOf:input_type -> factory.sales.v1.ListPricesAsOfRequest
-	29, // 27: factory.sales.v1.SaleService.ListRecentSnapshots:input_type -> factory.sales.v1.ListRecentSnapshotsRequest
-	31, // 28: factory.sales.v1.SaleService.ListStorePricesByPrefix:input_type -> factory.sales.v1.ListStorePricesByPrefixRequest
-	34, // 29: factory.sales.v1.SaleService.ListStoreSales:input_type -> factory.sales.v1.ListStoreSalesRequest
-	37, // 30: factory.sales.v1.SaleService.ListStoreSalesByPeriod:input_type -> factory.sales.v1.ListStoreSalesByPeriodRequest
-	40, // 31: factory.sales.v1.SaleService.ListStoreSalesRange:input_type -> factory.sales.v1.ListStoreSalesRangeRequest
-	43, // 32: factory.sales.v1.SaleService.ListTopDiscountStores:input_type -> factory.sales.v1.ListTopDiscountStoresRequest
-	46, // 33: factory.sales.v1.SaleService.ListTopSales:input_type -> factory.sales.v1.ListTopSalesRequest
-	49, // 34: factory.sales.v1.SaleService.ListTopStores:input_type -> factory.sales.v1.ListTopStoresRequest
-	52, // 35: factory.sales.v1.SaleService.ListUnclosedSales:input_type -> factory.sales.v1.ListUnclosedSalesRequest
-	1,  // 36: factory.sales.v1.SaleService.GetDailySalesSummary:output_type -> factory.sales.v1.GetDailySalesSummaryResponse
-	3,  // 37: factory.sales.v1.SaleService.GetPriceChangeSummary:output_type -> factory.sales.v1.GetPriceChangeSummaryResponse
-	6,  // 38: factory.sales.v1.SaleService.ListCurrentPrices:output_type -> factory.sales.v1.ListCurrentPricesResponse
-	9,  // 39: factory.sales.v1.SaleService.ListDiscountedSales:output_type -> factory.sales.v1.ListDiscountedSalesResponse
-	12, // 40: factory.sales.v1.SaleService.ListEffectivePriceChanges:output_type -> factory.sales.v1.ListEffectivePriceChangesResponse
-	15, // 41: factory.sales.v1.SaleService.ListPrevMonthLastPrices:output_type -> factory.sales.v1.ListPrevMonthLastPricesResponse
-	18, // 42: factory.sales.v1.SaleService.ListPrevMonthSales:output_type -> factory.sales.v1.ListPrevMonthSalesResponse
-	21, // 43: factory.sales.v1.SaleService.ListPriceChangeHistory:output_type -> factory.sales.v1.ListPriceChangeHistoryResponse
-	24, // 44: factory.sales.v1.SaleService.ListPriceChangesForStores:output_type -> factory.sales.v1.ListPriceChangesForStoresResponse
-	27, // 45: factory.sales.v1.SaleService.ListPricesAsOf:output_type -> factory.sales.v1.ListPricesAsOfResponse
-	30, // 46: factory.sales.v1.SaleService.ListRecentSnapshots:output_type -> factory.sales.v1.ListRecentSnapshotsResponse
-	32, // 47: factory.sales.v1.SaleService.ListStorePricesByPrefix:output_type -> factory.sales.v1.ListStorePricesByPrefixResponse
-	35, // 48: factory.sales.v1.SaleService.ListStoreSales:output_type -> factory.sales.v1.ListStoreSalesResponse
-	38, // 49: factory.sales.v1.SaleService.ListStoreSalesByPeriod:output_type -> factory.sales.v1.ListStoreSalesByPeriodResponse
-	41, // 50: factory.sales.v1.SaleService.ListStoreSalesRange:output_type -> factory.sales.v1.ListStoreSalesRangeResponse
-	44, // 51: factory.sales.v1.SaleService.ListTopDiscountStores:output_type -> factory.sales.v1.ListTopDiscountStoresResponse
-	47, // 52: factory.sales.v1.SaleService.ListTopSales:output_type -> factory.sales.v1.ListTopSalesResponse
-	50, // 53: factory.sales.v1.SaleService.ListTopStores:output_type -> factory.sales.v1.ListTopStoresResponse
-	53, // 54: factory.sales.v1.SaleService.ListUnclosedSales:output_type -> factory.sales.v1.ListUnclosedSalesResponse
-	36, // [36:55] is the sub-list for method output_type
-	17, // [17:36] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	7,  // 1: factory.sales.v1.ListDailySalesCostRatesResponse.daily_sales:type_name -> factory.sales.v1.SaleWithCostRate
+	10, // 2: factory.sales.v1.ListDiscountedSalesResponse.daily_sales:type_name -> factory.sales.v1.DiscountedSale
+	13, // 3: factory.sales.v1.ListEffectivePriceChangesResponse.price_changes:type_name -> factory.sales.v1.EffectivePriceChange
+	16, // 4: factory.sales.v1.ListPrevMonthLastPricesResponse.prices:type_name -> factory.sales.v1.LastPrice
+	19, // 5: factory.sales.v1.ListPrevMonthSalesResponse.daily_sales:type_name -> factory.sales.v1.PrevMonthSale
+	22, // 6: factory.sales.v1.ListPriceChangeHistoryResponse.price_changes:type_name -> factory.sales.v1.PriceChange
+	25, // 7: factory.sales.v1.ListPriceChangesForStoresResponse.price_changes:type_name -> factory.sales.v1.StorePriceChange
+	28, // 8: factory.sales.v1.ListPricesAsOfResponse.store_prices:type_name -> factory.sales.v1.StorePrice
+	31, // 9: factory.sales.v1.ListRecentSnapshotsResponse.snapshots:type_name -> factory.sales.v1.RecentSnapshot
+	34, // 10: factory.sales.v1.ListStorePriceNamesResponse.store_prices:type_name -> factory.sales.v1.StorePriceWithName
+	28, // 11: factory.sales.v1.ListStorePricesByPrefixResponse.store_prices:type_name -> factory.sales.v1.StorePrice
+	39, // 12: factory.sales.v1.ListStoreSalesResponse.daily_sales:type_name -> factory.sales.v1.StoreSale
+	42, // 13: factory.sales.v1.ListStoreSalesByPeriodResponse.daily_sales:type_name -> factory.sales.v1.StoreDaySale
+	45, // 14: factory.sales.v1.ListStoreSalesRangeResponse.daily_sales:type_name -> factory.sales.v1.RangeSale
+	48, // 15: factory.sales.v1.ListTopDiscountStoresResponse.daily_sales:type_name -> factory.sales.v1.TopDiscountStore
+	51, // 16: factory.sales.v1.ListTopSalesResponse.daily_sales:type_name -> factory.sales.v1.DailySale
+	54, // 17: factory.sales.v1.ListTopStoresResponse.daily_sales:type_name -> factory.sales.v1.TopStore
+	57, // 18: factory.sales.v1.ListUnclosedSalesResponse.daily_sales:type_name -> factory.sales.v1.UnclosedSale
+	0,  // 19: factory.sales.v1.SaleService.GetDailySalesSummary:input_type -> factory.sales.v1.GetDailySalesSummaryRequest
+	2,  // 20: factory.sales.v1.SaleService.GetPriceChangeSummary:input_type -> factory.sales.v1.GetPriceChangeSummaryRequest
+	5,  // 21: factory.sales.v1.SaleService.ListCurrentPrices:input_type -> factory.sales.v1.ListCurrentPricesRequest
+	8,  // 22: factory.sales.v1.SaleService.ListDailySalesCostRates:input_type -> factory.sales.v1.ListDailySalesCostRatesRequest
+	11, // 23: factory.sales.v1.SaleService.ListDiscountedSales:input_type -> factory.sales.v1.ListDiscountedSalesRequest
+	14, // 24: factory.sales.v1.SaleService.ListEffectivePriceChanges:input_type -> factory.sales.v1.ListEffectivePriceChangesRequest
+	17, // 25: factory.sales.v1.SaleService.ListPrevMonthLastPrices:input_type -> factory.sales.v1.ListPrevMonthLastPricesRequest
+	20, // 26: factory.sales.v1.SaleService.ListPrevMonthSales:input_type -> factory.sales.v1.ListPrevMonthSalesRequest
+	23, // 27: factory.sales.v1.SaleService.ListPriceChangeHistory:input_type -> factory.sales.v1.ListPriceChangeHistoryRequest
+	26, // 28: factory.sales.v1.SaleService.ListPriceChangesForStores:input_type -> factory.sales.v1.ListPriceChangesForStoresRequest
+	29, // 29: factory.sales.v1.SaleService.ListPricesAsOf:input_type -> factory.sales.v1.ListPricesAsOfRequest
+	32, // 30: factory.sales.v1.SaleService.ListRecentSnapshots:input_type -> factory.sales.v1.ListRecentSnapshotsRequest
+	35, // 31: factory.sales.v1.SaleService.ListStorePriceNames:input_type -> factory.sales.v1.ListStorePriceNamesRequest
+	37, // 32: factory.sales.v1.SaleService.ListStorePricesByPrefix:input_type -> factory.sales.v1.ListStorePricesByPrefixRequest
+	40, // 33: factory.sales.v1.SaleService.ListStoreSales:input_type -> factory.sales.v1.ListStoreSalesRequest
+	43, // 34: factory.sales.v1.SaleService.ListStoreSalesByPeriod:input_type -> factory.sales.v1.ListStoreSalesByPeriodRequest
+	46, // 35: factory.sales.v1.SaleService.ListStoreSalesRange:input_type -> factory.sales.v1.ListStoreSalesRangeRequest
+	49, // 36: factory.sales.v1.SaleService.ListTopDiscountStores:input_type -> factory.sales.v1.ListTopDiscountStoresRequest
+	52, // 37: factory.sales.v1.SaleService.ListTopSales:input_type -> factory.sales.v1.ListTopSalesRequest
+	55, // 38: factory.sales.v1.SaleService.ListTopStores:input_type -> factory.sales.v1.ListTopStoresRequest
+	58, // 39: factory.sales.v1.SaleService.ListUnclosedSales:input_type -> factory.sales.v1.ListUnclosedSalesRequest
+	1,  // 40: factory.sales.v1.SaleService.GetDailySalesSummary:output_type -> factory.sales.v1.GetDailySalesSummaryResponse
+	3,  // 41: factory.sales.v1.SaleService.GetPriceChangeSummary:output_type -> factory.sales.v1.GetPriceChangeSummaryResponse
+	6,  // 42: factory.sales.v1.SaleService.ListCurrentPrices:output_type -> factory.sales.v1.ListCurrentPricesResponse
+	9,  // 43: factory.sales.v1.SaleService.ListDailySalesCostRates:output_type -> factory.sales.v1.ListDailySalesCostRatesResponse
+	12, // 44: factory.sales.v1.SaleService.ListDiscountedSales:output_type -> factory.sales.v1.ListDiscountedSalesResponse
+	15, // 45: factory.sales.v1.SaleService.ListEffectivePriceChanges:output_type -> factory.sales.v1.ListEffectivePriceChangesResponse
+	18, // 46: factory.sales.v1.SaleService.ListPrevMonthLastPrices:output_type -> factory.sales.v1.ListPrevMonthLastPricesResponse
+	21, // 47: factory.sales.v1.SaleService.ListPrevMonthSales:output_type -> factory.sales.v1.ListPrevMonthSalesResponse
+	24, // 48: factory.sales.v1.SaleService.ListPriceChangeHistory:output_type -> factory.sales.v1.ListPriceChangeHistoryResponse
+	27, // 49: factory.sales.v1.SaleService.ListPriceChangesForStores:output_type -> factory.sales.v1.ListPriceChangesForStoresResponse
+	30, // 50: factory.sales.v1.SaleService.ListPricesAsOf:output_type -> factory.sales.v1.ListPricesAsOfResponse
+	33, // 51: factory.sales.v1.SaleService.ListRecentSnapshots:output_type -> factory.sales.v1.ListRecentSnapshotsResponse
+	36, // 52: factory.sales.v1.SaleService.ListStorePriceNames:output_type -> factory.sales.v1.ListStorePriceNamesResponse
+	38, // 53: factory.sales.v1.SaleService.ListStorePricesByPrefix:output_type -> factory.sales.v1.ListStorePricesByPrefixResponse
+	41, // 54: factory.sales.v1.SaleService.ListStoreSales:output_type -> factory.sales.v1.ListStoreSalesResponse
+	44, // 55: factory.sales.v1.SaleService.ListStoreSalesByPeriod:output_type -> factory.sales.v1.ListStoreSalesByPeriodResponse
+	47, // 56: factory.sales.v1.SaleService.ListStoreSalesRange:output_type -> factory.sales.v1.ListStoreSalesRangeResponse
+	50, // 57: factory.sales.v1.SaleService.ListTopDiscountStores:output_type -> factory.sales.v1.ListTopDiscountStoresResponse
+	53, // 58: factory.sales.v1.SaleService.ListTopSales:output_type -> factory.sales.v1.ListTopSalesResponse
+	56, // 59: factory.sales.v1.SaleService.ListTopStores:output_type -> factory.sales.v1.ListTopStoresResponse
+	59, // 60: factory.sales.v1.SaleService.ListUnclosedSales:output_type -> factory.sales.v1.ListUnclosedSalesResponse
+	40, // [40:61] is the sub-list for method output_type
+	19, // [19:40] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_factory_sales_v1_sales_proto_init() }
@@ -3780,30 +4217,34 @@ func file_factory_sales_v1_sales_proto_init() {
 	file_factory_sales_v1_sales_proto_msgTypes[1].OneofWrappers = []any{}
 	file_factory_sales_v1_sales_proto_msgTypes[3].OneofWrappers = []any{}
 	file_factory_sales_v1_sales_proto_msgTypes[7].OneofWrappers = []any{}
+	file_factory_sales_v1_sales_proto_msgTypes[8].OneofWrappers = []any{}
 	file_factory_sales_v1_sales_proto_msgTypes[10].OneofWrappers = []any{}
-	file_factory_sales_v1_sales_proto_msgTypes[16].OneofWrappers = []any{}
+	file_factory_sales_v1_sales_proto_msgTypes[13].OneofWrappers = []any{}
 	file_factory_sales_v1_sales_proto_msgTypes[19].OneofWrappers = []any{}
-	file_factory_sales_v1_sales_proto_msgTypes[20].OneofWrappers = []any{}
 	file_factory_sales_v1_sales_proto_msgTypes[22].OneofWrappers = []any{}
+	file_factory_sales_v1_sales_proto_msgTypes[23].OneofWrappers = []any{}
 	file_factory_sales_v1_sales_proto_msgTypes[25].OneofWrappers = []any{}
-	file_factory_sales_v1_sales_proto_msgTypes[29].OneofWrappers = []any{}
-	file_factory_sales_v1_sales_proto_msgTypes[31].OneofWrappers = []any{}
-	file_factory_sales_v1_sales_proto_msgTypes[33].OneofWrappers = []any{}
-	file_factory_sales_v1_sales_proto_msgTypes[36].OneofWrappers = []any{}
+	file_factory_sales_v1_sales_proto_msgTypes[28].OneofWrappers = []any{}
+	file_factory_sales_v1_sales_proto_msgTypes[32].OneofWrappers = []any{}
+	file_factory_sales_v1_sales_proto_msgTypes[34].OneofWrappers = []any{}
+	file_factory_sales_v1_sales_proto_msgTypes[35].OneofWrappers = []any{}
+	file_factory_sales_v1_sales_proto_msgTypes[37].OneofWrappers = []any{}
 	file_factory_sales_v1_sales_proto_msgTypes[39].OneofWrappers = []any{}
-	file_factory_sales_v1_sales_proto_msgTypes[40].OneofWrappers = []any{}
 	file_factory_sales_v1_sales_proto_msgTypes[42].OneofWrappers = []any{}
 	file_factory_sales_v1_sales_proto_msgTypes[45].OneofWrappers = []any{}
 	file_factory_sales_v1_sales_proto_msgTypes[46].OneofWrappers = []any{}
+	file_factory_sales_v1_sales_proto_msgTypes[48].OneofWrappers = []any{}
 	file_factory_sales_v1_sales_proto_msgTypes[51].OneofWrappers = []any{}
 	file_factory_sales_v1_sales_proto_msgTypes[52].OneofWrappers = []any{}
+	file_factory_sales_v1_sales_proto_msgTypes[57].OneofWrappers = []any{}
+	file_factory_sales_v1_sales_proto_msgTypes[58].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_factory_sales_v1_sales_proto_rawDesc), len(file_factory_sales_v1_sales_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   54,
+			NumMessages:   60,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

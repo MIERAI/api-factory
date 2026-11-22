@@ -154,6 +154,7 @@ type Table struct {
 	Rules      []Rule
 	Storage    *spec.Storage // 存储: JSON版本(逻辑表 → 物理表的映射)
 	ShardBy    string        // 分库: 分库键的列(按店铺分库等)
+	ShardWith  bool          // 分库: 随父(没有分库键的列: 行在关联到它的父行的那个库里)
 }
 
 type Rule struct {
@@ -262,6 +263,9 @@ func loadDomain(dir string) (*Domain, error) {
 			}
 		}
 		t.ShardBy = str(p.Val, "分库")
+		if t.ShardBy == "随父" {
+			t.ShardBy, t.ShardWith = "", true
+		}
 		d.Tables[p.Key] = t
 	}
 	for _, t := range d.Tables {
@@ -355,6 +359,54 @@ type API struct {
 	ChildAggs  []*ChildAgg // 子聚合(按父行聚合)
 }
 
+// parseLookups: 关联的各项(数据来源的 关联 / 嵌套里的 关联: at = 报错用的前缀)。
+func parseLookups(e *errs, node *yaml.Node, at string) []*Lookup {
+	var out []*Lookup
+	for _, p := range pairs(node) {
+		checkKeys(e, p.Val, at+" "+p.Key, LookupKeys()...)
+		l := &Lookup{Name: p.Key, Table: str(p.Val, "表"), On: strList(get(p.Val, "条件")), Line: p.Line}
+		if l.Table == "" || len(l.On) == 0 {
+			e.add(p.Line, at+" %s: 要写 表 和 条件(例: 条件: [customer_id = id])", p.Key)
+		}
+		switch cols := get(p.Val, "列"); {
+		case cols != nil && cols.Kind == yaml.MappingNode:
+			for _, c := range pairs(cols) {
+				l.Columns = append(l.Columns, [2]string{c.Key, strings.TrimSpace(c.Val.Value)})
+			}
+		case cols != nil && cols.Kind == yaml.SequenceNode: // [name, …] = 同名
+			for _, c := range strList(cols) {
+				l.Columns = append(l.Columns, [2]string{c, c})
+			}
+		}
+		if len(l.Columns) == 0 {
+			e.add(p.Line, at+" %s: 要写 列(例: 列: { customer_name: name },新列名: 对方的列)", p.Key)
+		}
+		switch str(p.Val, "找不到时") {
+		case "", "保留":
+			l.Missing = "keep"
+		case "丢弃":
+			l.Missing = "drop"
+		default:
+			e.add(p.Line, at+" %s: 找不到时 只能是 保留(加的列为空)/ 丢弃(这一行不要)", p.Key)
+		}
+		if d := get(p.Val, "按日期"); d != nil {
+			checkKeys(e, d, at+" "+p.Key+" 的按日期", "开始", "结束", "最后一天", "参照")
+			l.AsOf = &spec.LookupAsOf{Start: str(d, "开始"), End: str(d, "结束"), Ref: str(d, "参照")}
+			if last := str(d, "最后一天"); last != "" { // 结束列是最后一天(含)
+				if l.AsOf.End != "" {
+					e.add(p.Line, at+" %s: 按日期 的 结束(不含)和 最后一天(含)只能写一个", p.Key)
+				}
+				l.AsOf.End, l.AsOf.EndIn = last, true
+			}
+			if l.AsOf.Start == "" || l.AsOf.Ref == "" {
+				e.add(p.Line, at+" %s: 按日期 要写 开始 和 参照(例: 按日期: { 开始: valid_from, 结束: valid_to, 参照: sales_date })", p.Key)
+			}
+		}
+		out = append(out, l)
+	}
+	return out
+}
+
 // Nest: 嵌套的一项。`名字: { 表, 条件: [列 = 子表的列, …], 固定条件?, 排序: [列 小到大, …], 上限: N, 列: {…} | […], 行名? }`
 type Nest struct {
 	Name     string
@@ -365,6 +417,7 @@ type Nest struct {
 	Max      int
 	Columns  [][2]string // 子行的列名, 子表的列
 	ItemName string      // 子行的消息名(没写 = 子表名的单数 PascalCase: order_items → OrderItem)
+	Lookups  []*Lookup   // 子行上的关联(多对一查找;条件的左边 = 子表的列 / 前面的关联加的列)
 	Line     int
 }
 
@@ -384,8 +437,9 @@ type Lookup struct {
 	Name    string
 	Table   string
 	On      []string
-	Columns [][2]string // 新列名, 对方的列
-	Missing string      // keep / drop
+	Columns [][2]string      // 新列名, 对方的列
+	Missing string           // keep / drop
+	AsOf    *spec.LookupAsOf // 按日期: { 开始, 结束(可选), 参照 }
 	Line    int
 }
 
@@ -454,35 +508,7 @@ func loadAPI(path string) (*API, error) {
 	if a.Risk, ok = risks[str(root, "风险")]; !ok {
 		e.add(root.Line, "风险 只能是 低 / 中 / 高")
 	}
-	for _, p := range pairs(get(root, "关联")) {
-		checkKeys(e, p.Val, "关联 "+p.Key, LookupKeys()...)
-		l := &Lookup{Name: p.Key, Table: str(p.Val, "表"), On: strList(get(p.Val, "条件")), Line: p.Line}
-		if l.Table == "" || len(l.On) == 0 {
-			e.add(p.Line, "关联 %s: 要写 表 和 条件(例: 条件: [customer_id = id])", p.Key)
-		}
-		switch cols := get(p.Val, "列"); {
-		case cols != nil && cols.Kind == yaml.MappingNode:
-			for _, c := range pairs(cols) {
-				l.Columns = append(l.Columns, [2]string{c.Key, strings.TrimSpace(c.Val.Value)})
-			}
-		case cols != nil && cols.Kind == yaml.SequenceNode: // [name, …] = 同名
-			for _, c := range strList(cols) {
-				l.Columns = append(l.Columns, [2]string{c, c})
-			}
-		}
-		if len(l.Columns) == 0 {
-			e.add(p.Line, "关联 %s: 要写 列(例: 列: { customer_name: name },新列名: 对方的列)", p.Key)
-		}
-		switch str(p.Val, "找不到时") {
-		case "", "保留":
-			l.Missing = "keep"
-		case "丢弃":
-			l.Missing = "drop"
-		default:
-			e.add(p.Line, "关联 %s: 找不到时 只能是 保留(加的列为空)/ 丢弃(这一行不要)", p.Key)
-		}
-		a.Lookups = append(a.Lookups, l)
-	}
+	a.Lookups = parseLookups(e, get(root, "关联"), "关联")
 	for _, p := range pairs(get(root, "嵌套")) {
 		checkKeys(e, p.Val, "嵌套 "+p.Key, NestKeys()...)
 		n := &Nest{Name: p.Key, Table: str(p.Val, "表"), On: strList(get(p.Val, "条件")), Where: strOrList(get(p.Val, "固定条件")),
@@ -513,6 +539,7 @@ func loadAPI(path string) (*API, error) {
 		if len(n.Columns) == 0 {
 			e.add(p.Line, "嵌套 %s: 要写 列(子行的列,例: 列: [sku, qty, price])", p.Key)
 		}
+		n.Lookups = parseLookups(e, get(p.Val, "关联"), "嵌套 "+p.Key+" 的关联")
 		a.Nests = append(a.Nests, n)
 	}
 	for _, p := range pairs(get(root, "子聚合")) {
@@ -742,7 +769,7 @@ func OutputKeys() []string {
 
 // NestKeys / ChildAggKeys: 嵌套 / 子聚合的一项可以写的键。
 func NestKeys() []string {
-	return []string{"表", "条件", "固定条件", "排序", "上限", "列", "行名"}
+	return []string{"表", "条件", "关联", "固定条件", "排序", "上限", "列", "行名"}
 }
 func ChildAggKeys() []string { return []string{"表", "条件", "固定条件", "计算"} }
 
@@ -767,7 +794,7 @@ func strOrList(n *yaml.Node) []string {
 }
 
 // LookupKeys: 关联的一项可以写的键。
-func LookupKeys() []string { return []string{"表", "条件", "列", "找不到时"} }
+func LookupKeys() []string { return []string{"表", "条件", "列", "找不到时", "按日期"} }
 
 // InputKeys: 输入可以写的键(约束的键另外由 factory/constraints 决定)。
 func InputKeys() []string {

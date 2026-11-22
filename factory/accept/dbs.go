@@ -98,6 +98,18 @@ func (d *dbs) all() ([]*pgx.Conn, error) {
 	return out, nil
 }
 
+// shards: 分库(主库以外;没有分库的配置 → 主库)。分库: 随父 的表的行写在这些库里。
+func (d *dbs) shards() ([]*pgx.Conn, error) {
+	all, err := d.all()
+	if err != nil {
+		return nil, err
+	}
+	if len(all) > 1 {
+		return all[1:], nil
+	}
+	return all, nil
+}
+
 // targets: 表 table 要清空 / 读回的库(分库的表 = 所有的库)。
 func (d *dbs) targets(sh *ir.Shard) ([]*pgx.Conn, error) {
 	if sh == nil {

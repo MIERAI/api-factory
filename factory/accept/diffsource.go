@@ -43,6 +43,11 @@ func (e *diffEnv) newLogical(st core.Step) *logicalTable {
 	if len(st.Source) == 0 || st.Source[0].Kind != "scan" {
 		return nil
 	}
+	for _, s := range st.Source { // 子表 + 嵌套里的关联(普通的表): 不是逻辑表
+		if s.Kind == "lookup" && e.plan.Storage(st.Table) == nil {
+			return nil
+		}
+	}
 	return &logicalTable{view: st.Table, st: e.plan.Storage(st.Table), source: st.Source, physCols: st.Source[0].Columns, cols: st.Columns}
 }
 

@@ -4,6 +4,16 @@
         valid_from: 2
         valid_to: 3
         warehouse_code: 1
+    CarrierWarehouse:
+        region_name: 3
+        valid_from: 4
+        valid_to: 5
+        warehouse_code: 1
+        warehouse_name: 2
+    CarrierWithWarehouses:
+        carrier_id: 1
+        contracts: 3
+        name: 2
     ContractedCarrier:
         active_count: 4
         carrier_id: 1
@@ -22,6 +32,13 @@
         page_token: 2
         partner_code: 3
     ListCarrierContractsResponse:
+        carriers: 1
+        next_page_token: 2
+    ListCarrierWarehousesRequest:
+        page_size: 1
+        page_token: 2
+        partner_code: 3
+    ListCarrierWarehousesResponse:
         carriers: 1
         next_page_token: 2
     ListShipmentPackagesRequest:

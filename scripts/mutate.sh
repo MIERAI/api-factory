@@ -23,7 +23,8 @@ run() { # $1=名称 $2=文件 $3=perl 替换式
   cp /tmp/mut.bak "$2"
 }
 # PLAN=1: 只列出变异(名称 \0 文件 \0 替换式 \0),由 scripts/mutate-par.py 并行执行
-if [[ -n ${PLAN:-} ]]; then run() { printf '%s\0%s\0%s\0' "$1" "$2" "$3"; }; fi
+# MUT_ONLY=正则: 只列出名字匹配的变异(调一个变异的余量时用;margin.py 的个数检查不适用)
+if [[ -n ${PLAN:-} ]]; then run() { [[ -n ${MUT_ONLY:-} && ! $1 =~ $MUT_ONLY ]] && return; printf '%s\0%s\0%s\0' "$1" "$2" "$3"; }; fi
 Q=gen/db/jobs.list-jobs.sql.go
 H=internal/handler/jobs/list_jobs_gen.go
 run "游标比较 < 改成 <="           $Q 's/\(t2\.created_at, t2\.id\) < \(/(t2.created_at, t2.id) <= (/'
@@ -184,6 +185,26 @@ run "子聚合の固定条件: 明日以降 > 写成 >="           $CC 's/\(t7\.
 SRG=gen/db/sales.list-store-sales-range.sql.go
 run "参数名 to: <= 写成 <"                          $SRG 's/\(t1\.sales_date <= \$3::date\)/(t1.sales_date < \$3::date)/'
 run "参数名 from: 被忽略"                           $SRG 's/\(t1\.sales_date >= \$2::date\)/(TRUE)/'
+# R2.6 G1: 嵌套里的关联(子行上的多对一查找)
+CW=gen/db/logistics.list-carrier-warehouses.sql.go
+run "嵌套里的关联: 保留写成丢弃(LEFT JOIN → JOIN)"   $CW 's/LEFT JOIN warehouses AS t3/JOIN warehouses AS t3/'
+run "嵌套里的关联: 链式第二级写成 JOIN"             $CW 's/LEFT JOIN regions AS t4/JOIN regions AS t4/'
+run "嵌套里的关联: 链式第二级从子表的列关联"         $CW 's/ON t3\.region_code = t4\.region_code/ON t2.warehouse_code = t4.region_code/'
+run "嵌套里的关联: 按加的列排序的方向反了"           $CW 's/(t[56])\.region_name COLLATE "C"/$1.region_name COLLATE "C" DESC/g'
+run "嵌套里的关联: 加的列取错(倉庫名 ← 地域コード)"  $CW 's/t3\.name AS warehouse_name/t3.region_code AS warehouse_name/'
+# R2.6 G4: 按日期的关联(历史表)+ 对方的列 = 常量
+DC=gen/db/sales.list-daily-sales-cost-rates.sql.go
+run "按日期: 开始日を含まない(<= → <)"              $DC 's/AND t2\.valid_from <= t1\.sales_date/AND t2.valid_from < t1.sales_date/'
+run "按日期: 最終日を含まない(<= → <)"              $DC 's/OR t1\.sales_date <= t2\.valid_to\)/OR t1.sales_date < t2.valid_to)/'
+run "按日期: 一番古い改定を取る(DESC → ASC)"         $DC 's/ORDER BY t2\.valid_from DESC/ORDER BY t2.valid_from/'
+run "按日期: 最終日を見ない"                        $DC 's/\n\s+AND \(t2\.valid_to IS NULL OR t1\.sales_date <= t2\.valid_to\)//'
+run "对方的列 = 常量: 区分を見ない"                  $DC 's/\n\s+AND \(t2\.rate_kind = \x27STD\x27::text\)//'
+run "按日期(今天): UTC の日付"                      $DC 's/t4\.valid_from <= \(\(\$1::timestamptz AT TIME ZONE \x27Asia\/Tokyo\x27\)/t4.valid_from <= ((\$1::timestamptz AT TIME ZONE \x27UTC\x27)/'
+# R2.6 G5: 分库: 随父 の表への关联
+PN=gen/db/sales.list-store-price-names.sql.go
+PNH=internal/handler/sales/list_store_price_names_gen.go
+run "随父: 保留写成丢弃(LEFT JOIN → JOIN)"           $PN 's/LEFT JOIN local_products AS t2/JOIN local_products AS t2/'
+run "随父: 别の店舗の DB を引く(店舗コード + 1)"      $PNH 's/h\.at\(int64\(m\.GetStoreCode\(\)\)\)/h.at(int64(m.GetStoreCode())+2)/'
 # 命令工厂(R3-1): 生成的写代码。每个变异都要被 ≥3 个状态差分的请求抓到(factory/accept/command_diff.go)
 UJ=internal/handler/schedules/update_job_schedule_gen.go
 SE=internal/handler/schedules/commands_gen.go

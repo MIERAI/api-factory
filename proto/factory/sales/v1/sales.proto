@@ -20,6 +20,9 @@ service SaleService {
   // 店舗の全商品について、基準日までに始まった売価のうち最新の 1 件をページごとに返す
   rpc ListCurrentPrices(ListCurrentPricesRequest) returns (ListCurrentPricesResponse);
 
+  // 店舗の売上を from〜to(両端を含む)で日付順に返す。各日に適用されていた通常の原価率と、今日の通常の原価率をつける
+  rpc ListDailySalesCostRates(ListDailySalesCostRatesRequest) returns (ListDailySalesCostRatesResponse);
+
   // 売上日を指定して、値引きのあった店舗の売上を売上金額の大きい順に返す(分页)
   rpc ListDiscountedSales(ListDiscountedSalesRequest) returns (ListDiscountedSalesResponse);
 
@@ -43,6 +46,9 @@ service SaleService {
 
   // 店舗の、今日を含む直近 days 日分(days = 0 なら今日だけ)の売価スナップショットを新しい日から返す
   rpc ListRecentSnapshots(ListRecentSnapshotsRequest) returns (ListRecentSnapshotsResponse);
+
+  // 店舗を指定して、売価(有効期間つき)を商品名つきで商品コード順に返す
+  rpc ListStorePriceNames(ListStorePriceNamesRequest) returns (ListStorePriceNamesResponse);
 
   // 店舗を指定して、商品コードの前方一致で売価(有効期間つき)を返す
   rpc ListStorePricesByPrefix(ListStorePricesByPrefixRequest) returns (ListStorePricesByPrefixResponse);
@@ -155,6 +161,36 @@ message ListCurrentPricesResponse {
   repeated CurrentPrice store_prices = 1;
   // 还有下一页时不为空
   string next_page_token = 2;
+}
+
+// 日别・店别の売上(一天一店一行)
+message SaleWithCostRate {
+  // 売上日
+  string sales_date = 1;
+  // 売上金額
+  string amount = 2;
+  // その日に適用されていた通常の原価率(なし = 不设置)
+  optional string cost_rate = 3;
+  // その原価率の適用開始日(なし = 不设置)
+  optional string rate_from = 4;
+  // 今日の通常の原価率(なし = 不设置)
+  optional string current_cost_rate = 5;
+}
+
+// 店舗の売上を from〜to(両端を含む)で日付順に返す。各日に適用されていた通常の原価率と、今日の通常の原価率をつける
+message ListDailySalesCostRatesRequest {
+  // 店舗コード
+  int32 store_code = 1 [(buf.validate.field).int32.gt = 0];
+  // 期間の開始(含む)
+  string from = 2 [(buf.validate.field).string.pattern = "^\\d{4}-\\d{2}-\\d{2}$"];
+  // 期間の終了(含む。省略 = 終わりなし)
+  optional string to = 3 [(buf.validate.field).string.pattern = "^\\d{4}-\\d{2}-\\d{2}$"];
+}
+
+// 店舗の売上を from〜to(両端を含む)で日付順に返す。各日に適用されていた通常の原価率と、今日の通常の原価率をつける
+message ListDailySalesCostRatesResponse {
+  // 最多 62 件;超过时返回错误(不会截断)
+  repeated SaleWithCostRate daily_sales = 1;
 }
 
 // 日别・店别の売上(一天一店一行)
@@ -372,6 +408,36 @@ message ListRecentSnapshotsRequest {
 message ListRecentSnapshotsResponse {
   // 最多 200 件;超过时返回错误(不会截断)
   repeated RecentSnapshot snapshots = 1;
+}
+
+// 店別の売価(有効期間つき)。店舗ごとの DB に分かれている
+message StorePriceWithName {
+  // 商品コード
+  string product_code = 1;
+  // 商品名(店舗の商品マスタに無い = 不设置)
+  optional string product_name = 2;
+  // 適用開始日
+  string valid_from = 3;
+  // 適用終了日
+  optional string valid_to = 4;
+  // 売価
+  string price = 5;
+}
+
+// 店舗を指定して、売価(有効期間つき)を商品名つきで商品コード順に返す
+message ListStorePriceNamesRequest {
+  // 店舗コード
+  int32 store_code = 1 [(buf.validate.field).int32.gt = 0];
+  // 商品コードの先頭(省略 = 全商品)
+  optional string product_prefix = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 20];
+  // 商品名(店舗の商品マスタの表示名と一致。省略 = 絞らない)
+  optional string product_name = 3 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 40];
+}
+
+// 店舗を指定して、売価(有効期間つき)を商品名つきで商品コード順に返す
+message ListStorePriceNamesResponse {
+  // 最多 300 件;超过时返回错误(不会截断)
+  repeated StorePriceWithName store_prices = 1;
 }
 
 // 店舗を指定して、商品コードの前方一致で売価(有効期間つき)を返す

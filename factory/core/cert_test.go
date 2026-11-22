@@ -395,6 +395,7 @@ func TestCertification(t *testing.T) {
 	}
 	certLookup(env, all)
 	certNest(env, all) // cert_nest_test.go
+	certAsOf(env, all) // cert_asof_test.go
 	if !t.Failed() {
 		t.Logf("元件认证: %d 个用例全部一致", env.n)
 	}
