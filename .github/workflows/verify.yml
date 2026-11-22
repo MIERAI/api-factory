@@ -11,7 +11,7 @@ permissions:
   contents: read
 jobs:
   verify:
-    runs-on: [self-hosted, winpc]   # 私有仓库: GitHub 托管 runner 的额度有限(2026-11-23 用完);winpc 的 WSL ci 里的自建 runner 不计额度
+    runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
@@ -27,7 +27,7 @@ jobs:
         run: scripts/ci/verify.sh
         env: { SKIP_MARGIN: "1" }
   margin:
-    runs-on: [self-hosted, winpc]   # 私有仓库: GitHub 托管 runner 的额度有限(2026-11-23 用完);winpc 的 WSL ci 里的自建 runner 不计额度
+    runs-on: ubuntu-latest
     timeout-minutes: 50
     strategy:
       fail-fast: false
