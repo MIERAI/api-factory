@@ -708,9 +708,32 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 		}
 		s.Datasource.Derived = derived
 	}
+	timeOpt := where.Options{Time: true, Zone: c.d.TZ, YMD: func(col string) bool {
+		t := c.d.Tables[table]
+		return t != nil && t.ColEncode[col] == EncodingYMD
+	}}
+	whereTime := false          // 固定条件里有 今天 / 现在: 例子要写 现在,式样书记下领域的时区
 	for _, w := range a.Where { // 固定条件: 写法 / 列名 / 常量的类型在这里就检查
-		if _, err := where.Parse(w, compiler.WhereTypes(c.cat[table])); err != nil {
+		if _, err := where.ParseOpt(w, compiler.WhereTypes(c.cat[table]), timeOpt); err != nil {
 			e.add(1, "%v", err)
+		}
+		whereTime = whereTime || where.UsesTime(w)
+	}
+	for _, n := range nests { // 嵌套 / 子聚合的固定条件(子表的列;写法由编译器检查)
+		for _, w := range n.Where {
+			whereTime = whereTime || where.UsesTime(w)
+		}
+	}
+	for _, g := range childAggs {
+		for _, w := range g.Where {
+			whereTime = whereTime || where.UsesTime(w)
+		}
+	}
+	if whereTime {
+		usesNow = true
+		s.Datasource.TimeZone = c.d.TZ
+		if a.Exit.AI && a.Kind == "custom" {
+			e.add(1, "固定条件里的 今天 / 现在 不能用于 %s(查询由 AI 写)", a.Exit.Name)
 		}
 	}
 	if err := e.err(); err != nil {

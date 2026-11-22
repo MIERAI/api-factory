@@ -2,6 +2,14 @@
 # 人写的式样书在 design/logistics/领域.yaml(这个文件由设计编译器生成)
 domain_version: "0.1"
 entities:
+    carrier_contracts:
+        natural_key:
+            - carrier_id
+            - warehouse_code
+            - valid_from
+        policy: mutable
+        columns: {}
+        invariants: []
     carriers:
         natural_key:
             - carrier_id
@@ -40,4 +48,6 @@ entities:
         policy: mutable
         columns: {}
         invariants: []
-review_decisions: []
+review_decisions:
+    - question: '終了日が開始日より前になっている契約(例: 開始日 2026-03-05、終了日 2026-03-01、今日 = 3/1)を、upcoming_count(開始日が明日以降の契約の数)に数えますか?'
+      decision: '現在の動作を保持(数える)。upcoming_count は開始日だけで数える: 終了日が開始日より前の契約は登録側で拒否されるデータの誤りで、この API では補正しない'

@@ -26,6 +26,270 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// 配送業者と倉庫の契約(有効期間つき。契約を更新すると開始日の違う行が増える)
+type ActiveContract struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 倉庫コード
+	WarehouseCode string `protobuf:"bytes,1,opt,name=warehouse_code,json=warehouseCode,proto3" json:"warehouse_code,omitempty"`
+	// 契約の開始日(含む)
+	ValidFrom string `protobuf:"bytes,2,opt,name=valid_from,json=validFrom,proto3" json:"valid_from,omitempty"`
+	// 契約の終了日(含む。空 = 期限なし)
+	ValidTo       *string `protobuf:"bytes,3,opt,name=valid_to,json=validTo,proto3,oneof" json:"valid_to,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ActiveContract) Reset() {
+	*x = ActiveContract{}
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ActiveContract) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ActiveContract) ProtoMessage() {}
+
+func (x *ActiveContract) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ActiveContract.ProtoReflect.Descriptor instead.
+func (*ActiveContract) Descriptor() ([]byte, []int) {
+	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *ActiveContract) GetWarehouseCode() string {
+	if x != nil {
+		return x.WarehouseCode
+	}
+	return ""
+}
+
+func (x *ActiveContract) GetValidFrom() string {
+	if x != nil {
+		return x.ValidFrom
+	}
+	return ""
+}
+
+func (x *ActiveContract) GetValidTo() string {
+	if x != nil && x.ValidTo != nil {
+		return *x.ValidTo
+	}
+	return ""
+}
+
+// 配送業者マスタ(取引先コードは一意。自社便は取引先コードなし)
+type ContractedCarrier struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 配送業者 ID
+	CarrierId int64 `protobuf:"varint,1,opt,name=carrier_id,json=carrierId,proto3" json:"carrier_id,omitempty"`
+	// 配送業者名
+	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// 今日有効な倉庫契約(倉庫コード順、同じ倉庫は開始日順。最大 20 件。超える業者が入るページはエラー)
+	Contracts []*ActiveContract `protobuf:"bytes,3,rep,name=contracts,proto3" json:"contracts,omitempty"`
+	// 今日有効な契約の数(なし = 0)
+	ActiveCount int64 `protobuf:"varint,4,opt,name=active_count,json=activeCount,proto3" json:"active_count,omitempty"`
+	// 開始日が明日以降の契約の数(なし = 0)
+	UpcomingCount int64 `protobuf:"varint,5,opt,name=upcoming_count,json=upcomingCount,proto3" json:"upcoming_count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContractedCarrier) Reset() {
+	*x = ContractedCarrier{}
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContractedCarrier) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContractedCarrier) ProtoMessage() {}
+
+func (x *ContractedCarrier) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContractedCarrier.ProtoReflect.Descriptor instead.
+func (*ContractedCarrier) Descriptor() ([]byte, []int) {
+	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *ContractedCarrier) GetCarrierId() int64 {
+	if x != nil {
+		return x.CarrierId
+	}
+	return 0
+}
+
+func (x *ContractedCarrier) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ContractedCarrier) GetContracts() []*ActiveContract {
+	if x != nil {
+		return x.Contracts
+	}
+	return nil
+}
+
+func (x *ContractedCarrier) GetActiveCount() int64 {
+	if x != nil {
+		return x.ActiveCount
+	}
+	return 0
+}
+
+func (x *ContractedCarrier) GetUpcomingCount() int64 {
+	if x != nil {
+		return x.UpcomingCount
+	}
+	return 0
+}
+
+// 配送業者を、今日有効な倉庫契約(倉庫コード順)と契約数つきで返す
+type ListCarrierContractsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 每页件数。0 = 默认 20,最多 100
+	PageSize int32 `protobuf:"varint,1,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	// 上一页返回的 next_page_token(不透明的字符串)
+	PageToken string `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	// 取引先コード(不指定 = 全業者。空文字は参数错误)
+	PartnerCode   *string `protobuf:"bytes,3,opt,name=partner_code,json=partnerCode,proto3,oneof" json:"partner_code,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListCarrierContractsRequest) Reset() {
+	*x = ListCarrierContractsRequest{}
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListCarrierContractsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListCarrierContractsRequest) ProtoMessage() {}
+
+func (x *ListCarrierContractsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListCarrierContractsRequest.ProtoReflect.Descriptor instead.
+func (*ListCarrierContractsRequest) Descriptor() ([]byte, []int) {
+	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ListCarrierContractsRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListCarrierContractsRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+func (x *ListCarrierContractsRequest) GetPartnerCode() string {
+	if x != nil && x.PartnerCode != nil {
+		return *x.PartnerCode
+	}
+	return ""
+}
+
+// 配送業者を、今日有効な倉庫契約(倉庫コード順)と契約数つきで返す
+type ListCarrierContractsResponse struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Carriers []*ContractedCarrier   `protobuf:"bytes,1,rep,name=carriers,proto3" json:"carriers,omitempty"`
+	// 还有下一页时不为空
+	NextPageToken string `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListCarrierContractsResponse) Reset() {
+	*x = ListCarrierContractsResponse{}
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListCarrierContractsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListCarrierContractsResponse) ProtoMessage() {}
+
+func (x *ListCarrierContractsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListCarrierContractsResponse.ProtoReflect.Descriptor instead.
+func (*ListCarrierContractsResponse) Descriptor() ([]byte, []int) {
+	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ListCarrierContractsResponse) GetCarriers() []*ContractedCarrier {
+	if x != nil {
+		return x.Carriers
+	}
+	return nil
+}
+
+func (x *ListCarrierContractsResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
 // 出荷の梱包(1 出荷に 0 個以上。梱包番号は出荷ごと)
 type ShipmentPackage struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -43,7 +307,7 @@ type ShipmentPackage struct {
 
 func (x *ShipmentPackage) Reset() {
 	*x = ShipmentPackage{}
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[0]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -55,7 +319,7 @@ func (x *ShipmentPackage) String() string {
 func (*ShipmentPackage) ProtoMessage() {}
 
 func (x *ShipmentPackage) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[0]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -68,7 +332,7 @@ func (x *ShipmentPackage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShipmentPackage.ProtoReflect.Descriptor instead.
 func (*ShipmentPackage) Descriptor() ([]byte, []int) {
-	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{0}
+	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ShipmentPackage) GetPackageNo() int32 {
@@ -122,7 +386,7 @@ type PackedShipment struct {
 
 func (x *PackedShipment) Reset() {
 	*x = PackedShipment{}
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[1]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -134,7 +398,7 @@ func (x *PackedShipment) String() string {
 func (*PackedShipment) ProtoMessage() {}
 
 func (x *PackedShipment) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[1]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -147,7 +411,7 @@ func (x *PackedShipment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PackedShipment.ProtoReflect.Descriptor instead.
 func (*PackedShipment) Descriptor() ([]byte, []int) {
-	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{1}
+	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *PackedShipment) GetId() int64 {
@@ -216,7 +480,7 @@ type ListShipmentPackagesRequest struct {
 
 func (x *ListShipmentPackagesRequest) Reset() {
 	*x = ListShipmentPackagesRequest{}
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[2]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -228,7 +492,7 @@ func (x *ListShipmentPackagesRequest) String() string {
 func (*ListShipmentPackagesRequest) ProtoMessage() {}
 
 func (x *ListShipmentPackagesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[2]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -241,7 +505,7 @@ func (x *ListShipmentPackagesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListShipmentPackagesRequest.ProtoReflect.Descriptor instead.
 func (*ListShipmentPackagesRequest) Descriptor() ([]byte, []int) {
-	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{2}
+	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ListShipmentPackagesRequest) GetPageSize() int32 {
@@ -284,7 +548,7 @@ type ListShipmentPackagesResponse struct {
 
 func (x *ListShipmentPackagesResponse) Reset() {
 	*x = ListShipmentPackagesResponse{}
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[3]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -296,7 +560,7 @@ func (x *ListShipmentPackagesResponse) String() string {
 func (*ListShipmentPackagesResponse) ProtoMessage() {}
 
 func (x *ListShipmentPackagesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[3]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -309,7 +573,7 @@ func (x *ListShipmentPackagesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListShipmentPackagesResponse.ProtoReflect.Descriptor instead.
 func (*ListShipmentPackagesResponse) Descriptor() ([]byte, []int) {
-	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{3}
+	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ListShipmentPackagesResponse) GetShipments() []*PackedShipment {
@@ -347,7 +611,7 @@ type DayShipment struct {
 
 func (x *DayShipment) Reset() {
 	*x = DayShipment{}
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[4]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -359,7 +623,7 @@ func (x *DayShipment) String() string {
 func (*DayShipment) ProtoMessage() {}
 
 func (x *DayShipment) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[4]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -372,7 +636,7 @@ func (x *DayShipment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DayShipment.ProtoReflect.Descriptor instead.
 func (*DayShipment) Descriptor() ([]byte, []int) {
-	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{4}
+	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *DayShipment) GetId() int64 {
@@ -430,7 +694,7 @@ type ListShipmentsByDayRequest struct {
 
 func (x *ListShipmentsByDayRequest) Reset() {
 	*x = ListShipmentsByDayRequest{}
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[5]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -442,7 +706,7 @@ func (x *ListShipmentsByDayRequest) String() string {
 func (*ListShipmentsByDayRequest) ProtoMessage() {}
 
 func (x *ListShipmentsByDayRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[5]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -455,7 +719,7 @@ func (x *ListShipmentsByDayRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListShipmentsByDayRequest.ProtoReflect.Descriptor instead.
 func (*ListShipmentsByDayRequest) Descriptor() ([]byte, []int) {
-	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{5}
+	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ListShipmentsByDayRequest) GetShippedOn() string {
@@ -483,7 +747,7 @@ type ListShipmentsByDayResponse struct {
 
 func (x *ListShipmentsByDayResponse) Reset() {
 	*x = ListShipmentsByDayResponse{}
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[6]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -495,7 +759,7 @@ func (x *ListShipmentsByDayResponse) String() string {
 func (*ListShipmentsByDayResponse) ProtoMessage() {}
 
 func (x *ListShipmentsByDayResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[6]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -508,7 +772,7 @@ func (x *ListShipmentsByDayResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListShipmentsByDayResponse.ProtoReflect.Descriptor instead.
 func (*ListShipmentsByDayResponse) Descriptor() ([]byte, []int) {
-	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{6}
+	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ListShipmentsByDayResponse) GetShipments() []*DayShipment {
@@ -537,7 +801,7 @@ type RegionShipment struct {
 
 func (x *RegionShipment) Reset() {
 	*x = RegionShipment{}
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[7]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -549,7 +813,7 @@ func (x *RegionShipment) String() string {
 func (*RegionShipment) ProtoMessage() {}
 
 func (x *RegionShipment) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[7]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -562,7 +826,7 @@ func (x *RegionShipment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegionShipment.ProtoReflect.Descriptor instead.
 func (*RegionShipment) Descriptor() ([]byte, []int) {
-	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{7}
+	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *RegionShipment) GetId() int64 {
@@ -613,7 +877,7 @@ type ListShipmentsByRegionRequest struct {
 
 func (x *ListShipmentsByRegionRequest) Reset() {
 	*x = ListShipmentsByRegionRequest{}
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[8]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -625,7 +889,7 @@ func (x *ListShipmentsByRegionRequest) String() string {
 func (*ListShipmentsByRegionRequest) ProtoMessage() {}
 
 func (x *ListShipmentsByRegionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[8]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -638,7 +902,7 @@ func (x *ListShipmentsByRegionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListShipmentsByRegionRequest.ProtoReflect.Descriptor instead.
 func (*ListShipmentsByRegionRequest) Descriptor() ([]byte, []int) {
-	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{8}
+	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ListShipmentsByRegionRequest) GetShippedOn() string {
@@ -666,7 +930,7 @@ type ListShipmentsByRegionResponse struct {
 
 func (x *ListShipmentsByRegionResponse) Reset() {
 	*x = ListShipmentsByRegionResponse{}
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[9]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -678,7 +942,7 @@ func (x *ListShipmentsByRegionResponse) String() string {
 func (*ListShipmentsByRegionResponse) ProtoMessage() {}
 
 func (x *ListShipmentsByRegionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[9]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -691,7 +955,7 @@ func (x *ListShipmentsByRegionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListShipmentsByRegionResponse.ProtoReflect.Descriptor instead.
 func (*ListShipmentsByRegionResponse) Descriptor() ([]byte, []int) {
-	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{9}
+	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ListShipmentsByRegionResponse) GetShipments() []*RegionShipment {
@@ -718,7 +982,7 @@ type Shipment struct {
 
 func (x *Shipment) Reset() {
 	*x = Shipment{}
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[10]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -730,7 +994,7 @@ func (x *Shipment) String() string {
 func (*Shipment) ProtoMessage() {}
 
 func (x *Shipment) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[10]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -743,7 +1007,7 @@ func (x *Shipment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Shipment.ProtoReflect.Descriptor instead.
 func (*Shipment) Descriptor() ([]byte, []int) {
-	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{10}
+	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *Shipment) GetId() int64 {
@@ -791,7 +1055,7 @@ type ListZonedShipmentsRequest struct {
 
 func (x *ListZonedShipmentsRequest) Reset() {
 	*x = ListZonedShipmentsRequest{}
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[11]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -803,7 +1067,7 @@ func (x *ListZonedShipmentsRequest) String() string {
 func (*ListZonedShipmentsRequest) ProtoMessage() {}
 
 func (x *ListZonedShipmentsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[11]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -816,7 +1080,7 @@ func (x *ListZonedShipmentsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListZonedShipmentsRequest.ProtoReflect.Descriptor instead.
 func (*ListZonedShipmentsRequest) Descriptor() ([]byte, []int) {
-	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{11}
+	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ListZonedShipmentsRequest) GetPageSize() int32 {
@@ -859,7 +1123,7 @@ type ListZonedShipmentsResponse struct {
 
 func (x *ListZonedShipmentsResponse) Reset() {
 	*x = ListZonedShipmentsResponse{}
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[12]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -871,7 +1135,7 @@ func (x *ListZonedShipmentsResponse) String() string {
 func (*ListZonedShipmentsResponse) ProtoMessage() {}
 
 func (x *ListZonedShipmentsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[12]
+	mi := &file_factory_logistics_v1_logistics_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -884,7 +1148,7 @@ func (x *ListZonedShipmentsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListZonedShipmentsResponse.ProtoReflect.Descriptor instead.
 func (*ListZonedShipmentsResponse) Descriptor() ([]byte, []int) {
-	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{12}
+	return file_factory_logistics_v1_logistics_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ListZonedShipmentsResponse) GetShipments() []*Shipment {
@@ -905,7 +1169,29 @@ var File_factory_logistics_v1_logistics_proto protoreflect.FileDescriptor
 
 const file_factory_logistics_v1_logistics_proto_rawDesc = "" +
 	"\n" +
-	"$factory/logistics/v1/logistics.proto\x12\x14factory.logistics.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x97\x01\n" +
+	"$factory/logistics/v1/logistics.proto\x12\x14factory.logistics.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x83\x01\n" +
+	"\x0eActiveContract\x12%\n" +
+	"\x0ewarehouse_code\x18\x01 \x01(\tR\rwarehouseCode\x12\x1d\n" +
+	"\n" +
+	"valid_from\x18\x02 \x01(\tR\tvalidFrom\x12\x1e\n" +
+	"\bvalid_to\x18\x03 \x01(\tH\x00R\avalidTo\x88\x01\x01B\v\n" +
+	"\t_valid_to\"\xd4\x01\n" +
+	"\x11ContractedCarrier\x12\x1d\n" +
+	"\n" +
+	"carrier_id\x18\x01 \x01(\x03R\tcarrierId\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12B\n" +
+	"\tcontracts\x18\x03 \x03(\v2$.factory.logistics.v1.ActiveContractR\tcontracts\x12!\n" +
+	"\factive_count\x18\x04 \x01(\x03R\vactiveCount\x12%\n" +
+	"\x0eupcoming_count\x18\x05 \x01(\x03R\rupcomingCount\"\xa8\x01\n" +
+	"\x1bListCarrierContractsRequest\x12&\n" +
+	"\tpage_size\x18\x01 \x01(\x05B\t\xbaH\x06\x1a\x04\x18d(\x00R\bpageSize\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x02 \x01(\tR\tpageToken\x121\n" +
+	"\fpartner_code\x18\x03 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18\bH\x00R\vpartnerCode\x88\x01\x01B\x0f\n" +
+	"\r_partner_code\"\x8b\x01\n" +
+	"\x1cListCarrierContractsResponse\x12C\n" +
+	"\bcarriers\x18\x01 \x03(\v2'.factory.logistics.v1.ContractedCarrierR\bcarriers\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\x97\x01\n" +
 	"\x0fShipmentPackage\x12\x1d\n" +
 	"\n" +
 	"package_no\x18\x01 \x01(\x05R\tpackageNo\x12\x14\n" +
@@ -986,8 +1272,9 @@ const file_factory_logistics_v1_logistics_proto_rawDesc = "" +
 	"\v_zone_label\"\x82\x01\n" +
 	"\x1aListZonedShipmentsResponse\x12<\n" +
 	"\tshipments\x18\x01 \x03(\v2\x1e.factory.logistics.v1.ShipmentR\tshipments\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken2\x85\x04\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken2\x84\x05\n" +
 	"\x0fLogisticService\x12}\n" +
+	"\x14ListCarrierContracts\x121.factory.logistics.v1.ListCarrierContractsRequest\x1a2.factory.logistics.v1.ListCarrierContractsResponse\x12}\n" +
 	"\x14ListShipmentPackages\x121.factory.logistics.v1.ListShipmentPackagesRequest\x1a2.factory.logistics.v1.ListShipmentPackagesResponse\x12w\n" +
 	"\x12ListShipmentsByDay\x12/.factory.logistics.v1.ListShipmentsByDayRequest\x1a0.factory.logistics.v1.ListShipmentsByDayResponse\x12\x80\x01\n" +
 	"\x15ListShipmentsByRegion\x122.factory.logistics.v1.ListShipmentsByRegionRequest\x1a3.factory.logistics.v1.ListShipmentsByRegionResponse\x12w\n" +
@@ -1005,45 +1292,53 @@ func file_factory_logistics_v1_logistics_proto_rawDescGZIP() []byte {
 	return file_factory_logistics_v1_logistics_proto_rawDescData
 }
 
-var file_factory_logistics_v1_logistics_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_factory_logistics_v1_logistics_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_factory_logistics_v1_logistics_proto_goTypes = []any{
-	(*ShipmentPackage)(nil),               // 0: factory.logistics.v1.ShipmentPackage
-	(*PackedShipment)(nil),                // 1: factory.logistics.v1.PackedShipment
-	(*ListShipmentPackagesRequest)(nil),   // 2: factory.logistics.v1.ListShipmentPackagesRequest
-	(*ListShipmentPackagesResponse)(nil),  // 3: factory.logistics.v1.ListShipmentPackagesResponse
-	(*DayShipment)(nil),                   // 4: factory.logistics.v1.DayShipment
-	(*ListShipmentsByDayRequest)(nil),     // 5: factory.logistics.v1.ListShipmentsByDayRequest
-	(*ListShipmentsByDayResponse)(nil),    // 6: factory.logistics.v1.ListShipmentsByDayResponse
-	(*RegionShipment)(nil),                // 7: factory.logistics.v1.RegionShipment
-	(*ListShipmentsByRegionRequest)(nil),  // 8: factory.logistics.v1.ListShipmentsByRegionRequest
-	(*ListShipmentsByRegionResponse)(nil), // 9: factory.logistics.v1.ListShipmentsByRegionResponse
-	(*Shipment)(nil),                      // 10: factory.logistics.v1.Shipment
-	(*ListZonedShipmentsRequest)(nil),     // 11: factory.logistics.v1.ListZonedShipmentsRequest
-	(*ListZonedShipmentsResponse)(nil),    // 12: factory.logistics.v1.ListZonedShipmentsResponse
-	(*timestamppb.Timestamp)(nil),         // 13: google.protobuf.Timestamp
+	(*ActiveContract)(nil),                // 0: factory.logistics.v1.ActiveContract
+	(*ContractedCarrier)(nil),             // 1: factory.logistics.v1.ContractedCarrier
+	(*ListCarrierContractsRequest)(nil),   // 2: factory.logistics.v1.ListCarrierContractsRequest
+	(*ListCarrierContractsResponse)(nil),  // 3: factory.logistics.v1.ListCarrierContractsResponse
+	(*ShipmentPackage)(nil),               // 4: factory.logistics.v1.ShipmentPackage
+	(*PackedShipment)(nil),                // 5: factory.logistics.v1.PackedShipment
+	(*ListShipmentPackagesRequest)(nil),   // 6: factory.logistics.v1.ListShipmentPackagesRequest
+	(*ListShipmentPackagesResponse)(nil),  // 7: factory.logistics.v1.ListShipmentPackagesResponse
+	(*DayShipment)(nil),                   // 8: factory.logistics.v1.DayShipment
+	(*ListShipmentsByDayRequest)(nil),     // 9: factory.logistics.v1.ListShipmentsByDayRequest
+	(*ListShipmentsByDayResponse)(nil),    // 10: factory.logistics.v1.ListShipmentsByDayResponse
+	(*RegionShipment)(nil),                // 11: factory.logistics.v1.RegionShipment
+	(*ListShipmentsByRegionRequest)(nil),  // 12: factory.logistics.v1.ListShipmentsByRegionRequest
+	(*ListShipmentsByRegionResponse)(nil), // 13: factory.logistics.v1.ListShipmentsByRegionResponse
+	(*Shipment)(nil),                      // 14: factory.logistics.v1.Shipment
+	(*ListZonedShipmentsRequest)(nil),     // 15: factory.logistics.v1.ListZonedShipmentsRequest
+	(*ListZonedShipmentsResponse)(nil),    // 16: factory.logistics.v1.ListZonedShipmentsResponse
+	(*timestamppb.Timestamp)(nil),         // 17: google.protobuf.Timestamp
 }
 var file_factory_logistics_v1_logistics_proto_depIdxs = []int32{
-	13, // 0: factory.logistics.v1.ShipmentPackage.sealed_at:type_name -> google.protobuf.Timestamp
-	0,  // 1: factory.logistics.v1.PackedShipment.packages:type_name -> factory.logistics.v1.ShipmentPackage
-	13, // 2: factory.logistics.v1.PackedShipment.first_sealed_at:type_name -> google.protobuf.Timestamp
-	13, // 3: factory.logistics.v1.PackedShipment.last_sealed_at:type_name -> google.protobuf.Timestamp
-	1,  // 4: factory.logistics.v1.ListShipmentPackagesResponse.shipments:type_name -> factory.logistics.v1.PackedShipment
-	4,  // 5: factory.logistics.v1.ListShipmentsByDayResponse.shipments:type_name -> factory.logistics.v1.DayShipment
-	7,  // 6: factory.logistics.v1.ListShipmentsByRegionResponse.shipments:type_name -> factory.logistics.v1.RegionShipment
-	10, // 7: factory.logistics.v1.ListZonedShipmentsResponse.shipments:type_name -> factory.logistics.v1.Shipment
-	2,  // 8: factory.logistics.v1.LogisticService.ListShipmentPackages:input_type -> factory.logistics.v1.ListShipmentPackagesRequest
-	5,  // 9: factory.logistics.v1.LogisticService.ListShipmentsByDay:input_type -> factory.logistics.v1.ListShipmentsByDayRequest
-	8,  // 10: factory.logistics.v1.LogisticService.ListShipmentsByRegion:input_type -> factory.logistics.v1.ListShipmentsByRegionRequest
-	11, // 11: factory.logistics.v1.LogisticService.ListZonedShipments:input_type -> factory.logistics.v1.ListZonedShipmentsRequest
-	3,  // 12: factory.logistics.v1.LogisticService.ListShipmentPackages:output_type -> factory.logistics.v1.ListShipmentPackagesResponse
-	6,  // 13: factory.logistics.v1.LogisticService.ListShipmentsByDay:output_type -> factory.logistics.v1.ListShipmentsByDayResponse
-	9,  // 14: factory.logistics.v1.LogisticService.ListShipmentsByRegion:output_type -> factory.logistics.v1.ListShipmentsByRegionResponse
-	12, // 15: factory.logistics.v1.LogisticService.ListZonedShipments:output_type -> factory.logistics.v1.ListZonedShipmentsResponse
-	12, // [12:16] is the sub-list for method output_type
-	8,  // [8:12] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	0,  // 0: factory.logistics.v1.ContractedCarrier.contracts:type_name -> factory.logistics.v1.ActiveContract
+	1,  // 1: factory.logistics.v1.ListCarrierContractsResponse.carriers:type_name -> factory.logistics.v1.ContractedCarrier
+	17, // 2: factory.logistics.v1.ShipmentPackage.sealed_at:type_name -> google.protobuf.Timestamp
+	4,  // 3: factory.logistics.v1.PackedShipment.packages:type_name -> factory.logistics.v1.ShipmentPackage
+	17, // 4: factory.logistics.v1.PackedShipment.first_sealed_at:type_name -> google.protobuf.Timestamp
+	17, // 5: factory.logistics.v1.PackedShipment.last_sealed_at:type_name -> google.protobuf.Timestamp
+	5,  // 6: factory.logistics.v1.ListShipmentPackagesResponse.shipments:type_name -> factory.logistics.v1.PackedShipment
+	8,  // 7: factory.logistics.v1.ListShipmentsByDayResponse.shipments:type_name -> factory.logistics.v1.DayShipment
+	11, // 8: factory.logistics.v1.ListShipmentsByRegionResponse.shipments:type_name -> factory.logistics.v1.RegionShipment
+	14, // 9: factory.logistics.v1.ListZonedShipmentsResponse.shipments:type_name -> factory.logistics.v1.Shipment
+	2,  // 10: factory.logistics.v1.LogisticService.ListCarrierContracts:input_type -> factory.logistics.v1.ListCarrierContractsRequest
+	6,  // 11: factory.logistics.v1.LogisticService.ListShipmentPackages:input_type -> factory.logistics.v1.ListShipmentPackagesRequest
+	9,  // 12: factory.logistics.v1.LogisticService.ListShipmentsByDay:input_type -> factory.logistics.v1.ListShipmentsByDayRequest
+	12, // 13: factory.logistics.v1.LogisticService.ListShipmentsByRegion:input_type -> factory.logistics.v1.ListShipmentsByRegionRequest
+	15, // 14: factory.logistics.v1.LogisticService.ListZonedShipments:input_type -> factory.logistics.v1.ListZonedShipmentsRequest
+	3,  // 15: factory.logistics.v1.LogisticService.ListCarrierContracts:output_type -> factory.logistics.v1.ListCarrierContractsResponse
+	7,  // 16: factory.logistics.v1.LogisticService.ListShipmentPackages:output_type -> factory.logistics.v1.ListShipmentPackagesResponse
+	10, // 17: factory.logistics.v1.LogisticService.ListShipmentsByDay:output_type -> factory.logistics.v1.ListShipmentsByDayResponse
+	13, // 18: factory.logistics.v1.LogisticService.ListShipmentsByRegion:output_type -> factory.logistics.v1.ListShipmentsByRegionResponse
+	16, // 19: factory.logistics.v1.LogisticService.ListZonedShipments:output_type -> factory.logistics.v1.ListZonedShipmentsResponse
+	15, // [15:20] is the sub-list for method output_type
+	10, // [10:15] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_factory_logistics_v1_logistics_proto_init() }
@@ -1051,19 +1346,21 @@ func file_factory_logistics_v1_logistics_proto_init() {
 	if File_factory_logistics_v1_logistics_proto != nil {
 		return
 	}
+	file_factory_logistics_v1_logistics_proto_msgTypes[0].OneofWrappers = []any{}
 	file_factory_logistics_v1_logistics_proto_msgTypes[2].OneofWrappers = []any{}
-	file_factory_logistics_v1_logistics_proto_msgTypes[4].OneofWrappers = []any{}
-	file_factory_logistics_v1_logistics_proto_msgTypes[7].OneofWrappers = []any{}
+	file_factory_logistics_v1_logistics_proto_msgTypes[6].OneofWrappers = []any{}
 	file_factory_logistics_v1_logistics_proto_msgTypes[8].OneofWrappers = []any{}
-	file_factory_logistics_v1_logistics_proto_msgTypes[10].OneofWrappers = []any{}
 	file_factory_logistics_v1_logistics_proto_msgTypes[11].OneofWrappers = []any{}
+	file_factory_logistics_v1_logistics_proto_msgTypes[12].OneofWrappers = []any{}
+	file_factory_logistics_v1_logistics_proto_msgTypes[14].OneofWrappers = []any{}
+	file_factory_logistics_v1_logistics_proto_msgTypes[15].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_factory_logistics_v1_logistics_proto_rawDesc), len(file_factory_logistics_v1_logistics_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

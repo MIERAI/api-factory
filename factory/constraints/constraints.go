@@ -295,6 +295,21 @@ func DomainOf(f *ir.Field) *Domain {
 	return nil
 }
 
+// MaxLen: 文本(列表时每个元素)的最大长度(长度 的 max_len)。没有 → false。
+func MaxLen(f *ir.Field) (int, bool) {
+	if f == nil || f.Rules == nil {
+		return 0, false
+	}
+	r := parse(f.Rules.Raw)
+	if r != nil && r.HasRepeated() {
+		r = r.GetRepeated().GetItems()
+	}
+	if r == nil || !r.HasString() || !r.GetString().HasMaxLen() {
+		return 0, false
+	}
+	return int(r.GetString().GetMaxLen()), true
+}
+
 // Required: 规则里是不是必填(required 或 列表至少 1 个)。
 func Required(f *ir.Field) bool {
 	if f == nil || f.Rules == nil {

@@ -101,7 +101,7 @@ func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []re
 	}
 	parts.Filters = append(parts.Filters, derived...)
 	for _, w := range s.Datasource.Where { // 固定条件: 和筛选一样作用在来源的列上
-		e, err := where.Parse(w, WhereTypes(view.tables[table]))
+		e, err := where.ParseOpt(w, WhereTypes(view.tables[table]), whereOpt(s, table))
 		if err != nil {
 			return nil, err
 		}
@@ -190,6 +190,13 @@ func derivedFilters(s *spec.Spec, lib *cells.Library, cat *catalog, p *core.Pipe
 		out = append(out, e)
 	}
 	return out, nil
+}
+
+// whereOpt: 固定条件里的 今天 / 现在(今天 = 领域的时区的日期;整数编码的日期的列和 今天 比较时按日期读)。
+func whereOpt(s *spec.Spec, table string) where.Options {
+	return where.Options{Time: true, Zone: s.Datasource.TimeZone, YMD: func(col string) bool {
+		return s.Domain != nil && encoding(s, table, col) == ymdEncoding
+	}}
 }
 
 // checkPickUnique: 每组取一条(API 部分)的 分组键 + 组内的排序 必须覆盖一个唯一键,否则组内可能并列,

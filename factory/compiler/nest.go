@@ -82,7 +82,7 @@ func childSteps(s *spec.Spec, cat *catalog, keys map[string][][]string, cols []c
 		}
 		var preds []*core.Expr
 		for _, w := range wh {
-			e, err := where.Parse(w, WhereTypes(other))
+			e, err := where.ParseOpt(w, WhereTypes(other), whereOpt(s, child))
 			if err != nil {
 				return st, nil, fmt.Errorf("%s: %w", at, err)
 			}

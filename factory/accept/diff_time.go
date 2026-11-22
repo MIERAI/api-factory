@@ -1,6 +1,6 @@
 package accept
 
-// 差分测试的时间运算(派生参数: now() / add / trunc)。
+// 差分测试的时间运算(派生参数: now() / add / trunc / local_date(今天))。
 //
 // 派生参数的值由 now 和请求参数算出来(例: updated_at 早于 now − N 分钟;sales_date 在指定日的上个月)。
 // 随机的数据几乎不会正好落在派生出来的边界上,"早于"写成"不晚于"、月末没有截到最后一天、在 UTC 而不是领域的时区截日
@@ -26,12 +26,13 @@ import (
 
 // derivedCmp: 筛选里"列 op 时间运算的表达式"的一处。
 type derivedCmp struct {
-	step int
-	node *core.Expr // cmp 节点
-	col  string
-	expr *core.Expr // 时间运算的一边
-	kind core.Kind  // 列的类型(日期 / 时间;整数编码的日期 = 日期)
-	ymd  bool       // 列是整数编码的日期(条件里是 ymd(列))
+	table string // 列所在的表(来源的表;嵌套 / 子聚合的固定条件: 子表)
+	step  int
+	node  *core.Expr // cmp 节点
+	col   string
+	expr  *core.Expr // 时间运算的一边
+	kind  core.Kind  // 列的类型(日期 / 时间;整数编码的日期 = 日期)
+	ymd   bool       // 列是整数编码的日期(条件里是 ymd(列))
 }
 
 // timeState: 派生参数的状态(没有时间运算的 API 为空,随机数的消耗和以前完全一样)。
@@ -43,6 +44,7 @@ type timeState struct {
 	probes  []core.Params   // 每组: NowParam(用到 now 时)+ 输入
 	ymdIn   map[string]bool // 整数编码的日期的输入(派生参数里是 ymd(参数))
 	ymdCol  map[string]bool // 整数编码的日期的列(和派生参数比较)
+	pin     core.Params     // 不为空: 边界值只取这个探针(嵌套的子行按一个探针数通过固定条件的行,diffnest.go)
 }
 
 func isTimeExpr(x *core.Expr) bool {
@@ -50,7 +52,7 @@ func isTimeExpr(x *core.Expr) bool {
 		return false
 	}
 	switch x.Op {
-	case "now", "add", "trunc":
+	case "now", "add", "trunc", "local_date":
 		return true
 	}
 	return false
@@ -75,7 +77,7 @@ func (e *diffEnv) collectDerived() {
 		if x.Op == "now" {
 			e.tm.usesNow = true
 		}
-		if (x.Op == "add" || x.Op == "trunc") && x.Zone != "" && e.tm.zone == "" {
+		if (x.Op == "add" || x.Op == "trunc" || x.Op == "local_date") && x.Zone != "" && e.tm.zone == "" {
 			e.tm.zone = x.Zone
 		}
 		for _, a := range x.Args {
@@ -83,8 +85,14 @@ func (e *diffEnv) collectDerived() {
 		}
 	}
 	for i, st := range p.Steps {
-		if st.Kind != "filter" || st.Pred == nil {
+		// 筛选;嵌套 / 子聚合的固定条件(子表的列和 今天 / 现在 比较: 子行的数据也要落在边界上)
+		if (st.Kind != "filter" && st.Kind != "nest" && st.Kind != "child_agg") || st.Pred == nil {
 			continue
+		}
+		table, colType := e.table, e.colType
+		if st.Kind != "filter" {
+			table = st.Table
+			colType = func(n string) (core.Type, bool) { return core.Schema(st.Columns).Col(n) }
 		}
 		var find func(x *core.Expr)
 		find = func(x *core.Expr) {
@@ -97,12 +105,12 @@ func (e *diffEnv) collectDerived() {
 					a, b = b, a
 				}
 				if a.Op == "col" && isTimeExpr(b) {
-					t, _ := e.colType(a.Name)
-					e.tm.cmps = append(e.tm.cmps, derivedCmp{step: i, node: x, col: a.Name, expr: b, kind: t.Kind})
+					t, _ := colType(a.Name)
+					e.tm.cmps = append(e.tm.cmps, derivedCmp{table: table, step: i, node: x, col: a.Name, expr: b, kind: t.Kind})
 					walkIn(b)
 				}
 				if a.Op == "ymd" && a.Args[0].Op == "col" && isTimeExpr(b) { // 整数编码的日期的列
-					e.tm.cmps = append(e.tm.cmps, derivedCmp{step: i, node: x, col: a.Args[0].Name, expr: b, kind: core.Date, ymd: true})
+					e.tm.cmps = append(e.tm.cmps, derivedCmp{table: table, step: i, node: x, col: a.Args[0].Name, expr: b, kind: core.Date, ymd: true})
 					e.tm.ymdCol[a.Args[0].Name] = true
 					walkIn(b)
 				}
@@ -203,6 +211,9 @@ func unitsIn(x *core.Expr, day, month *bool) {
 	if x.Op == "add" || x.Op == "trunc" {
 		*day = *day || x.Name == core.Day
 		*month = *month || x.Name == core.Month
+	}
+	if x.Op == "local_date" { // 今天: 领域时区的日界线前后
+		*day = true
 	}
 	for _, a := range x.Args {
 		unitsIn(a, day, month)
@@ -320,9 +331,24 @@ func (e *diffEnv) spreadProbes(reqs []core.Params) []core.Params {
 
 // boundaryValue: 和派生参数比较的列的一个值: 某个探针的边界 −1 / 正好 / +1(时间 ±1 秒,日期 ±1 天)。没有 → nil。
 func (e *diffEnv) boundaryValue(col string) any {
+	return e.boundaryOf(col)
+}
+
+// boundaryCol: 表 table 的列 col 和 今天 / 现在 / 派生参数比较(取边界的值)。
+func (e *diffEnv) boundaryCol(table, col string) bool {
+	for _, c := range e.tm.cmps {
+		if c.col == col && c.table == table {
+			return true
+		}
+	}
+	return false
+}
+
+// boundaryOf: boundaryValue 的本体(e.table 的列 col)。
+func (e *diffEnv) boundaryOf(col string) any {
 	var cs []derivedCmp
 	for _, c := range e.tm.cmps {
-		if c.col == col {
+		if c.col == col && c.table == e.table { // e.table = 正在造数据的表(子表的数据也在这里)
 			cs = append(cs, c)
 		}
 	}
@@ -330,7 +356,10 @@ func (e *diffEnv) boundaryValue(col string) any {
 		return nil
 	}
 	c := cs[e.rnd.Intn(len(cs))]
-	probe := e.tm.probes[e.rnd.Intn(len(e.tm.probes))]
+	probe := e.tm.pin
+	if probe == nil {
+		probe = e.tm.probes[e.rnd.Intn(len(e.tm.probes))]
+	}
 	pl := &core.Pipeline{Params: e.api.Pipeline.Params, Steps: []core.Step{
 		core.Scan("_", core.NamedType{Name: "_", Type: core.Type{Kind: core.Int64}}),
 		core.Project(core.NamedExpr{Name: "v", Expr: c.expr}),
@@ -402,7 +431,7 @@ func zoneSensitive(x *core.Expr, e *diffEnv) bool {
 	if x == nil {
 		return false
 	}
-	if (x.Op == "trunc" || (x.Op == "add" && (x.Name == core.Day || x.Name == core.Month))) && x.Zone != "" && x.Zone != "UTC" {
+	if (x.Op == "trunc" || x.Op == "local_date" || (x.Op == "add" && (x.Name == core.Day || x.Name == core.Month))) && x.Zone != "" && x.Zone != "UTC" {
 		if t, err := e.api.Pipeline.TypeOf(x.Args[0], e.cols); err == nil && t.Kind == core.Timestamp { // 日期的运算和时区无关
 			return true
 		}
@@ -417,7 +446,7 @@ func zoneSensitive(x *core.Expr, e *diffEnv) bool {
 
 func rezone(x *core.Expr, zone string) *core.Expr {
 	c := *x
-	if c.Op == "add" || c.Op == "trunc" {
+	if c.Op == "add" || c.Op == "trunc" || c.Op == "local_date" {
 		c.Zone = zone
 	}
 	c.Args = nil
