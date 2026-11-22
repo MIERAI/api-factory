@@ -43,7 +43,7 @@ message PackedShipment {
   int64 id = 1;
   // 倉庫コード
   string warehouse_code = 2;
-  // 封緘済みの梱包(重い順、同じ重さは梱包番号順。最大 3 個、超える出荷があると一覧ごとエラー)
+  // 封緘済みの梱包(重い順、同じ重さは梱包番号順。最大 3 個。超える出荷が入るページはエラー、前のページは通常どおり)
   repeated ShipmentPackage packages = 3;
   // 梱包の数(未封緘も含む。梱包なし = 0)
   int64 package_count = 4;

@@ -884,7 +884,7 @@
                   "weight": "2.5"
                 }
               ],
-              "sealed_weight": "15"
+              "sealed_weight": "15.0"
             },
             {
               "first_sealed_at": "$absent",

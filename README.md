@@ -48,6 +48,29 @@ spec-review     generate                verify               deploy
 | 合并后: 发布(GitOps) | 共用的 workflow | `release.yml` | 验证 → API 和建表的镜像(只构建一次,tag = 提交,Trivy / SBOM)→ gitops-manifests 的 dev 更新 → Argo CD 同步 |
 | (另一种)Cloud Run | `scripts/ci/deploy.sh` | `deploy.yml` | `TARGET=cloudrun`: Cloud Build → `--no-traffic` 的新版本 → 只读检查 → 切流量(GCP 的设定有了才运行) |
 
+### 式样书 PR 的 AI 审查: 审查哪些 API / 推送前自己跑 / 本地回答 CI 的问题
+
+- **审查哪些 API**: `factory review-changed --base origin/main` = 审查的输入和 base 不同的 API。审查的输入 =
+  API 的设计书 + 它的审查记录 + 领域里**它引用的部分**(设计书里出现的表: 整个表定义 = 列 / 主键 / 规则 …;这些表的列用到的枚举
+  和设计书里直接写的枚举;时区)+ 领域的审查记录(`factory/review/fingerprint.go`)。领域.yaml 里加一张无关的表 / 改无关的表 →
+  这些 API 不重审(审查不确定: 已经通过的设计书重审会冒出新的挡流水线的问题)
+- **沿用**: 同一个 PR 里,上面的输入 + prompt 模板 + 模型(`scripts/ci/review-key.sh` → `factory review-key`)和上次通过时相同 → 不调用模型
+- **推送前自己跑**(和 CI 同一个脚本,本地的 `claude` CLI;会像 `make prepare` 一样在工作区生成文件):
+  ```sh
+  make review-local                  # = BASE=origin/main REVIEW_MODEL=claude scripts/ci/spec-review.sh;结果 .factory/review-local.md
+  go run ./factory/cmd/factory review-changed -v --base origin/main   # 只看会审查哪些 API(不调用模型)
+  ```
+  本地的结果在本地的 `.factory/reviews`(CI 的缓存是另一份: 推送后 CI 仍会审查一次,但挡流水线的问题推送前就能回答掉)
+- **本地回答 CI 的问题**: spec-pr 把 `.factory/reviews` 作为 artifact `spec-reviews` 上传(保留 14 天)。下载到本地后 `factory answer` 照常用:
+  ```sh
+  export GH_TOKEN=$(gh auth token --user MIERAI)    # gh 能读这个仓库的令牌即可
+  make review-fetch PR=25                           # = scripts/review-fetch.sh --pr 25(默认当前分支;--branch B / --run ID)
+  go run ./factory/cmd/factory answer --list design/sales/ListX.yaml
+  go run ./factory/cmd/factory answer design/sales/ListX.yaml F1=2 F2=@design:改成了一览
+  git add design/ && git commit && git push          # 审查记录(X.审查.yaml)随 PR 提交 → CI 下一轮按回答判定
+  ```
+  只追加: 本地已有的审查目录不覆盖。不用再手写 `X.审查.yaml`
+
 - GitOps(MIERAI/gitops-platform-blueprint): 镜像 / 推送是共用的 workflow;集群的状态在 MIERAI/gitops-manifests
   (`api-factory/overlays/{dev,prod}`: Postgres → 建表 Job(`Dockerfile.schema`)→ API → 部署后的检查);prod = promote 的 PR + 人批准;
   本地的集群: MIERAI/infrastructure-live(kind + Argo CD)

@@ -10,7 +10,7 @@ SPEC    ?= specs/jobs/get-job-status/spec.yaml
 MODEL   ?= claude
 ACCEPT_SPECS ?= specs
 
-.PHONY: projects perf hooks margin doctor db-up db-down db-schema design check prepare build test guard accept loop
+.PHONY: projects perf hooks margin doctor db-up db-down db-schema design check prepare build test guard accept loop review-local review-fetch
 
 # 排序规则用 ICU(en-US): Alpine 的 en_US.utf8 实际按字节排,和 C 一样,测不出"忘了 COLLATE C"(生产不是这样)
 hooks:            ## 安装 git 钩子(内容防护: 产品分支不能出现试用公司的内容)
@@ -81,6 +81,14 @@ endif
 
 projects:         ## 其他项目(examples/ 下有 go.mod 的目录,factory --project): 设计 → 生成物最新 → 编译 → 验收
 	@scripts/projects.sh
+
+review-local:     ## 推送前的 AI 审查(和 CI 的 spec-pr 同一个脚本;本地 claude CLI;BASE=origin/main)
+	@rm -f .factory/review-local.md
+	@CI_SUMMARY=.factory/review-local.md BASE=$(or $(BASE),origin/main) REVIEW_MODEL=$(or $(REVIEW_MODEL),claude) scripts/ci/spec-review.sh; \
+		rc=$$?; echo "结果: .factory/review-local.md"; exit $$rc
+
+review-fetch:     ## CI 的审查结果下载到 .factory/reviews(PR=25 / BRANCH=x;默认当前分支)→ factory answer
+	@scripts/review-fetch.sh $(if $(PR),--pr $(PR)) $(if $(BRANCH),--branch $(BRANCH))
 
 loop:             ## 整条流水线: 闸门 → 审查 → 生成 → AI → 闸门 → 验收 (MODEL=claude|claude-sonnet)
 	@./scripts/loop.sh $(SPEC) $(MODEL)

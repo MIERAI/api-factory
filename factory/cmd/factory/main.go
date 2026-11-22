@@ -82,6 +82,10 @@ func main() {
 		err = cmdReviewResult(args)
 	case "review-stats":
 		err = cmdReviewStats(args)
+	case "review-key":
+		err = cmdReviewKey(args)
+	case "review-changed":
+		err = cmdReviewChanged(args)
 	case "stats":
 		err = cmdStats(args)
 	case "serve-test":
