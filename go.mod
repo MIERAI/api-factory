@@ -6,7 +6,7 @@ require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260825204119-511051f7f437.2
 	buf.build/go/protovalidate v1.4.0
 	connectrpc.com/connect v1.21.1
-	github.com/MIERAI/api-factory-runtime v0.4.2
+	github.com/MIERAI/api-factory-runtime v0.5.0
 	github.com/bmatcuk/doublestar/v4 v4.10.4
 	github.com/jackc/pgx/v5 v5.13.0
 	github.com/pressly/goose/v3 v3.29.0
@@ -41,5 +41,3 @@ tool (
 	connectrpc.com/connect/cmd/protoc-gen-connect-go
 	google.golang.org/protobuf/cmd/protoc-gen-go
 )
-
-replace github.com/MIERAI/api-factory-runtime => /private/tmp/claude-502/-Users-yangzaiqi-workspace/13ff8649-f6ca-41c2-bce4-b5856e7f3800/scratchpad/afr-r5

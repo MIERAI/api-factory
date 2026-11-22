@@ -10,7 +10,7 @@ tool (
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260825204119-511051f7f437.2
 	connectrpc.com/connect v1.21.1
-	github.com/MIERAI/api-factory-runtime v0.4.2
+	github.com/MIERAI/api-factory-runtime v0.5.0
 	github.com/jackc/pgx/v5 v5.13.0
 	google.golang.org/protobuf v1.36.12
 )
@@ -33,5 +33,3 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20260819154853-08b0e4226688 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260819154853-08b0e4226688 // indirect
 )
-
-replace github.com/MIERAI/api-factory-runtime => /private/tmp/claude-502/-Users-yangzaiqi-workspace/13ff8649-f6ca-41c2-bce4-b5856e7f3800/scratchpad/afr-r5
