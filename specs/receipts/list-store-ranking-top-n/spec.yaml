@@ -268,4 +268,6 @@ acceptance:
             response: {}
           steps: []
 logic_examples: []
-review_decisions: []
+review_decisions:
+    - question: 明細の金額が 8.00 と登録されている店(店舗 3)の合計は "8.00" と "8" のどちらで返すべきですか?
+      decision: 現在の動作のまま(明細の小数桁を残す)
