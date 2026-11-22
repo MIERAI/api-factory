@@ -440,8 +440,10 @@ func cmdReviewPrompt(args []string) error {
 		return err
 	}
 	queryPath := filepath.Join("db/queries", s.ID()+".sql")
-	query, err := os.ReadFile(queryPath)
-	if err != nil {
+	var query []byte
+	if s.Pattern.Command != nil { // 命令: 没有查询文件,给审查员看写操作的等价 SQL(运行时 txn 组装的形状)
+		queryPath, query = "(命令: 写操作作为数据,运行时在一个事务里执行)", []byte(commandSQL(s))
+	} else if query, err = os.ReadFile(queryPath); err != nil {
 		return fmt.Errorf("generated query not found (run factory prepare first): %w", err)
 	}
 	domainPath, domainRaw := "(无)", "# 这个领域没有领域层"
@@ -496,6 +498,7 @@ func cmdReviewPrompt(args []string) error {
 		return err
 	}
 	data["Round"], data["Previous"], data["AIWrites"] = len(cycle)+1, prev, s.AIWrites()
+	data["Command"] = s.Pattern.Command != nil
 	data["RelationForms"], data["ConstraintForms"] = constraints.RelationForms(), constraints.Forms()
 	var exitKeys []string
 	if ex, ok := exits.ByKind(s.PatternKind()); ok {
@@ -1034,4 +1037,47 @@ func cmdDoc(args []string) error {
 	}
 	fmt.Printf("✓ 写入 %s\n", path)
 	return nil
+}
+
+// commandSQL: 命令的写操作的等价 SQL(审查用;实际由运行时 api-factory-runtime/txn 组装,值都是参数)。
+func commandSQL(s *spec.Spec) string {
+	c := s.Pattern.Command
+	t := s.Datasource.Table
+	val := func(field string) string { return "<请求的 " + field + ">" }
+	var sets, where []string
+	for _, w := range c.Write {
+		sets = append(sets, w.Column+" = "+val(w.Field))
+	}
+	for _, x := range c.Set {
+		v := x.Value
+		if v == spec.NowValue {
+			v = "<请求开始的时刻>"
+		}
+		sets = append(sets, x.Column+" = "+v)
+	}
+	for _, k := range c.Key {
+		where = append(where, k.Column+" = "+val(k.Field))
+	}
+	if c.Lock != nil {
+		where = append(where, c.Lock.Column+" = "+val(c.Lock.Field))
+	}
+	var b strings.Builder
+	switch s.PatternKind() {
+	case "insert":
+		var cols, vals []string
+		for _, x := range sets {
+			col, v, _ := strings.Cut(x, " = ")
+			cols, vals = append(cols, col), append(vals, v)
+		}
+		fmt.Fprintf(&b, "INSERT INTO %s (%s) VALUES (%s)  -- 可以不传的输入没传时: 不写这一列(数据库的默认值)", t, strings.Join(cols, ", "), strings.Join(vals, ", "))
+	case "update":
+		if c.Lock != nil {
+			sets = append(sets, c.Lock.Column+" = "+c.Lock.Column+" + 1")
+		}
+		fmt.Fprintf(&b, "UPDATE %s SET %s WHERE %s", t, strings.Join(sets, ", "), strings.Join(where, " AND "))
+	case "delete":
+		fmt.Fprintf(&b, "DELETE FROM %s WHERE %s", t, strings.Join(where, " AND "))
+	}
+	b.WriteString(" RETURNING <输出的列>;\n-- 没有碰到行: 同一个事务里按主键再读 → 不存在 = NOT_FOUND(找不到时 的消息),存在 = 版本冲突(ABORTED)")
+	return b.String()
 }

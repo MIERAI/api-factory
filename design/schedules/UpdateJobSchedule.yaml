@@ -1,0 +1,67 @@
+# ============================================================================
+# UpdateJobSchedule: 改任务类型的定时设置(命令: 按键更新,乐观锁)
+# ============================================================================
+API: UpdateJobSchedule
+说明: 改一个任务类型的定时设置(执行的时刻、是否启用)。请求带读到的版本号,版本号不一致(别人先改过)时不改
+背景: 运维画面上改定时设置。两个人同时打开同一个设置时,后保存的不能悄悄覆盖先保存的(乐观锁)
+负责人: platform-team
+风险: 中
+
+种类: 按键更新
+数据来源: job_schedules
+
+输入:
+  job_type: { 类型: 文本,   必填: 是, 长度: 1~64,  说明: 任务类型, 键: job_type }
+  cron:     { 类型: 文本,   必填: 是, 长度: 1~100, 说明: 执行的时刻(cron 的写法), 写入: cron }
+  enabled:  { 类型: 布尔,   必填: 是, 说明: 是否启用, 写入: enabled }
+  version:  { 类型: 整数32, 必填: 是, 范围: "> 0", 说明: 读到的版本号, 乐观锁: version }
+
+设置:
+  updated_at: 现在
+
+输出:                             # 更新之后的行
+  job_type:   任务类型
+  cron:       执行的时刻
+  enabled:    是否启用
+  version:    版本号(更新之后 = 请求的版本号 + 1)
+  updated_at: 最后更新时间(= 请求的时刻)
+
+找不到时: "job schedule not found: {job_type}"
+
+业务规则:
+  - 情况: 版本号和现在的不一致
+    结果: 版本冲突(ABORTED),什么都不写。调用方重新读设置,再决定要不要改
+  - 情况: 保存的 cron 和是否启用都和现在一样
+    结果: 照常更新(版本号加 1、最后更新时间 = 请求的时刻),不特别处理
+  - 情况: cron 的写法不对(例如 "every day")
+    结果: 这个 API 只检查长度(和数据库一致);写法由执行方检查,读到不合法的写法时跳过并报警
+
+例子:
+  现在: "2026-11-22 10:00"
+  准备数据:
+    job_schedules:
+      - { job_type: export, cron: "0 3 * * *", enabled: 是, version: 2, updated_at: "2026-11-01 09:00" }
+      - { job_type: import, cron: "30 * * * *", enabled: 否, version: 5, updated_at: "2026-11-02 09:00" }
+  用例:
+    - 说明: 版本号一致 → 改设置,版本号加 1,更新时间 = 请求的时刻
+      输入: { job_type: export, cron: "0 4 * * *", enabled: 否, version: 2 }
+      结果: { job_type: export, cron: "0 4 * * *", enabled: false, version: 3, updated_at: "2026-11-22 10:00" }
+      之后:
+        job_schedules:
+          - { job_type: export, cron: "0 4 * * *", enabled: 否, version: 3, updated_at: "2026-11-22 10:00" }
+          - { job_type: import, cron: "30 * * * *", enabled: 否, version: 5, updated_at: "2026-11-02 09:00" }
+    - 说明: 设置和现在一样 → 照常更新(版本号加 1,更新时间 = 请求的时刻)
+      输入: { job_type: export, cron: "0 3 * * *", enabled: 是, version: 2 }
+      结果: { cron: "0 3 * * *", enabled: true, version: 3, updated_at: "2026-11-22 10:00" }
+      之后:
+        job_schedules:
+          - { job_type: export, cron: "0 3 * * *", enabled: 是, version: 3, updated_at: "2026-11-22 10:00" }
+          - { job_type: import, version: 5 }
+    - 说明: 版本号是旧的(别人先改过)→ 版本冲突,什么都不写
+      输入: { job_type: import, cron: "0 * * * *", enabled: 是, version: 4 }
+      错误: 版本冲突
+      之后: 不变
+    - 说明: 不存在的任务类型 → 找不到
+      输入: { job_type: report, cron: "0 1 * * *", enabled: 是, version: 1 }
+      错误: 找不到
+      之后: 不变

@@ -329,11 +329,21 @@ func (c *ctx) examples(a *API, s *spec.Spec, req, resp *message, itemKey string,
 				return wrap(err)
 			}
 		}
-		ex, err := c.expect(resp, itemKey, get(n, "结果"))
+		var ex spec.Expect
+		var after *spec.After
+		var err error
+		if a.Exit.Command { // 命令: 结果 或 错误 + 之后(必填)
+			ex, after, err = c.commandCase(a, resp, n)
+		} else {
+			if get(n, "错误") != nil || get(n, "之后") != nil {
+				return wrap(fmt.Errorf("第 %d 行: 错误 / 之后 只能用于命令(新建 / 按键更新 / 按键删除)", n.Line))
+			}
+			ex, err = c.expect(resp, itemKey, get(n, "结果"))
+		}
 		if err != nil {
 			return wrap(err)
 		}
-		cs := spec.Case{Name: str(n, "说明"), Request: r, Expect: ex}
+		cs := spec.Case{Name: str(n, "说明"), Request: r, Expect: ex, After: after}
 		// 现在: 用到 现在 的 API 的用例必须固定请求开始的时刻(用例的 现在 > 例子的 现在),否则结果随时间变
 		now := str(n, "现在")
 		if now == "" {
@@ -341,9 +351,9 @@ func (c *ctx) examples(a *API, s *spec.Spec, req, resp *message, itemKey string,
 		}
 		switch {
 		case usesNow && now == "":
-			return wrap(fmt.Errorf("用例 %q: 派生参数用到了 现在,例子(或这个用例)要写 现在(例: 现在: \"2026-11-01 09:00\",按领域的时区)", cs.Name))
+			return wrap(fmt.Errorf("用例 %q: 派生参数(或命令的 设置)用到了 现在,例子(或这个用例)要写 现在(例: 现在: \"2026-11-01 09:00\",按领域的时区)", cs.Name))
 		case !usesNow && now != "":
-			return wrap(fmt.Errorf("用例 %q: 写了 现在,但没有派生参数用到 现在", cs.Name))
+			return wrap(fmt.Errorf("用例 %q: 写了 现在,但没有派生参数(或命令的 设置)用到 现在", cs.Name))
 		case now != "":
 			t, err := c.parseTime(now)
 			if err != nil {

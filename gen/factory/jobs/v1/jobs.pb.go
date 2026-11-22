@@ -82,6 +82,244 @@ func (JobStatus) EnumDescriptor() ([]byte, []int) {
 	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{0}
 }
 
+// 登记一个新的任务,返回登记的任务(含数据库生成的创建时间)
+type CreateJobRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 任务 id(上游的任务编号)
+	Id int64 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	// 任务类型。不传 = default
+	JobType       *string `protobuf:"bytes,2,opt,name=job_type,json=jobType,proto3,oneof" json:"job_type,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateJobRequest) Reset() {
+	*x = CreateJobRequest{}
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateJobRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateJobRequest) ProtoMessage() {}
+
+func (x *CreateJobRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateJobRequest.ProtoReflect.Descriptor instead.
+func (*CreateJobRequest) Descriptor() ([]byte, []int) {
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *CreateJobRequest) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *CreateJobRequest) GetJobType() string {
+	if x != nil && x.JobType != nil {
+		return *x.JobType
+	}
+	return ""
+}
+
+// 登记一个新的任务,返回登记的任务(含数据库生成的创建时间)
+type CreateJobResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 任务 id
+	Id int64 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	// 任务类型
+	JobType string `protobuf:"bytes,2,opt,name=job_type,json=jobType,proto3" json:"job_type,omitempty"`
+	// 处理状态(登记时 = PENDING)
+	Status JobStatus `protobuf:"varint,3,opt,name=status,proto3,enum=factory.jobs.v1.JobStatus" json:"status,omitempty"`
+	// 创建时间(数据库的时钟)
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateJobResponse) Reset() {
+	*x = CreateJobResponse{}
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateJobResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateJobResponse) ProtoMessage() {}
+
+func (x *CreateJobResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateJobResponse.ProtoReflect.Descriptor instead.
+func (*CreateJobResponse) Descriptor() ([]byte, []int) {
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *CreateJobResponse) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *CreateJobResponse) GetJobType() string {
+	if x != nil {
+		return x.JobType
+	}
+	return ""
+}
+
+func (x *CreateJobResponse) GetStatus() JobStatus {
+	if x != nil {
+		return x.Status
+	}
+	return JobStatus_JOB_STATUS_UNSPECIFIED
+}
+
+func (x *CreateJobResponse) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+// 删除一个任务(物理删除),返回删除的任务
+type DeleteJobRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 任务 id
+	JobId         int64 `protobuf:"varint,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteJobRequest) Reset() {
+	*x = DeleteJobRequest{}
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteJobRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteJobRequest) ProtoMessage() {}
+
+func (x *DeleteJobRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteJobRequest.ProtoReflect.Descriptor instead.
+func (*DeleteJobRequest) Descriptor() ([]byte, []int) {
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *DeleteJobRequest) GetJobId() int64 {
+	if x != nil {
+		return x.JobId
+	}
+	return 0
+}
+
+// 删除一个任务(物理删除),返回删除的任务
+type DeleteJobResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 任务 id
+	Id int64 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	// 任务类型
+	JobType string `protobuf:"bytes,2,opt,name=job_type,json=jobType,proto3" json:"job_type,omitempty"`
+	// 删除时的状态
+	Status        JobStatus `protobuf:"varint,3,opt,name=status,proto3,enum=factory.jobs.v1.JobStatus" json:"status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteJobResponse) Reset() {
+	*x = DeleteJobResponse{}
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteJobResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteJobResponse) ProtoMessage() {}
+
+func (x *DeleteJobResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteJobResponse.ProtoReflect.Descriptor instead.
+func (*DeleteJobResponse) Descriptor() ([]byte, []int) {
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *DeleteJobResponse) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *DeleteJobResponse) GetJobType() string {
+	if x != nil {
+		return x.JobType
+	}
+	return ""
+}
+
+func (x *DeleteJobResponse) GetStatus() JobStatus {
+	if x != nil {
+		return x.Status
+	}
+	return JobStatus_JOB_STATUS_UNSPECIFIED
+}
+
 // 按 id 返回一个任务的处理状态
 type GetJobStatusRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -93,7 +331,7 @@ type GetJobStatusRequest struct {
 
 func (x *GetJobStatusRequest) Reset() {
 	*x = GetJobStatusRequest{}
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[0]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -105,7 +343,7 @@ func (x *GetJobStatusRequest) String() string {
 func (*GetJobStatusRequest) ProtoMessage() {}
 
 func (x *GetJobStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[0]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -118,7 +356,7 @@ func (x *GetJobStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetJobStatusRequest.ProtoReflect.Descriptor instead.
 func (*GetJobStatusRequest) Descriptor() ([]byte, []int) {
-	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{0}
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *GetJobStatusRequest) GetJobId() int64 {
@@ -139,7 +377,7 @@ type GetJobStatusResponse struct {
 
 func (x *GetJobStatusResponse) Reset() {
 	*x = GetJobStatusResponse{}
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[1]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -151,7 +389,7 @@ func (x *GetJobStatusResponse) String() string {
 func (*GetJobStatusResponse) ProtoMessage() {}
 
 func (x *GetJobStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[1]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -164,7 +402,7 @@ func (x *GetJobStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetJobStatusResponse.ProtoReflect.Descriptor instead.
 func (*GetJobStatusResponse) Descriptor() ([]byte, []int) {
-	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{1}
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *GetJobStatusResponse) GetStatus() JobStatus {
@@ -189,7 +427,7 @@ type GetJobSummaryRequest struct {
 
 func (x *GetJobSummaryRequest) Reset() {
 	*x = GetJobSummaryRequest{}
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[2]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -201,7 +439,7 @@ func (x *GetJobSummaryRequest) String() string {
 func (*GetJobSummaryRequest) ProtoMessage() {}
 
 func (x *GetJobSummaryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[2]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -214,7 +452,7 @@ func (x *GetJobSummaryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetJobSummaryRequest.ProtoReflect.Descriptor instead.
 func (*GetJobSummaryRequest) Descriptor() ([]byte, []int) {
-	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{2}
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *GetJobSummaryRequest) GetJobType() string {
@@ -263,7 +501,7 @@ type GetJobSummaryResponse struct {
 
 func (x *GetJobSummaryResponse) Reset() {
 	*x = GetJobSummaryResponse{}
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[3]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -275,7 +513,7 @@ func (x *GetJobSummaryResponse) String() string {
 func (*GetJobSummaryResponse) ProtoMessage() {}
 
 func (x *GetJobSummaryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[3]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -288,7 +526,7 @@ func (x *GetJobSummaryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetJobSummaryResponse.ProtoReflect.Descriptor instead.
 func (*GetJobSummaryResponse) Descriptor() ([]byte, []int) {
-	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{3}
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *GetJobSummaryResponse) GetTotal() int64 {
@@ -364,7 +602,7 @@ type FailedJob struct {
 
 func (x *FailedJob) Reset() {
 	*x = FailedJob{}
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[4]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -376,7 +614,7 @@ func (x *FailedJob) String() string {
 func (*FailedJob) ProtoMessage() {}
 
 func (x *FailedJob) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[4]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -389,7 +627,7 @@ func (x *FailedJob) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FailedJob.ProtoReflect.Descriptor instead.
 func (*FailedJob) Descriptor() ([]byte, []int) {
-	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{4}
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *FailedJob) GetId() int64 {
@@ -437,7 +675,7 @@ type ListFailedJobsRequest struct {
 
 func (x *ListFailedJobsRequest) Reset() {
 	*x = ListFailedJobsRequest{}
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[5]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -449,7 +687,7 @@ func (x *ListFailedJobsRequest) String() string {
 func (*ListFailedJobsRequest) ProtoMessage() {}
 
 func (x *ListFailedJobsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[5]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -462,7 +700,7 @@ func (x *ListFailedJobsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListFailedJobsRequest.ProtoReflect.Descriptor instead.
 func (*ListFailedJobsRequest) Descriptor() ([]byte, []int) {
-	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{5}
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ListFailedJobsRequest) GetPageSize() int32 {
@@ -505,7 +743,7 @@ type ListFailedJobsResponse struct {
 
 func (x *ListFailedJobsResponse) Reset() {
 	*x = ListFailedJobsResponse{}
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[6]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -517,7 +755,7 @@ func (x *ListFailedJobsResponse) String() string {
 func (*ListFailedJobsResponse) ProtoMessage() {}
 
 func (x *ListFailedJobsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[6]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -530,7 +768,7 @@ func (x *ListFailedJobsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListFailedJobsResponse.ProtoReflect.Descriptor instead.
 func (*ListFailedJobsResponse) Descriptor() ([]byte, []int) {
-	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{6}
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ListFailedJobsResponse) GetJobs() []*FailedJob {
@@ -564,7 +802,7 @@ type Job struct {
 
 func (x *Job) Reset() {
 	*x = Job{}
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[7]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -576,7 +814,7 @@ func (x *Job) String() string {
 func (*Job) ProtoMessage() {}
 
 func (x *Job) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[7]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -589,7 +827,7 @@ func (x *Job) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Job.ProtoReflect.Descriptor instead.
 func (*Job) Descriptor() ([]byte, []int) {
-	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{7}
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *Job) GetId() int64 {
@@ -641,7 +879,7 @@ type ListJobsRequest struct {
 
 func (x *ListJobsRequest) Reset() {
 	*x = ListJobsRequest{}
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[8]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -653,7 +891,7 @@ func (x *ListJobsRequest) String() string {
 func (*ListJobsRequest) ProtoMessage() {}
 
 func (x *ListJobsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[8]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -666,7 +904,7 @@ func (x *ListJobsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListJobsRequest.ProtoReflect.Descriptor instead.
 func (*ListJobsRequest) Descriptor() ([]byte, []int) {
-	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{8}
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ListJobsRequest) GetPageSize() int32 {
@@ -723,7 +961,7 @@ type ListJobsResponse struct {
 
 func (x *ListJobsResponse) Reset() {
 	*x = ListJobsResponse{}
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[9]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -735,7 +973,7 @@ func (x *ListJobsResponse) String() string {
 func (*ListJobsResponse) ProtoMessage() {}
 
 func (x *ListJobsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[9]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -748,7 +986,7 @@ func (x *ListJobsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListJobsResponse.ProtoReflect.Descriptor instead.
 func (*ListJobsResponse) Descriptor() ([]byte, []int) {
-	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{9}
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ListJobsResponse) GetJobs() []*Job {
@@ -782,7 +1020,7 @@ type ListJobsByTypesRequest struct {
 
 func (x *ListJobsByTypesRequest) Reset() {
 	*x = ListJobsByTypesRequest{}
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[10]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -794,7 +1032,7 @@ func (x *ListJobsByTypesRequest) String() string {
 func (*ListJobsByTypesRequest) ProtoMessage() {}
 
 func (x *ListJobsByTypesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[10]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -807,7 +1045,7 @@ func (x *ListJobsByTypesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListJobsByTypesRequest.ProtoReflect.Descriptor instead.
 func (*ListJobsByTypesRequest) Descriptor() ([]byte, []int) {
-	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{10}
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ListJobsByTypesRequest) GetPageSize() int32 {
@@ -850,7 +1088,7 @@ type ListJobsByTypesResponse struct {
 
 func (x *ListJobsByTypesResponse) Reset() {
 	*x = ListJobsByTypesResponse{}
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[11]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -862,7 +1100,7 @@ func (x *ListJobsByTypesResponse) String() string {
 func (*ListJobsByTypesResponse) ProtoMessage() {}
 
 func (x *ListJobsByTypesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[11]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -875,7 +1113,7 @@ func (x *ListJobsByTypesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListJobsByTypesResponse.ProtoReflect.Descriptor instead.
 func (*ListJobsByTypesResponse) Descriptor() ([]byte, []int) {
-	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{11}
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ListJobsByTypesResponse) GetJobs() []*Job {
@@ -907,7 +1145,7 @@ type FinishedJob struct {
 
 func (x *FinishedJob) Reset() {
 	*x = FinishedJob{}
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[12]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -919,7 +1157,7 @@ func (x *FinishedJob) String() string {
 func (*FinishedJob) ProtoMessage() {}
 
 func (x *FinishedJob) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[12]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -932,7 +1170,7 @@ func (x *FinishedJob) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FinishedJob.ProtoReflect.Descriptor instead.
 func (*FinishedJob) Descriptor() ([]byte, []int) {
-	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{12}
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *FinishedJob) GetId() int64 {
@@ -969,7 +1207,7 @@ type ListLatestFinishedJobsRequest struct {
 
 func (x *ListLatestFinishedJobsRequest) Reset() {
 	*x = ListLatestFinishedJobsRequest{}
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[13]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -981,7 +1219,7 @@ func (x *ListLatestFinishedJobsRequest) String() string {
 func (*ListLatestFinishedJobsRequest) ProtoMessage() {}
 
 func (x *ListLatestFinishedJobsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[13]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -994,7 +1232,7 @@ func (x *ListLatestFinishedJobsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListLatestFinishedJobsRequest.ProtoReflect.Descriptor instead.
 func (*ListLatestFinishedJobsRequest) Descriptor() ([]byte, []int) {
-	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{13}
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ListLatestFinishedJobsRequest) GetJobType() string {
@@ -1022,7 +1260,7 @@ type ListLatestFinishedJobsResponse struct {
 
 func (x *ListLatestFinishedJobsResponse) Reset() {
 	*x = ListLatestFinishedJobsResponse{}
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[14]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1034,7 +1272,7 @@ func (x *ListLatestFinishedJobsResponse) String() string {
 func (*ListLatestFinishedJobsResponse) ProtoMessage() {}
 
 func (x *ListLatestFinishedJobsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[14]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1047,7 +1285,7 @@ func (x *ListLatestFinishedJobsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListLatestFinishedJobsResponse.ProtoReflect.Descriptor instead.
 func (*ListLatestFinishedJobsResponse) Descriptor() ([]byte, []int) {
-	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{14}
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ListLatestFinishedJobsResponse) GetJobs() []*FinishedJob {
@@ -1074,7 +1312,7 @@ type LatestJobOfType struct {
 
 func (x *LatestJobOfType) Reset() {
 	*x = LatestJobOfType{}
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[15]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1086,7 +1324,7 @@ func (x *LatestJobOfType) String() string {
 func (*LatestJobOfType) ProtoMessage() {}
 
 func (x *LatestJobOfType) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[15]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1099,7 +1337,7 @@ func (x *LatestJobOfType) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LatestJobOfType.ProtoReflect.Descriptor instead.
 func (*LatestJobOfType) Descriptor() ([]byte, []int) {
-	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{15}
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *LatestJobOfType) GetJobType() string {
@@ -1139,7 +1377,7 @@ type ListLatestJobPerTypeRequest struct {
 
 func (x *ListLatestJobPerTypeRequest) Reset() {
 	*x = ListLatestJobPerTypeRequest{}
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[16]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1151,7 +1389,7 @@ func (x *ListLatestJobPerTypeRequest) String() string {
 func (*ListLatestJobPerTypeRequest) ProtoMessage() {}
 
 func (x *ListLatestJobPerTypeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[16]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1164,7 +1402,7 @@ func (x *ListLatestJobPerTypeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListLatestJobPerTypeRequest.ProtoReflect.Descriptor instead.
 func (*ListLatestJobPerTypeRequest) Descriptor() ([]byte, []int) {
-	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{16}
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{20}
 }
 
 // 任務の種類ごとに、いちばん新しく作られた任務を返す
@@ -1178,7 +1416,7 @@ type ListLatestJobPerTypeResponse struct {
 
 func (x *ListLatestJobPerTypeResponse) Reset() {
 	*x = ListLatestJobPerTypeResponse{}
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[17]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1190,7 +1428,7 @@ func (x *ListLatestJobPerTypeResponse) String() string {
 func (*ListLatestJobPerTypeResponse) ProtoMessage() {}
 
 func (x *ListLatestJobPerTypeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[17]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1203,7 +1441,7 @@ func (x *ListLatestJobPerTypeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListLatestJobPerTypeResponse.ProtoReflect.Descriptor instead.
 func (*ListLatestJobPerTypeResponse) Descriptor() ([]byte, []int) {
-	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{17}
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ListLatestJobPerTypeResponse) GetJobs() []*LatestJobOfType {
@@ -1230,7 +1468,7 @@ type PendingJob struct {
 
 func (x *PendingJob) Reset() {
 	*x = PendingJob{}
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[18]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1242,7 +1480,7 @@ func (x *PendingJob) String() string {
 func (*PendingJob) ProtoMessage() {}
 
 func (x *PendingJob) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[18]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1255,7 +1493,7 @@ func (x *PendingJob) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PendingJob.ProtoReflect.Descriptor instead.
 func (*PendingJob) Descriptor() ([]byte, []int) {
-	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{18}
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *PendingJob) GetId() int64 {
@@ -1303,7 +1541,7 @@ type ListPendingJobsRequest struct {
 
 func (x *ListPendingJobsRequest) Reset() {
 	*x = ListPendingJobsRequest{}
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[19]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1315,7 +1553,7 @@ func (x *ListPendingJobsRequest) String() string {
 func (*ListPendingJobsRequest) ProtoMessage() {}
 
 func (x *ListPendingJobsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[19]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1328,7 +1566,7 @@ func (x *ListPendingJobsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPendingJobsRequest.ProtoReflect.Descriptor instead.
 func (*ListPendingJobsRequest) Descriptor() ([]byte, []int) {
-	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{19}
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ListPendingJobsRequest) GetPageSize() int32 {
@@ -1371,7 +1609,7 @@ type ListPendingJobsResponse struct {
 
 func (x *ListPendingJobsResponse) Reset() {
 	*x = ListPendingJobsResponse{}
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[20]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1383,7 +1621,7 @@ func (x *ListPendingJobsResponse) String() string {
 func (*ListPendingJobsResponse) ProtoMessage() {}
 
 func (x *ListPendingJobsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[20]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1396,7 +1634,7 @@ func (x *ListPendingJobsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPendingJobsResponse.ProtoReflect.Descriptor instead.
 func (*ListPendingJobsResponse) Descriptor() ([]byte, []int) {
-	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{20}
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ListPendingJobsResponse) GetJobs() []*PendingJob {
@@ -1430,7 +1668,7 @@ type StalePendingJob struct {
 
 func (x *StalePendingJob) Reset() {
 	*x = StalePendingJob{}
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[21]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1442,7 +1680,7 @@ func (x *StalePendingJob) String() string {
 func (*StalePendingJob) ProtoMessage() {}
 
 func (x *StalePendingJob) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[21]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1455,7 +1693,7 @@ func (x *StalePendingJob) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StalePendingJob.ProtoReflect.Descriptor instead.
 func (*StalePendingJob) Descriptor() ([]byte, []int) {
-	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{21}
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *StalePendingJob) GetId() int64 {
@@ -1497,7 +1735,7 @@ type ListStalePendingJobsRequest struct {
 
 func (x *ListStalePendingJobsRequest) Reset() {
 	*x = ListStalePendingJobsRequest{}
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[22]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1509,7 +1747,7 @@ func (x *ListStalePendingJobsRequest) String() string {
 func (*ListStalePendingJobsRequest) ProtoMessage() {}
 
 func (x *ListStalePendingJobsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[22]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1522,7 +1760,7 @@ func (x *ListStalePendingJobsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListStalePendingJobsRequest.ProtoReflect.Descriptor instead.
 func (*ListStalePendingJobsRequest) Descriptor() ([]byte, []int) {
-	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{22}
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ListStalePendingJobsRequest) GetStaleMinutes() int32 {
@@ -1543,7 +1781,7 @@ type ListStalePendingJobsResponse struct {
 
 func (x *ListStalePendingJobsResponse) Reset() {
 	*x = ListStalePendingJobsResponse{}
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[23]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1555,7 +1793,7 @@ func (x *ListStalePendingJobsResponse) String() string {
 func (*ListStalePendingJobsResponse) ProtoMessage() {}
 
 func (x *ListStalePendingJobsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[23]
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1568,7 +1806,7 @@ func (x *ListStalePendingJobsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListStalePendingJobsResponse.ProtoReflect.Descriptor instead.
 func (*ListStalePendingJobsResponse) Descriptor() ([]byte, []int) {
-	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{23}
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *ListStalePendingJobsResponse) GetJobs() []*StalePendingJob {
@@ -1582,7 +1820,23 @@ var File_factory_jobs_v1_jobs_proto protoreflect.FileDescriptor
 
 const file_factory_jobs_v1_jobs_proto_rawDesc = "" +
 	"\n" +
-	"\x1afactory/jobs/v1/jobs.proto\x12\x0ffactory.jobs.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"5\n" +
+	"\x1afactory/jobs/v1/jobs.proto\x12\x0ffactory.jobs.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"c\n" +
+	"\x10CreateJobRequest\x12\x17\n" +
+	"\x02id\x18\x01 \x01(\x03B\a\xbaH\x04\"\x02 \x00R\x02id\x12)\n" +
+	"\bjob_type\x18\x02 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18@H\x00R\ajobType\x88\x01\x01B\v\n" +
+	"\t_job_type\"\xad\x01\n" +
+	"\x11CreateJobResponse\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x19\n" +
+	"\bjob_type\x18\x02 \x01(\tR\ajobType\x122\n" +
+	"\x06status\x18\x03 \x01(\x0e2\x1a.factory.jobs.v1.JobStatusR\x06status\x129\n" +
+	"\n" +
+	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"2\n" +
+	"\x10DeleteJobRequest\x12\x1e\n" +
+	"\x06job_id\x18\x01 \x01(\x03B\a\xbaH\x04\"\x02 \x00R\x05jobId\"r\n" +
+	"\x11DeleteJobResponse\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x19\n" +
+	"\bjob_type\x18\x02 \x01(\tR\ajobType\x122\n" +
+	"\x06status\x18\x03 \x01(\x0e2\x1a.factory.jobs.v1.JobStatusR\x06status\"5\n" +
 	"\x13GetJobStatusRequest\x12\x1e\n" +
 	"\x06job_id\x18\x01 \x01(\x03B\a\xbaH\x04\"\x02 \x00R\x05jobId\"J\n" +
 	"\x14GetJobStatusResponse\x122\n" +
@@ -1706,9 +1960,11 @@ const file_factory_jobs_v1_jobs_proto_rawDesc = "" +
 	"\x16JOB_STATUS_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12JOB_STATUS_PENDING\x10\x01\x12\x18\n" +
 	"\x14JOB_STATUS_SUCCEEDED\x10\x02\x12\x15\n" +
-	"\x11JOB_STATUS_FAILED\x10\x032\xae\a\n" +
+	"\x11JOB_STATUS_FAILED\x10\x032\xd6\b\n" +
 	"\n" +
-	"JobService\x12[\n" +
+	"JobService\x12R\n" +
+	"\tCreateJob\x12!.factory.jobs.v1.CreateJobRequest\x1a\".factory.jobs.v1.CreateJobResponse\x12R\n" +
+	"\tDeleteJob\x12!.factory.jobs.v1.DeleteJobRequest\x1a\".factory.jobs.v1.DeleteJobResponse\x12[\n" +
 	"\fGetJobStatus\x12$.factory.jobs.v1.GetJobStatusRequest\x1a%.factory.jobs.v1.GetJobStatusResponse\x12^\n" +
 	"\rGetJobSummary\x12%.factory.jobs.v1.GetJobSummaryRequest\x1a&.factory.jobs.v1.GetJobSummaryResponse\x12a\n" +
 	"\x0eListFailedJobs\x12&.factory.jobs.v1.ListFailedJobsRequest\x1a'.factory.jobs.v1.ListFailedJobsResponse\x12O\n" +
@@ -1732,87 +1988,98 @@ func file_factory_jobs_v1_jobs_proto_rawDescGZIP() []byte {
 }
 
 var file_factory_jobs_v1_jobs_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_factory_jobs_v1_jobs_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
+var file_factory_jobs_v1_jobs_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_factory_jobs_v1_jobs_proto_goTypes = []any{
 	(JobStatus)(0),                         // 0: factory.jobs.v1.JobStatus
-	(*GetJobStatusRequest)(nil),            // 1: factory.jobs.v1.GetJobStatusRequest
-	(*GetJobStatusResponse)(nil),           // 2: factory.jobs.v1.GetJobStatusResponse
-	(*GetJobSummaryRequest)(nil),           // 3: factory.jobs.v1.GetJobSummaryRequest
-	(*GetJobSummaryResponse)(nil),          // 4: factory.jobs.v1.GetJobSummaryResponse
-	(*FailedJob)(nil),                      // 5: factory.jobs.v1.FailedJob
-	(*ListFailedJobsRequest)(nil),          // 6: factory.jobs.v1.ListFailedJobsRequest
-	(*ListFailedJobsResponse)(nil),         // 7: factory.jobs.v1.ListFailedJobsResponse
-	(*Job)(nil),                            // 8: factory.jobs.v1.Job
-	(*ListJobsRequest)(nil),                // 9: factory.jobs.v1.ListJobsRequest
-	(*ListJobsResponse)(nil),               // 10: factory.jobs.v1.ListJobsResponse
-	(*ListJobsByTypesRequest)(nil),         // 11: factory.jobs.v1.ListJobsByTypesRequest
-	(*ListJobsByTypesResponse)(nil),        // 12: factory.jobs.v1.ListJobsByTypesResponse
-	(*FinishedJob)(nil),                    // 13: factory.jobs.v1.FinishedJob
-	(*ListLatestFinishedJobsRequest)(nil),  // 14: factory.jobs.v1.ListLatestFinishedJobsRequest
-	(*ListLatestFinishedJobsResponse)(nil), // 15: factory.jobs.v1.ListLatestFinishedJobsResponse
-	(*LatestJobOfType)(nil),                // 16: factory.jobs.v1.LatestJobOfType
-	(*ListLatestJobPerTypeRequest)(nil),    // 17: factory.jobs.v1.ListLatestJobPerTypeRequest
-	(*ListLatestJobPerTypeResponse)(nil),   // 18: factory.jobs.v1.ListLatestJobPerTypeResponse
-	(*PendingJob)(nil),                     // 19: factory.jobs.v1.PendingJob
-	(*ListPendingJobsRequest)(nil),         // 20: factory.jobs.v1.ListPendingJobsRequest
-	(*ListPendingJobsResponse)(nil),        // 21: factory.jobs.v1.ListPendingJobsResponse
-	(*StalePendingJob)(nil),                // 22: factory.jobs.v1.StalePendingJob
-	(*ListStalePendingJobsRequest)(nil),    // 23: factory.jobs.v1.ListStalePendingJobsRequest
-	(*ListStalePendingJobsResponse)(nil),   // 24: factory.jobs.v1.ListStalePendingJobsResponse
-	(*timestamppb.Timestamp)(nil),          // 25: google.protobuf.Timestamp
+	(*CreateJobRequest)(nil),               // 1: factory.jobs.v1.CreateJobRequest
+	(*CreateJobResponse)(nil),              // 2: factory.jobs.v1.CreateJobResponse
+	(*DeleteJobRequest)(nil),               // 3: factory.jobs.v1.DeleteJobRequest
+	(*DeleteJobResponse)(nil),              // 4: factory.jobs.v1.DeleteJobResponse
+	(*GetJobStatusRequest)(nil),            // 5: factory.jobs.v1.GetJobStatusRequest
+	(*GetJobStatusResponse)(nil),           // 6: factory.jobs.v1.GetJobStatusResponse
+	(*GetJobSummaryRequest)(nil),           // 7: factory.jobs.v1.GetJobSummaryRequest
+	(*GetJobSummaryResponse)(nil),          // 8: factory.jobs.v1.GetJobSummaryResponse
+	(*FailedJob)(nil),                      // 9: factory.jobs.v1.FailedJob
+	(*ListFailedJobsRequest)(nil),          // 10: factory.jobs.v1.ListFailedJobsRequest
+	(*ListFailedJobsResponse)(nil),         // 11: factory.jobs.v1.ListFailedJobsResponse
+	(*Job)(nil),                            // 12: factory.jobs.v1.Job
+	(*ListJobsRequest)(nil),                // 13: factory.jobs.v1.ListJobsRequest
+	(*ListJobsResponse)(nil),               // 14: factory.jobs.v1.ListJobsResponse
+	(*ListJobsByTypesRequest)(nil),         // 15: factory.jobs.v1.ListJobsByTypesRequest
+	(*ListJobsByTypesResponse)(nil),        // 16: factory.jobs.v1.ListJobsByTypesResponse
+	(*FinishedJob)(nil),                    // 17: factory.jobs.v1.FinishedJob
+	(*ListLatestFinishedJobsRequest)(nil),  // 18: factory.jobs.v1.ListLatestFinishedJobsRequest
+	(*ListLatestFinishedJobsResponse)(nil), // 19: factory.jobs.v1.ListLatestFinishedJobsResponse
+	(*LatestJobOfType)(nil),                // 20: factory.jobs.v1.LatestJobOfType
+	(*ListLatestJobPerTypeRequest)(nil),    // 21: factory.jobs.v1.ListLatestJobPerTypeRequest
+	(*ListLatestJobPerTypeResponse)(nil),   // 22: factory.jobs.v1.ListLatestJobPerTypeResponse
+	(*PendingJob)(nil),                     // 23: factory.jobs.v1.PendingJob
+	(*ListPendingJobsRequest)(nil),         // 24: factory.jobs.v1.ListPendingJobsRequest
+	(*ListPendingJobsResponse)(nil),        // 25: factory.jobs.v1.ListPendingJobsResponse
+	(*StalePendingJob)(nil),                // 26: factory.jobs.v1.StalePendingJob
+	(*ListStalePendingJobsRequest)(nil),    // 27: factory.jobs.v1.ListStalePendingJobsRequest
+	(*ListStalePendingJobsResponse)(nil),   // 28: factory.jobs.v1.ListStalePendingJobsResponse
+	(*timestamppb.Timestamp)(nil),          // 29: google.protobuf.Timestamp
 }
 var file_factory_jobs_v1_jobs_proto_depIdxs = []int32{
-	0,  // 0: factory.jobs.v1.GetJobStatusResponse.status:type_name -> factory.jobs.v1.JobStatus
-	25, // 1: factory.jobs.v1.GetJobSummaryRequest.period_start:type_name -> google.protobuf.Timestamp
-	25, // 2: factory.jobs.v1.GetJobSummaryRequest.period_end:type_name -> google.protobuf.Timestamp
-	25, // 3: factory.jobs.v1.FailedJob.created_at:type_name -> google.protobuf.Timestamp
-	25, // 4: factory.jobs.v1.FailedJob.finished_at:type_name -> google.protobuf.Timestamp
-	25, // 5: factory.jobs.v1.ListFailedJobsRequest.created_after:type_name -> google.protobuf.Timestamp
-	5,  // 6: factory.jobs.v1.ListFailedJobsResponse.jobs:type_name -> factory.jobs.v1.FailedJob
-	0,  // 7: factory.jobs.v1.Job.status:type_name -> factory.jobs.v1.JobStatus
-	25, // 8: factory.jobs.v1.Job.created_at:type_name -> google.protobuf.Timestamp
-	0,  // 9: factory.jobs.v1.ListJobsRequest.status:type_name -> factory.jobs.v1.JobStatus
-	25, // 10: factory.jobs.v1.ListJobsRequest.created_after:type_name -> google.protobuf.Timestamp
-	25, // 11: factory.jobs.v1.ListJobsRequest.created_before:type_name -> google.protobuf.Timestamp
-	8,  // 12: factory.jobs.v1.ListJobsResponse.jobs:type_name -> factory.jobs.v1.Job
-	8,  // 13: factory.jobs.v1.ListJobsByTypesResponse.jobs:type_name -> factory.jobs.v1.Job
-	0,  // 14: factory.jobs.v1.FinishedJob.status:type_name -> factory.jobs.v1.JobStatus
-	25, // 15: factory.jobs.v1.FinishedJob.finished_at:type_name -> google.protobuf.Timestamp
-	0,  // 16: factory.jobs.v1.ListLatestFinishedJobsRequest.status:type_name -> factory.jobs.v1.JobStatus
-	13, // 17: factory.jobs.v1.ListLatestFinishedJobsResponse.jobs:type_name -> factory.jobs.v1.FinishedJob
-	0,  // 18: factory.jobs.v1.LatestJobOfType.status:type_name -> factory.jobs.v1.JobStatus
-	25, // 19: factory.jobs.v1.LatestJobOfType.created_at:type_name -> google.protobuf.Timestamp
-	16, // 20: factory.jobs.v1.ListLatestJobPerTypeResponse.jobs:type_name -> factory.jobs.v1.LatestJobOfType
-	0,  // 21: factory.jobs.v1.PendingJob.status:type_name -> factory.jobs.v1.JobStatus
-	25, // 22: factory.jobs.v1.PendingJob.created_at:type_name -> google.protobuf.Timestamp
-	25, // 23: factory.jobs.v1.ListPendingJobsRequest.created_after:type_name -> google.protobuf.Timestamp
-	19, // 24: factory.jobs.v1.ListPendingJobsResponse.jobs:type_name -> factory.jobs.v1.PendingJob
-	0,  // 25: factory.jobs.v1.StalePendingJob.status:type_name -> factory.jobs.v1.JobStatus
-	25, // 26: factory.jobs.v1.StalePendingJob.created_at:type_name -> google.protobuf.Timestamp
-	22, // 27: factory.jobs.v1.ListStalePendingJobsResponse.jobs:type_name -> factory.jobs.v1.StalePendingJob
-	1,  // 28: factory.jobs.v1.JobService.GetJobStatus:input_type -> factory.jobs.v1.GetJobStatusRequest
-	3,  // 29: factory.jobs.v1.JobService.GetJobSummary:input_type -> factory.jobs.v1.GetJobSummaryRequest
-	6,  // 30: factory.jobs.v1.JobService.ListFailedJobs:input_type -> factory.jobs.v1.ListFailedJobsRequest
-	9,  // 31: factory.jobs.v1.JobService.ListJobs:input_type -> factory.jobs.v1.ListJobsRequest
-	11, // 32: factory.jobs.v1.JobService.ListJobsByTypes:input_type -> factory.jobs.v1.ListJobsByTypesRequest
-	14, // 33: factory.jobs.v1.JobService.ListLatestFinishedJobs:input_type -> factory.jobs.v1.ListLatestFinishedJobsRequest
-	17, // 34: factory.jobs.v1.JobService.ListLatestJobPerType:input_type -> factory.jobs.v1.ListLatestJobPerTypeRequest
-	20, // 35: factory.jobs.v1.JobService.ListPendingJobs:input_type -> factory.jobs.v1.ListPendingJobsRequest
-	23, // 36: factory.jobs.v1.JobService.ListStalePendingJobs:input_type -> factory.jobs.v1.ListStalePendingJobsRequest
-	2,  // 37: factory.jobs.v1.JobService.GetJobStatus:output_type -> factory.jobs.v1.GetJobStatusResponse
-	4,  // 38: factory.jobs.v1.JobService.GetJobSummary:output_type -> factory.jobs.v1.GetJobSummaryResponse
-	7,  // 39: factory.jobs.v1.JobService.ListFailedJobs:output_type -> factory.jobs.v1.ListFailedJobsResponse
-	10, // 40: factory.jobs.v1.JobService.ListJobs:output_type -> factory.jobs.v1.ListJobsResponse
-	12, // 41: factory.jobs.v1.JobService.ListJobsByTypes:output_type -> factory.jobs.v1.ListJobsByTypesResponse
-	15, // 42: factory.jobs.v1.JobService.ListLatestFinishedJobs:output_type -> factory.jobs.v1.ListLatestFinishedJobsResponse
-	18, // 43: factory.jobs.v1.JobService.ListLatestJobPerType:output_type -> factory.jobs.v1.ListLatestJobPerTypeResponse
-	21, // 44: factory.jobs.v1.JobService.ListPendingJobs:output_type -> factory.jobs.v1.ListPendingJobsResponse
-	24, // 45: factory.jobs.v1.JobService.ListStalePendingJobs:output_type -> factory.jobs.v1.ListStalePendingJobsResponse
-	37, // [37:46] is the sub-list for method output_type
-	28, // [28:37] is the sub-list for method input_type
-	28, // [28:28] is the sub-list for extension type_name
-	28, // [28:28] is the sub-list for extension extendee
-	0,  // [0:28] is the sub-list for field type_name
+	0,  // 0: factory.jobs.v1.CreateJobResponse.status:type_name -> factory.jobs.v1.JobStatus
+	29, // 1: factory.jobs.v1.CreateJobResponse.created_at:type_name -> google.protobuf.Timestamp
+	0,  // 2: factory.jobs.v1.DeleteJobResponse.status:type_name -> factory.jobs.v1.JobStatus
+	0,  // 3: factory.jobs.v1.GetJobStatusResponse.status:type_name -> factory.jobs.v1.JobStatus
+	29, // 4: factory.jobs.v1.GetJobSummaryRequest.period_start:type_name -> google.protobuf.Timestamp
+	29, // 5: factory.jobs.v1.GetJobSummaryRequest.period_end:type_name -> google.protobuf.Timestamp
+	29, // 6: factory.jobs.v1.FailedJob.created_at:type_name -> google.protobuf.Timestamp
+	29, // 7: factory.jobs.v1.FailedJob.finished_at:type_name -> google.protobuf.Timestamp
+	29, // 8: factory.jobs.v1.ListFailedJobsRequest.created_after:type_name -> google.protobuf.Timestamp
+	9,  // 9: factory.jobs.v1.ListFailedJobsResponse.jobs:type_name -> factory.jobs.v1.FailedJob
+	0,  // 10: factory.jobs.v1.Job.status:type_name -> factory.jobs.v1.JobStatus
+	29, // 11: factory.jobs.v1.Job.created_at:type_name -> google.protobuf.Timestamp
+	0,  // 12: factory.jobs.v1.ListJobsRequest.status:type_name -> factory.jobs.v1.JobStatus
+	29, // 13: factory.jobs.v1.ListJobsRequest.created_after:type_name -> google.protobuf.Timestamp
+	29, // 14: factory.jobs.v1.ListJobsRequest.created_before:type_name -> google.protobuf.Timestamp
+	12, // 15: factory.jobs.v1.ListJobsResponse.jobs:type_name -> factory.jobs.v1.Job
+	12, // 16: factory.jobs.v1.ListJobsByTypesResponse.jobs:type_name -> factory.jobs.v1.Job
+	0,  // 17: factory.jobs.v1.FinishedJob.status:type_name -> factory.jobs.v1.JobStatus
+	29, // 18: factory.jobs.v1.FinishedJob.finished_at:type_name -> google.protobuf.Timestamp
+	0,  // 19: factory.jobs.v1.ListLatestFinishedJobsRequest.status:type_name -> factory.jobs.v1.JobStatus
+	17, // 20: factory.jobs.v1.ListLatestFinishedJobsResponse.jobs:type_name -> factory.jobs.v1.FinishedJob
+	0,  // 21: factory.jobs.v1.LatestJobOfType.status:type_name -> factory.jobs.v1.JobStatus
+	29, // 22: factory.jobs.v1.LatestJobOfType.created_at:type_name -> google.protobuf.Timestamp
+	20, // 23: factory.jobs.v1.ListLatestJobPerTypeResponse.jobs:type_name -> factory.jobs.v1.LatestJobOfType
+	0,  // 24: factory.jobs.v1.PendingJob.status:type_name -> factory.jobs.v1.JobStatus
+	29, // 25: factory.jobs.v1.PendingJob.created_at:type_name -> google.protobuf.Timestamp
+	29, // 26: factory.jobs.v1.ListPendingJobsRequest.created_after:type_name -> google.protobuf.Timestamp
+	23, // 27: factory.jobs.v1.ListPendingJobsResponse.jobs:type_name -> factory.jobs.v1.PendingJob
+	0,  // 28: factory.jobs.v1.StalePendingJob.status:type_name -> factory.jobs.v1.JobStatus
+	29, // 29: factory.jobs.v1.StalePendingJob.created_at:type_name -> google.protobuf.Timestamp
+	26, // 30: factory.jobs.v1.ListStalePendingJobsResponse.jobs:type_name -> factory.jobs.v1.StalePendingJob
+	1,  // 31: factory.jobs.v1.JobService.CreateJob:input_type -> factory.jobs.v1.CreateJobRequest
+	3,  // 32: factory.jobs.v1.JobService.DeleteJob:input_type -> factory.jobs.v1.DeleteJobRequest
+	5,  // 33: factory.jobs.v1.JobService.GetJobStatus:input_type -> factory.jobs.v1.GetJobStatusRequest
+	7,  // 34: factory.jobs.v1.JobService.GetJobSummary:input_type -> factory.jobs.v1.GetJobSummaryRequest
+	10, // 35: factory.jobs.v1.JobService.ListFailedJobs:input_type -> factory.jobs.v1.ListFailedJobsRequest
+	13, // 36: factory.jobs.v1.JobService.ListJobs:input_type -> factory.jobs.v1.ListJobsRequest
+	15, // 37: factory.jobs.v1.JobService.ListJobsByTypes:input_type -> factory.jobs.v1.ListJobsByTypesRequest
+	18, // 38: factory.jobs.v1.JobService.ListLatestFinishedJobs:input_type -> factory.jobs.v1.ListLatestFinishedJobsRequest
+	21, // 39: factory.jobs.v1.JobService.ListLatestJobPerType:input_type -> factory.jobs.v1.ListLatestJobPerTypeRequest
+	24, // 40: factory.jobs.v1.JobService.ListPendingJobs:input_type -> factory.jobs.v1.ListPendingJobsRequest
+	27, // 41: factory.jobs.v1.JobService.ListStalePendingJobs:input_type -> factory.jobs.v1.ListStalePendingJobsRequest
+	2,  // 42: factory.jobs.v1.JobService.CreateJob:output_type -> factory.jobs.v1.CreateJobResponse
+	4,  // 43: factory.jobs.v1.JobService.DeleteJob:output_type -> factory.jobs.v1.DeleteJobResponse
+	6,  // 44: factory.jobs.v1.JobService.GetJobStatus:output_type -> factory.jobs.v1.GetJobStatusResponse
+	8,  // 45: factory.jobs.v1.JobService.GetJobSummary:output_type -> factory.jobs.v1.GetJobSummaryResponse
+	11, // 46: factory.jobs.v1.JobService.ListFailedJobs:output_type -> factory.jobs.v1.ListFailedJobsResponse
+	14, // 47: factory.jobs.v1.JobService.ListJobs:output_type -> factory.jobs.v1.ListJobsResponse
+	16, // 48: factory.jobs.v1.JobService.ListJobsByTypes:output_type -> factory.jobs.v1.ListJobsByTypesResponse
+	19, // 49: factory.jobs.v1.JobService.ListLatestFinishedJobs:output_type -> factory.jobs.v1.ListLatestFinishedJobsResponse
+	22, // 50: factory.jobs.v1.JobService.ListLatestJobPerType:output_type -> factory.jobs.v1.ListLatestJobPerTypeResponse
+	25, // 51: factory.jobs.v1.JobService.ListPendingJobs:output_type -> factory.jobs.v1.ListPendingJobsResponse
+	28, // 52: factory.jobs.v1.JobService.ListStalePendingJobs:output_type -> factory.jobs.v1.ListStalePendingJobsResponse
+	42, // [42:53] is the sub-list for method output_type
+	31, // [31:42] is the sub-list for method input_type
+	31, // [31:31] is the sub-list for extension type_name
+	31, // [31:31] is the sub-list for extension extendee
+	0,  // [0:31] is the sub-list for field type_name
 }
 
 func init() { file_factory_jobs_v1_jobs_proto_init() }
@@ -1820,16 +2087,17 @@ func file_factory_jobs_v1_jobs_proto_init() {
 	if File_factory_jobs_v1_jobs_proto != nil {
 		return
 	}
-	file_factory_jobs_v1_jobs_proto_msgTypes[3].OneofWrappers = []any{}
-	file_factory_jobs_v1_jobs_proto_msgTypes[8].OneofWrappers = []any{}
-	file_factory_jobs_v1_jobs_proto_msgTypes[13].OneofWrappers = []any{}
+	file_factory_jobs_v1_jobs_proto_msgTypes[0].OneofWrappers = []any{}
+	file_factory_jobs_v1_jobs_proto_msgTypes[7].OneofWrappers = []any{}
+	file_factory_jobs_v1_jobs_proto_msgTypes[12].OneofWrappers = []any{}
+	file_factory_jobs_v1_jobs_proto_msgTypes[17].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_factory_jobs_v1_jobs_proto_rawDesc), len(file_factory_jobs_v1_jobs_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   24,
+			NumMessages:   28,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

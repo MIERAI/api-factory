@@ -438,7 +438,7 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 			}
 			continue
 		}
-		if in.Filter != "" {
+		if in.Filter != "" && !a.Exit.Command { // 命令的输入: commandBindings(写入 / 键 / 乐观锁)
 			parts := strings.Fields(in.Filter)
 			op, ok := "", false
 			if len(parts) == 2 { // spec / IR 里用单元的内部名(factory/cells: 等于 → eq)
@@ -470,6 +470,7 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 			filters[in.Name] = sf
 		}
 	}
+	c.commandBindings(a, table, e) // 命令: 写入 / 键 / 乐观锁 / 设置(查询的种类: 不能写这些键)
 	// 输入之间的规则: 关系的注册表(factory/constraints/rel_*.go)。id = 关系名.参数…(验收从 IR 读回,自动生成边界用例)
 	for _, r := range a.InputRules {
 		id, x, err := constraints.CompileRelation(r, func(name string) (constraints.RelField, error) {
@@ -660,6 +661,7 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 	s.Pattern.Kind = a.Kind
 	s.Datasource = spec.Datasource{Table: table, Filters: filters, Where: a.Where, Lookups: lookups, Nests: nests, ChildAggs: childAggs}
 	derived, usesNow := c.compileDerived(a, table, e)
+	usesNow = usesNow || a.Pattern.Command.UsesNow() // 命令: 设置 用到 现在
 	if len(derived) > 0 {
 		if a.Exit.AI && a.Kind == "custom" {
 			e.add(1, "派生参数 不能用于 %s(查询由 AI 写)", a.Exit.Name)
@@ -693,6 +695,9 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 		return nil, "", err
 	}
 	var related []string // 准备数据里没写的关联 / 嵌套 / 子聚合的表 = 空表(不能留着别的用例的数据)
+	if a.Exit.Command { // 命令写的表: 准备数据里没写 = 空表
+		related = append(related, table)
+	}
 	for _, l := range lookups {
 		related = append(related, l.Table)
 	}

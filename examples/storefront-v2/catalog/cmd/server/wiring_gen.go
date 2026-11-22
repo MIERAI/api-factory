@@ -6,6 +6,7 @@ import (
 	"connectrpc.com/connect"
 
 	"github.com/MIERAI/api-factory-runtime/server"
+	"github.com/MIERAI/api-factory-runtime/txn"
 	"github.com/MIERAI/storefront/services/catalog/gen/catalog/catalog/v1/catalogv1connect"
 	"github.com/MIERAI/storefront/services/catalog/gen/db"
 	cataloghandler "github.com/MIERAI/storefront/services/catalog/internal/handler/catalog"
@@ -14,8 +15,9 @@ import (
 func services(deps server.Deps, opts ...connect.HandlerOption) []server.Service {
 	q := db.New(deps.Pool)
 	var out []server.Service
+	tx := txn.New(deps.Pool) // 命令(写入)的事务执行器
 	{
-		path, h := catalogv1connect.NewCatalogServiceHandler(cataloghandler.New(q, deps.Pager, deps.Shards), opts...)
+		path, h := catalogv1connect.NewCatalogServiceHandler(cataloghandler.New(q, deps.Pager, deps.Shards, tx), opts...)
 		out = append(out, server.Service{Path: path, Handler: h})
 	}
 	return out

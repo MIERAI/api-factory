@@ -1,6 +1,6 @@
 package constraints
 
-// 格式: 普通文本的字符种类。设计语言 格式: 数字 / 英数字(列表时用于每个元素)。
+// 格式: 普通文本的字符种类。设计语言 格式: 数字 / 英数字 / 代码(列表时用于每个元素)。
 // 带格式的类型(日期 / 邮编 …)本身已经有格式,不能再加。
 
 import (
@@ -27,6 +27,9 @@ var textFormats = []textFormat{
 		domain: []any{"1", "2", "10", "0123", "4901234567890"}, missing: "99999999"},
 	{name: "英数字", pattern: "^[0-9A-Za-z]+$", valid: []string{"A01b"}, invalid: []string{"A-1", "Ａ1", "a b"},
 		domain: []any{"A1", "a1", "B2", "10", "Z"}, missing: "ZZZZ9999"},
+	// 代码: 大写英文字母、数字和 -(SKU、商品代码之类;数据库里常见的 CHECK (x ~ '^[A-Z0-9-]+$'))
+	{name: "代码", pattern: "^[A-Z0-9-]+$", valid: []string{"AB-01"}, invalid: []string{"ab-01", "AB_01", "AB 01", "ＡＢ-01"},
+		domain: []any{"AB-01", "AB-02", "X10", "SKU-9"}, missing: "ZZ-9999"},
 }
 
 func formatByPattern(p string) *textFormat {
@@ -40,7 +43,7 @@ func formatByPattern(p string) *textFormat {
 
 func init() {
 	register(&Constraint{
-		Key: "格式", Level: Elem, Example: "数字 / 英数字",
+		Key: "格式", Level: Elem, Example: "数字 / 英数字 / 代码",
 		Compile: func(c Ctx, v string) ([]string, error) {
 			if c.ProtoType != "string" {
 				return nil, errors.New("只能用于文本")
@@ -83,7 +86,7 @@ func init() {
 			if f == nil {
 				return nil
 			}
-			prefix := map[string]string{"数字": "", "英数字": "K"}[f.name]
+			prefix := map[string]string{"数字": "", "英数字": "K", "代码": "K-"}[f.name]
 			return &Domain{Values: f.domain, Missing: f.missing, Expand: func(i int) any { return fmt.Sprintf("%s%d", prefix, 100+i) }}
 		},
 	})

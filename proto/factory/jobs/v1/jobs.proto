@@ -23,6 +23,12 @@ enum JobStatus {
 
 // 异步任务。调用方提交任务后,轮询状态等待结束
 service JobService {
+  // 登记一个新的任务,返回登记的任务(含数据库生成的创建时间)
+  rpc CreateJob(CreateJobRequest) returns (CreateJobResponse);
+
+  // 删除一个任务(物理删除),返回删除的任务
+  rpc DeleteJob(DeleteJobRequest) returns (DeleteJobResponse);
+
   // 按 id 返回一个任务的处理状态
   rpc GetJobStatus(GetJobStatusRequest) returns (GetJobStatusResponse);
 
@@ -49,6 +55,42 @@ service JobService {
 
   // 今日作成されて、作成から指定した分数を超えても終わっていない任務を古い順に返す(ちょうど N 分前に作成された任務は含まない)
   rpc ListStalePendingJobs(ListStalePendingJobsRequest) returns (ListStalePendingJobsResponse);
+}
+
+// 登记一个新的任务,返回登记的任务(含数据库生成的创建时间)
+message CreateJobRequest {
+  // 任务 id(上游的任务编号)
+  int64 id = 1 [(buf.validate.field).int64.gt = 0];
+  // 任务类型。不传 = default
+  optional string job_type = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 64];
+}
+
+// 登记一个新的任务,返回登记的任务(含数据库生成的创建时间)
+message CreateJobResponse {
+  // 任务 id
+  int64 id = 1;
+  // 任务类型
+  string job_type = 2;
+  // 处理状态(登记时 = PENDING)
+  JobStatus status = 3;
+  // 创建时间(数据库的时钟)
+  google.protobuf.Timestamp created_at = 4;
+}
+
+// 删除一个任务(物理删除),返回删除的任务
+message DeleteJobRequest {
+  // 任务 id
+  int64 job_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+// 删除一个任务(物理删除),返回删除的任务
+message DeleteJobResponse {
+  // 任务 id
+  int64 id = 1;
+  // 任务类型
+  string job_type = 2;
+  // 删除时的状态
+  JobStatus status = 3;
 }
 
 // 按 id 返回一个任务的处理状态
