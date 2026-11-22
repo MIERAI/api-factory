@@ -97,6 +97,12 @@ func (s *State) RunHandler(c *ir.Command, in Inputs, items []Inputs, env string,
 			case outcome == Unmet:
 				res.Outcome, res.Business, res.Failed = HandlerBusiness, op.Unmet, k
 				res.Detail = fmt.Sprintf("第 %d 项 %s: %s", k+1, op.Name, detail)
+				for _, r := range c.Results { // 原因码的结果是 处理: 死信 → 什么都不提交
+					if r.Name == op.Unmet && r.DLQ {
+						res.Outcome = HandlerDLQ
+						return res
+					}
+				}
 				res.Emits = s.emitsOf(c, op.Unmet, in, items, env, now, nil)
 				return res
 			default:

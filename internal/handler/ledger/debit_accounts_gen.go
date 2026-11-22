@@ -6,6 +6,7 @@ package ledger
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -25,13 +26,15 @@ func (h *Handler) DebitAccounts(ctx context.Context, tx pgx.Tx, env message.Enve
 	if err := message.DecodeData(env, m); err != nil { // 解不开 / 违反契约 = 毒消息
 		return consume.Poison(err)
 	}
-	var any1 bool // 结果 REVERSED: 任一项 记账.status = 3
+	var any1 bool // 结果 AMOUNT_MISMATCH: 任一项 记账.amount <> 项.amount
+	var any2 bool // 结果 REVERSED: 任一项 记账.status = 3
 	items := slices.Clone(m.GetLines())
 	slices.SortStableFunc(items, func(a, b *ledgerv1.DebitAccountsLine) int { return cmp.Compare(a.GetAccountId(), b.GetAccountId()) }) // 按元素的键排序: 并发的处理按同一个顺序加行锁
 	err := txn.Savepoint(ctx, tx, func(ctx context.Context, tx pgx.Tx) error {                                                          // 业务结果: 回滚到这里(去重记录和结果的消息照样提交)
 		for _, it := range items {
 			var created1 bool // 记账: 是否真的插入了(幂等新建)
 			var r1 struct {   // 记账(debits)的返回值
+				Amount int64
 				Status int32
 			}
 			if err := txn.RunIn(ctx, tx, txn.Op{ // 记账
@@ -46,8 +49,8 @@ func (h *Handler) DebitAccounts(ctx context.Context, tx pgx.Tx, env message.Enve
 				},
 				Conflict:  []string{"transfer_id", "account_id"},
 				Created:   &created1,
-				Returning: []string{"status"},
-				Into:      []any{&r1.Status},
+				Returning: []string{"amount", "status"},
+				Into:      []any{&r1.Amount, &r1.Status},
 			},
 			); err != nil {
 				return err
@@ -71,11 +74,17 @@ func (h *Handler) DebitAccounts(ctx context.Context, tx pgx.Tx, env message.Enve
 					return err
 				}
 			}
-			if int64(r1.Status) == int64(3) {
+			if int64(r1.Amount) != int64(it.GetAmount()) {
 				any1 = true
 			}
+			if int64(r1.Status) == int64(3) {
+				any2 = true
+			}
 		}
-		if any1 { // 结果 REVERSED
+		if any1 { // 结果 AMOUNT_MISMATCH
+			return resultError("AMOUNT_MISMATCH")
+		}
+		if any2 { // 结果 REVERSED
 			return resultError("REVERSED")
 		}
 		return nil
@@ -85,6 +94,8 @@ func (h *Handler) DebitAccounts(ctx context.Context, tx pgx.Tx, env message.Enve
 		return err
 	}
 	switch result {
+	case "AMOUNT_MISMATCH":
+		return consume.Poison(errors.New("AMOUNT_MISMATCH: 记账.amount <> 项.amount")) // 处理: 死信(不提交,需要人处理)
 	case "REVERSED":
 		consume.Business(ctx, "REVERSED")
 		d1 := &ledgerv1.AccountDebitFailedV1{ // account.debit_failed v1 的 data

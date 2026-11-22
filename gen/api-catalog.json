@@ -1076,6 +1076,19 @@
           "transfer_id": 7
         },
         "response": {}
+      },
+      {
+        "name": "同一笔转账再来(新 id),账户都已经记过 → 什么都不写,照样发出 account.debited",
+        "request": {
+          "lines": [
+            {
+              "account_id": "ACC-001",
+              "amount": 40
+            }
+          ],
+          "transfer_id": 6
+        },
+        "response": {}
       }
     ]
   },
@@ -1151,6 +1164,19 @@
           "transfer_id": 7
         },
         "response": {}
+      },
+      {
+        "name": "已经撤销过(另发的第二条)→ 不退,照样发出 account.reversed",
+        "request": {
+          "lines": [
+            {
+              "account_id": "ACC-001",
+              "amount": 20
+            }
+          ],
+          "transfer_id": 8
+        },
+        "response": {}
       }
     ]
   },
@@ -1171,6 +1197,19 @@
             }
           ],
           "transfer_id": 7
+        },
+        "response": {}
+      },
+      {
+        "name": "已经结算过(重发)→ 跳过,held 不变,照样发出 account.settled",
+        "request": {
+          "lines": [
+            {
+              "account_id": "ACC-001",
+              "amount": 20
+            }
+          ],
+          "transfer_id": 6
         },
         "response": {}
       }

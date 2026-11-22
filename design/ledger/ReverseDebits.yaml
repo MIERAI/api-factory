@@ -31,6 +31,9 @@ API: ReverseDebits
       找不到时: "account not found (transfer {transfer_id})"
 
 结果:
+  ALREADY_SETTLED:
+    当: "任一项 撤销.status = SETTLED"
+    处理: 死信
   成功:
     发出:
       - account.reversed: { transfer_id: 消息.transfer_id }
@@ -40,8 +43,12 @@ API: ReverseDebits
     结果: 改成 REVERSED,按扣款记录的金额退回余额、held 减少
   - 情况: 扣款还没到
     结果: 留下 REVERSED 的墓碑(不动余额)
-  - 情况: 已经撤销过 / 已经结算
-    结果: 跳过(不动余额)
+  - 情况: 已经撤销过(另发的第二条撤销)
+    结果: 跳过(不动余额),照样发出 account.reversed
+  - 情况: 某个账户的扣款已经结算(SETTLED)
+    结果: 整条消息不提交,进 DLQ(ALREADY_SETTLED,需要人处理。钱已经结算,不能自动退)
+  - 情况: 消息里的金额和扣款记录的金额不同
+    结果: 按扣款记录的金额退回(消息里的金额只用于墓碑)
   - 情况: 撤销完成
     结果: 发出 account.reversed
 
@@ -52,6 +59,8 @@ API: ReverseDebits
       - { account_id: "ACC-001", owner: alice, balance: 450, held: 50, opened_at: "2026-11-01 09:00" }
     debits:
       - { transfer_id: 7, account_id: "ACC-001", amount: 50, status: HELD, debited_at: "2026-11-21 09:00" }
+      - { transfer_id: 8, account_id: "ACC-001", amount: 20, status: REVERSED, debited_at: "2026-11-21 09:00" }
+      - { transfer_id: 5, account_id: "ACC-001", amount: 10, status: SETTLED, debited_at: "2026-11-21 09:00" }
   用例:
     - 说明: HELD → 退回;没到的账户 → 墓碑
       消息: { transfer_id: 7, lines: [ { account_id: "ACC-001", amount: 50 }, { account_id: "ACC-009", amount: 5 } ] }
@@ -64,3 +73,16 @@ API: ReverseDebits
         debits:
           - { transfer_id: 7, account_id: "ACC-001", amount: 50, status: REVERSED, debited_at: "2026-11-21 09:00" }
           - { transfer_id: 7, account_id: "ACC-009", amount: 5, status: REVERSED, debited_at: "2026-11-22 10:00" }
+          - { transfer_id: 8, account_id: "ACC-001", status: REVERSED }
+          - { transfer_id: 5, account_id: "ACC-001", status: SETTLED }
+    - 说明: 已经撤销过(另发的第二条)→ 不退,照样发出 account.reversed
+      消息: { transfer_id: 8, lines: [ { account_id: "ACC-001", amount: 20 } ] }
+      结果: 成功
+      发出:
+        - account.reversed: { transfer_id: 8 }
+      之后: 不变
+    - 说明: 扣款已经结算 → 死信(不提交)
+      消息: { transfer_id: 5, lines: [ { account_id: "ACC-001", amount: 10 } ] }
+      结果: ALREADY_SETTLED
+      发出: []
+      之后: 不变

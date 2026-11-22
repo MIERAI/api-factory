@@ -65,6 +65,10 @@ pattern:
             version: 1
         each: lines
         results:
+            - name: ALREADY_SETTLED
+              when: 撤销.status = 2
+              any: true
+              dlq: true
             - name: 成功
               emit:
                 - type: account.reversed
@@ -126,10 +130,16 @@ behavior:
       then: 改成 REVERSED,按扣款记录的金额退回余额、held 减少
     - when: 扣款还没到
       then: 留下 REVERSED 的墓碑(不动余额)
-    - when: 已经撤销过 / 已经结算
-      then: 跳过(不动余额)
+    - when: 已经撤销过(另发的第二条撤销)
+      then: 跳过(不动余额),照样发出 account.reversed
+    - when: 某个账户的扣款已经结算(SETTLED)
+      then: 整条消息不提交,进 DLQ(ALREADY_SETTLED,需要人处理。钱已经结算,不能自动退)
+    - when: 消息里的金额和扣款记录的金额不同
+      then: 按扣款记录的金额退回(消息里的金额只用于墓碑)
     - when: 撤销完成
       then: 发出 account.reversed
+    - when: 消息里的金额和扣款记录的金额不同
+      then: 按扣款记录的金额退回余额、减少 held;消息里的金额只用于没到的扣款的墓碑
 acceptance:
     fixtures:
         accounts:
@@ -144,6 +154,16 @@ acceptance:
               debited_at: "2026-11-21T00:00:00Z"
               status: DEBIT_STATUS_HELD
               transfer_id: 7
+            - account_id: ACC-001
+              amount: 20
+              debited_at: "2026-11-21T00:00:00Z"
+              status: DEBIT_STATUS_REVERSED
+              transfer_id: 8
+            - account_id: ACC-001
+              amount: 10
+              debited_at: "2026-11-21T00:00:00Z"
+              status: DEBIT_STATUS_SETTLED
+              transfer_id: 5
     cases:
         - name: HELD → 退回;没到的账户 → 墓碑
           request:
@@ -175,9 +195,50 @@ acceptance:
                       debited_at: "2026-11-22T01:00:00Z"
                       status: DEBIT_STATUS_REVERSED
                       transfer_id: 7
+                    - account_id: ACC-001
+                      status: DEBIT_STATUS_REVERSED
+                      transfer_id: 8
+                    - account_id: ACC-001
+                      status: DEBIT_STATUS_SETTLED
+                      transfer_id: 5
           emitted:
             - type: account.reversed
               data:
                 transfer_id: 7
+        - name: 已经撤销过(另发的第二条)→ 不退,照样发出 account.reversed
+          request:
+            lines:
+                - account_id: ACC-001
+                  amount: 20
+            transfer_id: 8
+          expect:
+            code: OK
+            response: {}
+          steps: []
+          now: "2026-11-22T01:00:00Z"
+          after:
+            unchanged: true
+          emitted:
+            - type: account.reversed
+              data:
+                transfer_id: 8
+        - name: 扣款已经结算 → 死信(不提交)
+          request:
+            lines:
+                - account_id: ACC-001
+                  amount: 10
+            transfer_id: 5
+          expect:
+            code: DLQ:ALREADY_SETTLED
+            response: {}
+          steps: []
+          now: "2026-11-22T01:00:00Z"
+          after:
+            unchanged: true
+          emitted: []
 logic_examples: []
-review_decisions: []
+review_decisions:
+    - question: 收到撤销时,某个账户的扣款已经是 SETTLED(已结算),现在的行为是跳过这个账户、钱不退,但整条消息仍然发出 account.reversed(撤销完成)。这是想要的吗?
+      decision: 已经直接修改了设计书
+    - question: '撤销消息里的金额和扣款记录的金额不一样时(例: 扣款记录 50,消息里写 30),现在的行为是按扣款记录的 50 退回,消息里的 30 被忽略。这是想要的吗?'
+      decision: 保持现在的行为:按扣款记录的金额退

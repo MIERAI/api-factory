@@ -662,6 +662,34 @@ func (h *handlerEnv) align() error {
 			}
 		}
 	}
+	// 顶层字段写进组合主键的一列(例: debits 的 transfer_id): 一部分行取同一个值(一笔转账的多个账户 → 每项 的第 2 项)
+	for key, bs := range h.binds {
+		if !strings.HasPrefix(key, "input:") {
+			continue
+		}
+		for _, b := range bs {
+			t, ts := h.cat[b[0]], h.state.Tables[b[0]]
+			if len(t.PK) < 2 || indexOf(t.PK, b[1]) < 0 || ts == nil || len(ts.Rows) < 2 {
+				continue
+			}
+			for _, r := range ts.Rows {
+				if h.rnd.Intn(100) >= 35 {
+					continue
+				}
+				other := ts.Rows[h.rnd.Intn(len(ts.Rows))]
+				var where []string
+				args := []any{rawOf(other[b[1]])}
+				for _, k := range t.PK {
+					args = append(args, rawOf(r[k]))
+					where = append(where, fmt.Sprintf("%s = $%d", pgxIdent(k), len(args)))
+				}
+				q := fmt.Sprintf("UPDATE %s SET %s = $1 WHERE %s", pgxIdent(b[0]), pgxIdent(b[1]), strings.Join(where, " AND "))
+				if _, err := h.conn.Exec(h.ctx, q, args...); err == nil {
+					changed = true
+				}
+			}
+		}
+	}
 	if !changed {
 		return nil
 	}
@@ -698,6 +726,9 @@ func (h *handlerEnv) sampleMsg() map[string]any {
 		switch {
 		case ts != nil && len(ts.Rows) > 0 && h.rnd.Intn(100) < 55:
 			r := ts.Rows[h.rnd.Intn(len(ts.Rows))]
+			if multi := sharedRows(ts.Rows, hm[1]); len(multi) > 0 && h.rnd.Intn(100) < 60 { // 同一个值有好几行(一笔转账的多个账户): 每项 的第 2 项也能命中
+				r = multi[h.rnd.Intn(len(multi))]
+			}
 			req[f.Name] = h.jsonOf(&f, rawOf(r[hm[1]]))
 			anchor[hm[1]], anchorTable = r[hm[1]], hm[0]
 		default:
@@ -741,6 +772,11 @@ func (h *handlerEnv) sampleMsg() map[string]any {
 						if _, set := el[f]; !set {
 							el[f] = rawOf(row[hm[1]])
 						}
+					}
+				}
+				for _, f := range h.item.Fields { // 同名的列(例: 扣款记录的 amount): 和已有的行一致 / 不一致都要出现
+					if _, set := el[f.Name]; !set && h.cat[anchorTable].Col(f.Name) != nil {
+						el[f.Name] = rawOf(row[f.Name])
 					}
 				}
 				kv = el[key]
@@ -983,7 +1019,7 @@ func (h *handlerEnv) needs() []string {
 	out := []string{command.HandlerOK}
 	hasUnmet := false
 	for _, op := range cmd.Ops {
-		if op.Unmet != "" {
+		if op.Unmet != "" && !h.dlqResult(op.Unmet) { // 死信的原因码: 整个事务回滚,"第 k 项"和保存点无关
 			hasUnmet = true
 		}
 		if op.Skip {
@@ -1372,3 +1408,27 @@ func (h *handlerEnv) burst(bodies [][]byte, times int) []delivered {
 }
 
 func pgxIdent(s string) string { return pgx.Identifier{s}.Sanitize() }
+
+// sharedRows: col 的值和别的行相同的行。
+func sharedRows(rows []command.Row, col string) []command.Row {
+	n := map[string]int{}
+	for _, r := range rows {
+		n[command.ShowRaw(r[col])]++
+	}
+	var out []command.Row
+	for _, r := range rows {
+		if n[command.ShowRaw(r[col])] > 1 {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func (h *handlerEnv) dlqResult(name string) bool {
+	for _, r := range h.api.Command.Results {
+		if r.Name == name {
+			return r.DLQ
+		}
+	}
+	return false
+}

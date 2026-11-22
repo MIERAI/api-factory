@@ -6,6 +6,7 @@ package ledger
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -25,6 +26,7 @@ func (h *Handler) ReverseDebits(ctx context.Context, tx pgx.Tx, env message.Enve
 	if err := message.DecodeData(env, m); err != nil { // 解不开 / 违反契约 = 毒消息
 		return consume.Poison(err)
 	}
+	var any1 bool // 结果 ALREADY_SETTLED: 任一项 撤销.status = 2
 	items := slices.Clone(m.GetLines())
 	slices.SortStableFunc(items, func(a, b *ledgerv1.ReverseDebitsLine) int { return cmp.Compare(a.GetAccountId(), b.GetAccountId()) }) // 按元素的键排序: 并发的处理按同一个顺序加行锁
 	err := txn.Savepoint(ctx, tx, func(ctx context.Context, tx pgx.Tx) error {                                                          // 业务结果: 回滚到这里(去重记录和结果的消息照样提交)
@@ -46,6 +48,7 @@ func (h *Handler) ReverseDebits(ctx context.Context, tx pgx.Tx, env message.Enve
 			}
 			var r2 struct { // 撤销(debits)的返回值
 				Amount int64
+				Status int32
 			}
 			var updated2 bool                    // 撤销: 真的更新了
 			if err := txn.RunIn(ctx, tx, txn.Op{ // 撤销
@@ -60,8 +63,8 @@ func (h *Handler) ReverseDebits(ctx context.Context, tx pgx.Tx, env message.Enve
 				},
 				Cond:      txn.Cmp("=", txn.C("status"), txn.V(int32(1))),
 				Unmet:     "SKIP",
-				Returning: []string{"amount"},
-				Into:      []any{&r2.Amount},
+				Returning: []string{"amount", "status"},
+				Into:      []any{&r2.Amount, &r2.Status},
 				NotFound:  fmt.Sprintf("debit not found (transfer %v)", m.GetTransferId()),
 			},
 			); err == nil {
@@ -86,11 +89,22 @@ func (h *Handler) ReverseDebits(ctx context.Context, tx pgx.Tx, env message.Enve
 					return err
 				}
 			}
+			if int64(r2.Status) == int64(2) {
+				any1 = true
+			}
+		}
+		if any1 { // 结果 ALREADY_SETTLED
+			return resultError("ALREADY_SETTLED")
 		}
 		return nil
 	})
-	if _, err := handlerResult(err); err != nil {
+	result, err := handlerResult(err)
+	if err != nil {
 		return err
+	}
+	switch result {
+	case "ALREADY_SETTLED":
+		return consume.Poison(errors.New("ALREADY_SETTLED: 撤销.status = 2")) // 处理: 死信(不提交,需要人处理)
 	}
 	d1 := &ledgerv1.AccountReversedV1{ // account.reversed v1 的 data
 		TransferId: m.GetTransferId(),

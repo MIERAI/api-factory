@@ -94,7 +94,11 @@ func (c *ctx) messaging(a *API, inputs map[string]*Input, inputType, itemType fu
 		if r.When != "" {
 			tree, err := command.ParseExpr(r.When, true)
 			if err == nil {
-				err = command.Resolve(tree, base, "", "", "")
+				ws := base
+				if r.Any { // 任一项: 每一项判定一次,可以用 项.x(例: 记录的金额 <> 这一项的金额)
+					ws.Item = itemType
+				}
+				err = command.Resolve(tree, ws, "", "", "")
 			}
 			if err != nil {
 				e.add(1, "%s 的 当: %v", where, err)

@@ -26,6 +26,9 @@ API: DebitAccounts
       找不到时: "account not found (transfer {transfer_id})"
 
 结果:
+  AMOUNT_MISMATCH:
+    当: "任一项 记账.amount <> 项.amount"
+    处理: 死信
   REVERSED:
     当: "任一项 记账.status = REVERSED"
     发出:
@@ -45,7 +48,13 @@ API: DebitAccounts
   - 情况: 撤销先到了(有 REVERSED 的墓碑)
     结果: 不扣;发出 account.debit_failed(REVERSED)
   - 情况: 同样内容的命令再来(新 id)
-    结果: 已经记过的账户不再扣(仅当 记账.新建),照样回答 account.debited
+    结果: 已经记过的账户不再扣(仅当 记账.新建),照样回答 account.debited;全部记过时什么都不写,照样回答
+  - 情况: 同一笔转账、同一个账户再来,但金额和记过的不同
+    结果: 数据不一致,不提交,进 DLQ(AMOUNT_MISMATCH,需要人处理)
+  - 情况: 一部分账户有 REVERSED 的墓碑、一部分没有
+    结果: 全部回滚(没有墓碑的账户也不扣),回答 account.debit_failed(REVERSED)
+  - 情况: 同一条命令里既有余额不够的账户、又有不存在的账户
+    结果: 按账户 id 的顺序先遇到哪个就是哪个的结果(先遇到不存在 = 毒消息,先遇到余额不够 = INSUFFICIENT_FUNDS);两种都是一个账户都不扣
   - 情况: 账户不存在
     结果: 毒消息(进 DLQ,人来处理),什么都不写
 
@@ -57,6 +66,7 @@ API: DebitAccounts
       - { account_id: "ACC-002", owner: bob,   balance: 100, held: 20, opened_at: "2026-11-01 09:00" }
     debits:
       - { transfer_id: 9, account_id: "ACC-001", amount: 30, status: REVERSED, debited_at: "2026-11-21 09:00" }
+      - { transfer_id: 6, account_id: "ACC-001", amount: 40, status: HELD, debited_at: "2026-11-21 09:00" }
   用例:
     - 说明: 两个账户都够 → 都扣,发出 account.debited
       消息: { transfer_id: 7, lines: [ { account_id: "ACC-002", amount: 100 }, { account_id: "ACC-001", amount: 50 } ] }
@@ -69,6 +79,7 @@ API: DebitAccounts
           - { account_id: "ACC-002", balance: 0, held: 120 }
         debits:
           - { transfer_id: 9, account_id: "ACC-001", status: REVERSED }
+          - { transfer_id: 6, account_id: "ACC-001", status: HELD }
           - { transfer_id: 7, account_id: "ACC-001", amount: 50, status: HELD, debited_at: "2026-11-22 10:00" }
           - { transfer_id: 7, account_id: "ACC-002", amount: 100, status: HELD }
     - 说明: 第二个账户不够 → 一个都不扣,发出 account.debit_failed
@@ -82,6 +93,23 @@ API: DebitAccounts
       结果: REVERSED
       发出:
         - account.debit_failed: { transfer_id: 9, reason: REVERSED }
+      之后: 不变
+    - 说明: 一部分账户有墓碑 → 全部回滚(ACC-002 也不扣),发出 account.debit_failed(REVERSED)
+      消息: { transfer_id: 9, lines: [ { account_id: "ACC-001", amount: 30 }, { account_id: "ACC-002", amount: 20 } ] }
+      结果: REVERSED
+      发出:
+        - account.debit_failed: { transfer_id: 9, reason: REVERSED }
+      之后: 不变
+    - 说明: 同一笔转账再来(新 id),账户都已经记过 → 什么都不写,照样发出 account.debited
+      消息: { transfer_id: 6, lines: [ { account_id: "ACC-001", amount: 40 } ] }
+      结果: 成功
+      发出:
+        - account.debited: { transfer_id: 6, lines: [ { account_id: "ACC-001", amount: 40 } ] }
+      之后: 不变
+    - 说明: 同一笔转账、同一个账户,金额和记过的不同 → 死信(不提交)
+      消息: { transfer_id: 6, lines: [ { account_id: "ACC-001", amount: 41 } ] }
+      结果: AMOUNT_MISMATCH
+      发出: []
       之后: 不变
     - 说明: 账户不存在 → 毒消息,什么都不写
       消息: { transfer_id: 8, lines: [ { account_id: "NONE-1", amount: 1 } ] }

@@ -206,7 +206,11 @@ func messagingIR(s *spec.Spec, api *ir.API, cat *catalog, md protoreflect.Method
 			if err != nil {
 				return fmt.Errorf("result %s: when: %w", r.Name, err)
 			}
-			if err := command.Resolve(tree, sc, "", "", ""); err != nil {
+			ws := sc
+			if r.Any { // 任一项: 项.x 可以用
+				ws.Item = itemScope(api, c.Each)
+			}
+			if err := command.Resolve(tree, ws, "", "", ""); err != nil {
 				return fmt.Errorf("result %s: when %s: %w", r.Name, r.When, err)
 			}
 			res.When = tree

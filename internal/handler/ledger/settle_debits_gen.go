@@ -25,7 +25,8 @@ func (h *Handler) SettleDebits(ctx context.Context, tx pgx.Tx, env message.Envel
 	if err := message.DecodeData(env, m); err != nil { // 解不开 / 违反契约 = 毒消息
 		return consume.Poison(err)
 	}
-	var any1 bool // 结果 ALREADY_REVERSED: 任一项 确认.status = 3
+	var any2 bool // 结果 AMOUNT_MISMATCH: 任一项 确认.amount <> 项.amount
+	var any3 bool // 结果 ALREADY_REVERSED: 任一项 确认.status = 3
 	items := slices.Clone(m.GetLines())
 	slices.SortStableFunc(items, func(a, b *ledgerv1.SettleDebitsLine) int { return cmp.Compare(a.GetAccountId(), b.GetAccountId()) }) // 按元素的键排序: 并发的处理按同一个顺序加行锁
 	err := txn.Savepoint(ctx, tx, func(ctx context.Context, tx pgx.Tx) error {                                                         // 业务结果: 回滚到这里(去重记录和结果的消息照样提交)
@@ -66,17 +67,25 @@ func (h *Handler) SettleDebits(ctx context.Context, tx pgx.Tx, env message.Envel
 					Key: []txn.Col{
 						{Name: "account_id", Value: it.GetAccountId()},
 					},
+					Cond:     txn.Cmp(">=", txn.C("held"), txn.V(txn.Later(func() any { return r1.Amount }))),
+					Unmet:    "HELD_SHORT",
 					NotFound: fmt.Sprintf("account not found (transfer %v)", m.GetTransferId()),
 				},
 				); err != nil {
 					return err
 				}
 			}
+			if int64(r1.Amount) != int64(it.GetAmount()) {
+				any2 = true
+			}
 			if int64(r1.Status) == int64(3) {
-				any1 = true
+				any3 = true
 			}
 		}
-		if any1 { // 结果 ALREADY_REVERSED
+		if any2 { // 结果 AMOUNT_MISMATCH
+			return resultError("AMOUNT_MISMATCH")
+		}
+		if any3 { // 结果 ALREADY_REVERSED
 			return resultError("ALREADY_REVERSED")
 		}
 		return nil
@@ -86,6 +95,10 @@ func (h *Handler) SettleDebits(ctx context.Context, tx pgx.Tx, env message.Envel
 		return err
 	}
 	switch result {
+	case "HELD_SHORT":
+		return consume.Poison(errors.New("HELD_SHORT: ")) // 处理: 死信(不提交,需要人处理)
+	case "AMOUNT_MISMATCH":
+		return consume.Poison(errors.New("AMOUNT_MISMATCH: 确认.amount <> 项.amount")) // 处理: 死信(不提交,需要人处理)
 	case "ALREADY_REVERSED":
 		return consume.Poison(errors.New("ALREADY_REVERSED: 确认.status = 3")) // 处理: 死信(不提交,需要人处理)
 	}
