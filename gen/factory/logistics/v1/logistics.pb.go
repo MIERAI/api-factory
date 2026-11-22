@@ -106,7 +106,7 @@ type PackedShipment struct {
 	Id int64 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
 	// 倉庫コード
 	WarehouseCode string `protobuf:"bytes,2,opt,name=warehouse_code,json=warehouseCode,proto3" json:"warehouse_code,omitempty"`
-	// 封緘済みの梱包(重い順、同じ重さは梱包番号順。最大 3 個、超える出荷があると一覧ごとエラー)
+	// 封緘済みの梱包(重い順、同じ重さは梱包番号順。最大 3 個。超える出荷が入るページはエラー、前のページは通常どおり)
 	Packages []*ShipmentPackage `protobuf:"bytes,3,rep,name=packages,proto3" json:"packages,omitempty"`
 	// 梱包の数(未封緘も含む。梱包なし = 0)
 	PackageCount int64 `protobuf:"varint,4,opt,name=package_count,json=packageCount,proto3" json:"package_count,omitempty"`

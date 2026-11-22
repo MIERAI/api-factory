@@ -39,6 +39,17 @@ jobs:
         with:
           path: .factory/reviews
           key: review-${{ github.head_ref }}-${{ github.run_id }}-${{ github.run_attempt }}
+      # 审查的结果也作为 artifact 上传: 缓存只有 CI 能读,本地 scripts/review-fetch.sh 下载这个 artifact →
+      # .factory/reviews → 本地 factory answer F1=… 回答(以前只能手写 审查.yaml)
+      - name: 审查的结果(artifact,本地 review-fetch 用)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spec-reviews
+          path: .factory/reviews
+          include-hidden-files: true   # .factory 是隐藏目录: v4.4 起默认不上传
+          if-no-files-found: ignore
+          retention-days: 14
       - name: 结果贴到 PR
         if: always()
         env: { GH_TOKEN: "${{ github.token }}" }

@@ -5,7 +5,7 @@ api:
     rpc: factory.logistics.v1.LogisticService/ListShipmentPackages
     owner: logistics-team
     risk_level: low
-    description: 出荷場の積み込み確認。封緘済みの梱包だけを重い順に積む。1 出荷の封緘済みの梱包は最大 3 個の運用で、それを超える出荷はデータの誤り → 黙って切り捨てず、一覧ごとエラーにして気づかせる
+    description: 出荷場の積み込み確認。封緘済みの梱包だけを重い順に積む。1 出荷の封緘済みの梱包は最大 3 個の運用で、それを超える出荷はデータの誤り → 黙って切り捨てず、その出荷が入るページの要求をエラーにして気づかせる(前のページは通常どおり)
 pattern:
     kind: list_keyset
     not_found_message: ""
@@ -74,9 +74,13 @@ datasource:
     sql: ""
 behavior:
     - when: ある出荷の封緘済みの梱包が 3 個を超える(運用上の上限。超えるのはデータの誤り)
-      then: その出荷が入るページの要求だけが FAILED_PRECONDITION になる(梱包を切り捨てて返さない。積み込み確認で梱包を見落とさないため)。それより前のページは通常どおり返る。倉庫を指定しても同じ出荷が含まれれば同じくエラー。運用は梱包データを直してから再取得する
+      then: その出荷が入るページの要求だけが FAILED_PRECONDITION になる(梱包を切り捨てて返さない。積み込み確認で梱包を見落とさないため)。それより前のページは通常どおり返る(「次のページあり」も通常どおり)。倉庫を指定しても同じ出荷が含まれれば同じくエラー。運用は梱包データを直してから再取得する
     - when: 封緘前の梱包
       then: packages には出さない(積み込み対象外)。package_count には含める
+    - when: 计算 sealed_weight 时
+      then: '按封緘済み梱包重量的十进制合计原样返回,小数位数等于参与合计的重量中最多的小数位数(例: 2.5 + 2.5 + 10 → "15.0";没有封緘済み梱包时 → "0")。例子 1 中出荷 1 的期待值应为 "15.0"'
+    - when: 封緘済みの梱包の重量を合計するとき
+      then: 'sealed_weight の小数点以下の桁数は、合計した梱包の重量のうち一番多い桁数に合わせる(例: 2.5 + 2.5 + 10 = "15.0"、封緘済みの梱包なし = "0")。末尾の 0 は削らない。例子の出荷 1 の sealed_weight は "15.0" に直す'
 acceptance:
     fixtures:
         packages:
@@ -196,7 +200,7 @@ acceptance:
                           package_no: 2
                           sealed_at: "2026-11-20T00:05:00Z"
                           weight: "2.5"
-                      sealed_weight: "15"
+                      sealed_weight: "15.0"
                     - first_sealed_at: $absent
                       id: 2
                       last_sealed_at: $absent
@@ -245,4 +249,10 @@ acceptance:
                 shipments: []
           steps: []
 logic_examples: []
-review_decisions: []
+review_decisions:
+    - question: '上限(3 個)を超える出荷があるとき、業務規則では「その出荷が入るページだけがエラー、前のページは通常どおり」ですが、出力 packages の説明と背景はまだ「一覧ごとエラー」のままです。どちらの意味に揃えますか?(例: 1 ページ 2 件で出荷 3 が超過 → 1 ページ目(出荷 1・2)は返る?)'
+      decision: 已经直接修改了设计书
+    - question: 出荷 1 的封緘済み梱包の重量は 2.5 + 2.5 + 10 です。sealed_weight は "15" と "15.0" のどちらで返すべきですか?
+      decision: 保持现在的行为(按数据库的十进制原样表示)
+    - question: 出荷 1 の封緘済み梱包の重量は 2.5 + 2.5 + 10 です。sealed_weight は今の作りだと "15.0" になりますが、例子は "15" です。どちらにしますか?
+      decision: 今の作りのまま(桁数はそのまま)
