@@ -201,3 +201,7 @@ scripts/trial.sh claude specs/jobs/get-job-summary/spec.yaml 3   # 开发用(快
 scripts/trial.sh local  specs/jobs/get-job-summary/spec.yaml 3   # 最终验证: 本地模型(factory.yaml 的 ai.models.local)
 ```
 结果追加到 `.factory/trials/results.jsonl`,每次的 prompt/diff/闸门/验收输出在 `.factory/trials/<run>/`。
+
+## 许可证
+
+MIT License — 见 [LICENSE](LICENSE)。使用、修改、再发布都可以,请保留版权声明(Copyright (c) 2026 Zaiqi Yang)。
