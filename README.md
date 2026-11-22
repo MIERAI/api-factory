@@ -139,7 +139,7 @@ gen/acceptance/*.yaml                 [AI 实现] factory ai(模型和角色在 
 | 错误转换、超时、日志 | `platform/` 拦截器 |
 | handler 骨架、wiring | `factory prepare` |
 | 请求↔查询↔响应的映射 | `factory prepare`(proto 描述符 + gen/db 的 AST) |
-| 分页(游标、多取一行、token 签名/绑定) | `list_keyset` 插件 + `platform/paging` |
+| 分页(游标、多取一行、token 签名/绑定) | `list_keyset` 插件 + `api-factory-runtime/paging` |
 
 ## 模型对照试验
 

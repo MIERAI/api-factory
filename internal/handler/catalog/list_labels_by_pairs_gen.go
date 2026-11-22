@@ -7,11 +7,11 @@ import (
 	"context"
 
 	"connectrpc.com/connect"
+	"github.com/MIERAI/api-factory-runtime/apierr"
+	"github.com/MIERAI/api-factory-runtime/conv"
 
 	"apifactory/gen/db"
 	catalogv1 "apifactory/gen/factory/catalog/v1"
-	"apifactory/platform/apierr"
-	"apifactory/platform/conv"
 )
 
 // ListLabelsByPairs (商品コード, ラベルコード) の組のリストを受け取り、組ごとのラベルの現在の文言を返す

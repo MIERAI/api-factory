@@ -4,7 +4,7 @@ package shop
 
 import (
 	shopv1 "apifactory/gen/factory/shop/v1"
-	"apifactory/platform/anomaly"
+	"github.com/MIERAI/api-factory-runtime/anomaly"
 )
 
 // customersTierToProto: customers.tier 的 DB 值 → proto。映射表以外的值 → UNSPECIFIED,并记录 data_anomaly_total。

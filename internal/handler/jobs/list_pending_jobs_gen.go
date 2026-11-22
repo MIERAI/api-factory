@@ -8,12 +8,12 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/MIERAI/api-factory-runtime/apierr"
+	"github.com/MIERAI/api-factory-runtime/conv"
+	"github.com/MIERAI/api-factory-runtime/paging"
 
 	"apifactory/gen/db"
 	jobsv1 "apifactory/gen/factory/jobs/v1"
-	"apifactory/platform/apierr"
-	"apifactory/platform/conv"
-	"apifactory/platform/paging"
 )
 
 // listPendingJobsCursor 是 page_token 里携带的游标(本页最后一行的 order_by 列)。

@@ -7,11 +7,11 @@ import (
 	"context"
 
 	"connectrpc.com/connect"
+	"github.com/MIERAI/api-factory-runtime/apierr"
+	"github.com/MIERAI/api-factory-runtime/conv"
 
 	"apifactory/gen/db"
 	catalogv1 "apifactory/gen/factory/catalog/v1"
-	"apifactory/platform/apierr"
-	"apifactory/platform/conv"
 )
 
 // ListRecentLabelChanges 商品コードを指定して、その商品のラベルを最後に変わった順に返す(いつ変わったかも返す)

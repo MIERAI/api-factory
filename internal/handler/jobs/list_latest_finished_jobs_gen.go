@@ -7,10 +7,10 @@ import (
 	"context"
 
 	"connectrpc.com/connect"
+	"github.com/MIERAI/api-factory-runtime/conv"
 
 	"apifactory/gen/db"
 	jobsv1 "apifactory/gen/factory/jobs/v1"
-	"apifactory/platform/conv"
 )
 
 // ListLatestFinishedJobs 任務の種類を指定して、終了時刻の新しい任務を 2 件返す

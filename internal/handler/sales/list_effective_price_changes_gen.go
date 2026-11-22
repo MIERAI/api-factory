@@ -7,11 +7,11 @@ import (
 	"context"
 
 	"connectrpc.com/connect"
+	"github.com/MIERAI/api-factory-runtime/apierr"
+	"github.com/MIERAI/api-factory-runtime/conv"
 
 	"apifactory/gen/db"
 	salesv1 "apifactory/gen/factory/sales/v1"
-	"apifactory/platform/apierr"
-	"apifactory/platform/conv"
 )
 
 // ListEffectivePriceChanges 店舗と指示日を指定して、売価が実際に変わる売価変更の指示を返す

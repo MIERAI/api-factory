@@ -7,12 +7,12 @@ import (
 	"context"
 
 	"connectrpc.com/connect"
+	"github.com/MIERAI/api-factory-runtime/apierr"
+	"github.com/MIERAI/api-factory-runtime/conv"
+	"github.com/MIERAI/api-factory-runtime/paging"
 
 	"apifactory/gen/db"
 	salesv1 "apifactory/gen/factory/sales/v1"
-	"apifactory/platform/apierr"
-	"apifactory/platform/conv"
-	"apifactory/platform/paging"
 )
 
 // listDiscountedSalesCursor 是 page_token 里携带的游标(本页最后一行的 order_by 列)。

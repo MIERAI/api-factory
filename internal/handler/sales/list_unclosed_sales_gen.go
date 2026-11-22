@@ -7,11 +7,11 @@ import (
 	"context"
 
 	"connectrpc.com/connect"
+	"github.com/MIERAI/api-factory-runtime/apierr"
+	"github.com/MIERAI/api-factory-runtime/conv"
 
 	"apifactory/gen/db"
 	salesv1 "apifactory/gen/factory/sales/v1"
-	"apifactory/platform/apierr"
-	"apifactory/platform/conv"
 )
 
 // ListUnclosedSales 指定した店舗の、まだ締めていない売上日の売上を返す

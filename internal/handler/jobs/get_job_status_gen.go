@@ -7,10 +7,10 @@ import (
 	"context"
 
 	"connectrpc.com/connect"
+	"github.com/MIERAI/api-factory-runtime/apierr"
 
 	"apifactory/gen/db"
 	jobsv1 "apifactory/gen/factory/jobs/v1"
-	"apifactory/platform/apierr"
 )
 
 // GetJobStatus 按 id 返回一个任务的处理状态

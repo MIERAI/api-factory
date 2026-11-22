@@ -7,11 +7,11 @@ import (
 	"context"
 
 	"connectrpc.com/connect"
+	"github.com/MIERAI/api-factory-runtime/apierr"
+	"github.com/MIERAI/api-factory-runtime/conv"
 
 	"apifactory/gen/db"
 	catalogv1 "apifactory/gen/factory/catalog/v1"
-	"apifactory/platform/apierr"
-	"apifactory/platform/conv"
 )
 
 // ListLabelsByLabelCodes ラベルコード(複数)を指定して、全商品のそのラベルの現在の文言を返す。商品コードの前方一致で絞れる
