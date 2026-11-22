@@ -58,7 +58,7 @@ const (
 
 // CatalogServiceClient is a client for the catalog.catalog.v1.CatalogService service.
 type CatalogServiceClient interface {
-	// 新建一个商品,返回新建的商品(状态 = 在售,版本号 = 1,由数据库的默认值决定)
+	// 新建一个商品,返回新建的商品(状态 = 在售,版本号 = 1),同时发出 catalog.product_created
 	CreateProduct(context.Context, *connect.Request[v1.CreateProductRequest]) (*connect.Response[v1.CreateProductResponse], error)
 	// 下架一个商品(状态 → 已下架)。请求带读到的版本号,版本号不一致(别人先改过)时不改
 	DiscontinueProduct(context.Context, *connect.Request[v1.DiscontinueProductRequest]) (*connect.Response[v1.DiscontinueProductResponse], error)
@@ -164,7 +164,7 @@ func (c *catalogServiceClient) UpdatePrice(ctx context.Context, req *connect.Req
 
 // CatalogServiceHandler is an implementation of the catalog.catalog.v1.CatalogService service.
 type CatalogServiceHandler interface {
-	// 新建一个商品,返回新建的商品(状态 = 在售,版本号 = 1,由数据库的默认值决定)
+	// 新建一个商品,返回新建的商品(状态 = 在售,版本号 = 1),同时发出 catalog.product_created
 	CreateProduct(context.Context, *connect.Request[v1.CreateProductRequest]) (*connect.Response[v1.CreateProductResponse], error)
 	// 下架一个商品(状态 → 已下架)。请求带读到的版本号,版本号不一致(别人先改过)时不改
 	DiscontinueProduct(context.Context, *connect.Request[v1.DiscontinueProductRequest]) (*connect.Response[v1.DiscontinueProductResponse], error)

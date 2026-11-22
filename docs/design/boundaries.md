@@ -184,9 +184,13 @@
 
 | 需要的东西 | 层 | 理由 |
 |---|---|---|
-| Dockerfile、健康检查、指标端口 | 工厂(项目模板) | 每个服务都一样,能从项目确定地推出来。已做: `factory/proj/packaging.go` 从 go.mod 生成 `Dockerfile` / `.dockerignore`(init 写、`--project` 的 prepare 重写);探针 `/livez` `/readyz` `/healthz` 和 `METRICS_PORT` 由运行时提供,镜像定为 `PORT=8080` `METRICS_PORT=9090` |
+| Dockerfile、健康检查、指标端口 | 工厂(项目模板) | 每个服务都一样,能从项目确定地推出来。已做: `factory/proj/packaging.go` 从 go.mod 生成 `Dockerfile` / `.dockerignore`(init 写、`--project` 的 prepare 重写);探针 `/livez` `/readyz` `/healthz` 和 `METRICS_PORT` 由运行时提供,镜像定为 `PORT=8080` `METRICS_PORT=9090`;R4.1: `HEALTHCHECK CMD ["/server", "probe"]`(运行时的子命令请求自己的 `/readyz`;docker / compose 用,k8s 直接探 `/readyz`) |
+| "准备好了"(拓扑声明好、消费循环订阅了才接流量) | 运行时(信号)+ 工厂(wiring 登记) | R4.1: `server.Workers.Ready` 的信号,全部满足之前 `/readyz` 503;只管启动(之后 RabbitMQ 断开不进 readiness,依赖的故障不摘流量) |
+| 服务读哪些环境变量 | 运行时(清单)+ 工厂(写进项目 README) | R4.1: `server.Env` 是唯一的来源(运行时的测试检查它和源码一致),`factory --project . prepare` 按项目生成 README 的环境变量表,不手抄 |
+| 系统级的消息拓扑(全部队列 / 绑定 / DLQ) | 工厂(生成清单)+ 平台(部署前声明) | R4.1: `factory system <目录>` 在跨项目检查之后生成 `<契约目录>/topology.json`;平台在部署服务之前执行 `factory-runtime topology apply`(k8s 的 Job / compose 的一次性容器)。服务启动时照样声明自己的队列(幂等),清单是"提前声明" |
+| 路由不到的消息 | 运行时 | R4.1 决定: 命令和事件都开 `mandatory`。退回的命令留在 outbox 重试(配置错误,不能丢);退回的事件标成已发送(不堵 outbox: `外部: 是` 的事件可能永远没有队列),但留下 `last_error`、计 `factory_outbox_unroutable_total{kind,type}`、ERROR 日志 —— 清单声明之后生产环境里不该出现,出现 = 告警 |
 | k8s 清单 | 平台 | 部署方式是平台的选择;工厂只产出镜像能用的东西 |
-| 跨服务的消息契约对得上(每条被消费的消息有发送方、字段兼容) | 工厂(跨项目的静态检查) | 工厂看得到所有项目的设计书,能检查;不需要真的跑起来 |
+| 跨服务的消息契约对得上(每条被消费的消息有发送方、字段兼容) | 工厂(跨项目的静态检查) | 工厂看得到所有项目的设计书,能检查;不需要真的跑起来。R4.1 已做: `factory system`(`factory/system`):被消费的有发送方、发出的有接收方(或 `外部: 是`)、命令恰好一个接收方、拥有者、版本、每个项目生成时的字段 = 契约目录里现在的 |
 | 多个服务真的连起来跑(saga 走完一圈) | 手写(端到端测试)+ 平台(环境) | 系统测试;工厂证明的是每个服务和契约,不是整个系统 |
 | 业务特有的逻辑 | 手写,**接口由工厂生成** | 工厂生成带类型的钩子,人只写函数体;外面的事务 / outbox / 错误码仍由工厂保证 |
 | 链路追踪 | 运行时 | 埋点写一次,所有生成的服务自动带上 |

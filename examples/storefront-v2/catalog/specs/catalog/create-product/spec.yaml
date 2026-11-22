@@ -5,9 +5,9 @@ api:
     rpc: catalog.catalog.v1.CatalogService/CreateProduct
     owner: storefront
     risk_level: medium
-    description: 商品管理画面登记新商品。SKU 由运营决定(印在包装上),重复登记要报错,不能覆盖已有的商品
+    description: 商品管理画面登记新商品。SKU 由运营决定(印在包装上),重复登记要报错,不能覆盖已有的商品。inventory 收到事件后为这个 SKU 建一条库存为 0 的记录(InitStock),之后才能入库
 pattern:
-    kind: insert
+    kind: command
     not_found_message: ""
     order_by: []
     direction: ""
@@ -15,26 +15,77 @@ pattern:
         default: 0
         max: 0
     command:
-        write:
+        ops:
+            - name: 商品
+              kind: insert
+              table: products
+              values:
+                - column: sku
+                  expr: 输入.sku
+                - column: name
+                  expr: 输入.name
+                - column: category
+                  expr: 输入.category
+                - column: price
+                  expr: 输入.price
+                - column: status
+                  expr: "1"
+                - column: version
+                  expr: "1"
+                - column: updated_at
+                  expr: now()
+        output:
             - field: sku
+              op: 商品
               column: sku
             - field: name
+              op: 商品
               column: name
             - field: category
+              op: 商品
               column: category
             - field: price
+              op: 商品
               column: price
-        set:
-            - column: updated_at
-              value: now()
+            - field: status
+              op: 商品
+              column: status
+            - field: version
+              op: 商品
+              column: version
+            - field: updated_at
+              op: 商品
+              column: updated_at
+        emit:
+            - type: catalog.product_created
+              values:
+                - column: sku
+                  expr: 商品.sku
+        contracts:
+            - type: catalog.product_created
+              kind: event
+              version: 1
+              subject: sku
+              desc: 新商品登记好了(CreateProduct)
+              proto: CatalogProductCreatedV1
+              fields:
+                - name: sku
+                  type: 文本
+                  required: true
+                  desc: SKU
+                  rules:
+                    格式: 代码
+                    长度: 3~32
 datasource:
-    table: products
+    table: ""
     filters: {}
     columns: []
     sql: ""
 behavior:
+    - when: 新的 SKU
+      then: 新建(在售,版本号 1),发出 catalog.product_created(SKU)
     - when: 同一个 SKU 已经有了(包括已下架的商品)
-      then: 已存在(ALREADY_EXISTS),什么都不写
+      then: 已存在(ALREADY_EXISTS),什么都不写、不发出
 acceptance:
     fixtures:
         products:
@@ -87,6 +138,10 @@ acceptance:
                       status: PRODUCT_STATUS_ON_SALE
                       updated_at: "2026-11-22T01:00:00Z"
                       version: 1
+          emitted:
+            - type: catalog.product_created
+              data:
+                sku: MUG-004
         - name: 已有的 SKU → 已存在,已有的商品不变
           request:
             category: coffee
@@ -100,6 +155,7 @@ acceptance:
           now: "2026-11-22T01:00:00Z"
           after:
             unchanged: true
+          emitted: []
         - name: 已下架的商品的 SKU 也不能再用
           request:
             category: coffee
@@ -113,6 +169,7 @@ acceptance:
           now: "2026-11-22T01:00:00Z"
           after:
             unchanged: true
+          emitted: []
         - name: 价格 0 可以(赠品)
           request:
             category: goods
@@ -137,5 +194,9 @@ acceptance:
                       sku: GIFT-01
                       status: PRODUCT_STATUS_ON_SALE
                       version: 1
+          emitted:
+            - type: catalog.product_created
+              data:
+                sku: GIFT-01
 logic_examples: []
 review_decisions: []
