@@ -11,25 +11,29 @@ import (
 	"apifactory/gen/factory/logistics/v1/logisticsv1connect"
 	"apifactory/gen/factory/receipts/v1/receiptsv1connect"
 	"apifactory/gen/factory/sales/v1/salesv1connect"
+	"apifactory/gen/factory/schedules/v1/schedulesv1connect"
 	"apifactory/gen/factory/shop/v1/shopv1connect"
 	cataloghandler "apifactory/internal/handler/catalog"
 	jobshandler "apifactory/internal/handler/jobs"
 	logisticshandler "apifactory/internal/handler/logistics"
 	receiptshandler "apifactory/internal/handler/receipts"
 	saleshandler "apifactory/internal/handler/sales"
+	scheduleshandler "apifactory/internal/handler/schedules"
 	shophandler "apifactory/internal/handler/shop"
 	"github.com/MIERAI/api-factory-runtime/server"
+	"github.com/MIERAI/api-factory-runtime/txn"
 )
 
 func services(deps server.Deps, opts ...connect.HandlerOption) []server.Service {
 	q := db.New(deps.Pool)
 	var out []server.Service
+	tx := txn.New(deps.Pool) // 命令(写入)的事务执行器
 	{
 		path, h := catalogv1connect.NewCatalogServiceHandler(cataloghandler.New(q, deps.Pager, deps.Shards), opts...)
 		out = append(out, server.Service{Path: path, Handler: h})
 	}
 	{
-		path, h := jobsv1connect.NewJobServiceHandler(jobshandler.New(q, deps.Pager, deps.Shards), opts...)
+		path, h := jobsv1connect.NewJobServiceHandler(jobshandler.New(q, deps.Pager, deps.Shards, tx), opts...)
 		out = append(out, server.Service{Path: path, Handler: h})
 	}
 	{
@@ -42,6 +46,10 @@ func services(deps server.Deps, opts ...connect.HandlerOption) []server.Service 
 	}
 	{
 		path, h := salesv1connect.NewSaleServiceHandler(saleshandler.New(q, deps.Pager, deps.Shards), opts...)
+		out = append(out, server.Service{Path: path, Handler: h})
+	}
+	{
+		path, h := schedulesv1connect.NewScheduleServiceHandler(scheduleshandler.New(q, deps.Pager, deps.Shards, tx), opts...)
 		out = append(out, server.Service{Path: path, Handler: h})
 	}
 	{

@@ -171,5 +171,19 @@ run "整数日期: 前月ではなく当月(月初 - 1 个月 が抜けた)" $YM
 SN=gen/db/catalog.search-products-by-name.sql.go
 run "包含: 前缀匹配になった"                      $SN "s/LIKE '%' \|\| replace/LIKE replace/"
 run "包含: % の转义なし(通配符)"                 $SN "s/, '%', '\\\\%'\)/, '%', '%')/"
+# 命令工厂(R3-1): 生成的写代码。每个变异都要被 ≥3 个状态差分的请求抓到(factory/accept/command_diff.go)
+UJ=internal/handler/schedules/update_job_schedule_gen.go
+SE=internal/handler/schedules/commands_gen.go
+CJ=internal/handler/jobs/create_job_gen.go
+DJ=internal/handler/jobs/delete_job_gen.go
+CE=internal/handler/jobs/commands_gen.go
+run "命令: 去掉版本检查(乐观锁)"                 $UJ 's/\n\s+Version:\s+&txn\.Col\{Name: "version", Value: m\.GetVersion\(\)\},//'
+run "命令: 版本号不加 1"                         $UJ 's/\n\s+txn\.Incr1\("version"\),//'
+run "命令: 不存在 / 版本冲突 的错误码对调"        $SE 's/(case txn\.NotFound:\n\s+return connect\.NewError\()connect\.CodeNotFound(.*?case txn\.Conflict:[^\n]*\n\s+return connect\.NewError\()connect\.CodeAborted/${1}connect.CodeAborted${2}connect.CodeNotFound/s'
+run "命令: 唯一约束冲突的错误码写错(→ INVALID_ARGUMENT)" $CE 's/(case txn\.Unique:\n\s+return connect\.NewError\()connect\.CodeAlreadyExists/${1}connect.CodeInvalidArgument/'
+run "命令: 返回更新前的行(旧的版本号)"           $UJ 's/Version:(\s+)row\.Version,/Version:${1}m.GetVersion(),/'
+run "命令: 更新漏写一列(enabled)"                $UJ 's/\n\s+\{Name: "enabled", Value: m\.GetEnabled\(\)\},//'
+run "命令: 可选的输入不传时写成空值(不是默认值)" $CJ 's/if v := m\.JobType; v != nil \{\n(\s+)values = append\(values, txn\.Col\{Name: "job_type", Value: \*v\}\)\n\s+\}/values = append(values, txn.Col{Name: "job_type", Value: m.GetJobType()})/'
+run "命令: 删除的键写错"                         $DJ 's/\{Name: "id", Value: m\.GetJobId\(\)\}/{Name: "id", Value: m.GetJobId() + 1}/'
 [[ -n ${PLAN:-} ]] && exit 0
 go build -o bin/server ./cmd/server; git status --short

@@ -93,6 +93,9 @@ func Run(plan *ir.Plan) error {
 		}
 	}
 	for _, svc := range services {
+		if err := writeCommandErrors(svc); err != nil {
+			return err
+		}
 		var ms []*enumMapping
 		for _, m := range enumsBySvc[svc.HandlerPath] {
 			ms = append(ms, m)
@@ -115,7 +118,7 @@ func LogicFile(api *ir.API) string {
 func newGenCtx(plan *ir.Plan, api *ir.API, services []service, dbp *dbPackage) (*genCtx, service, error) {
 	svc := serviceFor(services, api.ProtoPackage, api.Service)
 	q, ok := dbp.funcs[api.Query.Name]
-	if !ok {
+	if !ok && api.Command == nil { // 命令没有查询(写操作作为数据,command.go)
 		return nil, svc, fmt.Errorf("%s: gen/db has no query %s", api.SpecPath, api.Query.Name)
 	}
 	segs := strings.Split(api.ProtoPackage, ".")
@@ -157,6 +160,7 @@ type service struct {
 	ConnectPkg   string // jobsv1connect
 	ConnectPath  string // apifactory/gen/factory/jobs/v1/jobsv1connect
 	HandlerPath  string // apifactory/internal/handler/jobs
+	Commands     bool   // 有命令(写入)的 API: Handler 带事务执行器,commands_gen.go
 }
 
 func serviceFor(services []service, pkg, name string) service {
@@ -169,6 +173,12 @@ func serviceFor(services []service, pkg, name string) service {
 }
 
 func servicesFrom(plan *ir.Plan) []service {
+	commands := map[string]bool{}
+	for _, a := range plan.APIs {
+		if a.Command != nil {
+			commands[a.ProtoPackage+"."+a.Service] = true
+		}
+	}
 	var out []service
 	for _, s := range plan.Services {
 		segs := strings.Split(s.ProtoPackage, ".")
@@ -180,6 +190,7 @@ func servicesFrom(plan *ir.Plan) []service {
 			ConnectPkg:   connectPkg,
 			ConnectPath:  modulePath + "/gen/" + strings.Join(segs, "/") + "/" + connectPkg,
 			HandlerPath:  modulePath + "/internal/handler/" + s.Domain,
+			Commands:     commands[s.ProtoPackage+"."+s.Name],
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ConnectPath < out[j].ConnectPath })
@@ -197,6 +208,9 @@ import (
 	"{{module}}/gen/db"
 	"github.com/MIERAI/api-factory-runtime/paging"
 	"github.com/MIERAI/api-factory-runtime/shard"
+{{- if .Commands}}
+	"github.com/MIERAI/api-factory-runtime/txn"
+{{- end}}
 )
 
 // Handler 实现 {{.ConnectPkg}}.{{.Service}}Handler。
@@ -206,10 +220,13 @@ type Handler struct {
 	q      *db.Queries
 	pager  *paging.Pager
 	shards *shard.Router
+{{- if .Commands}}
+	tx     *txn.Executor // 命令(写入)的事务执行器
+{{- end}}
 }
 
-func New(q *db.Queries, pager *paging.Pager, shards *shard.Router) *Handler {
-	return &Handler{q: q, pager: pager, shards: shards}
+func New(q *db.Queries, pager *paging.Pager, shards *shard.Router{{if .Commands}}, tx *txn.Executor{{end}}) *Handler {
+	return &Handler{q: q, pager: pager, shards: shards{{if .Commands}}, tx: tx{{end}}}
 }
 
 // at: 分库的表 —— 按分库键(店铺代码等)选连接。没有配置分库时就是主库
@@ -236,7 +253,10 @@ import (
 
 	"{{module}}/gen/db"
 	"github.com/MIERAI/api-factory-runtime/server"
-{{- range .}}
+{{- if .Commands}}
+	"github.com/MIERAI/api-factory-runtime/txn"
+{{- end}}
+{{- range .Services}}
 	"{{.ConnectPath}}"
 	{{.Domain}}handler "{{.HandlerPath}}"
 {{- end}}
@@ -245,9 +265,12 @@ import (
 func services(deps server.Deps, opts ...connect.HandlerOption) []server.Service {
 	q := db.New(deps.Pool)
 	var out []server.Service
-{{- range .}}
+{{- if .Commands}}
+	tx := txn.New(deps.Pool) // 命令(写入)的事务执行器
+{{- end}}
+{{- range .Services}}
 	{
-		path, h := {{.ConnectPkg}}.New{{.Service}}Handler({{.Domain}}handler.New(q, deps.Pager, deps.Shards), opts...)
+		path, h := {{.ConnectPkg}}.New{{.Service}}Handler({{.Domain}}handler.New(q, deps.Pager, deps.Shards{{if .Commands}}, tx{{end}}), opts...)
 		out = append(out, server.Service{Path: path, Handler: h})
 	}
 {{- end}}
@@ -256,7 +279,14 @@ func services(deps server.Deps, opts ...connect.HandlerOption) []server.Service 
 `))
 
 func writeWiring(services []service) error {
-	return render(wiringTmpl, services, "cmd/server/wiring_gen.go")
+	data := struct {
+		Services []service
+		Commands bool
+	}{Services: services}
+	for _, s := range services {
+		data.Commands = data.Commands || s.Commands
+	}
+	return render(wiringTmpl, data, "cmd/server/wiring_gen.go")
 }
 
 func render(t *template.Template, data any, path string) error {

@@ -397,6 +397,9 @@ type Input struct {
 	Desc        string
 	Filter      string // "created_at 大于等于"
 	Encoding    string // 编码: YYYYMMDD(整数的输入当作日期: 派生参数里可以算月初 / 加减;不合法的日期 → 参数错误)
+	Write       string // 命令: 写入的列
+	Key         string // 命令: 主键的列(按键更新 / 按键删除)
+	Lock        string // 命令: 乐观锁的版本列
 	Line        int
 	Group       []*Input // 类型 组列表: 一个组的字段(名字 = 列名;组里的字段都要指定)
 }
@@ -531,7 +534,8 @@ func loadAPI(path string) (*API, error) {
 	for _, p := range pairs(get(root, "输入")) {
 		checkKeys(e, p.Val, "输入 "+p.Key, append(InputKeys(), constraints.Keys()...)...)
 		in := &Input{Name: p.Key, Type: str(p.Val, "类型"), Required: str(p.Val, "必填") == "是",
-			Desc: str(p.Val, "说明"), Filter: str(p.Val, "筛选"), Encoding: str(p.Val, "编码"), Line: p.Line, Constraints: map[string]string{}}
+			Desc: str(p.Val, "说明"), Filter: str(p.Val, "筛选"), Encoding: str(p.Val, "编码"), Line: p.Line, Constraints: map[string]string{},
+			Write: str(p.Val, "写入"), Key: str(p.Val, "键"), Lock: str(p.Val, "乐观锁")}
 		for _, k := range constraints.Keys() {
 			if v := str(p.Val, k); v != "" {
 				in.Constraints[k] = v
@@ -606,7 +610,7 @@ func loadAPI(path string) (*API, error) {
 	if c := get(get(root, "例子"), "用例"); c != nil {
 		a.Cases = c.Content
 		for _, x := range c.Content {
-			checkKeys(e, x, "用例", "说明", "输入", "结果", "现在")
+			checkKeys(e, x, "用例", "说明", "输入", "结果", "现在", "错误", "之后")
 		}
 	}
 	if c := get(root, "计算例子"); c != nil {
@@ -766,7 +770,9 @@ func strOrList(n *yaml.Node) []string {
 func LookupKeys() []string { return []string{"表", "条件", "列", "找不到时"} }
 
 // InputKeys: 输入可以写的键(约束的键另外由 factory/constraints 决定)。
-func InputKeys() []string { return []string{"类型", "必填", "说明", "筛选", "组", "编码"} }
+func InputKeys() []string {
+	return []string{"类型", "必填", "说明", "筛选", "组", "编码", "写入", "键", "乐观锁"}
+}
 
 // EncodingYMD: 整数编码的日期(20260131 = 2026-01-31)。列(领域的 列: { 编码 })和输入(编码)都可以写。
 const EncodingYMD = "YYYYMMDD"

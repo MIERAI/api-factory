@@ -57,6 +57,9 @@ func Reference() (string, error) {
 	ex := exits.All()
 	sort.Slice(ex, func(i, j int) bool { return ex[i].Kind < ex[j].Kind })
 	for _, e := range ex {
+		if e.Command { // 命令: 下面单独一节
+			continue
+		}
 		card := map[string]string{"one": "一行", "many": "多行"}[e.Cardinality]
 		if card == "" || e.Cell == "" { // 自定义: 由 AI 决定
 			card = "—"
@@ -67,6 +70,8 @@ func Reference() (string, error) {
 		}
 		row(e.Name, "`"+e.Kind+"`", card, code(e.DesignKeys), ai)
 	}
+
+	commandReference(w, row, code)
 
 	w("\n## 数据来源(领域的 存储)\n\n不写 = 普通的表。\n\n")
 	row("存储", "内部名", "领域里另外的键", "字段的键", "取数的流水线")
@@ -108,7 +113,7 @@ func Reference() (string, error) {
 		row(t.Name, "`"+t.ID+"`", base, "`"+t.Proto+"`", "`"+sql+"`", pat)
 	}
 
-	w("\n## 输入的键\n\n%s(必填: 是 / 否;筛选: `列 单元`,见下)。约束:\n\n", code(InputKeys()))
+	w("\n## 输入的键\n\n%s(必填: 是 / 否;筛选: `列 单元`,见下;写入 / 键 / 乐观锁: 命令的输入,见「命令」)。约束:\n\n", code(InputKeys()))
 	for _, f := range constraints.Forms() {
 		w("- `%s`\n", f)
 	}
@@ -181,4 +186,40 @@ func Reference() (string, error) {
 	}
 	w("\n`不超过 N 天` 用于两个时间或两个日期。\n")
 	return b.String(), nil
+}
+
+// commandReference: 命令(命令工厂,R3-1)的一节。
+func commandReference(w func(string, ...any), row func(...string), code func([]string) string) {
+	w("\n## 命令(命令工厂: 写入)\n\n")
+	w("写一张表的一行。handler 全部由工厂生成(AI 不写): 校验 → 写操作作为数据 → 运行时的事务执行器在一个事务里执行(READ COMMITTED)→ 失败的原因 → 错误码。")
+	w("`数据来源` = 写的表;`输出` = 写之后的行的列(新建 / 更新: 写之后的行;删除: 删除的行;不能改名)。\n\n")
+	row("种类", "内部名", "做什么", "另外的键")
+	row("---", "---", "---", "---")
+	desc := map[string]string{
+		"insert": "插入一行,返回插入的行(含数据库生成的列: 默认值、序号)",
+		"update": "按主键更新 `写入` 的列和 `设置` 的列;有 `乐观锁` 时 `WHERE 版本 = 请求的值`,版本 + 1",
+		"delete": "按主键删除(物理删除;逻辑删除用 按键更新 + 设置 表达)",
+	}
+	for _, e := range exits.All() {
+		if e.Command {
+			row(e.Name, "`"+e.Kind+"`", desc[e.Kind], code(e.DesignKeys))
+		}
+	}
+	w("\n```yaml\n种类: 按键更新\n数据来源: products\n输入:\n  sku:     { 类型: 文本,       必填: 是, 长度: 3~32, 格式: 代码, 键: sku }\n")
+	w("  price:   { 类型: 非负十进制, 必填: 是, 写入: price }\n  version: { 类型: 整数32,     必填: 是, 范围: \"> 0\", 乐观锁: version }\n")
+	w("设置: { updated_at: 现在 }\n找不到时: \"product not found: {sku}\"\n```\n\n")
+	w("- 输入: 每个输入写 `写入: 列` / `键: 列` / `乐观锁: 列` 中的一个(不写 `筛选`)。`键` 必须正好是表的主键(按键更新 / 按键删除);新建的主键用 `写入`\n")
+	w("- `乐观锁`: 整数的版本列,必填。版本号不一致 → `ABORTED`(⚖️ D1,待确认);行不存在 → `NOT_FOUND`(同一个事务里再读一次来区分)\n")
+	w("- 按键更新 的 `写入` 必须是 必填(不传 = 不改 的部分更新还不支持);新建 的可以不传: 不传 = 不写这一列(数据库的默认值)\n")
+	w("- `设置: { 列: 值 }`: 不来自请求的值。`现在` = 请求开始的时刻(时间的列;用到时 `例子` 要写 `现在`);枚举的列写值名(`DISCONTINUED`);其他写字面值\n")
+	w("- `找不到时`: 行不存在时的消息(`{输入名}` 换成请求的值),按键更新 / 按键删除 必填\n")
+	w("- 数据库的错误: 唯一约束 → `ALREADY_EXISTS`;CHECK / NOT NULL → `INVALID_ARGUMENT`(请求的校验漏了规则: 同时计入 `write_rejected_total`);外键 → `FAILED_PRECONDITION`;序列化失败 / 死锁 → 重试 3 次之后 `ABORTED`\n")
+	w("- 输入的约束要覆盖表的 CHECK(例: `CHECK (sku ~ '^[A-Z0-9-]+$')` → `格式: 代码`,`CHECK (price >= 0)` → `非负十进制`): 不覆盖时自动生成的边界用例和状态差分测试会失败\n")
+	w("- 还不支持(R3-2 以后): 组合命令(一个请求多个写操作)、条件更新(`条件` + 业务原因码)、幂等新建、批量写、写之后发事件\n\n")
+	w("例子的用例: `结果`(成功时的输出)或 `错误`(%s,或者直接写错误码)二选一,加上必填的 `之后`:\n\n", "`找不到` / `版本冲突` / `已存在` / `参数错误` / `前提不满足`")
+	w("```yaml\n用例:\n  - 说明: 版本号一致 → 改价格,版本号加 1\n    输入: { sku: \"BEAN-001\", price: \"1300\", version: 3 }\n")
+	w("    结果: { price: \"1300\", version: 4 }\n    之后:\n      products:\n        - { sku: \"BEAN-001\", price: 1300, version: 4 }\n")
+	w("  - 说明: 版本号是旧的 → 版本冲突,什么都不写\n    输入: { sku: \"BEAN-001\", price: \"1300\", version: 2 }\n    错误: 版本冲突\n    之后: 不变\n```\n\n")
+	w("- `之后: 不变` = 所有的表和请求之前一样;`之后: { 表: [行, …] }` = 这张表之后的**全部的行**(按主键对应,只比较写出来的列,主键必须写),没写出的表不变。`不设置` = 空值\n")
+	w("- 每个用例都从 `准备数据` 的状态开始。另外工厂自动跑状态差分测试: 随机的初始状态 + 随机的请求序列(现有 / 不存在的键,对 / 错的版本号,新 / 已有的键),每个请求之后比较响应和表的完整状态(参考 = 内存里的模型状态)\n")
 }

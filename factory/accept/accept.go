@@ -81,6 +81,14 @@ func Run(ctx context.Context, baseURL, fixturesDB string, plan *ir.Plan, specs [
 			return nil, fmt.Errorf("%s fixtures: %w", s.ID(), err)
 		}
 		url := fmt.Sprintf("%s/%s.%s/%s", strings.TrimRight(baseURL, "/"), api.ProtoPackage, api.Service, api.Method)
+		if api.Command != nil { // 命令: 每个用例从 fixtures 开始 + 之后的状态 + 状态差分测试(command.go)
+			rs, err := runCommand(ctx, d, url, plan, api, s)
+			if err != nil {
+				return nil, err
+			}
+			results = append(results, rs...)
+			continue
+		}
 		out := &api.Response
 		// 用到 now() 的 API: 没有固定 now 的用例(自动生成的校验用例)用第一个人写用例的 now(结果才可复现)
 		defaultNow := ""

@@ -545,6 +545,68 @@
     ]
   },
   {
+    "id": "jobs.create-job",
+    "method": "CreateJob",
+    "summary": "登记一个新的任务,返回登记的任务(含数据库生成的创建时间)",
+    "path": "/factory.jobs.v1.JobService/CreateJob",
+    "pattern": "insert",
+    "cases": [
+      {
+        "name": "新的 id → 登记",
+        "request": {
+          "id": 8,
+          "job_type": "import"
+        },
+        "response": {
+          "id": 8,
+          "job_type": "import",
+          "status": "JOB_STATUS_PENDING"
+        }
+      },
+      {
+        "name": "不传任务类型 → 数据库的默认值 default",
+        "request": {
+          "id": 9
+        },
+        "response": {
+          "id": 9,
+          "job_type": "default",
+          "status": "JOB_STATUS_PENDING"
+        }
+      }
+    ]
+  },
+  {
+    "id": "jobs.delete-job",
+    "method": "DeleteJob",
+    "summary": "删除一个任务(物理删除),返回删除的任务",
+    "path": "/factory.jobs.v1.JobService/DeleteJob",
+    "pattern": "delete",
+    "cases": [
+      {
+        "name": "删除 → 返回删除的任务,别的任务不变",
+        "request": {
+          "job_id": 7
+        },
+        "response": {
+          "id": 7,
+          "job_type": "export",
+          "status": "JOB_STATUS_PENDING"
+        }
+      },
+      {
+        "name": "已经结束的任务也可以删除",
+        "request": {
+          "job_id": 8
+        },
+        "response": {
+          "id": 8,
+          "status": "JOB_STATUS_FAILED"
+        }
+      }
+    ]
+  },
+  {
     "id": "jobs.get-job-status",
     "method": "GetJobStatus",
     "summary": "按 id 返回一个任务的处理状态",
@@ -2571,6 +2633,46 @@
         },
         "response": {
           "daily_sales": []
+        }
+      }
+    ]
+  },
+  {
+    "id": "schedules.update-job-schedule",
+    "method": "UpdateJobSchedule",
+    "summary": "改一个任务类型的定时设置(执行的时刻、是否启用)。请求带读到的版本号,版本号不一致(别人先改过)时不改",
+    "path": "/factory.schedules.v1.ScheduleService/UpdateJobSchedule",
+    "pattern": "update",
+    "cases": [
+      {
+        "name": "版本号一致 → 改设置,版本号加 1,更新时间 = 请求的时刻",
+        "request": {
+          "cron": "0 4 * * *",
+          "enabled": false,
+          "job_type": "export",
+          "version": 2
+        },
+        "response": {
+          "cron": "0 4 * * *",
+          "enabled": false,
+          "job_type": "export",
+          "updated_at": "2026-11-22T01:00:00Z",
+          "version": 3
+        }
+      },
+      {
+        "name": "设置和现在一样 → 照常更新(版本号加 1,更新时间 = 请求的时刻)",
+        "request": {
+          "cron": "0 3 * * *",
+          "enabled": true,
+          "job_type": "export",
+          "version": 2
+        },
+        "response": {
+          "cron": "0 3 * * *",
+          "enabled": true,
+          "updated_at": "2026-11-22T01:00:00Z",
+          "version": 3
         }
       }
     ]

@@ -72,6 +72,49 @@ type Pattern struct {
 	PickPerGroup    *PickPerGroup  `yaml:"pick_per_group,omitempty"` // list_all: 筛选之后每组取一条
 	Group           *GroupBy       `yaml:"group,omitempty"`          // 多条 / 前N条 / 一览: 筛选之后分组聚合(之后的列 = 键 + 聚合)
 	Rank            *RankBy        `yaml:"rank,omitempty"`           // 分组之后的名次(RANK(): 并列同名次,下一个名次跳过)
+	Command         *Command       `yaml:"command,omitempty"`        // 命令(写入: insert / update / delete;命令工厂 R3)
+}
+
+// Command: 命令工厂的一个写操作(R3-1: 新建 / 按键更新 / 按键删除)。表 = datasource.table。
+//   - Key: 主键的列 ← 请求字段(update / delete;必须正好是表的主键)
+//   - Write: 写入的列 ← 请求字段(insert 的值 / update 的 SET)
+//   - Lock: 乐观锁的版本列 ← 请求字段(update / delete;WHERE 版本 = 请求的值,update 时版本 + 1)
+//   - Set: 不来自请求的值(固定值 / now() = 请求开始的时刻)
+//
+// R3-2 的扩展点: Cond(条件更新)、Idempotent(幂等新建)、Ops(组合命令: 多个写操作)加在这里。
+type Command struct {
+	Key   []Binding `yaml:"key,omitempty"`
+	Write []Binding `yaml:"write,omitempty"`
+	Lock  *Binding  `yaml:"lock,omitempty"`
+	Set   []SetCol  `yaml:"set,omitempty"`
+}
+
+// Binding: 请求字段 → 列。
+type Binding struct {
+	Field  string `yaml:"field"`
+	Column string `yaml:"column"`
+}
+
+// SetCol: 列 = 固定值。Value: "now()" = 请求开始的时刻;其他 = 字面值(枚举写 proto 的值名)。
+type SetCol struct {
+	Column string `yaml:"column"`
+	Value  string `yaml:"value"`
+}
+
+// NowValue: SetCol.Value 的"请求开始的时刻"。
+const NowValue = "now()"
+
+// UsesNow: 命令的值用到请求开始的时刻(例子要固定 现在)。
+func (c *Command) UsesNow() bool {
+	if c == nil {
+		return false
+	}
+	for _, s := range c.Set {
+		if s.Value == NowValue {
+			return true
+		}
+	}
+	return false
 }
 
 // GroupBy: 按 keys 分组(NULL 是一组),每组一行 = 键 + 聚合。没有输入行 → 没有输出行。
@@ -228,6 +271,15 @@ type Case struct {
 	// Now: 请求开始的时刻(RFC 3339)。用到 now() 的 API 的用例必须固定它: 验收执行器发请求头 X-Factory-Now,
 	// 服务器只在 FACTORY_TEST_CLOCK=1(测试环境)时认这个头
 	Now string `yaml:"now,omitempty"`
+	// After: 命令的用例: 请求之后的数据(命令工厂;只看响应验证不了写操作)。每个用例从 fixtures 的状态开始
+	After *After `yaml:"after,omitempty"`
+}
+
+// After: 请求之后的状态。Unchanged = 所有表和请求之前一样;否则 Tables 里写出的表 = 之后的全部行
+// (按主键对应,只比较写出来的列),没写出的表和请求之前一样。
+type After struct {
+	Unchanged bool                        `yaml:"unchanged,omitempty"`
+	Tables    map[string][]map[string]any `yaml:"tables,omitempty"`
 }
 
 type Step struct {
