@@ -206,6 +206,170 @@ func (x *GetPaymentByOrderResponse) GetFound() bool {
 	return false
 }
 
+// 记录一个订单的扣款结果。同一个订单再次记录时不再写,返回第一次的结果
+type RecordChargeRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 订单号(扣款的幂等键)
+	OrderId int64 `protobuf:"varint,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
+	// 金额
+	Amount string `protobuf:"bytes,2,opt,name=amount,proto3" json:"amount,omitempty"`
+	// 扣款的结果
+	Status PaymentStatus `protobuf:"varint,3,opt,name=status,proto3,enum=payment.payment.v1.PaymentStatus" json:"status,omitempty"`
+	// 失败的原因(成功时不传)
+	Reason        *string `protobuf:"bytes,4,opt,name=reason,proto3,oneof" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecordChargeRequest) Reset() {
+	*x = RecordChargeRequest{}
+	mi := &file_payment_payment_v1_payment_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecordChargeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecordChargeRequest) ProtoMessage() {}
+
+func (x *RecordChargeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_payment_payment_v1_payment_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecordChargeRequest.ProtoReflect.Descriptor instead.
+func (*RecordChargeRequest) Descriptor() ([]byte, []int) {
+	return file_payment_payment_v1_payment_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *RecordChargeRequest) GetOrderId() int64 {
+	if x != nil {
+		return x.OrderId
+	}
+	return 0
+}
+
+func (x *RecordChargeRequest) GetAmount() string {
+	if x != nil {
+		return x.Amount
+	}
+	return ""
+}
+
+func (x *RecordChargeRequest) GetStatus() PaymentStatus {
+	if x != nil {
+		return x.Status
+	}
+	return PaymentStatus_PAYMENT_STATUS_UNSPECIFIED
+}
+
+func (x *RecordChargeRequest) GetReason() string {
+	if x != nil && x.Reason != nil {
+		return *x.Reason
+	}
+	return ""
+}
+
+// 记录一个订单的扣款结果。同一个订单再次记录时不再写,返回第一次的结果
+type RecordChargeResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 订单号
+	OrderId int64 `protobuf:"varint,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
+	// 金额
+	Amount string `protobuf:"bytes,2,opt,name=amount,proto3" json:"amount,omitempty"`
+	// 扣款的结果
+	Status PaymentStatus `protobuf:"varint,3,opt,name=status,proto3,enum=payment.payment.v1.PaymentStatus" json:"status,omitempty"`
+	// 失败的原因
+	Reason *string `protobuf:"bytes,4,opt,name=reason,proto3,oneof" json:"reason,omitempty"`
+	// 第一次记录的时间(数据库的时钟)
+	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	// 这次是不是新记录的(重复的请求 = false)
+	Created       bool `protobuf:"varint,6,opt,name=created,proto3" json:"created,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecordChargeResponse) Reset() {
+	*x = RecordChargeResponse{}
+	mi := &file_payment_payment_v1_payment_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecordChargeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecordChargeResponse) ProtoMessage() {}
+
+func (x *RecordChargeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_payment_payment_v1_payment_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecordChargeResponse.ProtoReflect.Descriptor instead.
+func (*RecordChargeResponse) Descriptor() ([]byte, []int) {
+	return file_payment_payment_v1_payment_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *RecordChargeResponse) GetOrderId() int64 {
+	if x != nil {
+		return x.OrderId
+	}
+	return 0
+}
+
+func (x *RecordChargeResponse) GetAmount() string {
+	if x != nil {
+		return x.Amount
+	}
+	return ""
+}
+
+func (x *RecordChargeResponse) GetStatus() PaymentStatus {
+	if x != nil {
+		return x.Status
+	}
+	return PaymentStatus_PAYMENT_STATUS_UNSPECIFIED
+}
+
+func (x *RecordChargeResponse) GetReason() string {
+	if x != nil && x.Reason != nil {
+		return *x.Reason
+	}
+	return ""
+}
+
+func (x *RecordChargeResponse) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *RecordChargeResponse) GetCreated() bool {
+	if x != nil {
+		return x.Created
+	}
+	return false
+}
+
 var File_payment_payment_v1_payment_proto protoreflect.FileDescriptor
 
 const file_payment_payment_v1_payment_proto_rawDesc = "" +
@@ -220,13 +384,31 @@ const file_payment_payment_v1_payment_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x14\n" +
 	"\x05found\x18\x05 \x01(\bR\x05foundB\t\n" +
+	"\a_reason\"\xe2\x01\n" +
+	"\x13RecordChargeRequest\x12\"\n" +
+	"\border_id\x18\x01 \x01(\x03B\a\xbaH\x04\"\x02 \x00R\aorderId\x12,\n" +
+	"\x06amount\x18\x02 \x01(\tB\x14\xbaH\x11r\x0f2\r^\\d+(\\.\\d+)?$R\x06amount\x12E\n" +
+	"\x06status\x18\x03 \x01(\x0e2!.payment.payment.v1.PaymentStatusB\n" +
+	"\xbaH\a\x82\x01\x04\x10\x01 \x00R\x06status\x12'\n" +
+	"\x06reason\x18\x04 \x01(\tB\n" +
+	"\xbaH\ar\x05\x10\x01\x18\xc8\x01H\x00R\x06reason\x88\x01\x01B\t\n" +
+	"\a_reason\"\x81\x02\n" +
+	"\x14RecordChargeResponse\x12\x19\n" +
+	"\border_id\x18\x01 \x01(\x03R\aorderId\x12\x16\n" +
+	"\x06amount\x18\x02 \x01(\tR\x06amount\x129\n" +
+	"\x06status\x18\x03 \x01(\x0e2!.payment.payment.v1.PaymentStatusR\x06status\x12\x1b\n" +
+	"\x06reason\x18\x04 \x01(\tH\x00R\x06reason\x88\x01\x01\x129\n" +
+	"\n" +
+	"created_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x18\n" +
+	"\acreated\x18\x06 \x01(\bR\acreatedB\t\n" +
 	"\a_reason*h\n" +
 	"\rPaymentStatus\x12\x1e\n" +
 	"\x1aPAYMENT_STATUS_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18PAYMENT_STATUS_SUCCEEDED\x10\x01\x12\x19\n" +
-	"\x15PAYMENT_STATUS_FAILED\x10\x022\x82\x01\n" +
+	"\x15PAYMENT_STATUS_FAILED\x10\x022\xe5\x01\n" +
 	"\x0ePaymentService\x12p\n" +
-	"\x11GetPaymentByOrder\x12,.payment.payment.v1.GetPaymentByOrderRequest\x1a-.payment.payment.v1.GetPaymentByOrderResponseBPZNgithub.com/MIERAI/storefront/services/payment/gen/payment/payment/v1;paymentv1b\x06proto3"
+	"\x11GetPaymentByOrder\x12,.payment.payment.v1.GetPaymentByOrderRequest\x1a-.payment.payment.v1.GetPaymentByOrderResponse\x12a\n" +
+	"\fRecordCharge\x12'.payment.payment.v1.RecordChargeRequest\x1a(.payment.payment.v1.RecordChargeResponseBPZNgithub.com/MIERAI/storefront/services/payment/gen/payment/payment/v1;paymentv1b\x06proto3"
 
 var (
 	file_payment_payment_v1_payment_proto_rawDescOnce sync.Once
@@ -241,23 +423,30 @@ func file_payment_payment_v1_payment_proto_rawDescGZIP() []byte {
 }
 
 var file_payment_payment_v1_payment_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_payment_payment_v1_payment_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_payment_payment_v1_payment_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_payment_payment_v1_payment_proto_goTypes = []any{
 	(PaymentStatus)(0),                // 0: payment.payment.v1.PaymentStatus
 	(*GetPaymentByOrderRequest)(nil),  // 1: payment.payment.v1.GetPaymentByOrderRequest
 	(*GetPaymentByOrderResponse)(nil), // 2: payment.payment.v1.GetPaymentByOrderResponse
-	(*timestamppb.Timestamp)(nil),     // 3: google.protobuf.Timestamp
+	(*RecordChargeRequest)(nil),       // 3: payment.payment.v1.RecordChargeRequest
+	(*RecordChargeResponse)(nil),      // 4: payment.payment.v1.RecordChargeResponse
+	(*timestamppb.Timestamp)(nil),     // 5: google.protobuf.Timestamp
 }
 var file_payment_payment_v1_payment_proto_depIdxs = []int32{
 	0, // 0: payment.payment.v1.GetPaymentByOrderResponse.status:type_name -> payment.payment.v1.PaymentStatus
-	3, // 1: payment.payment.v1.GetPaymentByOrderResponse.created_at:type_name -> google.protobuf.Timestamp
-	1, // 2: payment.payment.v1.PaymentService.GetPaymentByOrder:input_type -> payment.payment.v1.GetPaymentByOrderRequest
-	2, // 3: payment.payment.v1.PaymentService.GetPaymentByOrder:output_type -> payment.payment.v1.GetPaymentByOrderResponse
-	3, // [3:4] is the sub-list for method output_type
-	2, // [2:3] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	5, // 1: payment.payment.v1.GetPaymentByOrderResponse.created_at:type_name -> google.protobuf.Timestamp
+	0, // 2: payment.payment.v1.RecordChargeRequest.status:type_name -> payment.payment.v1.PaymentStatus
+	0, // 3: payment.payment.v1.RecordChargeResponse.status:type_name -> payment.payment.v1.PaymentStatus
+	5, // 4: payment.payment.v1.RecordChargeResponse.created_at:type_name -> google.protobuf.Timestamp
+	1, // 5: payment.payment.v1.PaymentService.GetPaymentByOrder:input_type -> payment.payment.v1.GetPaymentByOrderRequest
+	3, // 6: payment.payment.v1.PaymentService.RecordCharge:input_type -> payment.payment.v1.RecordChargeRequest
+	2, // 7: payment.payment.v1.PaymentService.GetPaymentByOrder:output_type -> payment.payment.v1.GetPaymentByOrderResponse
+	4, // 8: payment.payment.v1.PaymentService.RecordCharge:output_type -> payment.payment.v1.RecordChargeResponse
+	7, // [7:9] is the sub-list for method output_type
+	5, // [5:7] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_payment_payment_v1_payment_proto_init() }
@@ -266,13 +455,15 @@ func file_payment_payment_v1_payment_proto_init() {
 		return
 	}
 	file_payment_payment_v1_payment_proto_msgTypes[1].OneofWrappers = []any{}
+	file_payment_payment_v1_payment_proto_msgTypes[2].OneofWrappers = []any{}
+	file_payment_payment_v1_payment_proto_msgTypes[3].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_payment_payment_v1_payment_proto_rawDesc), len(file_payment_payment_v1_payment_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   2,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

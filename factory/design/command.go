@@ -41,6 +41,10 @@ func (c *ctx) commandBindings(a *API, table string, e *errs) {
 		cmd = &spec.Command{}
 		a.Pattern.Command = cmd
 	}
+	if a.Kind == "command" { // 组合命令(R3-2): 输入只是值,操作里引用(composite.go)
+		c.compositeOps(a, e)
+		return
+	}
 	if len(a.Where) > 0 || len(a.Lookups)+len(a.Nests)+len(a.ChildAggs) > 0 || len(a.Derived) > 0 {
 		e.add(1, "%s: 命令只写一张表,不能写 固定条件 / 关联 / 嵌套 / 子聚合 / 派生参数", a.Exit.Name)
 	}
@@ -244,6 +248,9 @@ func (c *ctx) commandCase(a *API, resp *message, n *yaml.Node) (spec.Expect, *sp
 			return ex, nil, fmt.Errorf("第 %d 行: 错误 %q 无法识别(找不到 / 版本冲突 / 已存在 / 参数错误 / 前提不满足,或者错误码)", er.Line, w)
 		}
 		ex = spec.Expect{Code: code}
+		if exits.IsReasonCode(a.Pattern.Command, w) { // 条件更新的业务原因码: FAILED_PRECONDITION + 消息以原因码开头
+			ex = spec.Expect{Code: "FAILED_PRECONDITION", MessageContains: w + ":"}
+		}
 	case res != nil:
 		var err error
 		if ex, err = c.expect(resp, "", res); err != nil {

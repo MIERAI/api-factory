@@ -266,6 +266,33 @@ func (t *Table) KeyOf(r Row) string {
 	return strings.Join(parts, "|")
 }
 
+// genKey: 主键里有数据库生成的值(新建的行,序号还不知道)。
+func (t *Table) genKey(r Row) bool {
+	for _, c := range t.PK {
+		if _, g := r[c].(Gen); g {
+			return true
+		}
+	}
+	return false
+}
+
+// keyLess: 主键的顺序(整数按数值;序号 = 插入的顺序)。
+func (t *Table) keyLess(a, b Row) bool {
+	for _, c := range t.PK {
+		x, y := fmt.Sprint(a[c]), fmt.Sprint(b[c])
+		if x == y {
+			continue
+		}
+		nx, ex := strconv.ParseInt(x, 10, 64)
+		ny, ey := strconv.ParseInt(y, 10, 64)
+		if ex == nil && ey == nil {
+			return nx < ny
+		}
+		return x < y
+	}
+	return false
+}
+
 // Diff: 两份状态(模型 vs 数据库)的差别。按主键对应,比较全部的列;模型的生成值和数据库的任何不为空的值相等。
 // 返回差别的说明(一致 → "")。adopt = true 时,模型的生成值换成数据库的值。
 func Diff(t *Table, model, db []Row, adopt bool) string {
@@ -275,14 +302,7 @@ func Diff(t *Table, model, db []Row, adopt bool) string {
 	}
 	var out []string
 	seen := map[string]bool{}
-	for _, m := range model {
-		k := t.KeyOf(m)
-		seen[k] = true
-		d, ok := byKey[k]
-		if !ok {
-			out = append(out, fmt.Sprintf("%s[%s]: 模型有、数据库没有", t.Name, k))
-			continue
-		}
+	compare := func(k string, m, d Row) {
 		for _, c := range t.Cols {
 			if !Equal(m[c.Name], d[c.Name]) {
 				out = append(out, fmt.Sprintf("%s[%s].%s: 模型 %s,数据库 %s", t.Name, k, c.Name, Show(m[c.Name]), Show(d[c.Name])))
@@ -291,10 +311,37 @@ func Diff(t *Table, model, db []Row, adopt bool) string {
 			}
 		}
 	}
+	var pending []Row // 主键是数据库生成的(序号)新的行: 和数据库里剩下的行按序号的顺序对应
+	for _, m := range model {
+		if t.genKey(m) {
+			pending = append(pending, m)
+			continue
+		}
+		k := t.KeyOf(m)
+		seen[k] = true
+		d, ok := byKey[k]
+		if !ok {
+			out = append(out, fmt.Sprintf("%s[%s]: 模型有、数据库没有", t.Name, k))
+			continue
+		}
+		compare(k, m, d)
+	}
+	var rest []Row
 	for _, d := range db {
 		if k := t.KeyOf(d); !seen[k] {
-			out = append(out, fmt.Sprintf("%s[%s]: 数据库有、模型没有", t.Name, k))
+			rest = append(rest, d)
 		}
+	}
+	sort.SliceStable(rest, func(i, j int) bool { return t.keyLess(rest[i], rest[j]) })
+	for i, m := range pending {
+		if i >= len(rest) {
+			out = append(out, fmt.Sprintf("%s[%s]: 模型有(新的行)、数据库没有", t.Name, t.KeyOf(m)))
+			continue
+		}
+		compare(t.KeyOf(rest[i]), m, rest[i])
+	}
+	for _, d := range rest[min(len(pending), len(rest)):] {
+		out = append(out, fmt.Sprintf("%s[%s]: 数据库有、模型没有", t.Name, t.KeyOf(d)))
 	}
 	sort.Strings(out)
 	if len(out) > 4 {

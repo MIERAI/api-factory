@@ -45,6 +45,8 @@ func WithServer(ctx context.Context, serverBin, databaseURL, logPath string, cmd
 	}
 	// 测试时钟: 请求头 X-Factory-Now 固定 now()(用例和参考求值器用同一个时刻)。生产环境不设置 → 请求头被忽略
 	env = append(env, "FACTORY_TEST_CLOCK=1")
+	// 故障注入: 请求头 X-Factory-Fail-After: k 让写操作在第 k 个之后失败(命令工厂的原子性测试)。生产环境不设置 → 请求头被忽略
+	env = append(env, "FACTORY_TEST_FAULTS=1")
 	if spec := os.Getenv("FACTORY_SHARDS"); spec != "" { // 分库也一样不用索引扫描
 		rules, err := shard.Parse(spec)
 		if err != nil {

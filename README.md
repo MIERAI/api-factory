@@ -10,7 +10,7 @@
 | 生产线 | 状态 | 对象 |
 |---|---|---|
 | **查询工厂**(本仓库) | 开发中 | 只读、同步请求/响应、单表 + 多对一的关联 + 一对多的嵌套 / 子聚合 + 分组聚合 |
-| **命令工厂**(本仓库) | R3-1 完成(R3-2 计划) | 写入: 校验 → 写操作作为数据 → 运行时在一个事务里执行 → 失败的原因 → 错误码。R3-1: 新建 / 按键更新 / 按键删除 + 乐观锁(设计 `docs/design/r3-command-factory.md`)。R3-2: 组合命令、条件更新、幂等新建、故障注入、并发 |
+| **命令工厂**(本仓库) | R3 完成 | 写入: 校验 → 写操作作为数据 → 运行时在一个事务里执行 → 失败的原因 → 错误码。R3-1: 新建 / 按键更新 / 按键删除 + 乐观锁;R3-2: 组合命令(多个写操作一个事务,引用前面的返回值)、条件更新(业务原因码)、幂等新建(设计 `docs/design/r3-command-factory.md`)。验证: 状态差分 + 故障注入 + 并发不变量 + 重放 |
 | IF 工厂 | 候选 | 文件布局 ↔ 表(编码、定长、补零),golden file / 往返判定 |
 
 **查询工厂不适用**: 写入(→ 命令工厂)、多表 JOIN、分组聚合(`分组` / `排名`: 件数 / 合计 / 最小 / 最大 / RANK)以外的复杂查询(→ `datasource.sql` 逃生口)、
@@ -163,6 +163,7 @@ gen/acceptance/*.yaml                 [AI 实现] factory ai(模型和角色在 
 | `compute` | 工厂(映射 + 查询 + 调用逻辑) | 纯函数 `<method>Logic(req, rows)` | GetJobSummary |
 | `custom` | AI(逃生口) | 整个 handler | — |
 | `insert` / `update` / `delete`(命令) | 工厂(写操作作为数据 → `api-factory-runtime/txn` 的事务执行器;乐观锁、错误映射) | 无 | CreateJob、DeleteJob、UpdateJobSchedule |
+| `command`(组合命令: 条件更新 / 幂等新建 / 多个写操作) | 工厂(操作的列表 → 一个事务;`条件` + 业务原因码、`幂等新建`、`操作名.列`) | 无 | ConsumeJobQuota、StartJobRun、SubmitJobRequest |
 
 映射默认按名字自动对应(`job_type` ↔ `JobType`),对不上时在 `pattern.mapping` 里写。
 
@@ -174,7 +175,9 @@ gen/acceptance/*.yaml                 [AI 实现] factory ai(模型和角色在 
 - **验收** `factory accept`: 按式样书灌 fixture、通过 Connect HTTP/JSON 调用、比对 code 和响应。与运行时语言无关
 - **命令的验收**: 每个用例从 fixture 的状态开始,比对 code、响应和 `之后` 的状态;**状态差分测试**: 随机的初始状态 + 随机的请求序列,
   每个请求之后比较响应和表的完整状态,参考 = 内存里的模型状态(`factory/command`,不看 SQL 和生成的代码);
-  覆盖条件: 成功 / 不存在 / 版本冲突 / 唯一约束冲突 各 ≥4 次
+  覆盖条件: 成功 / 不存在 / 版本冲突 / 唯一约束冲突 各 ≥4 次。组合命令: 多表的随机初始状态,每个操作的成功和每种失败(条件不满足、幂等命中 …)各 ≥4 次;
+  所有命令另外: **故障注入**(第 k 个写操作之后失败 → 状态 = 请求之前,每个 k)、**并发**(同一个请求同时 8 个: 成功次数 ≤ 串行执行的次数、
+  状态 = 串行执行的状态;乐观锁的重读循环没有丢失的更新;幂等新建只有一行)、**重放**(只有幂等新建的命令: 3 次 = 1 次)
 
 ## 不交给 AI 的东西(确定性处理)
 
@@ -188,7 +191,7 @@ gen/acceptance/*.yaml                 [AI 实现] factory ai(模型和角色在 
 | 请求↔查询↔响应的映射 | `factory prepare`(proto 描述符 + gen/db 的 AST) |
 | 分页(游标、多取一行、token 签名/绑定) | `list_keyset` 插件 + `api-factory-runtime/paging` |
 | 查询里的"现在"(派生参数的 `现在`) | `api-factory-runtime/clock`(请求开始的时刻;测试时 `FACTORY_TEST_CLOCK=1` + 请求头 `X-Factory-Now` 固定) |
-| 写操作的事务、"没有更新"的原因(不存在 / 版本冲突)、数据库错误的分类、序列化失败的重试 | `api-factory-runtime/txn`(v0.3.0;READ COMMITTED;测试用的故障注入 `FACTORY_TEST_FAULTS=1` + `X-Factory-Fail-After`) |
+| 写操作的事务、"没有更新"的原因(不存在 / 版本冲突)、数据库错误的分类、序列化失败的重试 | `api-factory-runtime/txn`(v0.4.1;READ COMMITTED;条件更新、幂等新建、`Later`;测试用的故障注入 `FACTORY_TEST_FAULTS=1` + `X-Factory-Fail-After`) |
 | 写操作失败的原因 → 错误码 | 生成的 `commands_gen.go`(每个服务一个) |
 
 ## 模型对照试验

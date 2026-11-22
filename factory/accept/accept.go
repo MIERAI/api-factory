@@ -198,6 +198,42 @@ func loadFixtures(ctx context.Context, d *dbs, plan *ir.Plan, fixtures map[strin
 				return fmt.Errorf("insert %v: %w", row, err)
 			}
 		}
+		if sh == nil {
+			if err := syncIdentity(ctx, d.main, table); err != nil {
+				return fmt.Errorf("fixture %s: %w", table, err)
+			}
+		}
+	}
+	return nil
+}
+
+// syncIdentity: 序号的列(identity / serial)的下一个值 = 准备数据里的最大值 + 1(空表 = 1)。
+// 命令的例子里数据库生成的序号才是确定的(之后: 新的行的 id 可以写出来),不随前面的用例变。
+func syncIdentity(ctx context.Context, conn *pgx.Conn, table string) error {
+	rows, err := conn.Query(ctx, `SELECT a.attname, pg_get_serial_sequence($1, a.attname) FROM pg_attribute a
+		WHERE a.attrelid = $1::regclass AND a.attnum > 0 AND NOT a.attisdropped AND pg_get_serial_sequence($1, a.attname) IS NOT NULL`,
+		pgx.Identifier{table}.Sanitize())
+	if err != nil {
+		return err
+	}
+	var cols, seqs []string
+	for rows.Next() {
+		var c, s string
+		if err := rows.Scan(&c, &s); err != nil {
+			rows.Close()
+			return err
+		}
+		cols, seqs = append(cols, c), append(seqs, s)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for i, c := range cols {
+		q := fmt.Sprintf("SELECT setval($1, coalesce((SELECT max(%s) FROM %s), 0) + 1, false)", pgx.Identifier{c}.Sanitize(), pgx.Identifier{table}.Sanitize())
+		if _, err := conn.Exec(ctx, q, seqs[i]); err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -1,5 +1,57 @@
 [
   {
+    "id": "inventory.adjust-stock",
+    "method": "AdjustStock",
+    "summary": "调整一个 SKU 的可售数量(入库、盘点、报损),同时写一条调整的审计记录。调整之后可售数量会小于 0 时不调整",
+    "path": "/inventory.inventory.v1.InventoryService/AdjustStock",
+    "pattern": "command",
+    "cases": [
+      {
+        "name": "入库 → 可售数量增加,版本号加 1,写审计记录(数据库生成 id = 6)",
+        "request": {
+          "delta": 5,
+          "reason": "ADJUSTMENT_REASON_RECEIVED",
+          "sku": "BEAN-001"
+        },
+        "response": {
+          "adjusted_at": "2026-11-22T01:00:00Z",
+          "adjustment_id": 6,
+          "available": 15,
+          "reserved": 2,
+          "sku": "BEAN-001",
+          "version": 4
+        }
+      },
+      {
+        "name": "报损到正好 0 → 调整",
+        "request": {
+          "delta": -10,
+          "reason": "ADJUSTMENT_REASON_DAMAGED",
+          "sku": "BEAN-001"
+        },
+        "response": {
+          "adjustment_id": 6,
+          "available": 0,
+          "version": 4
+        }
+      },
+      {
+        "name": "盘点没有差异(0)→ 照样记录",
+        "request": {
+          "delta": 0,
+          "reason": "ADJUSTMENT_REASON_STOCKTAKE",
+          "sku": "BAG-002"
+        },
+        "response": {
+          "adjustment_id": 6,
+          "available": 0,
+          "sku": "BAG-002",
+          "version": 2
+        }
+      }
+    ]
+  },
+  {
     "id": "inventory.get-stock",
     "method": "GetStock",
     "summary": "返回一个 SKU 的可售数量和已预留数量",

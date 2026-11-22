@@ -6,6 +6,7 @@ syntax = "proto3";
 package inventory.inventory.v1;
 
 import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/MIERAI/storefront/services/inventory/gen/inventory/inventory/v1;inventoryv1";
 
@@ -20,13 +21,53 @@ enum ReservationStatus {
   RESERVATION_STATUS_RELEASED = 3;
 }
 
+// 库存调整的原因
+enum AdjustmentReason {
+  ADJUSTMENT_REASON_UNSPECIFIED = 0;
+  // 入库
+  ADJUSTMENT_REASON_RECEIVED = 1;
+  // 盘点
+  ADJUSTMENT_REASON_STOCKTAKE = 2;
+  // 报损
+  ADJUSTMENT_REASON_DAMAGED = 3;
+}
+
 // 库存数量和订单的预留
 service InventoryService {
+  // 调整一个 SKU 的可售数量(入库、盘点、报损),同时写一条调整的审计记录。调整之后可售数量会小于 0 时不调整
+  rpc AdjustStock(AdjustStockRequest) returns (AdjustStockResponse);
+
   // 返回一个 SKU 的可售数量和已预留数量
   rpc GetStock(GetStockRequest) returns (GetStockResponse);
 
   // 返回指定的多个 SKU 的库存,按 SKU 排序。没有记录的 SKU 不出现在结果里
   rpc ListStockBySkus(ListStockBySkusRequest) returns (ListStockBySkusResponse);
+}
+
+// 调整一个 SKU 的可售数量(入库、盘点、报损),同时写一条调整的审计记录。调整之后可售数量会小于 0 时不调整
+message AdjustStockRequest {
+  // SKU
+  string sku = 1 [(buf.validate.field).string.pattern = "^[A-Z0-9-]+$", (buf.validate.field).string.min_len = 3, (buf.validate.field).string.max_len = 32];
+  // 调整量(+ 入库,- 出库 / 报损;0 = 盘点没有差异)
+  int32 delta = 2 [(buf.validate.field).int32.gte = -100000, (buf.validate.field).int32.lte = 100000];
+  // 调整的原因
+  AdjustmentReason reason = 3 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+}
+
+// 调整一个 SKU 的可售数量(入库、盘点、报损),同时写一条调整的审计记录。调整之后可售数量会小于 0 时不调整
+message AdjustStockResponse {
+  // SKU
+  string sku = 1;
+  // 调整之后的可售数量
+  int32 available = 2;
+  // 已预留数量(不变)
+  int32 reserved = 3;
+  // 调整之后的版本号(+ 1)
+  int32 version = 4;
+  // 审计记录的 id(数据库生成)
+  int64 adjustment_id = 5;
+  // 调整的时间(= 请求的时刻)
+  google.protobuf.Timestamp adjusted_at = 6;
 }
 
 // 返回一个 SKU 的可售数量和已预留数量

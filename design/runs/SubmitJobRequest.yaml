@@ -1,0 +1,56 @@
+# ============================================================================
+# SubmitJobRequest: 登记任务的执行请求(命令: 组合命令,一个幂等新建)
+# ============================================================================
+API: SubmitJobRequest
+说明: 登记一个任务的执行请求。同一个请求 id 再次提交时不再登记,返回第一次登记的内容
+背景: 调用方在超时、断线后会重新提交同一个请求(带同一个请求 id)。重复提交不能登记两次,也不能报错(调用方分不清第一次到底成功了没有)
+负责人: platform-team
+风险: 中
+
+种类: 组合命令
+
+输入:
+  request_id: { 类型: 文本,   必填: 是, 长度: 8~64, 格式: 代码, 说明: "请求 id(调用方生成,重复提交时相同)" }
+  job_type:   { 类型: 文本,   必填: 是, 长度: 1~64, 说明: 任务类型 }
+  priority:   { 类型: 整数32, 必填: 是, 范围: 1~9,  说明: 优先级 }
+
+操作:
+  - 登记:
+      幂等新建: job_requests
+      键: [request_id]
+      值: { request_id: 输入.request_id, job_type: 输入.job_type, priority: 输入.priority, received_at: 现在 }
+
+输出:                             # 登记的内容(重复提交时 = 第一次登记的)
+  request_id:  { 说明: 请求 id, 来自: 登记.request_id }
+  job_type:    { 说明: 任务类型, 来自: 登记.job_type }
+  priority:    { 说明: 优先级, 来自: 登记.priority }
+  received_at: { 说明: 第一次收到的时间, 来自: 登记.received_at }
+  created:     { 说明: 这次是不是新登记的(重复提交 = false), 来自: 登记.新建 }
+
+业务规则:
+  - 情况: 同一个请求 id 已经登记过
+    结果: 不再登记,不报错,返回第一次登记的内容(任务类型、优先级、收到的时间都是第一次的),created = false
+  - 情况: 同一个请求 id、但任务类型或优先级和第一次不同
+    结果: 同上(按请求 id 判断是不是同一个请求;内容不同说明调用方的 bug,不在这里检查)
+
+例子:
+  现在: "2026-11-22 10:00"
+  准备数据:
+    job_requests:
+      - { request_id: "REQ-0001", job_type: export, priority: 5, received_at: "2026-11-21 09:00" }
+  用例:
+    - 说明: 新的请求 id → 登记,created = true
+      输入: { request_id: "REQ-0002", job_type: import, priority: 3 }
+      结果: { request_id: "REQ-0002", job_type: import, priority: 3, received_at: "2026-11-22 10:00", created: true }
+      之后:
+        job_requests:
+          - { request_id: "REQ-0001", job_type: export, priority: 5 }
+          - { request_id: "REQ-0002", job_type: import, priority: 3, received_at: "2026-11-22 10:00" }
+    - 说明: 重复提交 → 不再登记,返回第一次的内容,created = false
+      输入: { request_id: "REQ-0001", job_type: export, priority: 5 }
+      结果: { request_id: "REQ-0001", job_type: export, priority: 5, received_at: "2026-11-21 09:00", created: false }
+      之后: 不变
+    - 说明: 同一个请求 id、内容不同 → 仍然返回第一次的内容
+      输入: { request_id: "REQ-0001", job_type: import, priority: 9 }
+      结果: { request_id: "REQ-0001", job_type: export, priority: 5, received_at: "2026-11-21 09:00", created: false }
+      之后: 不变

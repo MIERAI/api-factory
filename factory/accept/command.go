@@ -57,12 +57,22 @@ func runCommand(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.
 			}
 		}
 	}
-	return append(results, runCommandDiff(ctx, d, url, plan, api)...), nil
+	if api.Command.Op == "command" { // 组合命令(R3-2): 状态差分 + 故障注入 + 并发 + 重放(command_prog.go)
+		return append(results, runProg(ctx, d, url, plan, api, true)...), nil
+	}
+	results = append(results, runCommandDiff(ctx, d, url, plan, api)...)
+	return append(results, runProg(ctx, d, url, plan, api, false)...), nil // R3-1 的命令: 故障注入 + 并发
 }
 
 // commandTables: 用例要看的表 = 命令写的表 + 准备数据 / 之后 里出现的表。
 func commandTables(ctx context.Context, conn *pgx.Conn, api *ir.API, fixtures map[string][]map[string]any, cases []spec.Case) (map[string]*command.Table, error) {
-	names := map[string]bool{api.Command.Table: true}
+	names := map[string]bool{}
+	if api.Command.Table != "" {
+		names[api.Command.Table] = true
+	}
+	for _, op := range api.Command.Ops { // 组合命令: 写的每张表
+		names[op.Table] = true
+	}
 	for t := range fixtures {
 		names[t] = true
 	}

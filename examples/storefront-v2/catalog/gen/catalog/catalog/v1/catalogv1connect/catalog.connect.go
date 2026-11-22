@@ -48,6 +48,9 @@ const (
 	// CatalogServiceListProductsProcedure is the fully-qualified name of the CatalogService's
 	// ListProducts RPC.
 	CatalogServiceListProductsProcedure = "/catalog.catalog.v1.CatalogService/ListProducts"
+	// CatalogServiceReactivateProductProcedure is the fully-qualified name of the CatalogService's
+	// ReactivateProduct RPC.
+	CatalogServiceReactivateProductProcedure = "/catalog.catalog.v1.CatalogService/ReactivateProduct"
 	// CatalogServiceUpdatePriceProcedure is the fully-qualified name of the CatalogService's
 	// UpdatePrice RPC.
 	CatalogServiceUpdatePriceProcedure = "/catalog.catalog.v1.CatalogService/UpdatePrice"
@@ -63,6 +66,8 @@ type CatalogServiceClient interface {
 	GetProduct(context.Context, *connect.Request[v1.GetProductRequest]) (*connect.Response[v1.GetProductResponse], error)
 	// 返回某个分类下在售的商品,按 SKU 排序,分页
 	ListProducts(context.Context, *connect.Request[v1.ListProductsRequest]) (*connect.Response[v1.ListProductsResponse], error)
+	// 把一个已下架的商品重新上架(状态 → 在售)。只有已下架的商品才能上架;请求带读到的版本号,版本号不一致时不改
+	ReactivateProduct(context.Context, *connect.Request[v1.ReactivateProductRequest]) (*connect.Response[v1.ReactivateProductResponse], error)
 	// 调整一个商品的售价。请求带读到的版本号,版本号不一致(别人先改过)时不改
 	UpdatePrice(context.Context, *connect.Request[v1.UpdatePriceRequest]) (*connect.Response[v1.UpdatePriceResponse], error)
 }
@@ -102,6 +107,12 @@ func NewCatalogServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(catalogServiceMethods.ByName("ListProducts")),
 			connect.WithClientOptions(opts...),
 		),
+		reactivateProduct: connect.NewClient[v1.ReactivateProductRequest, v1.ReactivateProductResponse](
+			httpClient,
+			baseURL+CatalogServiceReactivateProductProcedure,
+			connect.WithSchema(catalogServiceMethods.ByName("ReactivateProduct")),
+			connect.WithClientOptions(opts...),
+		),
 		updatePrice: connect.NewClient[v1.UpdatePriceRequest, v1.UpdatePriceResponse](
 			httpClient,
 			baseURL+CatalogServiceUpdatePriceProcedure,
@@ -117,6 +128,7 @@ type catalogServiceClient struct {
 	discontinueProduct *connect.Client[v1.DiscontinueProductRequest, v1.DiscontinueProductResponse]
 	getProduct         *connect.Client[v1.GetProductRequest, v1.GetProductResponse]
 	listProducts       *connect.Client[v1.ListProductsRequest, v1.ListProductsResponse]
+	reactivateProduct  *connect.Client[v1.ReactivateProductRequest, v1.ReactivateProductResponse]
 	updatePrice        *connect.Client[v1.UpdatePriceRequest, v1.UpdatePriceResponse]
 }
 
@@ -140,6 +152,11 @@ func (c *catalogServiceClient) ListProducts(ctx context.Context, req *connect.Re
 	return c.listProducts.CallUnary(ctx, req)
 }
 
+// ReactivateProduct calls catalog.catalog.v1.CatalogService.ReactivateProduct.
+func (c *catalogServiceClient) ReactivateProduct(ctx context.Context, req *connect.Request[v1.ReactivateProductRequest]) (*connect.Response[v1.ReactivateProductResponse], error) {
+	return c.reactivateProduct.CallUnary(ctx, req)
+}
+
 // UpdatePrice calls catalog.catalog.v1.CatalogService.UpdatePrice.
 func (c *catalogServiceClient) UpdatePrice(ctx context.Context, req *connect.Request[v1.UpdatePriceRequest]) (*connect.Response[v1.UpdatePriceResponse], error) {
 	return c.updatePrice.CallUnary(ctx, req)
@@ -155,6 +172,8 @@ type CatalogServiceHandler interface {
 	GetProduct(context.Context, *connect.Request[v1.GetProductRequest]) (*connect.Response[v1.GetProductResponse], error)
 	// 返回某个分类下在售的商品,按 SKU 排序,分页
 	ListProducts(context.Context, *connect.Request[v1.ListProductsRequest]) (*connect.Response[v1.ListProductsResponse], error)
+	// 把一个已下架的商品重新上架(状态 → 在售)。只有已下架的商品才能上架;请求带读到的版本号,版本号不一致时不改
+	ReactivateProduct(context.Context, *connect.Request[v1.ReactivateProductRequest]) (*connect.Response[v1.ReactivateProductResponse], error)
 	// 调整一个商品的售价。请求带读到的版本号,版本号不一致(别人先改过)时不改
 	UpdatePrice(context.Context, *connect.Request[v1.UpdatePriceRequest]) (*connect.Response[v1.UpdatePriceResponse], error)
 }
@@ -190,6 +209,12 @@ func NewCatalogServiceHandler(svc CatalogServiceHandler, opts ...connect.Handler
 		connect.WithSchema(catalogServiceMethods.ByName("ListProducts")),
 		connect.WithHandlerOptions(opts...),
 	)
+	catalogServiceReactivateProductHandler := connect.NewUnaryHandler(
+		CatalogServiceReactivateProductProcedure,
+		svc.ReactivateProduct,
+		connect.WithSchema(catalogServiceMethods.ByName("ReactivateProduct")),
+		connect.WithHandlerOptions(opts...),
+	)
 	catalogServiceUpdatePriceHandler := connect.NewUnaryHandler(
 		CatalogServiceUpdatePriceProcedure,
 		svc.UpdatePrice,
@@ -206,6 +231,8 @@ func NewCatalogServiceHandler(svc CatalogServiceHandler, opts ...connect.Handler
 			catalogServiceGetProductHandler.ServeHTTP(w, r)
 		case CatalogServiceListProductsProcedure:
 			catalogServiceListProductsHandler.ServeHTTP(w, r)
+		case CatalogServiceReactivateProductProcedure:
+			catalogServiceReactivateProductHandler.ServeHTTP(w, r)
 		case CatalogServiceUpdatePriceProcedure:
 			catalogServiceUpdatePriceHandler.ServeHTTP(w, r)
 		default:
@@ -231,6 +258,10 @@ func (UnimplementedCatalogServiceHandler) GetProduct(context.Context, *connect.R
 
 func (UnimplementedCatalogServiceHandler) ListProducts(context.Context, *connect.Request[v1.ListProductsRequest]) (*connect.Response[v1.ListProductsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("catalog.catalog.v1.CatalogService.ListProducts is not implemented"))
+}
+
+func (UnimplementedCatalogServiceHandler) ReactivateProduct(context.Context, *connect.Request[v1.ReactivateProductRequest]) (*connect.Response[v1.ReactivateProductResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("catalog.catalog.v1.CatalogService.ReactivateProduct is not implemented"))
 }
 
 func (UnimplementedCatalogServiceHandler) UpdatePrice(context.Context, *connect.Request[v1.UpdatePriceRequest]) (*connect.Response[v1.UpdatePriceResponse], error) {

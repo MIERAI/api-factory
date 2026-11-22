@@ -7,6 +7,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/MIERAI/api-factory-runtime/txn"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 )
 
 // writeError: 写操作失败的原因(运行时 txn 的分类)→ 错误码(命令工厂设计稿 §3.2 / §3.3)。
@@ -29,6 +30,12 @@ func writeError(err error) error {
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New(e.Msg))
 	case txn.Retry: // 序列化失败 / 死锁,重试之后仍然失败
 		return connect.NewError(connect.CodeAborted, errors.New(e.Msg))
+	case txn.Unmet: // 条件更新的条件不成立: FAILED_PRECONDITION + 设计稿里声明的业务原因码
+		ce := connect.NewError(connect.CodeFailedPrecondition, errors.New(e.Msg))
+		if d, derr := connect.NewErrorDetail(&errdetails.ErrorInfo{Reason: e.Code, Domain: "catalog.catalog.v1"}); derr == nil {
+			ce.AddDetail(d)
+		}
+		return ce
 	}
 	return err
 }
