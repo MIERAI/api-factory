@@ -1,0 +1,44 @@
+# 由设计编译器维护,不要手改。proto 的字段编号对外发布后不能变: 只追加,删掉的字段编号保留(reserved)
+字段编号:
+    CategorySale:
+        category: 2
+        lines: 4
+        max_discount: 6
+        min_discount: 5
+        store_code: 1
+        total: 3
+    ListCategorySalesRequest:
+        store_codes: 1
+    ListCategorySalesResponse:
+        categories: 1
+    ListStoreLineRankingRequest:
+        date_from: 1
+    ListStoreLineRankingResponse:
+        stores: 1
+    ListStoreSalesTotalsRequest:
+        category: 3
+        date_from: 4
+        page_size: 1
+        page_token: 2
+    ListStoreSalesTotalsResponse:
+        next_page_token: 2
+        stores: 1
+    ListTopLineStoresRequest:
+        sales_date: 1
+    ListTopLineStoresResponse:
+        stores: 1
+    StoreLineRank:
+        lines: 2
+        quantity: 3
+        rank: 4
+        store_code: 1
+    StoreLineTotal:
+        lines: 3
+        store_code: 1
+        total: 2
+    StoreSalesTotal:
+        first_date: 4
+        lines: 3
+        max_discount: 5
+        store_code: 1
+        total: 2

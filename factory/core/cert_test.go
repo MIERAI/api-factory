@@ -62,13 +62,13 @@ var certDomain = map[string][]any{
 const certRows = 60
 
 type certEnv struct {
-	t    *testing.T
-	ctx  context.Context
-	conn *pgx.Conn
-	rows []Row
-	n    int
-	// others: lookup 的对方的表(表名 → 行)
-	others map[string][]Row
+	t      *testing.T
+	ctx    context.Context
+	conn   *pgx.Conn
+	rows   []Row
+	n      int
+	others map[string][]Row // lookup / nest 的对方的表(表名 → 行)
+	extra  map[string][]Row // 另外的表(group 的精度 / 溢出用)
 }
 
 func TestCertification(t *testing.T) {
@@ -340,6 +340,8 @@ func TestCertification(t *testing.T) {
 	for _, ps := range []Params{{}, {"cg": int64(1)}, {"cg": int64(2)}, {"cg": int64(3)}} {
 		env.check(fmt.Sprintf("两层每组取一条 + 游标 %v", ps), two, ps)
 	}
+	// 13. group(分组聚合)/ rank(名次)。聚合的规则在 agg.go(child_agg 共用)
+	certGroup(env, all)
 	// 12. 格式错 → 两边都报错
 	env.insert(Row{"k": int64(1000), "g": int64(1), "t": "a", "j": `{"n": "abc", "d": "x", "b": "maybe", "dt": "2026/13/01"}`})
 	for _, f := range []struct {
@@ -389,6 +391,9 @@ func TestCertification(t *testing.T) {
 func (e *certEnv) tables() map[string][]Row {
 	m := map[string][]Row{"c": e.rows}
 	for k, v := range e.others {
+		m[k] = v
+	}
+	for k, v := range e.extra {
 		m[k] = v
 	}
 	return m

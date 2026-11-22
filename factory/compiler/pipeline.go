@@ -95,8 +95,12 @@ func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []re
 	if !ok || ex.Cell == "" {
 		return nil, fmt.Errorf("模式 %s 没有对应的套装", s.PatternKind())
 	}
+	grouped, err := GroupedColumns(table, view.tables[table], s.Pattern.Group, s.Pattern.Rank) // 分组键可以是关联加的列
+	if err != nil {
+		return nil, err
+	}
 	if ex.Parts != nil {
-		if err := ex.Parts(s, partsCtx{table, view}, &parts, p); err != nil {
+		if err := ex.Parts(s, partsCtx{table, view, grouped}, &parts, p); err != nil { // view: 加了关联 / 子聚合的列
 			return nil, err
 		}
 	}
@@ -208,15 +212,85 @@ func sqlKind(sqlType string) (core.Kind, bool) {
 
 // partsCtx: 出口生成流水线部件时用(exits.PartsCtx)。
 type partsCtx struct {
-	table string
-	cat   *catalog
+	table   string
+	cat     *catalog
+	grouped []catColumn // 分组之后的列(没有分组 → nil): 出口看到的列是这些
 }
 
 func (x partsCtx) ColumnKind(col string) (core.Kind, error) {
+	if x.grouped != nil {
+		for _, c := range x.grouped {
+			if c.Name == col {
+				t, err := coreType(x.table, c)
+				return t.Kind, err
+			}
+		}
+		return "", fmt.Errorf("列 %s 不在分组之后的列里(分组键 / 聚合 / 名次)", col)
+	}
 	c, ok := x.cat.column(x.table, col)
 	if !ok {
 		return "", fmt.Errorf("列 %s 不在 %s 里", col, x.table)
 	}
 	t, err := coreType(x.table, c)
 	return t.Kind, err
+}
+
+// GroupedColumns: 分组(+ 名次)之后的列 = 分组键(表的列)+ 聚合(类型由核心决定: core.AggType)+ 名次(int8)。
+// 没有分组 → nil。设计编译器(响应字段的类型)和编译器(SELECT 的列 / 游标的类型)共用。
+func GroupedColumns(table string, cols []Column, g *spec.GroupBy, r *spec.RankBy) ([]Column, error) {
+	if g == nil {
+		return nil, nil
+	}
+	find := func(name string) (Column, bool) {
+		for _, c := range cols {
+			if c.Name == name {
+				return c, true
+			}
+		}
+		return Column{}, false
+	}
+	var out []Column
+	var errs []string
+	for _, k := range g.Keys {
+		c, ok := find(k)
+		if !ok {
+			errs = append(errs, fmt.Sprintf("分组键 %s 不是 %s 的列", k, table))
+			continue
+		}
+		out = append(out, c)
+	}
+	for _, a := range g.Aggs {
+		var col *core.Type
+		if a.Column != "" {
+			c, ok := find(a.Column)
+			if !ok {
+				errs = append(errs, fmt.Sprintf("%s: 列 %s 不是 %s 的列", a.Name, a.Column, table))
+				continue
+			}
+			t, err := coreType(table, c)
+			if err != nil {
+				errs = append(errs, fmt.Sprintf("%s: %v", a.Name, err))
+				continue
+			}
+			col = &t
+		}
+		t, err := core.AggType(a.Func, col, false)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", a.Name, err))
+			continue
+		}
+		typ := t.Kind.SQLType()
+		if a.Func != "sum" && a.Column != "" { // min / max: 原列的类型(派生的类型、varchar 等保持原样)
+			c, _ := find(a.Column)
+			typ = c.Type
+		}
+		out = append(out, Column{Name: a.Name, Type: typ, NotNull: !t.Nullable})
+	}
+	if r != nil {
+		out = append(out, Column{Name: r.As, Type: "int8", NotNull: true})
+	}
+	if len(errs) > 0 {
+		return nil, fmt.Errorf("分组: %s", strings.Join(errs, "; "))
+	}
+	return out, nil
 }

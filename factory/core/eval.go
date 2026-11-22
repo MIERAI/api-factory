@@ -119,6 +119,19 @@ func Eval(p *Pipeline, tables map[string][]Row, params Params) (*Result, error) 
 				}
 			}
 			ordered = true
+		case "group":
+			next, err := groupSchema(schema, st)
+			if err != nil {
+				return nil, err
+			}
+			out, err := evalGroup(rows, schema, st)
+			if err != nil {
+				return nil, err
+			}
+			schema, rows = next, out
+		case "rank":
+			rows = evalRank(rows, st)
+			schema = append(append(Schema(nil), schema...), NamedType{st.As, Type{Kind: Int64}})
 		case "limit":
 			n := st.N
 			if st.Param != "" {
@@ -136,6 +149,66 @@ func Eval(p *Pipeline, tables map[string][]Row, params Params) (*Result, error) 
 		}
 	}
 	return &Result{Columns: schema, Rows: rows, Ordered: ordered}, nil
+}
+
+// evalGroup: 按键的规范文本分组(NULL = "∅",和任何文本的规范写法都不同: 文本带引号)。
+// 文本按字节相等(规范文本就是字节),和 SQL 的 GROUP BY … COLLATE "C" 一致。组的顺序 = 第一次出现的顺序(无序)。
+func evalGroup(rows []Row, schema Schema, st Step) ([]Row, error) {
+	groups := map[string][]Row{}
+	var order []string
+	for _, r := range rows {
+		k := keyString(r, st.Keys)
+		if _, ok := groups[k]; !ok {
+			order = append(order, k)
+		}
+		groups[k] = append(groups[k], r)
+	}
+	var out []Row
+	for _, k := range order {
+		g := groups[k]
+		row := Row{}
+		for _, key := range st.Keys {
+			row[key] = g[0][key]
+		}
+		for _, a := range st.Aggs {
+			var col Type
+			vals := make([]any, len(g))
+			if a.Col != "" {
+				col, _ = schema.Col(a.Col)
+				for i, r := range g {
+					vals[i] = r[a.Col]
+				}
+			}
+			v, err := evalAgg(a, vals, col)
+			if err != nil {
+				return nil, err
+			}
+			row[a.Name] = v
+		}
+		out = append(out, row)
+	}
+	return out, nil
+}
+
+// evalRank: 名次 = 1 + 排在它前面(按 Order 严格小于)的行数。并列同名次,下一个名次跳过(SQL 的 RANK())。
+// 行的顺序不变(rank 之后仍然是无序的,顺序由后面的 sort 决定)。
+func evalRank(rows []Row, st Step) []Row {
+	out := make([]Row, len(rows))
+	for i, r := range rows {
+		n := int64(1)
+		for _, o := range rows {
+			if compareRows(o, r, st.Order) < 0 {
+				n++
+			}
+		}
+		row := Row{}
+		for k, v := range r {
+			row[k] = v
+		}
+		row[st.As] = n
+		out[i] = row
+	}
+	return out
 }
 
 func keyString(r Row, keys []string) string {

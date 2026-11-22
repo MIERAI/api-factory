@@ -13,7 +13,7 @@ import (
 func init() {
 	Register(&Exit{
 		Kind: "top_n", Name: "前N条", Cardinality: "many", Cell: "多条", Rows: true,
-		DesignKeys: []string{"排序", "条数"},
+		DesignKeys: append([]string{"排序", "条数"}, GroupKeys...),
 		ScalarKeys: []string{"条数"},
 		Parse: func(d Design, p *spec.Pattern) {
 			cols, desc, err := d.Order("排序")
@@ -26,6 +26,7 @@ func init() {
 				d.Err("前N条: 条数 必须是正整数")
 			}
 			p.Params = map[string]any{"n": n}
+			p.Group, p.Rank = parseGroup(d)
 		},
 		Check: func(s *spec.Spec) []string {
 			var errs []string
@@ -36,7 +37,7 @@ func init() {
 			if topN(s.Pattern.Params) <= 0 {
 				errs = append(errs, "pattern top_n: params.n > 0 is required")
 			}
-			return errs
+			return append(errs, checkGroup("top_n", s)...)
 		},
 		RowsDesc: func(p spec.Pattern) string {
 			return fmt.Sprintf("按排序取前 %d 件(不足时全部)", topN(p.Params))
@@ -53,6 +54,7 @@ func init() {
 		Parts: func(s *spec.Spec, x PartsCtx, parts *cells.Parts, p *core.Pipeline) error {
 			parts.Order = orderFrom(s.Pattern)
 			parts.Limit = topN(s.Pattern.Params)
+			parts.Aggregate, parts.Rank = groupStep(s.Pattern.Group), rankStep(s.Pattern.Rank)
 			return nil
 		},
 		DiffMulti: true,

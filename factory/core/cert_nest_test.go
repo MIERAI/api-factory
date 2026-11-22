@@ -56,7 +56,7 @@ func certNest(env *certEnv, all func(steps ...Step) []Step) {
 		}
 	}
 	for l := 1; l <= 3; l++ {
-		add(nil, l)       // 关联列为 NULL 的子行: 不属于任何父行
+		add(nil, l)        // 关联列为 NULL 的子行: 不属于任何父行
 		add(int64(999), l) // 关联不到父行的子行
 	}
 	for i, v := range []string{"9223372036854775000", "100", "-5"} { // 父行 2: 不溢出;父行 3: 溢出(另外测)
@@ -75,14 +75,14 @@ func certNest(env *certEnv, all func(steps ...Step) []Step) {
 	head := Project(NamedExpr{"k", Col("k")}, NamedExpr{"i", Col("i")})
 	// 1. 顺序: 每一列、每个方向(含 NULL 的列 + 唯一的 line 收尾;文本按字节)
 	orders := map[string][]SortKey{
-		"line 小到大":          {{Col: "line"}},
-		"line 大到小":          {{Col: "line", Desc: true}},
-		"s 小到大, line":       {{Col: "s"}, {Col: "line"}},
-		"s 大到小, line":       {{Col: "s", Desc: true}, {Col: "line"}},
-		"d 大到小, line 大到小":   {{Col: "d", Desc: true}, {Col: "line", Desc: true}},
-		"ts 小到大, line 大到小":  {{Col: "ts"}, {Col: "line", Desc: true}},
-		"dt 大到小, n, line":    {{Col: "dt", Desc: true}, {Col: "n"}, {Col: "line"}},
-		"ok, id(另一个唯一键)":    {{Col: "ok"}, {Col: "id"}},
+		"line 小到大":         {{Col: "line"}},
+		"line 大到小":         {{Col: "line", Desc: true}},
+		"s 小到大, line":      {{Col: "s"}, {Col: "line"}},
+		"s 大到小, line":      {{Col: "s", Desc: true}, {Col: "line"}},
+		"d 大到小, line 大到小":  {{Col: "d", Desc: true}, {Col: "line", Desc: true}},
+		"ts 小到大, line 大到小": {{Col: "ts"}, {Col: "line", Desc: true}},
+		"dt 大到小, n, line":  {{Col: "dt", Desc: true}, {Col: "n"}, {Col: "line"}},
+		"ok, id(另一个唯一键)":   {{Col: "ok"}, {Col: "id"}},
 	}
 	for name, o := range orders {
 		env.check("nest 顺序 "+name, &Pipeline{Steps: all(head, nest(nil, o, takeAll), Sort(byK))}, nil)
@@ -177,18 +177,18 @@ func certNest(env *certEnv, all func(steps ...Step) []Step) {
 	// 7. DRC: 顺序不是全序 / 唯一键里有可空的列 / 子行的列是 json / 重名 / 上限 / 聚合的列
 	chj := append(append([]NamedType(nil), ch...), nt("j", JSON, true))
 	for name, st := range map[string]Step{
-		"顺序不是全序":    nest(nil, []SortKey{{Col: "s"}}, takeAll),
-		"唯一键有可空的列":  Nest("ch", ch, [][]string{{"s", "line"}}, on, nil, []SortKey{{Col: "s"}, {Col: "line"}}, 4, "items", takeAll),
+		"顺序不是全序":     nest(nil, []SortKey{{Col: "s"}}, takeAll),
+		"唯一键有可空的列":   Nest("ch", ch, [][]string{{"s", "line"}}, on, nil, []SortKey{{Col: "s"}, {Col: "line"}}, 4, "items", takeAll),
 		"子行的列是 json": Nest("ch", chj, unique, on, nil, line, 4, "items", []TakeCol{{"j", "j"}}),
-		"重名":        Nest("ch", ch, unique, on, nil, line, 4, "i", takeAll),
-		"上限 0":      Nest("ch", ch, unique, on, nil, line, 0, "items", takeAll),
-		"按 rows 排序": nest(nil, []SortKey{{Col: "line"}}, takeAll),
-		"关联的列不存在":   Nest("ch", ch, unique, []JoinKey{{"nope", "ref"}}, nil, line, 4, "items", takeAll),
-		"条件不是 bool": Nest("ch", ch, unique, on, Col("n"), line, 4, "items", takeAll),
-		"sum 文本":    ChildAgg("ch", ch, on, nil, Sum("x", "s")),
-		"聚合的列不存在":   ChildAgg("ch", ch, on, nil, Max("x", "nope")),
-		"聚合重名":      ChildAgg("ch", ch, on, nil, Count("k")),
-		"count 带列":  ChildAgg("ch", ch, on, nil, Agg{Name: "x", Func: "count", Col: "n"}),
+		"重名":         Nest("ch", ch, unique, on, nil, line, 4, "i", takeAll),
+		"上限 0":       Nest("ch", ch, unique, on, nil, line, 0, "items", takeAll),
+		"按 rows 排序":  nest(nil, []SortKey{{Col: "line"}}, takeAll),
+		"关联的列不存在":    Nest("ch", ch, unique, []JoinKey{{"nope", "ref"}}, nil, line, 4, "items", takeAll),
+		"条件不是 bool":  Nest("ch", ch, unique, on, Col("n"), line, 4, "items", takeAll),
+		"sum 文本":     ChildAgg("ch", ch, on, nil, Sum("x", "s")),
+		"聚合的列不存在":    ChildAgg("ch", ch, on, nil, Max("x", "nope")),
+		"聚合重名":       ChildAgg("ch", ch, on, nil, Count("k")),
+		"count 带列":   ChildAgg("ch", ch, on, nil, Agg{Name: "x", Func: "count", Col: "n"}),
 	} {
 		steps := all(head, st)
 		if name == "按 rows 排序" {

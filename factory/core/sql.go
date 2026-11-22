@@ -33,8 +33,16 @@ type sqlLevel struct {
 	dOrder   []SortKey
 	order    []SortKey
 	limit    string
+	group    []string // GROUP BY 的键(group)
+	aggs     []Agg
+	rank     *Step // rank() OVER (ORDER BY …)
 	out      Schema
 	refs     map[string]string // lookup 加的列 → SQL 里的写法(t2.name);其他列 = 别名.列
+}
+
+// busy: 这一层已经有 SELECT 列表 / DISTINCT / ORDER BY / LIMIT / GROUP BY / 窗口函数 → 后面的步骤要包一层子查询。
+func (lv *sqlLevel) busy() bool {
+	return lv.project != nil || lv.distinct != nil || lv.order != nil || lv.limit != "" || lv.group != nil || lv.rank != nil
 }
 
 type sqlGen struct {
@@ -84,7 +92,7 @@ func ToSQL(p *Pipeline, opt Options) (*SQL, error) {
 		case "scan":
 			lv = g.newLevel(quoteIdent(st.Table), Schema(st.Columns))
 		case "filter":
-			if lv.project != nil || lv.distinct != nil || lv.order != nil || lv.limit != "" {
+			if lv.busy() {
 				lv = g.wrap(lv, false)
 			}
 			w, err := g.expr(st.Pred, lv)
@@ -93,7 +101,7 @@ func ToSQL(p *Pipeline, opt Options) (*SQL, error) {
 			}
 			lv.where = append(lv.where, w)
 		case "project":
-			if lv.project != nil || lv.distinct != nil || lv.order != nil || lv.limit != "" {
+			if lv.busy() {
 				lv = g.wrap(lv, false)
 			}
 			lv.project = st.Project
@@ -107,7 +115,7 @@ func ToSQL(p *Pipeline, opt Options) (*SQL, error) {
 			}
 			lv.out = s
 		case "pick_per_key":
-			if lv.project != nil || lv.distinct != nil || lv.order != nil || lv.limit != "" {
+			if lv.busy() {
 				lv = g.wrap(lv, false)
 			}
 			lv.distinct, lv.dOrder = st.Keys, st.Order
@@ -159,10 +167,26 @@ func ToSQL(p *Pipeline, opt Options) (*SQL, error) {
 			}
 			lv.out = lv.in
 		case "sort":
-			if lv.project != nil || lv.distinct != nil || lv.order != nil || lv.limit != "" {
+			if lv.busy() {
 				lv = g.wrap(lv, false)
 			}
 			lv.order = st.Order
+		case "group": // 同一层: SELECT 键, 聚合 FROM … WHERE … GROUP BY 键
+			if lv.busy() {
+				lv = g.wrap(lv, false)
+			}
+			out, err := groupSchema(lv.in, st)
+			if err != nil {
+				return nil, err
+			}
+			lv.group, lv.aggs, lv.out = st.Keys, st.Aggs, out
+		case "rank": // 总是包一层: 窗口函数的 ORDER BY 引用 group 的输出列
+			if lv.busy() {
+				lv = g.wrap(lv, false)
+			}
+			r := st
+			lv.rank = &r
+			lv.out = append(append(Schema(nil), lv.in...), NamedType{st.As, Type{Kind: Int64}})
 		case "limit":
 			if lv.limit != "" {
 				lv = g.wrap(lv, false)
@@ -282,9 +306,29 @@ func (g *sqlGen) render(lv *sqlLevel, textOutput bool) (string, error) {
 			}
 			sel = append(sel, e+" AS "+quoteIdent(x.Name))
 		}
+	} else if lv.group != nil { // 键 + 聚合(聚合的规则在 agg.go)
+		for _, k := range g.groupKeys(lv) {
+			e := k.expr
+			if textOutput {
+				e = "(" + e + ")::text"
+			}
+			sel = append(sel, e+" AS "+k.name)
+		}
+		for _, a := range lv.aggs {
+			col, _ := lv.in.Col(a.Col)
+			e := aggSQL(a, g.col(lv, a.Col), col)
+			if textOutput {
+				e = "(" + e + ")::text"
+			}
+			sel = append(sel, e+" AS "+quoteIdent(a.Name))
+		}
 	} else {
-		for _, c := range lv.out {
-			e := g.col(lv, c.Name)
+		cols := lv.out
+		if lv.rank != nil { // 输入的列 + 名次
+			cols = lv.in
+		}
+		for _, c := range cols {
+			e := g.col(lv, c.Name) // lookup 加的列在别的表别名下(refs)
 			switch {
 			case textOutput:
 				sel = append(sel, e+"::text AS "+quoteIdent(c.Name))
@@ -293,6 +337,13 @@ func (g *sqlGen) render(lv *sqlLevel, textOutput bool) (string, error) {
 			default:
 				sel = append(sel, e)
 			}
+		}
+		if lv.rank != nil { // NULL 的位置 / 文本按字节: 和 sort 同样的写法(orderItems)
+			e := "rank() OVER (ORDER BY " + strings.Join(g.orderItems(lv, lv.rank.Order), ", ") + ")"
+			if textOutput {
+				e = "(" + e + ")::text"
+			}
+			sel = append(sel, e+" AS "+quoteIdent(lv.rank.As))
 		}
 	}
 	var b strings.Builder
@@ -304,6 +355,13 @@ func (g *sqlGen) render(lv *sqlLevel, textOutput bool) (string, error) {
 	b.WriteString("\nFROM " + lv.from)
 	if len(lv.where) > 0 {
 		b.WriteString("\nWHERE " + strings.Join(lv.where, "\n  AND "))
+	}
+	if lv.group != nil {
+		var ks []string
+		for _, k := range g.groupKeys(lv) {
+			ks = append(ks, k.expr)
+		}
+		b.WriteString("\nGROUP BY " + strings.Join(ks, ", "))
 	}
 	var order []string
 	if lv.distinct != nil {
@@ -318,6 +376,22 @@ func (g *sqlGen) render(lv *sqlLevel, textOutput bool) (string, error) {
 		b.WriteString("\nLIMIT " + lv.limit)
 	}
 	return b.String(), nil
+}
+
+type groupKey struct{ expr, name string }
+
+// groupKeys: GROUP BY 的键。文本键用 COLLATE "C"(按字节,和参考求值器一致;SELECT 里写同一个表达式)。
+// NULL 自己是一组(GROUP BY 的语义)。
+func (g *sqlGen) groupKeys(lv *sqlLevel) []groupKey {
+	var out []groupKey
+	for _, k := range lv.group {
+		e := g.col(lv, k) // 分组键也可以是 lookup 加的列
+		if t, _ := lv.in.Col(k); t.Kind == Text {
+			e += ` COLLATE "C"`
+		}
+		out = append(out, groupKey{e, quoteIdent(k)})
+	}
+	return out
 }
 
 // distinctKeys: 每组取一条的分组键。文本键也用 COLLATE "C"(分组不受影响: 确定性排序规则的相等就是按字节相等),

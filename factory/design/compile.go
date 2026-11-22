@@ -241,6 +241,22 @@ func (c *ctx) columnField(table, col string) (string, string, bool, error) {
 	return p[0], p[1], optional, nil
 }
 
+// groupedField: 分组之后的输出字段。分组键 = 表的列(枚举看领域层);计算 / 排名 = 核心决定的类型。
+func (c *ctx) groupedField(table, col string, groupedCol func(string) (compiler.Column, bool), g *spec.GroupBy) (string, string, bool, error) {
+	gc, ok := groupedCol(col)
+	if !ok {
+		return "", "", false, fmt.Errorf("分组之后只有 分组键 / 计算 / 排名 的列,没有 %s", col)
+	}
+	if contains(g.Keys, col) {
+		return c.columnField(table, col)
+	}
+	k, ok := kinds.BySQL(gc.Type)
+	if !ok {
+		return "", "", false, fmt.Errorf("类型 %s 还不支持", gc.Type)
+	}
+	return k.Proto, k.Value, !gc.NotNull && k.Value != "time", nil
+}
+
 func (c *ctx) inputField(a *API, in *Input, e *errs) *field {
 	if in.Type == GroupListType { // 组的列表: repeated <API><组名>,组里的字段都必须指定
 		name := a.Name + pascal(singular(in.Name))
@@ -359,6 +375,38 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 			defer func() { c.cat[table] = rawCols }()
 		}
 	}
+	// 分组: 之后的列 = 分组键 + 计算 + 排名(输出 / 排序 / 例子的结果都看这些列)
+	var grouped []compiler.Column
+	if a.Pattern.Group != nil && table != "" {
+		var err error
+		if grouped, err = compiler.GroupedColumns(table, c.cat[table], a.Pattern.Group, a.Pattern.Rank); err != nil {
+			e.add(1, "%v", err)
+		}
+		if t := c.d.Tables[table]; t != nil {
+			for _, ag := range a.Pattern.Group.Aggs {
+				if en := t.ColEnum[ag.Column]; en != "" {
+					e.add(1, "分组.计算.%s: 列 %s 是枚举 %s,不能做 合计 / 最小 / 最大(枚举的数据库值没有大小的意义)", ag.Name, ag.Column, en)
+				}
+			}
+		}
+		if grouped != nil {
+			seen := map[string]bool{}
+			for _, gc := range grouped {
+				if seen[gc.Name] {
+					e.add(1, "分组: 输出名 %s 重复(分组键 / 计算 / 排名的输出名不能相同)", gc.Name)
+				}
+				seen[gc.Name] = true
+			}
+		}
+	}
+	groupedCol := func(name string) (compiler.Column, bool) {
+		for _, gc := range grouped {
+			if gc.Name == name {
+				return gc, true
+			}
+		}
+		return compiler.Column{}, false
+	}
 
 	// ---- 请求
 	req := &message{Name: a.Name + "Request", Desc: a.Desc}
@@ -453,6 +501,8 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 			continue
 		}
 		switch {
+		case a.Pattern.Group != nil:
+			e.add(o.Line, "输出 %s: 分组之后不能写 来自(输出的名字 = 分组键 / 计算 / 排名的输出)", o.Name)
 		case a.Exit.AI:
 			e.add(o.Line, "输出 %s: 来自 只能用于数据来源的列(%s 的输出由 AI 的代码决定)", o.Name, a.Exit.Name)
 		case table == "":
@@ -514,6 +564,16 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 					e.add(o.Line, "输出 %s: 计算的输出必须写 类型", o.Name)
 					continue
 				}
+				if a.Pattern.Group != nil {
+					pt, kind, opt, err := c.groupedField(src, col, groupedCol, a.Pattern.Group)
+					if err != nil {
+						e.add(o.Line, "输出 %s: %v", o.Name, err)
+						continue
+					}
+					f.Type, f.kind, f.Optional = pt, kind, opt
+					out = append(out, f)
+					continue
+				}
 				pt, kind, opt, err := c.columnField(src, col)
 				if err != nil {
 					e.add(o.Line, "输出 %s: %v(没有同名列时请写 类型)", o.Name, err)
@@ -530,7 +590,11 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 			if r, ok := rename[col]; ok { // 排序用响应字段名;可空性看来源的列
 				col = r
 			}
-			if cc, ok := c.column(table, col); ok && !cc.NotNull {
+			cc, ok := c.column(table, col)
+			if a.Pattern.Group != nil {
+				cc, ok = groupedCol(col)
+			}
+			if ok && !cc.NotNull {
 				e.add(1, "排序的列 %s 可能为空,%s 的排序列必须不为空(翻页的位置记在排序列上)。"+
 					"请改用主键或不为空的列排序;存储: JSON版本 的字段除了主键都可能为空", col, a.Exit.Name)
 			}

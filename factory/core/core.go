@@ -158,6 +158,10 @@ var cmpOps = map[string]bool{"=": true, "<>": true, "<": true, "<=": true, ">": 
 //	              DRC: Order + On 的子表的列覆盖子表的一个唯一键(不为空的列)→ 子行的顺序是全序。只有一层
 //	child_agg     按父行聚合: 对每一行,对关联的子行(同 nest 的 On / Pred)计算 Aggs(agg.go,集合可能为空:
 //	              count 0、sum 0、min / max NULL),作为标量列加到当前行上
+//	group         Keys + Aggs: 按 Keys 分组(NULL 视为同一组),每组输出一行 = 键的值 + 聚合值(agg.go)。
+//	              没有输入行 → 没有输出行。输出的列 = Keys(原来的类型)+ Aggs(AggType)。一条流水线只能有一个
+//	rank          Order + As: 按 Order 的名次(SQL 的 RANK(): 并列同名次,下一个名次跳过),加一列 As(int64)。
+//	              只能在 group 之后。文本按字节;NULL 的位置和 sort 一样
 type Step struct {
 	Kind    string      `json:"kind"`
 	Table   string      `json:"table,omitempty"`
@@ -168,6 +172,8 @@ type Step struct {
 	Order   []SortKey   `json:"order,omitempty"`
 	N       int         `json:"n,omitempty"`
 	Param   string      `json:"param,omitempty"` // limit: 行数来自参数
+	Aggs    []Agg       `json:"aggs,omitempty"`  // group / child_agg: 聚合(agg.go)
+	As      string      `json:"as,omitempty"`    // rank: 名次的列名;nest: 子行的列表的列名
 	From    string      `json:"from,omitempty"`  // 来自哪个单元 / 设计稿哪一行(审查和报错用)
 	// lookup(Table / Columns 和 scan 一样是对方的表和列)
 	On      []JoinKey  `json:"on,omitempty"`      // 当前行的列 = 对方的键列
@@ -178,8 +184,7 @@ type Step struct {
 	NullEq bool `json:"-"`
 	// nest / child_agg(Table / Columns / On / Unique 同 lookup;On 的 Key = 子表的列。Pred = 子表的列上的条件;
 	// Order = 子行的顺序;N = 子行的上限;Take = 子行的列)
-	Aggs []Agg `json:"aggs,omitempty"` // child_agg: 聚合(agg.go)
-	As   string `json:"as,omitempty"`   // nest: 子行的列表的列名
+	// (Aggs / As 见上: child_agg 的聚合、nest 的列名)
 	// Mutant: 只给差分测试的"错误实现"用(参考求值器认,SQL 后端和 IR 里没有):
 	// nest: empty_null(空列表 → NULL);child_agg: sum_empty_null(空集合的 sum → NULL)/ count_outer(空集合的 count = 1,
 	// LEFT JOIN + GROUP BY 的 count(*))
@@ -224,6 +229,10 @@ func PickPerKey(keys []string, order ...SortKey) Step {
 func Sort(order ...SortKey) Step { return Step{Kind: "sort", Order: order} }
 func Limit(n int) Step           { return Step{Kind: "limit", N: n} }
 func LimitParam(p string) Step   { return Step{Kind: "limit", Param: p} }
+func Group(keys []string, aggs ...Agg) Step {
+	return Step{Kind: "group", Keys: keys, Aggs: aggs}
+}
+func Rank(as string, order ...SortKey) Step { return Step{Kind: "rank", As: as, Order: order} }
 
 // Lookup: 多对一查找(missing: keep / drop)。
 func Lookup(table string, cols []NamedType, unique [][]string, on []JoinKey, take []TakeCol, missing string) Step {

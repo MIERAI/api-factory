@@ -13,7 +13,7 @@
 | 命令工厂 | 计划 | 写入: 校验 → 业务规则 → 写入操作(操作作为数据返回,平台执行) |
 | IF 工厂 | 候选 | 文件布局 ↔ 表(编码、定长、补零),golden file / 往返判定 |
 
-**查询工厂不适用**: 写入、多表 JOIN 和聚合以外的复杂查询(→ `datasource.sql` 逃生口)、
+**查询工厂不适用**: 写入、多表 JOIN、分组聚合(`分组` / `排名`: 件数 / 合计 / 最小 / 最大 / RANK)以外的复杂查询(→ `datasource.sql` 逃生口)、
 外部 API 调用、流式、算法类逻辑(→ `custom`,AI 辅助人开发)。
 逃生口的使用比例(**逃生率**)由 `factory stats` 显示: 逃生率高说明范围选错了或者缺模式。
 
@@ -136,6 +136,7 @@ gen/acceptance/*.yaml                 [AI 实现] factory ai(模型和角色在 
 | `list_keyset` | 工厂(游标/ORDER BY/LIMIT 追加到查询,token 签名并绑定筛选条件) | 无 | ListJobs |
 | `list_all` | 工厂(多条: 筛选 + 排序 + 上限,超过上限报错) | 无 | ListStoreSales |
 | `top_n` | 工厂(前N条) | 无 | ListTopStores |
+| (多条 / 前N条 / 一览 + `分组` / `排名`) | 工厂(GROUP BY + 件数 / 合计 / 最小 / 最大,RANK()) | 无 | ListTopLineStores、ListStoreLineRanking |
 | `compute` | 工厂(映射 + 查询 + 调用逻辑) | 纯函数 `<method>Logic(req, rows)` | GetJobSummary |
 | `custom` | AI(逃生口) | 整个 handler | — |
 

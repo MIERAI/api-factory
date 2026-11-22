@@ -71,6 +71,7 @@ type diffEnv struct {
 	pickCols  map[string]bool                // API 部分的每组取一条的键
 	nkSeen    []map[string]any               // 已经生成的行的自然键(JSON 的键 → 值;自然键空间很大时沿用,造出版本)
 	groupCols map[string]bool                // API 部分"每组取一条"的分组列: 值域缩小到 2 个,组里才有多个候选
+	aggKeys   map[string]bool                // 分组(group)的键: 一半的行取池里的值(组的大小有分布)
 	tuples    []tupleGroup                   // 组的列表(组属于): 每个字段是一个列表参数,请求 / 求值前按下标对齐(align)
 	keySets   [][]string                     // 唯一的列的组合(主键 / 唯一约束 / 多版本来源的自然键);nil = 还没查
 	ties      [][2]string                    // 条件里互相比较的两列(固定条件: 税込 = 旧税込): 数据里要经常相等
@@ -78,6 +79,14 @@ type diffEnv struct {
 	fks       map[string][]fkRef             // 表 → 它的外键(关联条件推出来的: 这些列的值要从对方的键里取)
 	view      core.Schema                    // 来源 + 关联之后的列(筛选的列可能是关联加的列)
 	children  []*childTable                  // 嵌套 / 子聚合的子表(在来源的表之后造;diffnest.go)
+}
+
+// rawCol: 投影成的列 → 物理列(没有投影 → 原样)。
+func rawCol(rawOf map[string]string, c string) string {
+	if r, ok := rawOf[c]; ok {
+		return r
+	}
+	return c
 }
 
 // tupleGroup: 一个组的列表输入。members[i] = 第 i 个字段的参数名(ir.MemberParam),cols[i] = 它的列。
@@ -98,6 +107,7 @@ func (e *diffEnv) collect() {
 	var walk func(x *core.Expr)
 	e.keyCol = map[string]string{}
 	e.constFor, e.nkCols, e.groupCols, e.pickCols = map[string][]any{}, map[string]bool{}, map[string]bool{}, map[string]bool{}
+	e.aggKeys = map[string]bool{}
 	rawOf := map[string]string{} // 投影成的列 → 物理列(col(x) 的投影)
 	for _, st := range e.api.Pipeline.Steps {
 		for _, x := range st.Project {
@@ -114,6 +124,13 @@ func (e *diffEnv) collect() {
 		if st.Kind == "pick_per_key" && strings.HasPrefix(st.From, "来源 ") {
 			for _, k := range st.Keys {
 				e.nkCols[k] = true
+			}
+		}
+		// 分组键: 一半的行值域小(大的组),一半的行从一个中等大小的池里取(1 行 / 2 行 / 3 行 … 的组: 件数并列、名次跳号)
+		if st.Kind == "group" {
+			for _, k := range st.Keys {
+				e.groupCols[rawCol(rawOf, k)] = true
+				e.aggKeys[rawCol(rawOf, k)] = true
 			}
 		}
 		// 条件里的 cmp(列, 常量) → 这一列的数据要能碰到这个常量(来源的删除值 / 固定条件的常量);
@@ -806,6 +823,11 @@ func (e *diffEnv) jsonKeyOf(jsonCol, col string) string {
 
 // scalarFor: 某一列的值(这一列有范围值域时从里面取)。
 func (e *diffEnv) scalarFor(col string, kind core.Kind, unique bool, i int) any {
+	if e.aggKeys[col] && !e.nkCols[col] && !unique && e.rnd.Intn(2) == 0 { // 分组键: 池的大小 = 8 × 数据的倍数
+		if v := e.poolValue(col, kind, e.rnd.Intn(8*max(e.scale, 1))); v != nil {
+			return v
+		}
+	}
 	if e.groupCols[col] && !e.nkCols[col] && !unique { // 密集的列: 3 个值(多版本来源的自然键除外: 键要多样)
 		// 每组取一条的键: 约 1/4 的行用独有的值(组里只有一行)。只看"组存不存在"的 API(只输出键)里,
 		// 删除 / 逻辑删除只有在组里只剩这一行时才看得出来(试用: 按 code 去重的存在检查)
@@ -884,6 +906,30 @@ func (e *diffEnv) scalarFor(col string, kind core.Kind, unique bool, i int) any 
 		return d.Values[e.rnd.Intn(len(d.Values))]
 	}
 	return e.scalar(kind, unique, i)
+}
+
+// poolValue: 分组键的池里第 x 个值(和值域里的 3 个密集的值不同)。有约束 / 枚举的列: 约束里扩大,扩大不了 → nil。
+func (e *diffEnv) poolValue(col string, kind core.Kind, x int) any {
+	if d, ok := e.domains[col]; ok {
+		if d.Expand != nil {
+			return d.Expand(2000 + x)
+		}
+		return nil
+	}
+	if e.plan.Enum(e.table, col) != nil {
+		return nil
+	}
+	switch kind {
+	case core.Int32, core.Int64:
+		return int64(100 + x)
+	case core.Text:
+		return fmt.Sprintf("g%02d", x)
+	case core.Decimal:
+		return big.NewRat(int64(100+x), 4)
+	case core.Date, core.Timestamp:
+		return e.scalar(kind, true, 10+x)
+	}
+	return nil
 }
 
 func (e *diffEnv) scalar(kind core.Kind, unique bool, i int) any {
@@ -1918,6 +1964,10 @@ type sensTarget struct {
 	mutate func(p *core.Pipeline) *core.Pipeline
 	// falseNode: 把 node 换成恒假(「或者」的一个分支)
 	falseNode bool
+	// custom: 错误的实现的结果(规范文本),不能写成流水线的改动时(分组 / 名次: diff_group.go)
+	custom func(ps core.Params) string
+	// cond: 不是错误的实现,而是请求要满足的条件(分组: 有多行的组 …);满足的请求数 = 起作用的请求数
+	cond func(ps core.Params) bool
 }
 
 // onlyKeysOut: 第 i 步(每组取一条)之后的投影只输出分组键。
@@ -2069,6 +2119,7 @@ func (e *diffEnv) sensTargets() []sensTarget {
 			}})
 		}
 	}
+	out = append(out, e.groupTargets()...)
 	for i, st := range p.Steps {
 		if st.Kind != "pick_per_key" {
 			continue
@@ -2170,6 +2221,9 @@ func (e *diffEnv) uniquePrefix(order []core.SortKey) bool {
 			if st.Kind == "pick_per_key" {
 				e.keySets = append(e.keySets, st.Keys)
 			}
+		}
+		if gi := groupIndex(e.api.Pipeline, "group"); gi >= 0 { // 分组之后: 唯一的只有分组键(表的主键已经不在输出里)
+			e.keySets = [][]string{e.api.Pipeline.Steps[gi].Keys}
 		}
 	}
 	for _, set := range e.keySets {
@@ -2356,10 +2410,22 @@ func (e *diffEnv) sensCounts(reqs []core.Params) (descs []string, counts []int, 
 		seen[string(b)] = true
 	}
 	for _, t := range targets {
-		mut := t.mutated(p)
+		var mut *core.Pipeline
+		if t.custom == nil && t.cond == nil {
+			mut = t.mutated(p)
+		}
 		n := 0
 		for i, ps := range valid {
-			if e.evalCanon(mut, ps) != base[i] {
+			switch {
+			case t.cond != nil:
+				if t.cond(ps) {
+					n++
+				}
+			case t.custom != nil:
+				if t.custom(ps) != base[i] {
+					n++
+				}
+			case e.evalCanon(mut, ps) != base[i]:
 				n++
 			}
 		}
@@ -2431,6 +2497,12 @@ func (e *diffEnv) sensitive(ps core.Params, step int, node *core.Expr) bool {
 
 // sensitiveTo: 这个请求能不能把正确的结果和 t 对应的错误实现区分开。
 func (e *diffEnv) sensitiveTo(ps core.Params, t sensTarget) bool {
+	switch {
+	case t.cond != nil:
+		return t.cond(ps)
+	case t.custom != nil:
+		return t.custom(ps) != e.evalCanon(e.api.Pipeline, ps)
+	}
 	return e.evalCanon(t.mutated(e.api.Pipeline), ps) != e.evalCanon(e.api.Pipeline, ps)
 }
 

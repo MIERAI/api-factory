@@ -195,13 +195,15 @@ func (l *Library) names() []string {
 
 // Parts: 模式里 $部件 的实际内容(编译器提供)。
 type Parts struct {
-	Filters []*core.Expr     // $筛选
-	Output  []core.NamedExpr // $输出列
-	Cursor  *core.Expr       // $游标
-	Order   []core.SortKey   // $排序
-	Rows    string           // $行数(参数名)
-	Limit   int              // $上限(常数)
-	Group   *core.Step       // $每组(可选: pick_per_key)
+	Filters   []*core.Expr     // $筛选
+	Output    []core.NamedExpr // $输出列
+	Cursor    *core.Expr       // $游标
+	Order     []core.SortKey   // $排序
+	Rows      string           // $行数(参数名)
+	Limit     int              // $上限(常数)
+	Group     *core.Step       // $每组(可选: pick_per_key)
+	Aggregate *core.Step       // $分组(可选: group)
+	Rank      *core.Step       // $排名(可选: rank)
 }
 
 // Pattern: 模式 → 关系元件的流水线(不含 scan)。
@@ -235,6 +237,18 @@ func (l *Library) Pattern(name string, parts Parts) ([]core.Step, error) {
 					g := *parts.Group
 					g.From = from
 					steps = append(steps, g)
+				}
+			case "group $分组":
+				if parts.Aggregate != nil {
+					g := *parts.Aggregate
+					g.From = from
+					steps = append(steps, g)
+				}
+			case "rank $排名":
+				if parts.Rank != nil {
+					r := *parts.Rank
+					r.From = from
+					steps = append(steps, r)
 				}
 			case "limit $上限":
 				steps = append(steps, core.Step{Kind: "limit", N: parts.Limit, From: from})
