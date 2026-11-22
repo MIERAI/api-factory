@@ -240,6 +240,13 @@ var cmpOps = map[string]bool{"=": true, "<>": true, "<": true, "<=": true, ">": 
 //	              没有输入行 → 没有输出行。输出的列 = Keys(原来的类型)+ Aggs(AggType)。一条流水线只能有一个
 //	rank          Order + As: 按 Order 的名次(SQL 的 RANK(): 并列同名次,下一个名次跳过),加一列 As(int64)。
 //	              只能在 group 之后。文本按字节;NULL 的位置和 sort 一样
+//
+// lookup / nest / child_agg 的对方可以是逻辑表(Source 不为空): 对方的行 = Source 这条子流水线的结果
+// (来源单元的展开: scan 物理表 → project → filter → pick_per_key → …;只能用这几种元件,不能引用请求参数)。
+// Columns = 子流水线的输出的列,Table = 逻辑表名(报错用)。逻辑表的唯一键 = 子流水线的 pick_per_key 的键(自然键)。
+// 其他规则(NULL 不相等、找不到、上限、全序)和普通的表一样。nest 的全序: 唯一键就是取最新的键时,
+// 可以为空的列也算(NULL 自己是一组,一个父行里最多一行)。
+// SQL 后端: LATERAL 子查询,关联条件里对方的列是取最新的键时,下推到取最新之前(索引能用;等式见 pushdown.go)
 type Step struct {
 	Kind    string      `json:"kind"`
 	Table   string      `json:"table,omitempty"`
@@ -263,6 +270,8 @@ type Step struct {
 	// nest / child_agg(Table / Columns / On / Unique 同 lookup;On 的 Key = 子表的列。Pred = 子表的列上的条件;
 	// Order = 子行的顺序;N = 子行的上限;Take = 子行的列)
 	// (Aggs / As 见上: child_agg 的聚合、nest 的列名)
+	// Source: 对方是逻辑表时,对方的行 = 这条子流水线的结果(见上)
+	Source []Step `json:"source,omitempty"`
 	// Mutant: 只给差分测试的"错误实现"用(参考求值器认,SQL 后端和 IR 里没有):
 	// nest: empty_null(空列表 → NULL);child_agg: sum_empty_null(空集合的 sum → NULL)/ count_outer(空集合的 count = 1,
 	// LEFT JOIN + GROUP BY 的 count(*))
@@ -391,17 +400,24 @@ func (p *Pipeline) Normalize() error {
 		}
 		return nil
 	}
-	for i := range p.Steps {
-		if err := walk(p.Steps[i].Pred); err != nil {
-			return err
-		}
-		for _, x := range p.Steps[i].Project {
-			if err := walk(x.Expr); err != nil {
+	var steps func(ss []Step) error
+	steps = func(ss []Step) error {
+		for i := range ss {
+			if err := walk(ss[i].Pred); err != nil {
+				return err
+			}
+			for _, x := range ss[i].Project {
+				if err := walk(x.Expr); err != nil {
+					return err
+				}
+			}
+			if err := steps(ss[i].Source); err != nil {
 				return err
 			}
 		}
+		return nil
 	}
-	return nil
+	return steps(p.Steps)
 }
 
 func normalizeConst(v any, k Kind) (any, error) {

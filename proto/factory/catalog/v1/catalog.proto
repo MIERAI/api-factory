@@ -15,11 +15,17 @@ service CatalogService {
   // 商品コードとラベルコードを指定して、ラベルの現在の文言を返す。なければ found = false
   rpc GetProductLabel(GetProductLabelRequest) returns (GetProductLabelResponse);
 
+  // カテゴリを指定して、そのカテゴリの商品(現在の値)を、カテゴリ名・ラベル(最大 3 件)・ラベル数つきで返す
+  rpc ListCategoryProducts(ListCategoryProductsRequest) returns (ListCategoryProductsResponse);
+
   // ラベルコード(複数)を指定して、全商品のそのラベルの現在の文言を返す。商品コードの前方一致で絞れる
   rpc ListLabelsByLabelCodes(ListLabelsByLabelCodesRequest) returns (ListLabelsByLabelCodesResponse);
 
   // (商品コード, ラベルコード) の組のリストを受け取り、組ごとのラベルの現在の文言を返す
   rpc ListLabelsByPairs(ListLabelsByPairsRequest) returns (ListLabelsByPairsResponse);
+
+  // 商品コード(複数)を指定して、ラベルの現在の文言を、商品名とカテゴリ名つきで返す
+  rpc ListLabelsWithProduct(ListLabelsWithProductRequest) returns (ListLabelsWithProductResponse);
 
   // 商品コードを指定して、その商品のラベル(既定のラベルを含む)の現在の値を返す
   rpc ListProductLabels(ListProductLabelsRequest) returns (ListProductLabelsResponse);
@@ -51,6 +57,40 @@ message GetProductLabelResponse {
   optional string text = 1;
   // 找到了: true。找不到时 false(其他字段都不设置)
   bool found = 2;
+}
+
+// 商品の表示ラベル(商品 × ラベルコードごとに最新の版)。ラベルコードが空 = 既定のラベル
+message ProductLabelItem {
+  // ラベルコード(空 = 既定のラベル。空も 1 つのキーとして版を管理する)
+  optional string label = 1;
+  // 表示文言
+  optional string text = 2;
+}
+
+// 商品マスタの現在の値(商品コードごとに最新に登録された行)
+message CategoryProductRow {
+  // 商品コード
+  string product_code = 1;
+  // 商品名
+  optional string name = 2;
+  // カテゴリ名(カテゴリが削除・論理削除されているときは不设置)
+  optional string category_title = 3;
+  // ラベル(ラベルコード順、既定のラベル(空)は最後。最大 3 件、超える商品があると一覧ごとエラー)
+  repeated ProductLabelItem labels = 4;
+  // ラベルの数(削除されたラベルは数えない。ラベルなし = 0)
+  int64 label_count = 5;
+}
+
+// カテゴリを指定して、そのカテゴリの商品(現在の値)を、カテゴリ名・ラベル(最大 3 件)・ラベル数つきで返す
+message ListCategoryProductsRequest {
+  // カテゴリ
+  string category = 1 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 20];
+}
+
+// カテゴリを指定して、そのカテゴリの商品(現在の値)を、カテゴリ名・ラベル(最大 3 件)・ラベル数つきで返す
+message ListCategoryProductsResponse {
+  // 最多 200 件;超过时返回错误(不会截断)
+  repeated CategoryProductRow products = 1;
 }
 
 // 商品の表示ラベル(商品 × ラベルコードごとに最新の版)。ラベルコードが空 = 既定のラベル
@@ -105,6 +145,32 @@ message ListLabelsByPairsRequest {
 message ListLabelsByPairsResponse {
   // 最多 50 件;超过时返回错误(不会截断)
   repeated PairLabel product_label = 1;
+}
+
+// 商品の表示ラベル(商品 × ラベルコードごとに最新の版)。ラベルコードが空 = 既定のラベル
+message LabelWithProduct {
+  // 商品コード
+  string product_code = 1;
+  // ラベルコード(既定のラベルは空)
+  optional string label = 2;
+  // 表示文言
+  optional string display_text = 3;
+  // 商品名(現在の版)
+  optional string product_name = 4;
+  // カテゴリ名(現在の版。カテゴリが見つからないときは不设置)
+  optional string category_title = 5;
+}
+
+// 商品コード(複数)を指定して、ラベルの現在の文言を、商品名とカテゴリ名つきで返す
+message ListLabelsWithProductRequest {
+  // 商品コード
+  repeated string product_codes = 1 [(buf.validate.field).repeated.min_items = 1, (buf.validate.field).repeated.max_items = 50, (buf.validate.field).repeated.items.string.pattern = "^[0-9]+$"];
+}
+
+// 商品コード(複数)を指定して、ラベルの現在の文言を、商品名とカテゴリ名つきで返す
+message ListLabelsWithProductResponse {
+  // 最多 500 件;超过时返回错误(不会截断)
+  repeated LabelWithProduct labels = 1;
 }
 
 // 商品の表示ラベル(商品 × ラベルコードごとに最新の版)。ラベルコードが空 = 既定のラベル

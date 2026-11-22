@@ -38,10 +38,11 @@ type childTable struct {
 	rows   []core.Row
 	rowDB  []*pgx.Conn
 	shard  *ir.Shard
-	max    int      // 子行数的分布用的上限(嵌套的 N;只有子聚合 = 4)
-	owner  string   // 父行所在的表(来源的表 / 关联的表)
-	fkCols []string // 子表的关联列
-	pkCols []string // 父行的列(逐个对应)
+	max    int           // 子行数的分布用的上限(嵌套的 N;只有子聚合 = 4)
+	owner  string        // 父行所在的表(来源的表 / 关联的表)
+	fkCols []string      // 子表的关联列
+	pkCols []string      // 父行的列(逐个对应)
+	lt     *logicalTable // 子表是逻辑表(diffsource.go)
 }
 
 // initChildren: 从流水线的 nest / child_agg 推出子表(initOthers 之后调用: from = 列 → 物理的出处)。
@@ -54,7 +55,7 @@ func (e *diffEnv) initChildren(from map[string]origin) {
 		}
 		ct, ok := byName[st.Table]
 		if !ok {
-			ct = &childTable{table: st.Table, cols: st.Columns, shard: e.plan.Shard(st.Table), max: 4}
+			ct = &childTable{table: st.Table, cols: st.Columns, shard: e.plan.Shard(st.Table), max: 4, lt: e.newLogical(st)}
 			byName[st.Table] = ct
 			e.children = append(e.children, ct)
 		}
@@ -86,8 +87,14 @@ func (e *diffEnv) parentRows(table, source string) []core.Row {
 	if table == source {
 		return e.rows
 	}
+	if table == e.api.Table && e.plan.Storage(table) != nil { // 数据来源是逻辑表: 来源算出来的逻辑行
+		return e.mainLogicalRows()
+	}
 	for _, ot := range e.others {
 		if ot.table == table {
+			if ot.lt != nil {
+				return ot.lt.current
+			}
 			return ot.rows
 		}
 	}
@@ -123,6 +130,9 @@ func (e *diffEnv) loadChildren() error {
 			return err
 		}
 		for _, c := range targets {
+			if ct.lt != nil {
+				break
+			}
 			if _, err := c.Exec(e.ctx, "TRUNCATE "+pgx.Identifier{ct.table}.Sanitize()+" CASCADE"); err != nil {
 				return err
 			}
@@ -130,6 +140,16 @@ func (e *diffEnv) loadChildren() error {
 	}
 	for _, ct := range e.children {
 		e.table = ct.table
+		if ct.lt != nil {
+			var parents []core.Row
+			if ct.owner != "" {
+				parents = e.parentRows(ct.owner, saved)
+			}
+			if err := e.loadChildLogical(ct, parents); err != nil {
+				return err
+			}
+			continue
+		}
 		gen, err := e.generatedCols(ct.table)
 		if err != nil {
 			return err
@@ -501,6 +521,10 @@ func (e *diffEnv) relatedValue(c core.NamedType, i int, unique bool, d *checkedD
 // childTablesIn: 子表在库 conn 里的行(conn = nil: 全部)。
 func (e *diffEnv) childTablesIn(conn *pgx.Conn, m map[string][]core.Row) {
 	for _, ct := range e.children {
+		if ct.lt != nil {
+			m[ct.lt.st.Table] = ct.lt.phys
+			continue
+		}
 		if conn == nil || ct.shard == nil {
 			m[ct.table] = ct.rows
 			continue
@@ -578,6 +602,8 @@ func (e *diffEnv) nestTargets() []sensTarget {
 		if st.Pred != nil {
 			out = append(out, sensTarget{desc: name + " 的子表的条件(去掉)", mutate: with(i, func(s *core.Step) { s.Pred = nil })})
 		}
+		out = append(out, sourceTargets(i, st, name)...) // 子表是逻辑表: 版本 / 删除
+
 		// 关联列换成当前行的另一列(类型相同的第一列)
 		// 候选 = 来源的表的列(不用前面的聚合加的列: 和"关联错了列"的 bug 不像)
 		if before, err := core.Check(&core.Pipeline{Steps: p.Steps[:i], Params: p.Params}); err == nil && len(st.On) > 0 {

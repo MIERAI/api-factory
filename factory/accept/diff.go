@@ -80,6 +80,8 @@ type diffEnv struct {
 	view      core.Schema                    // 来源 + 关联之后的列(筛选的列可能是关联加的列)
 	children  []*childTable                  // 嵌套 / 子聚合的子表(在来源的表之后造;diffnest.go)
 	tm        timeState                      // 派生参数(时间运算): 探针、边界(diff_time.go)
+	// mainLogical: 数据来源部分的列(逻辑表: 外键写进 JSON 时用的类型;diffsource.go)
+	mainLogical core.Schema
 }
 
 // rawCol: 投影成的列 → 物理列(没有投影 → 原样)。
@@ -783,7 +785,8 @@ func (e *diffEnv) value(c core.NamedType, i int, unique bool) any {
 			}
 			obj[k.key] = v
 		}
-		for _, t := range e.ties { // 互相比较的两列: 约 1/3 的行相等
+		e.applyMainFKs(c.Name, obj, i) // 逻辑表的外键(关联的对方的键)
+		for _, t := range e.ties {     // 互相比较的两列: 约 1/3 的行相等
 			ka, kb := e.jsonKeyOf(c.Name, t[0]), e.jsonKeyOf(c.Name, t[1])
 			if ka != "" && kb != "" && e.rnd.Intn(3) == 0 {
 				if v, ok := obj[ka]; ok {

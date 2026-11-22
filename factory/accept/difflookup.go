@@ -33,6 +33,7 @@ type otherTable struct {
 	rows  []core.Row
 	rowDB []*pgx.Conn
 	shard *ir.Shard
+	lt    *logicalTable // 对方是逻辑表(来源单元展开的表): 版本写进物理表(diffsource.go)
 }
 
 // fkRef: 表里的 cols 引用 ref 的 keys(逐列对应)。
@@ -66,12 +67,15 @@ func (e *diffEnv) initOthers() error {
 						next[x.Name] = o
 					}
 				}
+				if x.Expr.Op == "json_field" && e.plan.Storage(e.api.Table) != nil { // 逻辑表的列: 出处 = 逻辑表(外键写进 JSON: applyMainFKs)
+					next[x.Name] = origin{e.api.Table, x.Name}
+				}
 			}
 			from = next
 		case st.Kind == "lookup":
 			ot, ok := byName[st.Table]
 			if !ok {
-				ot = &otherTable{table: st.Table, cols: st.Columns, shard: e.plan.Shard(st.Table)}
+				ot = &otherTable{table: st.Table, cols: st.Columns, shard: e.plan.Shard(st.Table), lt: e.newLogical(st)}
 				byName[st.Table] = ot
 				e.others = append(e.others, ot)
 			}
@@ -123,6 +127,11 @@ func (e *diffEnv) initOthers() error {
 	if err := visit(e.table, 0); err != nil {
 		return err
 	}
+	if e.api.Table != e.table { // 数据来源是逻辑表: 外键的主人是逻辑表名
+		if err := visit(e.api.Table, 0); err != nil {
+			return err
+		}
+	}
 	for _, ot := range e.others { // 来源的外键没有引用到的(出处不明)也要造
 		if !done[ot.table] {
 			done[ot.table] = true
@@ -134,6 +143,15 @@ func (e *diffEnv) initOthers() error {
 	view, err := core.Check(&core.Pipeline{Steps: src, Params: e.api.Pipeline.Params})
 	if err == nil {
 		e.view = view
+	}
+	var main []core.Step // 数据来源部分(逻辑表的列: 外键写进 JSON 时的类型)
+	for _, st := range src {
+		if st.Kind != "lookup" {
+			main = append(main, st)
+		}
+	}
+	if s, err := core.Check(&core.Pipeline{Steps: main, Params: e.api.Pipeline.Params}); err == nil {
+		e.mainLogical = s
 	}
 	return nil
 }
@@ -152,6 +170,9 @@ func (e *diffEnv) loadOthers() error {
 		}
 		ident := pgx.Identifier{ot.table}.Sanitize()
 		for _, c := range targets {
+			if ot.lt != nil { // 逻辑表: 物理表由 loadStorageRows 清空
+				break
+			}
 			if _, err := c.Exec(e.ctx, "TRUNCATE "+ident+" CASCADE"); err != nil {
 				return err
 			}
@@ -159,6 +180,12 @@ func (e *diffEnv) loadOthers() error {
 	}
 	for _, ot := range e.others {
 		e.table = ot.table
+		if ot.lt != nil {
+			if err := e.loadOtherLogical(ot); err != nil {
+				return err
+			}
+			continue
+		}
 		unique, err := e.singleUnique(ot.table)
 		if err != nil {
 			return err
@@ -366,6 +393,10 @@ func (e *diffEnv) tablesIn(conn *pgx.Conn, main []core.Row) map[string][]core.Ro
 	m := map[string][]core.Row{e.table: main}
 	e.childTablesIn(conn, m)
 	for _, ot := range e.others {
+		if ot.lt != nil { // 逻辑表: 参考求值器的输入是物理表的行(来源的子流水线自己算)
+			m[ot.lt.st.Table] = ot.lt.phys
+			continue
+		}
 		if conn == nil || ot.shard == nil {
 			m[ot.table] = ot.rows
 			continue
@@ -411,7 +442,8 @@ func (e *diffEnv) lookupTargets() []sensTarget {
 				s.Missing = "keep"
 			}
 		})})
-		out = append(out, sensTarget{desc: name + " 找到的行(总是找不到的实现)", mutate: with(i, func(s *core.Step) { s.Table = "\x00none" })})
+		out = append(out, sensTarget{desc: name + " 找到的行(总是找不到的实现)", mutate: with(i, func(s *core.Step) { s.Table, s.Source = "\x00none", nil })})
+		out = append(out, sourceTargets(i, st, name)...)
 		if len(st.On) > 1 {
 			for j, k := range st.On {
 				j := j
@@ -426,7 +458,7 @@ func (e *diffEnv) lookupTargets() []sensTarget {
 		}
 		for _, k := range st.On {
 			ct, ok := before.Col(k.Col)
-			if !ok || !ct.Nullable {
+			if !ok || !ct.Nullable || e.fixedCols()[k.Col] || e.narrowedOut(k.Col) { // 请求固定了这一列(必填的等于)/ 之后的条件拒绝空值: 空值的行进不了结果
 				continue
 			}
 			kt, _ := core.Schema(st.Columns).Col(k.Key)

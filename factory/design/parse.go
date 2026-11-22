@@ -349,8 +349,8 @@ type API struct {
 	Derived    []*Derived // 派生参数(不出现在请求里)
 	Cases      []*yaml.Node
 	LogicCases []*yaml.Node
-	Reviewed   []QA // X.审查.yaml
-	Lookups    []*Lookup // 关联(多对一查找),按书写顺序
+	Reviewed   []QA        // X.审查.yaml
+	Lookups    []*Lookup   // 关联(多对一查找),按书写顺序
 	Nests      []*Nest     // 嵌套(一对多: 子行的列表)
 	ChildAggs  []*ChildAgg // 子聚合(按父行聚合)
 }
@@ -428,7 +428,7 @@ func loadAPI(path string) (*API, error) {
 		Path: path, Name: str(root, "API"), Desc: str(root, "说明"), Background: str(root, "背景"),
 		Owner: str(root, "负责人"), Source: str(root, "数据来源"), UseColumns: strList(get(root, "使用的列")),
 		InputRules: strList(get(root, "输入之间的规则")), Where: strList(get(root, "固定条件")),
-		ItemName:   str(root, "输出行名"), ListField: str(root, "输出列表名"),
+		ItemName: str(root, "输出行名"), ListField: str(root, "输出列表名"),
 		Fixtures: get(get(root, "例子"), "准备数据"), Now: str(get(root, "例子"), "现在"),
 	}
 	if a.Name == "" {
@@ -737,7 +737,9 @@ func OutputKeys() []string {
 }
 
 // NestKeys / ChildAggKeys: 嵌套 / 子聚合的一项可以写的键。
-func NestKeys() []string     { return []string{"表", "条件", "固定条件", "排序", "上限", "列", "行名"} }
+func NestKeys() []string {
+	return []string{"表", "条件", "固定条件", "排序", "上限", "列", "行名"}
+}
 func ChildAggKeys() []string { return []string{"表", "条件", "固定条件", "计算"} }
 
 // aggWords: 子聚合的 计算 的写法 → 聚合(core/agg.go)。件数 = count(没有列)。

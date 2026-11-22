@@ -104,10 +104,17 @@ func Eval(p *Pipeline, tables map[string][]Row, params Params) (*Result, error) 
 			}
 			rows = out
 		case "lookup":
-			schema, rows = evalLookup(st, schema, rows, tables[st.Table])
+			other, err := p.related(st, tables, params)
+			if err != nil {
+				return nil, err
+			}
+			schema, rows = evalLookup(st, schema, rows, other)
 		case "nest", "child_agg":
-			var err error
-			schema, rows, err = p.evalChildren(st, schema, rows, tables[st.Table], params)
+			child, err := p.related(st, tables, params)
+			if err != nil {
+				return nil, err
+			}
+			schema, rows, err = p.evalChildren(st, schema, rows, child, params)
 			if err != nil {
 				return nil, err
 			}
@@ -149,6 +156,18 @@ func Eval(p *Pipeline, tables map[string][]Row, params Params) (*Result, error) 
 		}
 	}
 	return &Result{Columns: schema, Rows: rows, Ordered: ordered}, nil
+}
+
+// related: lookup / nest / child_agg 的对方的行。逻辑表(Source)= 子流水线在同一组物理表上的结果。
+func (p *Pipeline) related(st Step, tables map[string][]Row, params Params) ([]Row, error) {
+	if len(st.Source) == 0 {
+		return tables[st.Table], nil
+	}
+	res, err := Eval(&Pipeline{Steps: st.Source, Params: p.Params}, tables, params)
+	if err != nil {
+		return nil, fmt.Errorf("%s 的来源: %w", st.Table, err)
+	}
+	return res.Rows, nil
 }
 
 // evalGroup: 按键的规范文本分组(NULL = "∅",和任何文本的规范写法都不同: 文本带引号)。

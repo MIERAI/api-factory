@@ -77,6 +77,15 @@ mutate "SQL: rank → dense_rank"             $S 's|"rank() OVER (ORDER BY "|"de
 mutate "SQL: rank → row_number"             $S 's|"rank() OVER (ORDER BY "|"row_number() OVER (ORDER BY "|'
 mutate "参考: NULL 的键每个一组"             $E '/func evalGroup/,/^}/s|k := keyString(r, st.Keys)|k := keyString(r, st.Keys); if strings.Contains(k, "∅") { k += fmt.Sprint(len(groups)) }|'
 mutate "参考: 名次不跳号(dense_rank)"        $E '/func evalRank/,/^}/s|if compareRows(o, r, st.Order) < 0 {|if compareRows(o, r, st.Order) < 0 \&\& false {|'
+# R2.5
+mutate "SQL: 包含写成前缀匹配"                $S "s|(%s LIKE '%%' \\|\\| replace|(%s LIKE replace|"
+mutate "参考: 包含写成前缀匹配"               $E 's|return strings.Contains(a.(string), params\[e.Name\].(string)), nil|return strings.HasPrefix(a.(string), params[e.Name].(string)), nil|'
+mutate "SQL: ymd 不检查合法(只按整数比较)"   $S 's|return fmt.Sprintf("((%s %s (to_char(%s, \x27YYYYMMDD\x27))::int4) AND %s)", x, e.Name, v, ymdValidSQL(x)), nil|return fmt.Sprintf("(%s %s (to_char(%s, \x27YYYYMMDD\x27))::int4)", x, e.Name, v), nil|'
+mutate "SQL: ymd 的改写在 not 之下也做"       $S 's|if e.Op == "cmp" \&\& saved \&\& len(e.Args) == 2|if e.Op == "cmp" \&\& len(e.Args) == 2|'
+mutate "参考: ymd 按日历进位"                 $E 's|return YMDDate(x.(int64), e.Loose), nil|return YMDDate(x.(int64), true), nil|'
+mutate "SQL: 逻辑表的 keep 写成 JOIN LATERAL" $S 's|join := "LEFT JOIN LATERAL"|join := "JOIN LATERAL"|'
+mutate "参考: 逻辑表直接用物理表的行"         $E 's|	if len(st.Source) == 0 {\n		return tables\[st.Table\], nil|&|; s|if len(st.Source) == 0 {|if true {|'
+mutate "下推: 非键的条件也移到取最新之前"     factory/core/pushdown.go 's|			n, ok := name\[e.Name\]\n|&|; s|			if !ok {\n				return nil, false|&|; s|n, ok := name\[e.Name\]|n, ok := name[e.Name]; if !ok { n, ok = e.Name, true }|'
 echo "变异: 抓到 $caught / $total"
 for m in "${missed[@]:-}"; do if [ -n "$m" ]; then echo "  - $m"; fi; done
 [ "$caught" -eq "$total" ]

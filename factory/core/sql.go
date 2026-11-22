@@ -89,8 +89,21 @@ func ToSQL(p *Pipeline, opt Options) (*SQL, error) {
 		p = q
 	}
 	g := &sqlGen{p: p, index: map[string]int{}, ref: opt.ParamRef}
+	lv, err := g.steps(p.Steps)
+	if err != nil {
+		return nil, err
+	}
+	text, err := g.render(lv, textOutput)
+	if err != nil {
+		return nil, err
+	}
+	return &SQL{Text: text, Params: g.params, Columns: out}, nil
+}
+
+// steps: 流水线的步骤 → 最后一层(还没有写成文本)。关联 / 子表的来源(Source)也用它写成子查询。
+func (g *sqlGen) steps(steps []Step) (*sqlLevel, error) {
 	var lv *sqlLevel
-	for _, st := range p.Steps {
+	for _, st := range steps {
 		switch st.Kind {
 		case "scan":
 			lv = g.newLevel(quoteIdent(st.Table), Schema(st.Columns))
@@ -110,7 +123,7 @@ func ToSQL(p *Pipeline, opt Options) (*SQL, error) {
 			lv.project = st.Project
 			var s Schema
 			for _, x := range st.Project {
-				t, err := p.typeOf(x.Expr, lv.in)
+				t, err := g.p.typeOf(x.Expr, lv.in)
 				if err != nil {
 					return nil, err
 				}
@@ -125,6 +138,28 @@ func ToSQL(p *Pipeline, opt Options) (*SQL, error) {
 		case "lookup": // LEFT JOIN(drop: JOIN)接在这一层的 FROM 后面。WHERE 只引用之前的列,和连接的先后无关,不用包
 			if lv.project != nil || lv.distinct != nil || lv.order != nil || lv.limit != "" {
 				lv = g.wrap(lv, false)
+			}
+			if len(st.Source) > 0 { // 逻辑表: LEFT JOIN LATERAL (来源 + 关联条件) ON TRUE(drop: JOIN LATERAL)
+				sub, err := g.sourceSQL(st, lv)
+				if err != nil {
+					return nil, err
+				}
+				g.n++
+				alias := fmt.Sprintf("t%d", g.n)
+				join := "LEFT JOIN LATERAL"
+				if st.Missing == "drop" {
+					join = "JOIN LATERAL"
+				}
+				lv.from += fmt.Sprintf("\n%s (\n%s\n) AS %s ON TRUE", join, indent(sub), alias)
+				if lv.refs == nil {
+					lv.refs = map[string]string{}
+				}
+				for _, t := range st.Take {
+					lv.refs[t.Name] = alias + "." + quoteIdent(t.Col)
+				}
+				lv.in = checkLookup(lv.in, st, "", func(string, ...any) {})
+				lv.out = lv.in
+				continue
 			}
 			g.n++
 			alias := fmt.Sprintf("t%d", g.n)
@@ -161,12 +196,12 @@ func ToSQL(p *Pipeline, opt Options) (*SQL, error) {
 			}
 			if st.Kind == "nest" {
 				lv.refs[st.As] = alias + ".v"
-				lv.in = p.checkNest(lv.in, st, "", func(string, ...any) {})
+				lv.in = g.p.checkNest(lv.in, st, "", func(string, ...any) {})
 			} else {
 				for _, a := range st.Aggs {
 					lv.refs[a.Name] = alias + "." + quoteIdent(a.Name)
 				}
-				lv.in = p.checkChildAgg(lv.in, st, "", func(string, ...any) {})
+				lv.in = g.p.checkChildAgg(lv.in, st, "", func(string, ...any) {})
 			}
 			lv.out = lv.in
 		case "sort":
@@ -201,11 +236,7 @@ func ToSQL(p *Pipeline, opt Options) (*SQL, error) {
 			}
 		}
 	}
-	text, err := g.render(lv, textOutput)
-	if err != nil {
-		return nil, err
-	}
-	return &SQL{Text: text, Params: g.params, Columns: out}, nil
+	return lv, nil
 }
 
 // childSQL: nest / child_agg 的 LATERAL 子查询。子表的行: 关联条件(当前行的列 = 子表的列;任一边 NULL → 不相等)+ 子表上的条件。
@@ -215,10 +246,21 @@ func ToSQL(p *Pipeline, opt Options) (*SQL, error) {
 //	           (多取一行: 超过上限由出口判定;值按核心的 API 表示写进 JSON: jsonValueSQL)
 //	child_agg: SELECT 聚合(agg.go 的 aggSQL) AS 名字, … FROM 子表 WHERE …(没有 GROUP BY: 永远一行,空集合也有)
 func (g *sqlGen) childSQL(lv *sqlLevel, st Step) (string, error) {
+	table := quoteIdent(st.Table)
+	if len(st.Source) > 0 { // 逻辑表: 来源 + 关联条件(下推到取最新之前)的子查询
+		sub, err := g.sourceSQL(st, lv)
+		if err != nil {
+			return "", err
+		}
+		table = "(\n" + indent(sub) + "\n)"
+	}
 	g.n++
 	child := &sqlLevel{alias: fmt.Sprintf("t%d", g.n), in: Schema(st.Columns), out: Schema(st.Columns)}
 	var where []string
 	for _, k := range st.On {
+		if len(st.Source) > 0 { // 已经在子查询里
+			break
+		}
 		where = append(where, fmt.Sprintf("%s = %s", g.col(child, k.Key), g.col(lv, k.Col)))
 	}
 	if st.Pred != nil {
@@ -228,7 +270,10 @@ func (g *sqlGen) childSQL(lv *sqlLevel, st Step) (string, error) {
 		}
 		where = append(where, w)
 	}
-	from := fmt.Sprintf("FROM %s AS %s\nWHERE %s", quoteIdent(st.Table), child.alias, strings.Join(where, "\n  AND "))
+	from := fmt.Sprintf("FROM %s AS %s", table, child.alias)
+	if len(where) > 0 {
+		from += "\nWHERE " + strings.Join(where, "\n  AND ")
+	}
 	if st.Kind == "child_agg" {
 		var sel []string
 		for _, a := range st.Aggs {
@@ -610,6 +655,8 @@ func (g *sqlGen) expr(e *Expr, lv *sqlLevel) (string, error) {
 	case "now":
 		s, _ := g.param(NowParam)
 		return s, nil
+	case "sql_ref":
+		return e.Name, nil
 	case "ymd":
 		x, err := sub(e.Args[0])
 		if err != nil {
@@ -744,4 +791,40 @@ func (g *sqlGen) ymdCmp(e *Expr, lv *sqlLevel) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("((%s %s (to_char(%s, 'YYYYMMDD'))::int4) AND %s)", x, e.Name, v, ymdValidSQL(x)), nil
+}
+
+// sourceSQL: 逻辑表(st.Source)+ 关联条件(对方的列 = 外层 lv 的列)的子查询(LATERAL 里用)。
+// 关联条件作为最后一步的筛选接在来源之后,再由 pushdown 把只引用取最新的键的条件移到取最新之前
+// (等式: filter(P) ∘ pick_per_key(K) = pick_per_key(K) ∘ filter(P),P 只引用 K)—— 数据库只给关联到的键取最新,
+// 用得上 (键, 登记顺序) 的索引;其余的条件留在取最新之后(语义不变)。外层的列写成 sql_ref(SQL 的原样文本)。
+func (g *sqlGen) sourceSQL(st Step, lv *sqlLevel) (string, error) {
+	steps := append([]Step(nil), st.Source...)
+	var conds []*Expr
+	for _, k := range st.On {
+		t, _ := lv.in.Col(k.Col)
+		conds = append(conds, Cmp("=", Col(k.Key), &Expr{Op: "sql_ref", Name: g.col(lv, k.Col), Type: &Type{Kind: t.Kind, Nullable: t.Nullable}}))
+	}
+	switch len(conds) {
+	case 0:
+	case 1:
+		steps = append(steps, Step{Kind: "filter", Pred: conds[0], From: "关联条件"})
+	default:
+		steps = append(steps, Step{Kind: "filter", Pred: And(conds...), From: "关联条件"})
+	}
+	sub := &Pipeline{Steps: steps, Params: g.p.Params}
+	for i := 0; i < len(sub.Steps); i++ {
+		q := pushdown(sub)
+		if q == sub {
+			break
+		}
+		sub = q
+	}
+	saved := g.p
+	g.p = sub
+	defer func() { g.p = saved }()
+	slv, err := g.steps(sub.Steps)
+	if err != nil {
+		return "", err
+	}
+	return g.render(slv, false)
 }

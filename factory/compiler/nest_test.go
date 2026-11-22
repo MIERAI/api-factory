@@ -26,7 +26,7 @@ func TestChildView(t *testing.T) {
 		{Name: "total", Table: "order_items", On: []string{"id = order_id"}, Func: "sum", Column: "price"},
 		{Name: "first_sku", Table: "order_items", On: []string{"id = order_id"}, Func: "min", Column: "sku"},
 	}
-	view, steps, err := lookupView(mk(nil, []spec.Nest{items}, aggs), cat, keys)
+	view, steps, err := lookupView(mk(nil, []spec.Nest{items}, aggs), cat, keys, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,13 +48,13 @@ func TestChildView(t *testing.T) {
 		"分库键不相等": mk(map[string]string{"orders": "store", "order_items": "store"}, nil, aggs[:1]),
 	}
 	for name, s := range bad {
-		if _, _, err := lookupView(s, cat, keys); err == nil {
+		if _, _, err := lookupView(s, cat, keys, nil); err == nil {
 			t.Errorf("%s: 应该报错", name)
 		}
 	}
 	ok := mk(map[string]string{"orders": "store", "order_items": "store"}, nil,
 		[]spec.ChildAgg{{Name: "n", Table: "order_items", On: []string{"id = order_id", "store = store"}, Func: "count"}})
-	if _, _, err := lookupView(ok, cat, keys); err != nil {
+	if _, _, err := lookupView(ok, cat, keys, nil); err != nil {
 		t.Errorf("分库键相等: %v", err)
 	}
 }

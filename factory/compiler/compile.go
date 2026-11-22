@@ -97,7 +97,7 @@ func Compile(specs []*spec.Spec) (*ir.Plan, error) {
 			if _, ok := cat.tables[s.Datasource.Table]; !ok {
 				return nil, fmt.Errorf("%s: datasource.table: %q is not in db/schema/*.sql", s.Path, s.Datasource.Table)
 			}
-			view, lsteps, err := lookupView(s, cat, keys) // 关联: 加的列也是来源的列(筛选 / 输出 / 排序)
+			view, lsteps, err := lookupView(s, cat, keys, lib) // 关联: 加的列也是来源的列(筛选 / 输出 / 排序)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", s.Path, err)
 			}
@@ -204,6 +204,10 @@ func Compile(specs []*spec.Spec) (*ir.Plan, error) {
 			if le := s.Domain.Entities[t]; le.ShardBy != "" && !seen["shard:"+t] {
 				seen["shard:"+t] = true
 				plan.Shards = append(plan.Shards, ir.Shard{Table: t, Column: le.ShardBy})
+			}
+			if le := s.Domain.Entities[t]; le.Storage != nil && !seen["storage:"+t] { // 关联 / 子表是逻辑表: 验收要按来源写物理表
+				seen["storage:"+t] = true
+				plan.Storages = append(plan.Storages, storageIR(t, le.NaturalKey, le.Storage))
 			}
 		}
 		if st := e.Storage; st != nil && !seen["storage:"+table] {

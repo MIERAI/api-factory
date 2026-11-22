@@ -2,7 +2,8 @@ package compiler
 
 // 多表: 关联(datasource.lookups → 核心的 lookup)。
 //
-//   - 关联的表必须在同一个库里(db/schema 里的普通的表;存储: JSON版本 的逻辑表还不能关联)
+//   - 关联的表必须在同一个库里(db/schema 里的普通的表,或 存储: JSON版本 等来源单元展开的逻辑表:
+//     对方 = 来源的子流水线(每个自然键最新的一行,删除 / 逻辑删除去掉),唯一键 = 自然键)
 //   - 分库的表只能关联同一个分库里的表: 两边都按分库键分库,关联条件里有「分库键 = 对方的分库键」
 //   - 对方的键列必须是主键或唯一约束(唯一键从 db/schema 的 CREATE TABLE / CREATE UNIQUE INDEX 读)→ 核心的 DRC 检查
 //   - 加的列之后和来源的列一样: 筛选、输出、固定条件、排序都可以用(列的目录 view 里加上这些列)
@@ -15,13 +16,16 @@ import (
 	"sort"
 	"strings"
 
+	"apifactory/factory/cells"
 	"apifactory/factory/core"
+	"apifactory/factory/sources"
 	"apifactory/factory/spec"
 )
 
 // lookupView: 关联的流水线步骤 + 加了关联列的目录(来源的表的列 + 每个关联加的列;keep 的列可空)。
 // 之后接嵌套 / 子聚合(nest.go: 子行的列表 / 聚合值也加到目录里)。没有关联、嵌套、子聚合时返回原来的目录。
-func lookupView(s *spec.Spec, cat *catalog, keys map[string][][]string) (*catalog, []core.Step, error) {
+// lib: 单元库(逻辑表的来源单元的展开;nil = 只要目录,不要步骤: 设计编译器用)。
+func lookupView(s *spec.Spec, cat *catalog, keys map[string][][]string, lib *cells.Library) (*catalog, []core.Step, error) {
 	ls := s.Datasource.Lookups
 	if len(ls) == 0 && len(s.Datasource.Nests) == 0 && len(s.Datasource.ChildAggs) == 0 {
 		return cat, nil, nil
@@ -50,10 +54,10 @@ func lookupView(s *spec.Spec, cat *catalog, keys map[string][][]string) (*catalo
 		if !ok {
 			return nil, nil, fmt.Errorf("%s: 表 %q 不在 db/schema 里", at, l.Table)
 		}
-		if entity(l.Table).Storage != nil {
-			return nil, nil, fmt.Errorf("%s: 表 %s 是 存储: %s 的逻辑表,还不能关联(只能关联普通的表)", at, l.Table, entity(l.Table).Storage.Kind)
-		}
 		st := core.Step{Kind: "lookup", Table: l.Table, From: at, Unique: keys[l.Table]}
+		if err := relatedSource(s, &st, cat, lib); err != nil { // 逻辑表: 来源的展开 + 唯一键 = 自然键
+			return nil, nil, fmt.Errorf("%s: %w", at, err)
+		}
 		switch l.Missing {
 		case "", "keep":
 			st.Missing = "keep"
@@ -102,7 +106,7 @@ func lookupView(s *spec.Spec, cat *catalog, keys map[string][][]string) (*catalo
 			keyList = append(keyList, k.Key)
 		}
 		unique := false
-		for _, u := range keys[l.Table] {
+		for _, u := range st.Unique {
 			all := true
 			for _, c := range u {
 				all = all && onKeys[c]
@@ -111,7 +115,7 @@ func lookupView(s *spec.Spec, cat *catalog, keys map[string][][]string) (*catalo
 		}
 		if !unique {
 			return nil, nil, fmt.Errorf("%s: 条件里 %s 的列 %v 不是主键或唯一约束(%s 的唯一键: %v)。"+
-				"关联是多对一: 对方最多一行匹配;一对多请等嵌套(R2-2)", at, l.Table, keyList, l.Table, keys[l.Table])
+				"关联是多对一: 对方最多一行匹配;一对多请用嵌套", at, l.Table, keyList, l.Table, st.Unique)
 		}
 		switch src, dst := entity(table).ShardBy, entity(l.Table).ShardBy; {
 		case src == "" && dst != "":
@@ -142,7 +146,7 @@ func lookupView(s *spec.Spec, cat *catalog, keys map[string][][]string) (*catalo
 		}
 		steps = append(steps, st)
 	}
-	cols, children, err := childSteps(s, cat, keys, cols, shardCols)
+	cols, children, err := childSteps(s, cat, keys, cols, shardCols, lib)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -157,7 +161,7 @@ func LookupColumns(s *spec.Spec, tables map[string][]catColumn) ([]catColumn, er
 	if err != nil {
 		return nil, err
 	}
-	view, _, err := lookupView(s, cat, keys)
+	view, _, err := lookupView(s, cat, keys, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -276,4 +280,35 @@ func parseUniqueKeys(src string, out map[string][][]string) {
 			out[unq(m[1])] = append(out[unq(m[1])], cols)
 		}
 	}
+}
+
+// relatedSource: 关联 / 子表是来源单元展开的逻辑表(领域的 存储: JSON版本 …)时: 对方 = 来源的子流水线
+// (和数据来源是逻辑表时的流水线开头一样),唯一键 = 自然键(取最新的键;可以为空的键列里空值自己是一组)。
+// lib = nil: 只要唯一键(设计编译器检查目录用)。普通的表: 什么都不做。
+func relatedSource(s *spec.Spec, st *core.Step, cat *catalog, lib *cells.Library) error {
+	if s.Domain == nil {
+		return nil
+	}
+	e := s.Domain.Entities[st.Table]
+	if e.Storage == nil {
+		return nil
+	}
+	st.Unique = [][]string{e.NaturalKey}
+	if lib == nil {
+		return nil
+	}
+	src, ok := sources.ByKind(e.Storage.Kind)
+	if !ok {
+		return fmt.Errorf("表 %s: 存储 %s 不存在", st.Table, e.Storage.Kind)
+	}
+	scan, err := scanStep(e.Storage.Table, cat)
+	if err != nil {
+		return err
+	}
+	steps, err := src.Steps(e.Storage, e.NaturalKey, scan, lib)
+	if err != nil {
+		return fmt.Errorf("表 %s 的来源: %w", st.Table, err)
+	}
+	st.Source = steps
+	return nil
 }

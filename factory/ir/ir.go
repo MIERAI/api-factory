@@ -139,8 +139,8 @@ type Filter struct {
 }
 
 type GetByID struct {
-	NotFoundEmpty bool `json:"not_found_empty,omitempty"` // 找不到时 OK + found = false
-	NotFoundMessage string `json:"not_found_message"` // "job not found: {job_id}"
+	NotFoundEmpty   bool   `json:"not_found_empty,omitempty"` // 找不到时 OK + found = false
+	NotFoundMessage string `json:"not_found_message"`         // "job not found: {job_id}"
 }
 
 // ListAll: 多条(不分页)。超过 MaxRows 时报错(查询多取一行来判断)。

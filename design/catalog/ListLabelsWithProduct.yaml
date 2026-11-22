@@ -1,0 +1,83 @@
+# ============================================================================
+# ListLabelsWithProduct: ラベル + 商品名 + カテゴリ名(逻辑表 → 逻辑表 → 逻辑表 の关联の链)
+# ============================================================================
+API: ListLabelsWithProduct
+说明: 商品コード(複数)を指定して、ラベルの現在の文言を、商品名とカテゴリ名つきで返す
+背景: ラベル印刷の確認画面。ラベル・商品・カテゴリはどれも変更のたびに行が追加される表(JSON版本)で、それぞれの現在の値(最新の版)どうしをつなぐ
+  (古い版の商品名・カテゴリ名を使わない)。商品が削除・論理削除されたラベルは印刷しないので出さない。
+  カテゴリが見つからない(削除済み・論理削除・未設定を含む)商品のラベルは、カテゴリ名なしで出す
+负责人: catalog-team
+风险: 中
+
+种类: 多条
+数据来源: product_label
+
+关联:
+  product:  { 表: product_master,  条件: [product_code = product_code], 列: { product_name: name, category: category }, 找不到时: 丢弃 }
+  category: { 表: category_master, 条件: [category = category],         列: { category_title: title },                   找不到时: 保留 }
+
+输入:
+  product_codes: { 类型: 文本列表, 必填: 是, 个数: "1~50", 格式: 数字, 说明: 商品コード, 筛选: product_code 属于 }
+
+输出:
+  product_code:   商品コード
+  label:          { 来自: label_code, 说明: ラベルコード(既定のラベルは空) }
+  display_text:   { 来自: text, 说明: 表示文言 }
+  product_name:   商品名(現在の版)
+  category_title: カテゴリ名(現在の版。カテゴリが見つからないときは不设置)
+
+排序: [product_code 小到大, label 小到大]
+上限: 500
+输出行名: LabelWithProduct
+输出列表名: labels
+
+业务规则:
+  - 情况: 商品が削除・論理削除されている(最新の版が削除)、または商品が登録されていない
+    结果: そのラベルは出さない(古い版の商品に戻らない)
+  - 情况: 商品の名前・カテゴリが変わった
+    结果: 最新の版の名前・カテゴリを使う
+  - 情况: カテゴリが削除・論理削除されている、または商品のカテゴリが空
+    结果: ラベルは出す。category_title は不设置
+  - 情况: ラベルが削除された
+    结果: 出さない
+  - 情况: 結果が 500 件を超える
+    结果: エラー(FAILED_PRECONDITION)。途中で切り捨てない
+
+例子:
+  准备数据:
+    product_master:   # 上から順に登録された(後の行が新しい)
+      - { product_code: "100", name: りんご,     category: fruit, price: 100, launched_on: null }
+      - { product_code: "100", name: 青りんご,   category: fruit, price: 120, launched_on: null }   # 100 の新しい版
+      - { product_code: "200", name: バナナ,     category: fruit, price: 50,  launched_on: null }
+      - { product_code: "200", 操作: 删除 }                                                         # 200 は削除
+      - { product_code: "300", name: にんじん,   category: veg,   price: 80,  launched_on: null }
+      - { product_code: "300", name: にんじん,   category: veg,   price: 80,  launched_on: null, 操作: 逻辑删除 }
+      - { product_code: "400", name: 古い名前,   category: old,   price: 10,  launched_on: null }
+      - { product_code: "400", name: 新しい名前, category: snack, price: 10,  launched_on: null }   # 名前もカテゴリも変わった
+      - { product_code: "500", name: 謎,         category: null,  price: 1,   launched_on: null }   # カテゴリ未設定
+    category_master:
+      - { category: fruit, title: 果物,     sort_no: 1 }
+      - { category: snack, title: 旧お菓子, sort_no: 3 }
+      - { category: snack, title: お菓子,   sort_no: 3 }    # snack の新しい版
+      - { category: old,   title: 旧,       sort_no: 9 }
+      - { category: veg,   title: 野菜,     sort_no: 2 }
+    product_label:
+      - { product_code: "100", label_code: null, text: 既定 }
+      - { product_code: "100", label_code: "A",  text: 特売 }
+      - { product_code: "100", label_code: "B",  text: 旧 }
+      - { product_code: "100", label_code: "B",  操作: 删除 }       # 100 の B は削除
+      - { product_code: "200", label_code: null, text: バナナ既定 }  # 商品が削除済み
+      - { product_code: "300", label_code: null, text: にんじん既定 }  # 商品が論理削除済み
+      - { product_code: "400", label_code: "A",  text: 新商品 }
+      - { product_code: "500", label_code: null, text: 謎ラベル }
+      - { product_code: "600", label_code: null, text: 商品なし }    # 商品が登録されていない
+  用例:
+    - 说明: 最新の版どうしをつなぐ。100 は今の名前(青りんご)。400 は新しいカテゴリ snack の最新の名前(お菓子)。500 はカテゴリなし(category_title は不设置)。200 / 300 / 600 は商品がないので出ない
+      输入: { product_codes: ["100", "200", "300", "400", "500", "600"] }
+      结果: { labels: [{ product_code: "100", label: "A", display_text: 特売, product_name: 青りんご, category_title: 果物 }, { product_code: "100", label: null, display_text: 既定, product_name: 青りんご, category_title: 果物 }, { product_code: "400", label: "A", display_text: 新商品, product_name: 新しい名前, category_title: お菓子 }, { product_code: "500", label: null, display_text: 謎ラベル, product_name: 謎, category_title: null }] }
+    - 说明: 削除された商品だけを指定 → 空
+      输入: { product_codes: ["200", "300"] }
+      结果: { labels: [] }
+    - 说明: 商品コードを指定しない
+      输入: { product_codes: [] }
+      结果: 参数错误

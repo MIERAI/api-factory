@@ -22,3 +22,18 @@ CREATE TABLE IF NOT EXISTS product_label_events (
 -- 按自然键查最新版本(db/migrations/00002): 默认排序规则 — WHERE 用它比较,COLLATE "C" 的索引用不上
 CREATE INDEX IF NOT EXISTS product_label_events_key_idx
     ON product_label_events ((data ->> 'product_code'), (data ->> 'label_code'), registered_at DESC, id DESC);
+-- 关联 / 嵌套の対象が逻辑表のとき(R2.5 T1)、関連条件(キー = 外側の列)は既定の照合順序で比較される:
+-- 既定の照合順序の式索引で、キーごとの最新の版を直接引く
+CREATE INDEX IF NOT EXISTS product_events_code_idx
+    ON product_events ((data ->> 'product_code'), registered_at DESC, id DESC);
+
+-- カテゴリマスタ(追加型)。商品マスタの category から引く(逻辑表 → 逻辑表の关联)
+CREATE TABLE IF NOT EXISTS category_events (
+    id            BIGINT      PRIMARY KEY,
+    data          JSONB       NOT NULL,
+    action_type   INTEGER     NOT NULL DEFAULT 0,
+    registered_by TEXT        NOT NULL DEFAULT 'factory',
+    registered_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS category_events_key_idx
+    ON category_events ((data ->> 'category'), registered_at DESC, id DESC);

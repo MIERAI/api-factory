@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"apifactory/factory/cells"
 	"apifactory/factory/spec"
 )
 
@@ -53,7 +54,7 @@ func TestLookupView(t *testing.T) {
 	}
 	cust := spec.Lookup{Name: "c", Table: "customers", On: []string{"customer_id = id"}, Columns: []spec.TakeCol{{Name: "cname", From: "name"}, {Name: "crank", From: "rank"}}}
 	rank := spec.Lookup{Name: "r", Table: "ranks", On: []string{"crank = rank"}, Columns: []spec.TakeCol{{Name: "rlabel", From: "label"}}, Missing: "drop"}
-	view, steps, err := lookupView(mk(nil, cust, rank), cat, keys)
+	view, steps, err := lookupView(mk(nil, cust, rank), cat, keys, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,14 +80,42 @@ func TestLookupView(t *testing.T) {
 		"分库关联不分库":  {mk(map[string]string{"orders": "store"}, cust), "只能关联同一个分库里的表"},
 		"分库键不在条件里": {mk(map[string]string{"orders": "store", "customers": "store"}, cust), "两边的分库键相等"},
 	} {
-		_, _, err := lookupView(c.s, cat, keys)
+		_, _, err := lookupView(c.s, cat, keys, nil)
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: err = %v, want %q", name, err, c.want)
 		}
 	}
 	ok := cust
 	ok.On = []string{"customer_id = id", "store = store"}
-	if _, _, err := lookupView(mk(map[string]string{"orders": "store", "customers": "store"}, ok), cat, keys); err != nil {
+	if _, _, err := lookupView(mk(map[string]string{"orders": "store", "customers": "store"}, ok), cat, keys, nil); err != nil {
 		t.Errorf("同一个分库的关联: %v", err)
+	}
+}
+
+// 关联 / 子表是逻辑表(存储: JSON版本): 对方 = 来源的子流水线,唯一键 = 自然键;按非键的列关联 → 不是多对一,报错。
+func TestLookupLogicalTable(t *testing.T) {
+	cat := &catalog{tables: map[string][]catColumn{
+		"labels":      {{"code", "text", true}, {"text", "text", false}},
+		"products":    {{"code", "text", true}, {"name", "text", false}, {"cat", "text", false}},
+		"prod_events": {{"id", "int8", true}, {"data", "jsonb", true}, {"action_type", "int4", true}, {"registered_at", "timestamptz", true}},
+	}}
+	st := &spec.Storage{Kind: "json_versions", Table: "prod_events", DataColumn: "data", ActionColumn: "action_type", DeleteValue: 1,
+		OrderBy: []string{"registered_at", "id"}, Fields: []spec.StorageField{{Name: "code", Type: "text"}, {Name: "name", Type: "text"}, {Name: "cat", Type: "text"}}}
+	d := &spec.Domain{Entities: map[string]spec.Entity{"products": {NaturalKey: []string{"code"}, Storage: st}}}
+	lib, err := cells.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &spec.Spec{Domain: d, Datasource: spec.Datasource{Table: "labels", Lookups: []spec.Lookup{{Name: "p", Table: "products", On: []string{"code = code"}, Columns: []spec.TakeCol{{Name: "pname", From: "name"}}}}}}
+	_, steps, err := lookupView(s, cat, map[string][][]string{}, lib)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(steps) != 1 || len(steps[0].Source) == 0 || steps[0].Source[0].Table != "prod_events" || fmt.Sprint(steps[0].Unique) != "[[code]]" {
+		t.Fatalf("逻辑表的关联: %+v", steps)
+	}
+	s.Datasource.Lookups[0].On = []string{"text = cat"}
+	if _, _, err := lookupView(s, cat, map[string][][]string{}, lib); err == nil || !strings.Contains(err.Error(), "不是主键或唯一约束") {
+		t.Fatalf("按非键的列关联逻辑表应该报错: %v", err)
 	}
 }

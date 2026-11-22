@@ -40,6 +40,83 @@
     ]
   },
   {
+    "id": "catalog.list-category-products",
+    "method": "ListCategoryProducts",
+    "summary": "カテゴリを指定して、そのカテゴリの商品(現在の値)を、カテゴリ名・ラベル(最大 3 件)・ラベル数つきで返す",
+    "path": "/factory.catalog.v1.CatalogService/ListCategoryProducts",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "100 のラベルは A / C(最新の版)/ 既定(空は最後)の 3 件。B は削除済み。700 はラベルなし(空の一覧、0 件)。200 は削除、300 は今は veg なので出ない",
+        "request": {
+          "category": "fruit"
+        },
+        "response": {
+          "products": [
+            {
+              "category_title": "果物",
+              "label_count": 3,
+              "labels": [
+                {
+                  "label": "A",
+                  "text": "特売"
+                },
+                {
+                  "label": "C",
+                  "text": "産地2"
+                },
+                {
+                  "label": null,
+                  "text": "既定"
+                }
+              ],
+              "name": "青りんご",
+              "product_code": "100"
+            },
+            {
+              "category_title": "果物",
+              "label_count": 0,
+              "labels": [],
+              "name": "もも",
+              "product_code": "700"
+            }
+          ]
+        }
+      },
+      {
+        "name": "300 は最新の版のカテゴリ veg で出る。veg は論理削除されているのでカテゴリ名は不设置",
+        "request": {
+          "category": "veg"
+        },
+        "response": {
+          "products": [
+            {
+              "category_title": null,
+              "label_count": 1,
+              "labels": [
+                {
+                  "label": "A",
+                  "text": "夏"
+                }
+              ],
+              "name": "トマト",
+              "product_code": "300"
+            }
+          ]
+        }
+      },
+      {
+        "name": "該当なし",
+        "request": {
+          "category": "none"
+        },
+        "response": {
+          "products": []
+        }
+      }
+    ]
+  },
+  {
     "id": "catalog.list-labels-by-label-codes",
     "method": "ListLabelsByLabelCodes",
     "summary": "ラベルコード(複数)を指定して、全商品のそのラベルの現在の文言を返す。商品コードの前方一致で絞れる",
@@ -162,6 +239,72 @@
               "text": "新商品"
             }
           ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "catalog.list-labels-with-product",
+    "method": "ListLabelsWithProduct",
+    "summary": "商品コード(複数)を指定して、ラベルの現在の文言を、商品名とカテゴリ名つきで返す",
+    "path": "/factory.catalog.v1.CatalogService/ListLabelsWithProduct",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "最新の版どうしをつなぐ。100 は今の名前(青りんご)。400 は新しいカテゴリ snack の最新の名前(お菓子)。500 はカテゴリなし(category_title は不设置)。200 / 300 / 600 は商品がないので出ない",
+        "request": {
+          "product_codes": [
+            "100",
+            "200",
+            "300",
+            "400",
+            "500",
+            "600"
+          ]
+        },
+        "response": {
+          "labels": [
+            {
+              "category_title": "果物",
+              "display_text": "特売",
+              "label": "A",
+              "product_code": "100",
+              "product_name": "青りんご"
+            },
+            {
+              "category_title": "果物",
+              "display_text": "既定",
+              "label": null,
+              "product_code": "100",
+              "product_name": "青りんご"
+            },
+            {
+              "category_title": "お菓子",
+              "display_text": "新商品",
+              "label": "A",
+              "product_code": "400",
+              "product_name": "新しい名前"
+            },
+            {
+              "category_title": null,
+              "display_text": "謎ラベル",
+              "label": null,
+              "product_code": "500",
+              "product_name": "謎"
+            }
+          ]
+        }
+      },
+      {
+        "name": "削除された商品だけを指定 → 空",
+        "request": {
+          "product_codes": [
+            "200",
+            "300"
+          ]
+        },
+        "response": {
+          "labels": []
         }
       }
     ]

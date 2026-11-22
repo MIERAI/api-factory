@@ -63,11 +63,13 @@ sqlc 不再是类型的来源(见 §9 决定 1)。
 | `absent(p)` | 参数未指定: 标量 = 没有 presence;列表 = 空列表或不传。**"不传"只在这里定义一次** |
 | `in_list(a, p)` | a 为 NULL → UNKNOWN;列表里没有 NULL(proto 保证) |
 | `starts_with(a, p)` | 按字面(% _ \ 不是通配符);a 为 NULL → UNKNOWN |
+| `contains(a, p)` | (R2.5 T4)a 的任何位置包含 p(按字面,% _ \ 不是通配符;按字节;p = "" → TRUE);任一边 NULL → UNKNOWN。SQL = `a LIKE '%' \|\| 转义(p) \|\| '%'`(btree 索引用不上;LIKE 而不是 strpos: pg_trgm 的 GIN 索引能用) |
 | `json_field(c, key, type)` | 键不存在或 JSON null → NULL;格式错 → 查询失败(与 SQL cast 一致) |
 | `map(a, {db值 → 名字}, 默认)` | 枚举映射;未知值 → 默认(并记录指标) |
 | `tuple_after(cols, dirs, params)` | 游标之后(keyset)。本可由 and/or 组合,单列为元件是为了 SQL 能用上索引(行比较) |
 | `now()` | 请求开始的时刻(时间,不为 NULL)。不来自请求: SQL 参数 `factory_now`,适配器接运行时的 `clock.Now(ctx)`;参考求值器用 `Params[factory_now]`(测试时两边同一个值)。R2-3 |
 | `add(x, n, 单位)` 单位 ∈ minute hour day month | x(日期 / 时间)加 n 个单位;任一边 NULL → NULL。**月按 Postgres**(1/31 + 1 个月 = 2/28、闰年 2/29);日期只能加 day / month;时间的 day / month 按领域的时区的日历(`AT TIME ZONE`,不受会话时区影响),minute / hour 是绝对时长。n 超出 int4 → 查询失败。R2-3 |
+| `ymd(x)` | (R2.5 T3)整数 x 按 YYYYMMDD 读成日期(20260131 = 2026-01-31)。不是合法的日期(年 1000~9999、月 1~12、日 1~那个月的天数;20260230、20261301、0、负数)→ NULL(比较是 UNKNOWN,永远不命中)。SQL: 条件的**肯定位置**(filter 里、不在 not 之下)的 `cmp(op, ymd(x), v)` 写成 `x op to_char(v, 'YYYYMMDD')::int4 AND <x 合法>` —— 按列本来的编码比较,整数列上的索引能用;合法的 YYYYMMDD 的整数顺序 = 日期的顺序,不合法时 UNKNOWN 和 FALSE 在肯定位置效果一样。其他位置按 `CASE … make_date(…)` 换算。认证 509 例(月末、闰年、世纪、1000 年 / 9999 年、不合法的整数、int4 / int8、not 之下) |
 | `trunc(x, 单位)` 单位 ∈ day month | 截到那一天 / 那个月的开始;时间先换算到领域的时区再截(结果是那个时刻),日期的结果还是日期。夏令时的切换按 Postgres 的规则(不存在的时刻用切换前的偏移,有两个的用切换后的)。R2-3 |
 
 ### 4.2 关系(行集 → 行集)
@@ -85,7 +87,8 @@ sqlc 不再是类型的来源(见 §9 决定 1)。
 | `child_agg(table, on, pred, aggs)` | 按父行聚合(R2-2,§2.3): 对每一行关联的子行(经过 pred)计算 aggs,作为标量列加上。聚合的类型和 NULL 的规则只在 `factory/core/agg.go` 定义一次(和 R2-4 的顶层 `group` 共用): count → int64(空 0)、sum(整数) → int64(溢出 → 查询失败)/ sum(十进制) → 精确的十进制,**空集合 / 全部 NULL → 0**、min / max → 列的类型,空集合 → NULL;忽略 NULL。SQL = `LEFT JOIN LATERAL (SELECT count(*), coalesce(sum(x), 0), min(y COLLATE "C") …) ON TRUE`(没有 GROUP BY: 空集合也有一行) |
 | (以后)顶层的 `group` / `rank` | R2-4(`r2-relations.md`) |
 | `group(keys, aggs)` | (R2-4,2026-11-22)按 keys 分组,每组一行 = 键 + 聚合。NULL 的键是一组;没有输入行 → 没有输出行。聚合 `count()` / `sum(列)` / `min(列)` / `max(列)` 的类型和 NULL 规则只在 `core/agg.go` 定义一次(child_agg 共用): count → int64;sum(整数) → int64(溢出 → 查询失败),sum(十进制) → 十进制(精确);sum / min / max 忽略 NULL,全部为 NULL → sum 0、min / max NULL;min / max 的文本按字节。SQL: `GROUP BY`(文本键 `COLLATE "C"`)。一条流水线一个 |
-| `rank(order, as)` | (R2-4)SQL `RANK()` 的名次: 并列同名次,下一个名次跳过(1, 2, 2, 4)。只能在 group 之后;NULL 的位置 / 文本按字节和 `sort` 相同 |
+| `rank(order, as)` | (R2-4)SQL `RANK()` 的名次: 并列同名次,下一个名次跳过(1, 2, 2, 4)。只能在 group 之后;NULL 的位置 / 文本按字节和 `sort` 相同。之后可以接 `filter`(R2.5 T2: HAVING 一类,例 `rank <= N` 保留并列;SQL 包一层子查询的 WHERE,不用 HAVING) |
+| 逻辑表的 `lookup` / `nest` / `child_agg` | (R2.5 T1)对方是来源单元展开的逻辑表(JSON版本 等)时,步骤带 `source`(来源的子流水线: scan → project → filter → pick_per_key → …,不能引用请求参数),对方的行 = 子流水线的结果;唯一键 = 取最新的键(自然键),nest 的全序里可以为空的键列也算(空值自己是一组)。参考求值器: 先算整张逻辑表再关联。SQL: `LEFT JOIN LATERAL (来源 + 关联条件)`,关联条件里对方的列是取最新的键时由 pushdown 移到取最新之前(数据库只给关联到的键取最新;其他条件留在之后,语义不变)。认证: 删除 / 逻辑删除 / 复活 / 旧版本 / 键为 NULL / 两张逻辑表的链 / 主表也是逻辑表 |
 | (以后)`join` | trial 的 10 本不需要,出现 2 个以上需求再加(R2-1 的 lookup / R2-2 的 nest 见 r2-relations.md) |
 
 ### 4.3 出口(行集 → 响应)
@@ -166,7 +169,7 @@ JSON版本:
 1. **Go 适配器不再用 sqlc 生成行类型**(推荐)。行的类型和可空性由核心决定,适配器自己生成扫描代码;
    sqlc 只留作 DRC 的独立检查(SQL 能否解析、类型是否一致,忽略它的可空性)。代价: 适配器多写约 200 行生成代码。
 2. **单元库的宏能力**: 只做参数替换 / 可选参数 / 列表展开(推荐),不做条件分支和循环。不够用 → 新增基本元件(评审)。
-3. **join**: 等出现 2 个以上需求再加(推荐)。→ **多对一的 `lookup` 已加**(R2-1,2026-11-22: 两个使用者各有需求;元件认证 + 差分测试的多表造数据 + 变异)。→ **一对多的 `nest` / `child_agg` 已加**(R2-2: storefront v2 Q5 / Q6;元件认证 + 子表的造数据(子行数 0 / 1 / 几个 / 上限 / 上限+1)+ 变异)。顶层的分组聚合按 `r2-relations.md` 的顺序继续。
+3. **join**: 等出现 2 个以上需求再加(推荐)。(R2.5,2026-11-22: lookup / nest / child_agg 的对方可以是逻辑表;新的表达式元件 `contains`、`ymd`;group / rank 之后的 filter。)→ **多对一的 `lookup` 已加**(R2-1,2026-11-22: 两个使用者各有需求;元件认证 + 差分测试的多表造数据 + 变异)。→ **一对多的 `nest` / `child_agg` 已加**(R2-2: storefront v2 Q5 / Q6;元件认证 + 子表的造数据(子行数 0 / 1 / 几个 / 上限 / 上限+1)+ 变异)。顶层的分组聚合按 `r2-relations.md` 的顺序继续。
 4. **性能闸门**: 先只做"前导列无索引"警告;EXPLAIN 闸门另写设计稿。
 
 ## 10. 迁移步骤与验收标准
