@@ -295,6 +295,8 @@ behavior:
       then: 这条消息是评审服务按 review.request 里的评审人和票数汇总之后的最终结论(这里不按票数汇总);审批中的文档按第一条能转移的结论(版本一致的批准 / 驳回)转移,之后到的回答忽略
     - when: 收到的消息在文档现在的状态没有转移
       then: '按状态图自动分类(状态机不逐个写): 有这个消息的转移的状态在现在的状态之前(从它能走到现在的状态: REVIEWING → PUBLISHING / PUBLISHED / REJECTED / EXPIRED,PUBLISHING → PUBLISHED)→ 忽略(不改文档,不发消息);否则 → 拒绝(进 DLQ)。例: PUBLISHING / PUBLISHED / REJECTED / EXPIRED 收到 review.approved / review.rejected → 忽略;PUBLISHED 收到 publish.done → 忽略;REVIEWING / REJECTED / EXPIRED 收到 publish.done → 拒绝'
+    - when: 审批中的文档收到版本不一致的批准(进 DLQ)之后
+      then: '文档不变: 继续按间隔重发 review.request,提交 1 小时还没有结论 → EXPIRED,发出 document.expired;处理 DLQ 的人要在期限内处理'
 acceptance:
     fixtures:
         document_reviewers:
@@ -580,3 +582,5 @@ review_decisions:
       decision: 保持现在的行为(消息是汇总后的结论)
     - question: '上一轮决定「PUBLISHING 的文档又收到 review.approved / review.rejected → 忽略」,但「转移」里没有写这条,而例子「审批中收到 publish.done → 拒绝」说明:等待中的状态收到没有转移的消息时是拒绝(进 DLQ)。这条忽略要怎么写进状态机?例:文档 2(PUBLISHING)收到 review.approved { doc_id: 2, revision: 1 }。'
       decision: 通用规则:已经过去的阶段的回答忽略
+    - question: '评审人批准了错的版本(进 DLQ、等人处理)之后,文档还在审批中,现在会继续每 2 分钟重发 review.request,到提交 1 小时还会变成 EXPIRED。这是想要的吗?例: 09:59 提交 revision 2,10:05 收到 review.approved revision 1 → 进 DLQ;10:06、10:08…继续重发,10:59 文档过期。'
+      decision: 保持现在的行为

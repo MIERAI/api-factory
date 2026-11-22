@@ -38,3 +38,9 @@
     回答: "通用规则:已经过去的阶段的回答忽略"
     补充规则: { 情况: "收到的消息在文档现在的状态没有转移", 结果: "按状态图自动分类(状态机不逐个写): 有这个消息的转移的状态在现在的状态之前(从它能走到现在的状态: REVIEWING → PUBLISHING / PUBLISHED / REJECTED / EXPIRED,PUBLISHING → PUBLISHED)→ 忽略(不改文档,不发消息);否则 → 拒绝(进 DLQ)。例: PUBLISHING / PUBLISHED / REJECTED / EXPIRED 收到 review.approved / review.rejected → 忽略;PUBLISHED 收到 publish.done → 忽略;REVIEWING / REJECTED / EXPIRED 收到 publish.done → 拒绝" }
     来自: "DocumentReview 的审查 2026-11-23 20261123-012251-claude-approvals.document-review"
+
+  - 问题: "评审人批准了错的版本(进 DLQ、等人处理)之后,文档还在审批中,现在会继续每 2 分钟重发 review.request,到提交 1 小时还会变成 EXPIRED。这是想要的吗?例: 09:59 提交 revision 2,10:05 收到 review.approved revision 1 → 进 DLQ;10:06、10:08…继续重发,10:59 文档过期。"
+    选项: ["保持现在的行为", "改设计: 版本不一致时停在单独的状态"]
+    回答: "保持现在的行为"
+    补充规则: { 情况: "审批中的文档收到版本不一致的批准(进 DLQ)之后", 结果: "文档不变: 继续按间隔重发 review.request,提交 1 小时还没有结论 → EXPIRED,发出 document.expired;处理 DLQ 的人要在期限内处理" }
+    来自: "DocumentReview 的审查 2026-11-23 20261123-012823-claude-approvals.document-review"
