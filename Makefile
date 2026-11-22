@@ -96,12 +96,12 @@ projects:         ## 其他项目(examples/ 下有 factory.yaml 的目录,factor
 e2e:              ## storefront v2 端到端(手写层,examples/storefront-v2/e2e): compose 起 RabbitMQ + 3 个服务 → 驱动 → down -v
 	@$(MAKE) --no-print-directory -C examples/storefront-v2/e2e e2e
 
-review-local:     ## 推送前的 AI 审查(和 CI 的 spec-pr 同一个脚本;本地 claude CLI;BASE=origin/main)
+review-local:     ## 推送前的 AI 审查(和 CI 的 spec-pr 同一个脚本: 本仓库 + examples/ 的项目;本地 claude CLI;BASE=origin/main)
 	@rm -f .factory/review-local.md
 	@CI_SUMMARY=.factory/review-local.md BASE=$(or $(BASE),origin/main) REVIEW_MODEL=$(or $(REVIEW_MODEL),claude) scripts/ci/spec-review.sh; \
 		rc=$$?; echo "结果: .factory/review-local.md"; exit $$rc
 
-review-fetch:     ## CI 的审查结果下载到 .factory/reviews(PR=25 / BRANCH=x;默认当前分支)→ factory answer
+review-fetch:     ## CI 的审查结果下载到 [<项目>/].factory/reviews + 轮次记录(PR=25 / BRANCH=x;默认当前分支)→ factory answer
 	@scripts/review-fetch.sh $(if $(PR),--pr $(PR)) $(if $(BRANCH),--branch $(BRANCH))
 
 loop:             ## 整条流水线: 闸门 → 审查 → 生成 → AI → 闸门 → 验收 (MODEL=claude|claude-sonnet)

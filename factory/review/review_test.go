@@ -40,7 +40,8 @@ func TestGateLaterRounds(t *testing.T) {
 		f("F6", "blocker", "验收用例的正确性", "", "existing"), // blocker 永远挡
 		f("F7", "minor", "矛盾", "", "existing"),
 	}, prev)
-	want := Verdict{Round: 2, Blocking: []string{"F3", "F4", "F6"}, Advisory: []string{"F2", "F7"}, Late: []string{"F5"}, Repeated: []string{"F1"}}
+	want := Verdict{Round: 2, Blocking: []string{"F3", "F4", "F6"}, Advisory: []string{"F2", "F7"}, Late: []string{"F5"}, Repeated: []string{"F1"},
+		RepeatedOf: map[string]string{"F1": "R1-F1"}}
 	if !reflect.DeepEqual(v, want) {
 		t.Fatalf("got  %+v\nwant %+v", v, want)
 	}
@@ -83,7 +84,11 @@ func TestCycle(t *testing.T) {
 	if len(h) != 3 {
 		t.Fatalf("history %v", h)
 	}
-	if c := Cycle(h); len(c) != 2 {
+	rs, err := Rounds(root, "", "a.b", "")
+	if err != nil || len(rs) != 3 {
+		t.Fatalf("rounds %v %v", rs, err)
+	}
+	if c := Cycle(rs); len(c) != 2 {
 		t.Fatalf("cycle %v(应该是第 3 轮)", c)
 	}
 }

@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -29,6 +28,7 @@ type Finding struct {
 
 	Blocks bool     `json:"-"` // 这一轮挡流水线(verdict.json)
 	Also   []string `json:"-"` // 之前轮次的同一个问题的原文(same_as 的链): 回答时一起记下
+	Refs   []string `json:"-"` // 这个问题的绝对编号(<轮次 ID>#F2,包括 same_as 的链): 写进 问题编号,本地 / CI 都按它认
 }
 
 type Option struct {
@@ -62,24 +62,6 @@ func (f Finding) Blocking() bool {
 // minor 的矛盾也要能回答: 不记录的话,下一轮审查会把同一个问题升级后再问一遍(试用里实际发生)。
 // 挡流水线的问题(和之前没回答的问题相同,严重度不能降)即使是验收覆盖也要能回答,否则永远挡。
 func (f Finding) Answerable() bool { return f.Category != "验收覆盖" || f.Blocks }
-
-// LatestReview: .factory/reviews 下这个 API 最新的审查结果。
-func LatestReview(apiID string) (string, []Finding, error) {
-	dirs, _ := filepath.Glob(filepath.Join(".factory/reviews", "*-"+apiID+"*"))
-	sort.Strings(dirs)
-	for i := len(dirs) - 1; i >= 0; i-- {
-		b, err := os.ReadFile(filepath.Join(dirs[i], "findings.json"))
-		if err != nil {
-			continue
-		}
-		var fs []Finding
-		if err := json.Unmarshal(b, &fs); err != nil {
-			return "", nil, fmt.Errorf("%s: %w", dirs[i], err)
-		}
-		return dirs[i], fs, nil
-	}
-	return "", nil, fmt.Errorf("没有找到 %s 的审查结果(先运行 scripts/review.sh)", apiID)
-}
 
 // Decision: 一个问题的回答
 type Decision struct {
@@ -137,7 +119,7 @@ func Ask(in io.Reader, out io.Writer, fs []Finding, domain string) []Decision {
 				fmt.Fprintf(out, "       → 改设计: %s → %s\n", k.Key, k.Value)
 			}
 		}
-		fmt.Fprintf(out, "  0) 跳过    8) 已经直接改了设计书    9) 自己写\n  选择 [%d]: ", f.Recommended+1)
+		fmt.Fprintf(out, "  0) 跳过    8) 已经直接改了设计书    9) 自己写    keep:<现在的行为> / <n>:<实际的结果> = 写清楚行为\n  选择 [%d]: ", f.Recommended+1)
 		choice := read()
 		if choice == "" {
 			choice = strconv.Itoa(f.Recommended + 1)
@@ -162,6 +144,7 @@ func Ask(in io.Reader, out io.Writer, fs []Finding, domain string) []Decision {
 }
 
 // FromArgs: 命令行一次性回答: F1=2 / F2=0(跳过)/ F3="自己写的回答" / F4=2@domain
+// / F5=keep:"现在的行为"(保持现在的行为,规则写成这段文字)/ F6=2:"实际的结果"(选项 2,规则的结果写成这段文字)
 func FromArgs(fs []Finding, args []string) ([]Decision, error) {
 	byID := map[string]Finding{}
 	for _, f := range fs {
@@ -200,7 +183,31 @@ func FromArgs(fs []Finding, args []string) ([]Decision, error) {
 	return ds, nil
 }
 
+// KeepPrefix: 回答"保持现在的行为",并写清楚现在的行为是什么: F1=keep:没有库存时返回 0 件
+const KeepPrefix = "keep:"
+
 func decide(f Finding, choice string, freeText func() string) (Decision, bool) {
+	// keep:<文字>: 保持现在的行为。回答 / 补充规则 = 设计者写的实际行为(选项的标签往往只是"保持现在的行为",
+	// 记下来的规则没有内容,下一轮审查员又问"现在的行为是什么")
+	if text, ok := strings.CutPrefix(choice, KeepPrefix); ok {
+		text = strings.TrimSpace(text)
+		if text == "" {
+			return Decision{}, false
+		}
+		return Decision{Finding: f, Answer: "保持现在的行为: " + text, When: f.Question, Then: text}, true
+	}
+	// <n>:<文字>: 选项 n(它的输入修改等照常),规则的结果写成设计者的文字
+	if num, text, ok := strings.Cut(choice, ":"); ok {
+		if n, err := strconv.Atoi(num); err == nil && n >= 1 && n <= len(f.Options) && strings.TrimSpace(text) != "" {
+			o := f.Options[n-1]
+			text = strings.TrimSpace(text)
+			when := o.Rule.When
+			if when == "" {
+				when = f.Question
+			}
+			return Decision{Finding: f, Answer: o.Label + ": " + text, When: when, Then: text, Changes: o.InputChange, Rules: o.AddRules, Sets: o.Set}, true
+		}
+	}
 	n, err := strconv.Atoi(choice)
 	switch {
 	case err == nil && n == 0:
@@ -276,8 +283,18 @@ func entry(d Decision, src string) string {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "  - 问题: %s\n", q(d.Finding.Question))
+	if d.Finding.Location != "" {
+		fmt.Fprintf(&b, "    位置: %s\n", q(d.Finding.Location))
+	}
 	if len(opts) > 0 {
 		fmt.Fprintf(&b, "    选项: [%s]\n", strings.Join(opts, ", "))
+	}
+	if len(d.Finding.Refs) > 0 {
+		var refs []string
+		for _, r := range d.Finding.Refs {
+			refs = append(refs, q(r))
+		}
+		fmt.Fprintf(&b, "    问题编号: [%s]\n", strings.Join(refs, ", "))
 	}
 	for _, a := range d.Finding.Also {
 		fmt.Fprintf(&b, "    同一个问题: %s\n", q(a))

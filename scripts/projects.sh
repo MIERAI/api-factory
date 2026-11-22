@@ -7,8 +7,14 @@
 #   accept             a database of its own (sf_<name> on the factory's Postgres) with its db/schema, the server,
 #                      hand-written + automatic + differential cases
 #   scripts/projects.sh [dir…]      (default: all)       PROJECTS_REGEN=1: write the regenerated files instead of failing
+#   scripts/projects.sh --list      only print the project directories (spec-review.sh / review-fetch.sh use it)
 set -euo pipefail
 cd "$(dirname "$0")/.."
+list_projects() {
+  # factory.yaml, not go.mod: hand-written modules next to the projects (examples/storefront-v2/e2e/driver) are not projects
+  find examples -name factory.yaml -not -path '*/node_modules/*' -not -path '*/.factory/*' 2>/dev/null | sort | while IFS= read -r m; do dirname "$m"; done
+}
+if [ "${1:-}" = --list ]; then list_projects; exit 0; fi
 PG_NAME=${PG_NAME:-api-factory-pg}
 PORT=${FACTORY_DB_PORT:-55432}
 go build -o .factory/factory ./factory/cmd/factory
@@ -16,8 +22,7 @@ F=$PWD/.factory/factory
 
 dirs=("$@")
 if [ ${#dirs[@]} -eq 0 ]; then
-  # factory.yaml, not go.mod: hand-written modules next to the projects (examples/storefront-v2/e2e/driver) are not projects
-  while IFS= read -r m; do dirs+=("$(dirname "$m")"); done < <(find examples -name factory.yaml -not -path '*/node_modules/*' | sort)
+  while IFS= read -r d; do dirs+=("$d"); done < <(list_projects)
 fi
 [ ${#dirs[@]} -gt 0 ] || { echo "no projects under examples/"; exit 0; }
 

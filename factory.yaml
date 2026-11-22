@@ -31,3 +31,8 @@ ai:
       allowed: [claude, claude-sonnet]
       args: [--max-turns, "40"]    # 允许的工具来自适配器清单(ai_tools)
       timeout_sec: 1800
+
+# 式样书审查的收敛(factory/review): 同一个 API 连续没通过超过这么多轮以后,新的 major 只记录(封顶)不挡流水线;
+# blocker 和之前挡了、还没回答的问题照常挡。0 = 不封顶
+review:
+  max_rounds: 3

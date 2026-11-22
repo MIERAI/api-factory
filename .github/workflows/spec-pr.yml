@@ -1,8 +1,9 @@
-# 阶段 1: 式样书的 PR(design/)。机械检查 + 生成检查 + AI 审查;结果贴到 PR 上
+# 阶段 1: 式样书的 PR(design/,和项目的 <项目>/design/)。机械检查 + 生成检查 + AI 审查;结果贴到 PR 上
 name: spec-pr
 on:
   pull_request:
-    paths: ["design/**"]
+    # 项目(factory --project)= examples/ 下有 factory.yaml 的目录(scripts/projects.sh --list)
+    paths: ["design/**", "examples/**/design/**"]
 permissions:
   contents: read
   pull-requests: write
@@ -18,11 +19,14 @@ jobs:
         with: { fetch-depth: 0 }
       - uses: ./.github/actions/setup
       # 审查的历史(.factory/reviews): 轮次 / 迟到 / 重复提问 的规则和"输入没变就沿用"都要上一轮的记录。
-      # checkout 会清掉工作区 → 按 PR 分支存到 Actions 的缓存(以前每次都是第 1 轮,收敛的规则不起作用)
+      # checkout 会清掉工作区 → 按 PR 分支存到 Actions 的缓存(以前每次都是第 1 轮,收敛的规则不起作用)。
+      # 本地跑的轮次在提交的轮次记录里(design/<领域>/X.审查轮次.jsonl),两边合起来 = 一份历史(factory/review/rounds.go)
       - name: 审查的历史(恢复)
         uses: actions/cache/restore@v4
         with:
-          path: .factory/reviews
+          path: |
+            .factory/reviews
+            examples/**/.factory/reviews
           key: review-${{ github.head_ref }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: review-${{ github.head_ref }}-
       - name: AI 命令行(runner 上预装)
@@ -38,7 +42,9 @@ jobs:
         if: always()
         uses: actions/cache/save@v4
         with:
-          path: .factory/reviews
+          path: |
+            .factory/reviews
+            examples/**/.factory/reviews
           key: review-${{ github.head_ref }}-${{ github.run_id }}-${{ github.run_attempt }}
       # 审查的结果也作为 artifact 上传: 缓存只有 CI 能读,本地 scripts/review-fetch.sh 下载这个 artifact →
       # .factory/reviews → 本地 factory answer F1=… 回答(以前只能手写 审查.yaml)
@@ -47,7 +53,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: spec-reviews
-          path: .factory/reviews
+          path: |
+            .factory/reviews
+            examples/**/.factory/reviews
           include-hidden-files: true   # .factory 是隐藏目录: v4.4 起默认不上传
           if-no-files-found: ignore
           retention-days: 14

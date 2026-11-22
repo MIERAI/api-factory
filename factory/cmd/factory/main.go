@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"gopkg.in/yaml.v3"
 
 	"apifactory/factory/accept"
 	"apifactory/factory/acceptgen"
@@ -86,6 +87,8 @@ func main() {
 		err = cmdReviewKey(args)
 	case "review-changed":
 		err = cmdReviewChanged(args)
+	case "review-sync":
+		err = cmdReviewSync(args)
 	case "stats":
 		err = cmdStats(args)
 	case "serve-test":
@@ -497,16 +500,28 @@ func cmdReviewPrompt(args []string) error {
 	for k, v := range design {
 		data[k] = v
 	}
-	// 轮次: 同一个 API 上次通过之后连续没通过的审查
-	cycle := review.Cycle(review.History(".factory/reviews", s.ID(), *label))
-	var answers []string
-	if p := design["DesignReviewPath"]; p != "" {
-		answers = append(answers, p, filepath.Join(filepath.Dir(p), "领域.审查.yaml"))
+	// 轮次: 同一个 API 上次通过之后连续没通过的审查(审查目录 + 提交的轮次记录: 本地和 CI 共用,factory/review/rounds.go)
+	ledger := ""
+	if p := design["DesignPath"]; p != "" {
+		ledger = review.LedgerPath(p)
 	}
-	prev, err := review.Previous(cycle, answers...)
+	hist, err := review.Rounds(".factory/reviews", ledger, s.ID(), *label)
 	if err != nil {
 		return err
 	}
+	cycle := review.Cycle(hist)
+	var answers []review.Answered
+	if p := design["DesignReviewPath"]; p != "" {
+		if answers, err = review.LoadAnswers(p, filepath.Join(filepath.Dir(p), "领域.审查.yaml")); err != nil {
+			return err
+		}
+	}
+	prev := review.Previous(cycle, answers)
+	maxRounds, err := reviewMaxRounds()
+	if err != nil {
+		return err
+	}
+	data["Answers"] = answers
 	data["Round"], data["Previous"], data["AIWrites"] = len(cycle)+1, prev, s.AIWrites()
 	data["Command"] = s.Pattern.Command != nil
 	data["RelationForms"], data["ConstraintForms"] = constraints.RelationForms(), constraints.Forms()
@@ -516,7 +531,10 @@ func cmdReviewPrompt(args []string) error {
 	}
 	data["ExitKeys"] = exitKeys
 	if *out != "" {
-		b, _ := json.MarshalIndent(map[string]any{"round": len(cycle) + 1, "previous": prev}, "", "  ")
+		b, _ := json.MarshalIndent(map[string]any{
+			"round": len(cycle) + 1, "previous": prev, "answers": answers, "max_rounds": maxRounds,
+			"api": s.ID(), "label": *label, "design": design["DesignPath"],
+		}, "", "  ")
 		if err := os.WriteFile(filepath.Join(*out, "prev.json"), b, 0o644); err != nil {
 			return err
 		}
@@ -677,33 +695,51 @@ func designSource(specYAML []byte) string {
 //
 //	factory answer design/jobs/GetJobSummary.yaml            终端里一题一题地问
 //	factory answer design/jobs/GetJobSummary.yaml F1=2 F3=0   一次性回答(0 = 跳过,"文字" = 自己写,
-//	                                                           @design[:说明] = 已经直接改了设计书)
+//	                                                           @design[:说明] = 已经直接改了设计书,
+//	                                                           keep:"现在的行为" = 保持现在的行为、规则写成这段文字,
+//	                                                           2:"实际的结果" = 选项 2、规则的结果写成这段文字)
 //	factory answer --list design/jobs/GetJobSummary.yaml      只列出问题
-//	--all: 也包括不挡流水线的建议
+//	factory answer examples/x/catalog/design/catalog/X.yaml … 项目的设计书: 自动 --project examples/x/catalog
+//	--all: 也包括不挡流水线的建议、已经回答过的问题
 func cmdAnswer(args []string) error {
 	fs := flag.NewFlagSet("answer", flag.ExitOnError)
 	list := fs.Bool("list", false, "只列出问题")
-	all := fs.Bool("all", false, "也包括不挡流水线的建议")
+	all := fs.Bool("all", false, "也包括不挡流水线的建议、已经回答过的问题")
 	_ = fs.Parse(args)
 	if fs.NArg() < 1 {
 		return fmt.Errorf("usage: factory answer [--list] [--all] design/<领域>/<API>.yaml [F1=2 ...]")
 	}
-	designFile := fs.Arg(0)
-	domain := filepath.Base(filepath.Dir(designFile))
-	apiID := domain + "." + design.Kebab(strings.TrimSuffix(filepath.Base(designFile), ".yaml"))
-	dir, findings, err := answer.LatestReview(apiID)
+	designFile, err := enterProject(fs.Arg(0))
 	if err != nil {
 		return err
 	}
-	linkPrevious(apiID, dir, findings)
+	domain := filepath.Base(filepath.Dir(designFile))
+	apiID := domain + "." + design.Kebab(strings.TrimSuffix(filepath.Base(designFile), ".yaml"))
+	hist, err := review.Rounds(".factory/reviews", review.LedgerPath(designFile), apiID, "")
+	if err != nil {
+		return err
+	}
+	if len(hist) == 0 {
+		return fmt.Errorf("没有找到 %s 的审查结果(先运行 make review-local / scripts/review.sh,CI 的结果: make review-fetch)", apiID)
+	}
+	latest := hist[len(hist)-1]
+	findings := linkPrevious(hist)
+	answers, err := review.LoadAnswers(strings.TrimSuffix(designFile, ".yaml")+".审查.yaml", filepath.Join(filepath.Dir(designFile), "领域.审查.yaml"))
+	if err != nil {
+		return err
+	}
+	repeated := map[string]bool{}
+	for _, id := range latest.Verdict.Repeated {
+		repeated[id] = true
+	}
 	var todo []answer.Finding
 	for _, f := range findings {
-		if *all || f.Answerable() {
+		if *all || (f.Answerable() && !repeated[f.ID] && review.AnsweredBy(answers, review.Finding{Finding: f}, f.Refs...) == "") {
 			todo = append(todo, f)
 		}
 	}
 	if len(todo) == 0 {
-		fmt.Printf("✓ %s 没有需要回答的问题(%s)\n", apiID, dir)
+		fmt.Printf("✓ %s 没有需要回答的问题(%s)\n", apiID, latest.ID)
 		return nil
 	}
 	if *list {
@@ -717,57 +753,150 @@ func cmdAnswer(args []string) error {
 			return err
 		}
 	} else {
-		fmt.Printf("%s: %d 个问题(来自 %s)。直接回车 = 推荐的选项\n", apiID, len(todo), dir)
+		fmt.Printf("%s: %d 个问题(来自 %s)。直接回车 = 推荐的选项\n", apiID, len(todo), latest.ID)
 		ds = answer.Ask(os.Stdin, os.Stdout, todo, domain)
 	}
-	touched, err := answer.Write(designFile, ds, dir)
+	touched, err := answer.Write(designFile, ds, latest.ID)
 	if err != nil {
 		return err
 	}
 	for _, t := range touched {
 		fmt.Printf("✓ 写入 %s\n", t)
 	}
-	fmt.Printf("下一步: make check(重新编译)→ scripts/review.sh specs/%s/%s/spec.yaml(重新审查)\n", domain, strings.TrimPrefix(apiID, domain+"."))
+	prefix := "" // 项目里: 路径从仓库根写(和用户输入的一样)
+	if proj.InProject() {
+		if wd, err := os.Getwd(); err == nil {
+			if rel, err := filepath.Rel(proj.Home(), wd); err == nil {
+				prefix = filepath.ToSlash(rel) + "/"
+			}
+		}
+	}
+	fmt.Printf("下一步: 提交 %s%s 和 %s%s(轮次记录: CI 按它接着算轮次)→ make review-local 或推送\n",
+		prefix, strings.TrimSuffix(designFile, ".yaml")+".审查.yaml", prefix, review.LedgerPath(designFile))
 	return nil
 }
 
-// linkPrevious: 这一轮的问题标上"挡流水线"(verdict.json),和之前轮次的同一个问题(same_as 的链)的原文。
-// 下一轮按问题原文判断"已回答": 只记这一轮的说法的话,原来的问题仍然算没回答,又被带过来挡。
-func linkPrevious(apiID, dir string, fs []answer.Finding) {
-	v, _ := review.ReadVerdict(dir)
+// enterProject: 项目里的设计书(<项目>/design/<领域>/X.yaml,项目 = 有 factory.yaml 和 go.mod 的目录)→ 切换到项目,
+// 返回项目里的路径(design/<领域>/X.yaml)。已经是 design/ 开头的路径原样返回。
+func enterProject(path string) (string, error) {
+	p := filepath.ToSlash(filepath.Clean(path))
+	if strings.HasPrefix(p, "design/") {
+		return p, nil
+	}
+	i := strings.LastIndex(p, "/design/")
+	if i < 0 {
+		return path, nil
+	}
+	root := p[:i]
+	for _, f := range []string{"factory.yaml", "go.mod"} {
+		if _, err := os.Stat(filepath.Join(root, f)); err != nil {
+			return path, nil
+		}
+	}
+	if err := proj.Setup(root); err != nil {
+		return "", err
+	}
+	return p[i+1:], nil
+}
+
+// linkPrevious: 最新一轮的问题,标上"挡流水线"(verdict.json)、绝对编号(<轮次 ID>#F2,写进回答的 问题编号)、
+// 之前轮次的同一个问题(same_as 的链)的原文和编号。下一轮按编号 / 原文判断"已回答"。
+func linkPrevious(hist []review.Round) []answer.Finding {
+	latest := hist[len(hist)-1]
+	cycle := append(review.Cycle(hist[:len(hist)-1]), latest)
 	blocks := map[string]bool{}
-	for _, id := range v.Blocking {
+	for _, id := range latest.Verdict.Blocking {
 		blocks[id] = true
 	}
-	cycle := review.Cycle(review.History(".factory/reviews", apiID, ""))
-	if n := len(cycle); n > 0 && filepath.Clean(cycle[n-1]) == filepath.Clean(dir) {
-		cycle = cycle[:n-1]
-	}
-	prev, _ := review.Previous(cycle)
+	prev := review.Previous(cycle[:len(cycle)-1], nil)
 	byRef := map[string]review.Prev{}
 	for _, p := range prev {
 		byRef[p.Ref] = p
 	}
-	rf, _ := review.ReadFindings(dir)
-	sameAs := map[string]string{}
-	for _, f := range rf {
-		sameAs[f.ID] = f.SameAs
-	}
-	for i := range fs {
-		fs[i].Blocks = blocks[fs[i].ID]
+	out := make([]answer.Finding, 0, len(latest.Findings))
+	for _, rf := range latest.Findings {
+		f := rf.Finding
+		f.Blocks = blocks[f.ID]
+		f.Refs = review.AbsIDs(cycle, len(cycle)-1, rf)
 		seen := map[string]bool{}
-		for ref := sameAs[fs[i].ID]; ref != "" && !seen[ref]; {
+		for ref := rf.SameAs; ref != "" && !seen[ref]; {
 			seen[ref] = true
 			p, ok := byRef[ref]
 			if !ok {
 				break
 			}
-			if p.Question != fs[i].Question {
-				fs[i].Also = append(fs[i].Also, p.Question)
+			if p.Question != f.Question {
+				f.Also = append(f.Also, p.Question)
+			}
+			if id := review.RefID(cycle, ref); id != "" {
+				f.Refs = append(f.Refs, id)
 			}
 			ref = p.Full.SameAs
 		}
+		out = append(out, f)
 	}
+	return out
+}
+
+// reviewMaxRounds: factory.yaml 的 review.max_rounds(没写 = review.DefaultMaxRounds;0 = 不封顶)。
+func reviewMaxRounds() (int, error) {
+	raw, err := proj.Config()
+	if err != nil {
+		return 0, err
+	}
+	var c struct {
+		Review struct {
+			MaxRounds *int `yaml:"max_rounds"`
+		} `yaml:"review"`
+	}
+	if err := yaml.Unmarshal(raw, &c); err != nil {
+		return 0, err
+	}
+	if c.Review.MaxRounds == nil {
+		return review.DefaultMaxRounds, nil
+	}
+	return *c.Review.MaxRounds, nil
+}
+
+// cmdReviewSync: 审查目录(本地跑的 + review-fetch 下载的 CI 的)→ 各 API 的轮次记录(design/<领域>/<API>.审查轮次.jsonl)。
+// 提交轮次记录 = CI 也知道这些轮次(factory/review/rounds.go)。
+func cmdReviewSync(args []string) error {
+	specs, _ := filepath.Glob(filepath.Join(specsDir(args), "*", "*", "spec.yaml"))
+	sort.Strings(specs)
+	for _, sp := range specs {
+		raw, err := os.ReadFile(sp)
+		if err != nil {
+			return err
+		}
+		d := designSource(raw)
+		if d == "" {
+			continue
+		}
+		if _, err := os.Stat(d); err != nil {
+			continue
+		}
+		s, err := spec.Load(sp)
+		if err != nil {
+			return err
+		}
+		var rs []review.Round
+		for _, dir := range review.History(".factory/reviews", s.ID(), "") {
+			if r, err := review.ReadDir(dir); err == nil {
+				rs = append(rs, r)
+			}
+		}
+		if len(rs) == 0 {
+			continue
+		}
+		wrote, err := review.WriteLedger(review.LedgerPath(d), rs...)
+		if err != nil {
+			return err
+		}
+		if wrote {
+			fmt.Printf("✓ %s\n", review.LedgerPath(d))
+		}
+	}
+	return nil
 }
 
 // cmdSeedVolume: 给一个库灌接近生产的数据量(恢复演练 / 迁移排练),和 perf 用同一个生成器(业务语义: 自然键、版本、
@@ -918,8 +1047,12 @@ func cmdReviewResult(args []string) error {
 	}
 	fs := parsed.Findings
 	var pj struct {
-		Round    int           `json:"round"`
-		Previous []review.Prev `json:"previous"`
+		Round     int               `json:"round"`
+		Previous  []review.Prev     `json:"previous"`
+		Answers   []review.Answered `json:"answers"`
+		MaxRounds int               `json:"max_rounds"`
+		Label     string            `json:"label"`
+		Design    string            `json:"design"`
 	}
 	if b, err := os.ReadFile(filepath.Join(dir, "prev.json")); err == nil {
 		_ = json.Unmarshal(b, &pj)
@@ -928,7 +1061,7 @@ func cmdReviewResult(args []string) error {
 		pj.Round = 1
 	}
 	review.Resolve(fs, pj.Round)
-	v := review.Gate(pj.Round, fs, pj.Previous)
+	v := review.GateWith(pj.Round, fs, pj.Previous, review.Context{Answers: pj.Answers, MaxRounds: pj.MaxRounds})
 	v.Seconds = sec
 	fs = append(fs, v.Carried...)
 	for _, x := range []struct {
@@ -940,15 +1073,24 @@ func cmdReviewResult(args []string) error {
 			return err
 		}
 	}
+	// 轮次记录(提交,本地和 CI 共用): 带标签的实验不写
+	if pj.Label == "" && pj.Design != "" {
+		if _, err := review.WriteLedger(review.LedgerPath(pj.Design), review.Round{ID: filepath.Base(filepath.Clean(dir)), Verdict: v, Findings: fs}); err != nil {
+			return err
+		}
+	}
 	tag := map[string]string{}
 	for _, id := range v.Blocking {
 		tag[id] = "挡"
+	}
+	for _, id := range v.Capped {
+		tag[id] = fmt.Sprintf("封顶(第 %d 轮以后新的 major 不挡;可以回答)", pj.MaxRounds)
 	}
 	for _, id := range v.Late {
 		tag[id] = "迟到"
 	}
 	for _, id := range v.Repeated {
-		tag[id] = "重复"
+		tag[id] = "重复(已经回答: " + v.RepeatedOf[id] + ")"
 	}
 	for _, c := range v.Carried {
 		tag[c.ID] = "挡(之前的轮次问过,还没回答)"
@@ -970,8 +1112,8 @@ func cmdReviewResult(args []string) error {
 			fmt.Printf("              %d) %s%s\n", i+1, o.Label, rec)
 		}
 	}
-	fmt.Printf("⏱ %ds  第 %d 轮  → 挡流水线 %d 件 / 建议 %d 件 / 迟到 %d 件 / 重复提问 %d 件  (%s/findings.json)\n",
-		sec, v.Round, len(v.Blocking), len(v.Advisory), len(v.Late), len(v.Repeated), dir)
+	fmt.Printf("⏱ %ds  第 %d 轮  → 挡流水线 %d 件 / 建议 %d 件 / 迟到 %d 件 / 封顶 %d 件 / 重复提问 %d 件  (%s/findings.json)\n",
+		sec, v.Round, len(v.Blocking), len(v.Advisory), len(v.Late), len(v.Capped), len(v.Repeated), dir)
 	if !v.Passed {
 		os.Exit(1)
 	}

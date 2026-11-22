@@ -55,21 +55,35 @@ spec-review     generate                verify               deploy
   和设计书里直接写的枚举;时区)+ 领域的审查记录(`factory/review/fingerprint.go`)。领域.yaml 里加一张无关的表 / 改无关的表 →
   这些 API 不重审(审查不确定: 已经通过的设计书重审会冒出新的挡流水线的问题)
 - **沿用**: 同一个 PR 里,上面的输入 + prompt 模板 + 模型(`scripts/ci/review-key.sh` → `factory review-key`)和上次通过时相同 → 不调用模型
+- **项目的设计书也审查**: `examples/` 下有 `factory.yaml` 的目录(`scripts/projects.sh --list`,`factory --project` 的项目)和本仓库一样:
+  生成 → `factory --project <项目> review-changed`(项目自己的 `design/` 和 base 比)→ 审查。结果在 `<项目>/.factory/reviews`,
+  回答写进 `<项目>/design/<领域>/X.审查.yaml`。spec-pr 的触发路径包括 `examples/**/design/**`
 - **推送前自己跑**(和 CI 同一个脚本,本地的 `claude` CLI;会像 `make prepare` 一样在工作区生成文件):
   ```sh
   make review-local                  # = BASE=origin/main REVIEW_MODEL=claude scripts/ci/spec-review.sh;结果 .factory/review-local.md
-  go run ./factory/cmd/factory review-changed -v --base origin/main   # 只看会审查哪些 API(不调用模型)
+  go run ./factory/cmd/factory review-changed -v --base origin/main   # 只看会审查哪些 API(不调用模型;项目: --project <项目>)
   ```
-  本地的结果在本地的 `.factory/reviews`(CI 的缓存是另一份: 推送后 CI 仍会审查一次,但挡流水线的问题推送前就能回答掉)
-- **本地回答 CI 的问题**: spec-pr 把 `.factory/reviews` 作为 artifact `spec-reviews` 上传(保留 14 天)。下载到本地后 `factory answer` 照常用:
+- **本地回答 CI 的问题**: spec-pr 把 `.factory/reviews` 和 `<项目>/.factory/reviews` 作为 artifact `spec-reviews` 上传(保留 14 天)。下载到本地后 `factory answer` 照常用:
   ```sh
   export GH_TOKEN=$(gh auth token --user MIERAI)    # gh 能读这个仓库的令牌即可
   make review-fetch PR=25                           # = scripts/review-fetch.sh --pr 25(默认当前分支;--branch B / --run ID)
   go run ./factory/cmd/factory answer --list design/sales/ListX.yaml
-  go run ./factory/cmd/factory answer design/sales/ListX.yaml F1=2 F2=@design:改成了一览
-  git add design/ && git commit && git push          # 审查记录(X.审查.yaml)随 PR 提交 → CI 下一轮按回答判定
+  go run ./factory/cmd/factory answer design/sales/ListX.yaml F1=2 F2=@design:改成了一览 F3=keep:"0 件时返回空列表"
+  go run ./factory/cmd/factory answer examples/storefront-v2/catalog/design/catalog/CreateProduct.yaml F1=1   # 项目: 自动 --project
+  git add design/ examples/ && git commit && git push   # 审查记录(X.审查.yaml)和轮次记录(X.审查轮次.jsonl)随 PR 提交
   ```
-  只追加: 本地已有的审查目录不覆盖。不用再手写 `X.审查.yaml`
+  回答的写法: `F1=2`(选项)/ `F1=keep:"现在的行为"`(保持现在的行为,回答和补充规则写成这段文字,不是"保持现在的行为"这个标签)/
+  `F1=2:"实际的结果"`(选项 2,规则的结果写成这段文字)/ `F1="自己写"` / `F1=@design[:改了什么]` / `0` 跳过
+- **不再循环提问**(`factory/review`,测试 `factory/review/loop_test.go`,不调用模型):
+  - **一份轮次历史**: 轮次 = 审查目录 `<UTC 时间>-<模型>-<API>`(本地的 `.factory/reviews`、CI 按分支缓存的、review-fetch 下载的)
+    ∪ 提交的轮次记录 `design/<领域>/X.审查轮次.jsonl`(`review-result` 每轮写入;`review-fetch` 之后 `factory review-sync` 把 CI 的轮次写进去)。
+    轮次记录只留"最后一次通过 + 之后的轮次",不进审查的指纹(提交它不会让 API 重审)。本地第 2 轮之后推送,CI 接着算第 3 轮
+  - **按编号认回答**: `factory answer` 在记录里写 `位置` 和 `问题编号`(`<轮次 ID>#F1`,包括之前轮次里的同一个问题)。
+    一个问题算"已经回答" = 编号在记录里 / 原文相同 / 位置 + 选项相同;CI 换了说法的问题也认得出来
+  - **审查员看到全部回答**(编号 A1… = API 的记录,D1… = 领域的记录),被要求不再问回答覆盖的问题、不对回答本身追问;
+    它输出的 `same_as: A3` 编号存在才算,这个问题直接丢弃(重复提问)。不靠模型的部分: 原文 / 位置 + 选项相同 → 丢弃
+  - **封顶**: 连续没通过超过 `review.max_rounds`(factory.yaml,默认 3)轮以后,新的 major 记为"封顶"(显示、可以回答,不挡);
+    blocker 和之前挡了、还没回答的问题照常挡
 
 - GitOps(MIERAI/gitops-platform-blueprint): 镜像 / 推送是共用的 workflow;集群的状态在 MIERAI/gitops-manifests
   (`api-factory/overlays/{dev,prod}`: Postgres → 建表 Job(`Dockerfile.schema`)→ API → 部署后的检查);prod = promote 的 PR + 人批准;
@@ -81,7 +95,7 @@ spec-review     generate                verify               deploy
   `none` = 交给平台(Cloud Run 的 IAM `--no-allow-unauthenticated`)
 - 在 GitHub 上启用(仓库的 variables / secrets;没设时对应的 workflow 跳过):
   - `FACTORY_GENERATE=on`: 式样书的审查(spec-pr)和生成(generate)在 self-hosted runner `[self-hosted, laptop]` 上跑
-    (tailnet 里的常驻机器;仓库是私有的,外部的 PR 不会在上面执行)。模型 = factory.yaml 的 Claude(审查 claude 阻塞,实现 claude-sonnet;
+    (tailnet 里的常驻机器;仓库是公开的: fork 来的 PR 不在上面执行,外部贡献者的 PR 要批准才运行)。模型 = factory.yaml 的 Claude(审查 claude 阻塞,实现 claude-sonnet;
     实现由路径闸门 + 编译 + 验收兜底)。runner 上预装 `claude` CLI 和 docker,密钥 CLAUDE_CODE_OAUTH_TOKEN。
     生成物的 PR 用 `GITHUB_TOKEN` 开(不会触发 verify)→ generate 在同一次运行里对生成物的分支调用 verify,结果贴到 PR
   - `GCP_PROJECT` / `GCP_REGION` / `SERVICE` / `AR_REPO` / `RUN_SA` / `GCP_WIF_PROVIDER` / `GCP_DEPLOY_SA`(Workload Identity Federation,仓库里不放密钥);
