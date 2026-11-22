@@ -1,6 +1,6 @@
 # 工厂就绪度：以 storefront v2 为验收标准
 
-> 版本 v0.1（2026-11-22）· 状态：**评审中**
+> 版本 v0.2（2026-11-22）· 状态：**已批准**
 > 决定（2026-11-22，用户）：**先利其器**。工厂能生成 storefront v2 所需 API 的 **95% 以上**之后，再开始开发 storefront v2。
 > storefront v2 的设计书：MIERAI/storefront `docs/design/v2-microservices.md`（PR #8）
 
@@ -170,10 +170,7 @@
 
 ---
 
-## 7. 待决定
+## 7. 已决定（2026-11-22，用户）
 
-1. **F0-R：运行时怎么公开**（storefront 是公开仓库，api-factory 是私有仓库）
-   - (a) 运行时拆成一个公开的 Go 模块（如 `MIERAI/api-factory-runtime`），工厂本身保持私有（推荐）
-   - (b) 生成代码连同运行时一起复制进 storefront
-   - (c) storefront v2 的生成服务放到私有仓库
-2. 样例项目的表结构：先在工厂仓库里写一份 storefront v2 的表结构草案（R1 的第一件事），以后 storefront 的实际实现以它为准，还是反过来？（推荐前者：工厂先定，storefront 照用）
+1. **运行时公开**：拆成公开的 Go 模块（`MIERAI/api-factory-runtime`），生成代码只依赖它；工厂本身（生成器、核心代数、审查、验证）保持私有。
+2. **表结构先由工厂定**：R1 的第一件事是在工厂仓库里写 storefront v2 的样例项目（表结构 + 设计书），storefront 的实现以它为准。
