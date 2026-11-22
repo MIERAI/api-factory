@@ -338,6 +338,7 @@ package main
 import (
 {{- if .Messages}}
 	"context"
+	"log/slog"
 {{ end}}
 	"connectrpc.com/connect"
 
@@ -419,6 +420,8 @@ func messaging(deps server.Deps, consumers []*consume.Consumer, scanners []*sm.S
 		{Path: sm.TestPath, Handler: sm.TestHandler(deps.Pool, scanners...)},
 	}
 	if deps.AMQP == nil { // 没有 AMQP_URL: outbox 只写不发(本地开发 / 进程内的验收)
+		// 部署时忘了 AMQP_URL 不会报错(服务照常回答 API),所以至少在启动日志里说出来
+		slog.Warn("AMQP_URL not set: messages are written to the outbox but never sent, no message handler consumes and no state machine times out")
 		return test
 	}
 {{- else}}
@@ -427,6 +430,8 @@ func messaging(deps server.Deps, consumers []*consume.Consumer, scanners []*sm.S
 func messaging(deps server.Deps, consumers []*consume.Consumer) []server.Service {
 	test := server.Service{Path: consume.TestPath, Handler: consume.TestHandler(consumers...)}
 	if deps.AMQP == nil { // 没有 AMQP_URL: outbox 只写不发(本地开发 / 进程内的验收)
+		// 部署时忘了 AMQP_URL 不会报错(服务照常回答 API),所以至少在启动日志里说出来
+		slog.Warn("AMQP_URL not set: messages are written to the outbox but never sent, and no message handler consumes")
 		return []server.Service{test}
 	}
 {{- end}}

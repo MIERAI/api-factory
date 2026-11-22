@@ -28,6 +28,14 @@
       valid_from:   適用開始日(含)
       valid_to:     適用終了日(含;空 = 期限なし)
       price:        売価
+  local_products:
+    说明: 店舗の DB ごとの商品マスタ(店舗コードの列はない。売価と同じ店舗の DB にある)
+    主键: [product_code]
+    分库: 随父
+    更新方式: 可以更新
+    列:
+      product_code: 商品コード
+      name:         商品名(その店舗での表示名)
   price_snapshots:
     说明: 店別・商品別の売価スナップショット(旧システムから取り込んだ表。日付は整数 YYYYMMDD)
     主键: [store_code, product_code, snap_ymd]
@@ -37,6 +45,16 @@
       product_code: 商品コード
       snap_ymd:     { 说明: スナップショット日(YYYYMMDD の整数。取込のバグで存在しない日付が混ざることがある), 编码: YYYYMMDD }
       price:        売価
+  store_cost_rates:
+    说明: 店舗の原価率の履歴(区分ごと)。改定すると行が増える
+    主键: [store_code, rate_kind, valid_from]
+    更新方式: 可以更新
+    列:
+      store_code: 店舗コード
+      rate_kind:  区分(STD = 通常 / SALE = 特売)
+      valid_from: 適用開始日(含)
+      valid_to:   適用最終日(含;空 = 次の改定まで)
+      cost_rate:  原価率
   price_changes:
     说明: 売価変更の指示(店舗 × 商品 × 指示日)
     主键: [store_code, product_code, proc_date]

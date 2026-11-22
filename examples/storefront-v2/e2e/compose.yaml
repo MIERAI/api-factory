@@ -1,0 +1,114 @@
+# storefront v2 end-to-end stack: RabbitMQ + one Postgres (one database per service) + inventory / payment /
+# notification / order built from their generated Dockerfiles. Hand-written (boundaries.md §8: the system's layer, not the
+# factory's). `make e2e` in this directory runs it; see README.md.
+#
+# Dedicated project name and non-default host ports: other containers on the same machine are never touched.
+name: sf2-e2e
+
+x-pg-env: &pg-env
+  PGHOST: postgres
+  PGUSER: e2e
+  PGPASSWORD: e2e
+
+# One-shot schema loader: create the service's database, apply its db/schema/*.sql (incl. zz_factory_platform.sql).
+# The generated projects ship no migration image (the platform runs db/schema before a deploy), so this is psql.
+x-schema: &schema
+  image: postgres:16-alpine
+  depends_on:
+    postgres: { condition: service_healthy }
+  restart: "no"
+  entrypoint: ["sh", "-ec"]
+  command:
+    - |
+      psql -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = '$$DB'" | grep -q 1 || createdb "$$DB"
+      cat /schema/*.sql | PGOPTIONS='-c client_min_messages=warning' psql -q -v ON_ERROR_STOP=1 -d "$$DB"
+      echo "schema applied: $$DB"
+
+# What every generated server needs (api-factory-runtime/server): DATABASE_URL, AUTH_MODE; AMQP_URL turns on the
+# topology / outbox relay / consumers. PAGE_TOKEN_KEY: stable page tokens (only a warning without it).
+x-service-env: &service-env
+  AMQP_URL: amqp://e2e:e2e@rabbitmq:5672/e2e
+  AUTH_MODE: none
+  PAGE_TOKEN_KEY: sf2-e2e-page-token-key
+
+services:
+  rabbitmq:
+    image: rabbitmq:3.13.7-management
+    environment:
+      RABBITMQ_DEFAULT_USER: e2e        # guest only works from localhost inside the container
+      RABBITMQ_DEFAULT_PASS: e2e
+      RABBITMQ_DEFAULT_VHOST: e2e       # one vhost per environment (R4 §4.1)
+    tmpfs: [/var/lib/rabbitmq]
+    ports: ["56672:5672", "56673:15672"]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 2s
+      timeout: 10s
+      retries: 60
+      start_period: 5s
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: e2e
+      POSTGRES_PASSWORD: e2e
+      POSTGRES_DB: postgres
+    tmpfs: [/var/lib/postgresql/data]
+    ports: ["56432:5432"]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "e2e", "-d", "postgres"]
+      interval: 1s
+      timeout: 3s
+      retries: 60
+
+  schema-inventory:
+    <<: *schema
+    environment: { <<: *pg-env, DB: inventory }
+    volumes: ["../inventory/db/schema:/schema:ro"]
+  schema-payment:
+    <<: *schema
+    environment: { <<: *pg-env, DB: payment }
+    volumes: ["../payment/db/schema:/schema:ro"]
+  schema-notification:
+    <<: *schema
+    environment: { <<: *pg-env, DB: notification }
+    volumes: ["../notification/db/schema:/schema:ro"]
+  schema-order:
+    <<: *schema
+    environment: { <<: *pg-env, DB: order }
+    volumes: ["../order/db/schema:/schema:ro"]
+
+  inventory:
+    build: { context: ../inventory }
+    image: sf2-e2e/inventory:local
+    environment: { <<: *service-env, DATABASE_URL: "postgres://e2e:e2e@postgres:5432/inventory?sslmode=disable" }
+    ports: ["58081:8080", "59091:9090"]
+    depends_on:
+      schema-inventory: { condition: service_completed_successfully }
+      rabbitmq: { condition: service_healthy }
+  payment:
+    build: { context: ../payment }
+    image: sf2-e2e/payment:local
+    environment: { <<: *service-env, DATABASE_URL: "postgres://e2e:e2e@postgres:5432/payment?sslmode=disable" }
+    ports: ["58082:8080", "59092:9090"]
+    depends_on:
+      schema-payment: { condition: service_completed_successfully }
+      rabbitmq: { condition: service_healthy }
+  notification:
+    build: { context: ../notification }
+    image: sf2-e2e/notification:local
+    environment: { <<: *service-env, DATABASE_URL: "postgres://e2e:e2e@postgres:5432/notification?sslmode=disable" }
+    ports: ["58083:8080", "59093:9090"]
+    depends_on:
+      schema-notification: { condition: service_completed_successfully }
+      rabbitmq: { condition: service_healthy }
+  # order: W5 PlaceOrder + the order saga (R5). With AMQP_URL its timeout scanner runs too (real clock: resends
+  # after 30 s; nothing in the driver waits that long)
+  order:
+    build: { context: ../order }
+    image: sf2-e2e/order:local
+    environment: { <<: *service-env, DATABASE_URL: "postgres://e2e:e2e@postgres:5432/order?sslmode=disable" }
+    ports: ["58084:8080", "59094:9090"]
+    depends_on:
+      schema-order: { condition: service_completed_successfully }
+      rabbitmq: { condition: service_healthy }

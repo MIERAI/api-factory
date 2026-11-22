@@ -1,0 +1,85 @@
+# ============================================================================
+# ListCarrierWarehouses: 配送業者 + 契約倉庫(嵌套)。契約の行に倉庫名・地域名を引く(嵌套里的关联: 契約 → 倉庫 → 地域)
+# ============================================================================
+API: ListCarrierWarehouses
+说明: 配送業者を、契約している倉庫(倉庫名・地域名つき、地域名順)と一緒に返す
+背景: 配車担当が業者ごとの契約倉庫を地域別に確認する画面。契約の行には倉庫コードしかないので、倉庫マスタから倉庫名と地域、
+  地域マスタから地域名を引く。倉庫マスタに無い倉庫・地域が未設定の倉庫の契約も表示する(倉庫名 / 地域名が空)。
+  契約は過去の契約・期限なしの契約も含めてすべて(有効期間では絞らない)。1 業者の契約は最大 10 件の運用で、
+  超える業者はデータの誤り → 切り捨てずに、その業者が入るページの要求をエラーにする
+负责人: logistics-team
+风险: 低
+
+种类: 一览
+数据来源: carriers
+
+嵌套:
+  contracts:
+    表: carrier_contracts
+    条件: [carrier_id = carrier_id]
+    关联:
+      warehouse: { 表: warehouses, 条件: [warehouse_code = warehouse_code], 列: { warehouse_name: name, region_code: region_code } }
+      region:    { 表: regions,    条件: [region_code = region_code],       列: { region_name: name } }
+    排序: [region_name 小到大, warehouse_code 小到大, valid_from 小到大]
+    上限: 10
+    列: [warehouse_code, warehouse_name, region_name, valid_from, valid_to]
+    行名: CarrierWarehouse
+
+输入:
+  partner_code: { 类型: 文本, 必填: 否, 长度: 1~8, 说明: 取引先コード(不指定 = 全業者。空文字は参数错误), 筛选: partner_code 等于 }
+
+输出:
+  carrier_id: 配送業者 ID
+  name:       配送業者名
+  contracts:  契約倉庫(地域名順、同じ地域名は倉庫コード順、同じ倉庫は開始日順。地域名が空の契約は末尾。最大 10 件。超える業者が入るページはエラー)
+
+排序: [carrier_id 小到大]
+分页: { 默认每页: 20, 每页最多: 100 }
+输出行名: CarrierWithWarehouses
+
+业务规则:
+  - 情况: 契約の倉庫が倉庫マスタに無い
+    结果: 契約は表示する。倉庫名・地域名は空(末尾に並ぶ)
+  - 情况: 倉庫の地域が未設定、または地域マスタに無い
+    结果: 契約は表示する。地域名は空(末尾に並ぶ)
+  - 情况: ある業者の契約が 10 件を超える
+    结果: その業者が入るページの要求だけが FAILED_PRECONDITION になる(切り捨てない)
+
+例子:
+  准备数据:
+    carriers:
+      - { carrier_id: 1, name: 東西運輸, partner_code: P1 }
+      - { carrier_id: 2, name: 南北便, partner_code: P2 }
+    regions:
+      - { region_code: R1, name: 関東 }
+      - { region_code: R2, name: 九州 }
+    warehouses:
+      - { warehouse_code: W1, name: 東京倉庫, region_code: R1 }
+      - { warehouse_code: W2, name: 福岡倉庫, region_code: R2 }
+      - { warehouse_code: W3, name: 未設定倉庫, region_code: null }
+      - { warehouse_code: W4, name: 旧地域倉庫, region_code: R9 }
+    carrier_contracts:
+      - { carrier_id: 1, warehouse_code: W1, valid_from: 2025-04-01, valid_to: 2026-03-31 }
+      - { carrier_id: 1, warehouse_code: W1, valid_from: 2026-04-01, valid_to: null }
+      - { carrier_id: 1, warehouse_code: W2, valid_from: 2024-01-01, valid_to: null }
+      - { carrier_id: 1, warehouse_code: W3, valid_from: 2024-01-01, valid_to: null }   # 地域が未設定
+      - { carrier_id: 1, warehouse_code: W9, valid_from: 2024-01-01, valid_to: null }   # 倉庫マスタに無い
+      - { carrier_id: 2, warehouse_code: W4, valid_from: 2024-01-01, valid_to: null }   # 地域マスタに無い地域
+  用例:
+    - 说明: 地域名順(九州 → 関東)、同じ倉庫は開始日順。地域名が空の契約(地域未設定・倉庫マスタに無い)は末尾に倉庫コード順
+      输入: {}
+      结果:
+        carriers:
+          - carrier_id: 1
+            contracts:
+              - { warehouse_code: W2, warehouse_name: 福岡倉庫, region_name: 九州, valid_from: 2024-01-01 }
+              - { warehouse_code: W1, warehouse_name: 東京倉庫, region_name: 関東, valid_from: 2025-04-01, valid_to: 2026-03-31 }
+              - { warehouse_code: W1, warehouse_name: 東京倉庫, region_name: 関東, valid_from: 2026-04-01, valid_to: 不设置 }
+              - { warehouse_code: W3, warehouse_name: 未設定倉庫, region_name: 不设置 }
+              - { warehouse_code: W9, warehouse_name: 不设置, region_name: 不设置 }
+          - carrier_id: 2
+            contracts:
+              - { warehouse_code: W4, warehouse_name: 旧地域倉庫, region_name: 不设置 }
+    - 说明: 取引先コードで絞り込む
+      输入: { partner_code: P2 }
+      结果: { carriers: [{ carrier_id: 2, contracts: [{ warehouse_code: W4 }] }] }

@@ -9,6 +9,13 @@ entities:
         policy: mutable
         columns: {}
         invariants: []
+    local_products:
+        natural_key:
+            - product_code
+        policy: mutable
+        shard_with_parent: true
+        columns: {}
+        invariants: []
     price_changes:
         natural_key:
             - store_code
@@ -26,6 +33,14 @@ entities:
         columns:
             snap_ymd:
                 encoding: YYYYMMDD
+        invariants: []
+    store_cost_rates:
+        natural_key:
+            - store_code
+            - rate_kind
+            - valid_from
+        policy: mutable
+        columns: {}
         invariants: []
     store_prices:
         natural_key:

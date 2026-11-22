@@ -74,6 +74,7 @@ type diffEnv struct {
 	pickCols  map[string]bool                // API 部分的每组取一条的键
 	nkSeen    []map[string]any               // 已经生成的行的自然键(JSON 的键 → 值;自然键空间很大时沿用,造出版本)
 	groupCols map[string]bool                // API 部分"每组取一条"的分组列: 值域缩小到 2 个,组里才有多个候选
+	pinCols   map[string]bool                // 请求固定的列(必填的等于 / 属于、分库键): 值域密集,即使是多版本来源的自然键的一部分
 	aggKeys   map[string]bool                // 分组(group)的键: 一半的行取池里的值(组的大小有分布)
 	tuples    []tupleGroup                   // 组的列表(组属于): 每个字段是一个列表参数,请求 / 求值前按下标对齐(align)
 	keySets   [][]string                     // 唯一的列的组合(主键 / 唯一约束 / 多版本来源的自然键);nil = 还没查
@@ -113,6 +114,7 @@ func (e *diffEnv) collect() {
 	var walk func(x *core.Expr)
 	e.keyCol = map[string]string{}
 	e.constFor, e.nkCols, e.groupCols, e.pickCols = map[string][]any{}, map[string]bool{}, map[string]bool{}, map[string]bool{}
+	e.pinCols = map[string]bool{}
 	e.aggKeys = map[string]bool{}
 	rawOf := map[string]string{} // 投影成的列 → 物理列(col(x) 的投影)
 	for _, st := range e.api.Pipeline.Steps {
@@ -221,10 +223,22 @@ func (e *diffEnv) collect() {
 		switch f.Op {
 		case "eq", "in":
 			e.groupCols[f.Column] = true
+			e.pinCols[f.Column] = true
 		}
 	}
 	if sh := e.api.Shard; sh != nil {
 		e.groupCols[sh.Column] = true
+		e.pinCols[sh.Column] = true
+	}
+	// 自然键全部被请求固定(按键取一条一类): 键要多样,固定的列也照常扩大(只有自然键里还有没固定的列时才密集)
+	allPinned := len(e.nkCols) > 0
+	for c := range e.nkCols {
+		allPinned = allPinned && e.pinCols[c]
+	}
+	if allPinned {
+		for c := range e.nkCols {
+			delete(e.pinCols, c)
+		}
 	}
 	// 参数的约束(范围 / 格式 …,factory/constraints)→ 被它筛选的列(多列单元的每一列)的值域
 	e.domains = map[string]*constraints.Domain{}
@@ -260,6 +274,10 @@ func (e *diffEnv) collect() {
 	if len(e.nkCols) > 0 {
 		space := 1
 		for col := range e.nkCols {
+			if e.pinCols[col] && e.groupCols[col] { // 请求固定的列: 密集(6 个值),不扩大
+				space *= min(6, e.domainSize(col))
+				continue
+			}
 			space *= e.domainSize(col)
 		}
 		e.nkSpace = space
@@ -849,7 +867,9 @@ func (e *diffEnv) scalarFor(col string, kind core.Kind, unique bool, i int) any 
 			return v
 		}
 	}
-	if e.groupCols[col] && !e.nkCols[col] && !unique { // 密集的列: 3 个值(多版本来源的自然键除外: 键要多样)
+	// 密集的列: 3 个值(多版本来源的自然键除外: 键要多样)。请求固定的列(必填的等于 / 属于、分库键)即使是自然键的一部分
+	// 也密集: 一个请求只看得到一个值的行,值域扩大了每个请求的行就很少(窄的期间几乎没有多行的组);键的多样性由自然键的其他列负责
+	if e.groupCols[col] && (!e.nkCols[col] || e.pinCols[col]) && !unique {
 		// 每组取一条的键: 约 1/4 的行用独有的值(组里只有一行)。只看"组存不存在"的 API(只输出键)里,
 		// 删除 / 逻辑删除只有在组里只剩这一行时才看得出来(试用: 按 code 去重的存在检查)
 		if e.pickCols[col] && e.rnd.Intn(4) == 0 {
@@ -862,11 +882,15 @@ func (e *diffEnv) scalarFor(col string, kind core.Kind, unique bool, i int) any 
 				}
 			}
 		}
+		dense := 3
+		if e.nkCols[col] { // 请求固定的自然键的列: 6 个值(请求的种类不至于太少;每个值仍有很多行)
+			dense = 6
+		}
 		if d, ok := e.domains[col]; ok {
-			return d.Values[e.rnd.Intn(min(3, len(d.Values)))]
+			return d.Values[e.rnd.Intn(min(dense, len(d.Values)))]
 		}
 		if t, ok := kinds.ByCore(kind); ok && len(t.Domain) >= 2 {
-			return t.Domain[e.rnd.Intn(min(3, len(t.Domain)))] // 有约束的列走上面的 domains
+			return t.Domain[e.rnd.Intn(min(dense, len(t.Domain)))] // 有约束的列走上面的 domains
 		}
 	}
 	if cs := e.constFor[col]; len(cs) > 0 && !unique {
@@ -2644,8 +2668,14 @@ func (e *diffEnv) pickReduced(reqs []core.Params) (int, bool) {
 
 // evalPerDB: 不依赖请求的求值(来源部分): 分库时每个库分别算,结果合在一起(版本的选择在各个库里分别进行)。
 func (e *diffEnv) evalPerDB(p *core.Pipeline) (*core.Result, error) {
+	ps := core.Params{}
+	if p.UsesNow() && len(e.tm.probes) > 0 { // 来源里用到 now(按日期的关联,参照 = 今天): 第一个探针的时刻
+		if v, ok := e.tm.probes[0][core.NowParam]; ok {
+			ps[core.NowParam] = v
+		}
+	}
 	if e.api.Shard == nil {
-		return core.Eval(p, e.tablesIn(nil, e.rows), core.Params{})
+		return core.Eval(p, e.tablesIn(nil, e.rows), ps)
 	}
 	parts := map[*pgx.Conn][]core.Row{}
 	var order []*pgx.Conn
@@ -2658,7 +2688,7 @@ func (e *diffEnv) evalPerDB(p *core.Pipeline) (*core.Result, error) {
 	}
 	out := &core.Result{}
 	for _, c := range order {
-		res, err := core.Eval(p, e.tablesIn(c, parts[c]), core.Params{})
+		res, err := core.Eval(p, e.tablesIn(c, parts[c]), ps)
 		if err != nil {
 			return nil, err
 		}

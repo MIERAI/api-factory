@@ -776,6 +776,14 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 			whereTime = whereTime || where.UsesTime(w)
 		}
 	}
+	for _, l := range lookups { // 按日期的参照是 今天 / 现在
+		whereTime = whereTime || (l.AsOf != nil && (l.AsOf.Ref == "今天" || l.AsOf.Ref == "现在"))
+	}
+	for _, n := range nests {
+		for _, l := range n.Lookups {
+			whereTime = whereTime || (l.AsOf != nil && (l.AsOf.Ref == "今天" || l.AsOf.Ref == "现在"))
+		}
+	}
 	if whereTime {
 		usesNow = true
 		s.Datasource.TimeZone = c.d.TZ
@@ -816,6 +824,9 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 	}
 	for _, n := range nests {
 		related = append(related, n.Table)
+		for _, l := range n.Lookups {
+			related = append(related, l.Table)
+		}
 	}
 	for _, g := range childAggs {
 		related = append(related, g.Table)
@@ -864,7 +875,7 @@ func (c *ctx) enumValueName(en, v string) string { return upperSnake(en) + "_" +
 func (c *ctx) machineDomain() *spec.Domain {
 	md := &spec.Domain{DomainVersion: spec.DomainVersion, Entities: map[string]spec.Entity{}}
 	for name, t := range c.d.Tables {
-		ent := spec.Entity{NaturalKey: t.PrimaryKey, Policy: t.Policy, Storage: t.Storage, ShardBy: t.ShardBy}
+		ent := spec.Entity{NaturalKey: t.PrimaryKey, Policy: t.Policy, Storage: t.Storage, ShardBy: t.ShardBy, ShardWithParent: t.ShardWith}
 		for col, en := range t.ColEnum {
 			e := c.d.Enum(en)
 			vals := map[int64]string{}
@@ -1115,7 +1126,7 @@ func (c *ctx) lookups(a *API, table string, e *errs) []spec.Lookup {
 			e.add(l.Line, "关联 %s: 只能用于有数据来源的查询(%s 不行)", l.Name, a.Exit.Name)
 			continue
 		}
-		sl := spec.Lookup{Name: l.Name, Table: l.Table, On: l.On, Missing: l.Missing}
+		sl := spec.Lookup{Name: l.Name, Table: l.Table, On: l.On, Missing: l.Missing, AsOf: l.AsOf}
 		for _, col := range l.Columns {
 			if t := c.d.Tables[l.Table]; t != nil && t.ColEnum[col[1]] != "" {
 				e.add(l.Line, "关联 %s: 列 %s(%s.%s)是枚举,关联的列还不能是枚举", l.Name, col[0], l.Table, col[1])
@@ -1138,7 +1149,21 @@ func (c *ctx) children(a *API, table string, e *errs) ([]spec.Nest, []spec.Child
 			continue
 		}
 		sn := spec.Nest{Name: n.Name, Table: n.Table, On: n.On, Where: n.Where, OrderBy: n.OrderBy, Max: n.Max}
+		for _, l := range n.Lookups {
+			sl := spec.Lookup{Name: l.Name, Table: l.Table, On: l.On, Missing: l.Missing, AsOf: l.AsOf}
+			for _, col := range l.Columns {
+				if t := c.d.Tables[l.Table]; t != nil && t.ColEnum[col[1]] != "" {
+					e.add(l.Line, "嵌套 %s 的关联 %s: 列 %s(%s.%s)是枚举,关联的列还不能是枚举", n.Name, l.Name, col[0], l.Table, col[1])
+				}
+				sl.Columns = append(sl.Columns, spec.TakeCol{Name: col[0], From: col[1]})
+			}
+			sn.Lookups = append(sn.Lookups, sl)
+		}
 		for _, col := range n.Columns {
+			if _, _, looked := nestColumnSource(n, col[1]); looked {
+				sn.Columns = append(sn.Columns, spec.TakeCol{Name: col[0], From: col[1]})
+				continue
+			}
 			if t := c.d.Tables[n.Table]; t != nil && t.ColEnum[col[1]] != "" {
 				e.add(n.Line, "嵌套 %s: 列 %s(%s.%s)是枚举,子行的列还不能是枚举", n.Name, col[0], n.Table, col[1])
 			}
@@ -1157,6 +1182,18 @@ func (c *ctx) children(a *API, table string, e *errs) ([]spec.Nest, []spec.Child
 		aggs = append(aggs, spec.ChildAgg{Name: g.Name, Table: g.Table, On: g.On, Where: g.Where, Func: g.Func, Column: g.Column})
 	}
 	return nests, aggs
+}
+
+// nestColumnSource: 嵌套的子行的列名 col 是嵌套里的关联加的列 → 那个关联和对方的列(后面的关联优先: 和编译器一样不许重名)。
+func nestColumnSource(n *Nest, col string) (*Lookup, string, bool) {
+	for i := len(n.Lookups) - 1; i >= 0; i-- {
+		for _, c := range n.Lookups[i].Columns {
+			if c[0] == col {
+				return n.Lookups[i], c[1], true
+			}
+		}
+	}
+	return nil, "", false
 }
 
 func nestNamed(a *API, name string) *Nest {
@@ -1179,13 +1216,19 @@ func (c *ctx) nestItem(n *Nest) (*message, error) {
 		item.Desc = t.Desc
 	}
 	for _, col := range n.Columns {
-		pt, kind, opt, err := c.columnField(n.Table, col[1])
+		table, from := n.Table, col[1]
+		keepNull := false // 嵌套里的关联加的列: 找不到时保留 → 可以不设置
+		if l, fc, looked := nestColumnSource(n, col[1]); looked {
+			table, from, keepNull = l.Table, fc, l.Missing != "drop"
+		}
+		pt, kind, opt, err := c.columnField(table, from)
 		if err != nil {
 			return nil, err
 		}
+		opt = opt || (keepNull && kind != "time")
 		desc := ""
-		if t := c.d.Tables[n.Table]; t != nil {
-			desc = t.ColDesc[col[1]]
+		if t := c.d.Tables[table]; t != nil {
+			desc = t.ColDesc[from]
 		}
 		item.Fields = append(item.Fields, &field{Name: col[0], Desc: desc, Type: pt, kind: kind, Optional: opt})
 	}

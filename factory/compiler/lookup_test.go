@@ -119,3 +119,65 @@ func TestLookupLogicalTable(t *testing.T) {
 		t.Fatalf("按非键的列关联逻辑表应该报错: %v", err)
 	}
 }
+
+// R2.6: 分库: 随父 / 对方的列 = 常量 / 按日期 / 嵌套里的关联 的编译规则。
+func TestLookupR26(t *testing.T) {
+	cat := &catalog{tables: map[string][]catColumn{
+		"orders":    {{"id", "int8", true}, {"store", "int4", true}, {"sku", "text", true}, {"day", "date", true}},
+		"lines":     {{"order_id", "int8", true}, {"no", "int4", true}, {"sku", "text", true}},
+		"local":     {{"sku", "text", true}, {"name", "text", true}},
+		"plain":     {{"sku", "text", true}, {"name", "text", true}},
+		"rates":     {{"sku", "text", true}, {"kind", "text", true}, {"from_day", "date", true}, {"to_day", "date", false}, {"rate", "numeric", true}},
+		"unsharded": {{"id", "int8", true}, {"sku", "text", true}},
+	}}
+	keys := map[string][][]string{"local": {{"sku"}}, "plain": {{"sku"}}, "rates": {{"sku", "kind", "from_day"}}, "lines": {{"order_id", "no"}}, "unsharded": {{"id"}}}
+	dom := &spec.Domain{Entities: map[string]spec.Entity{
+		"orders": {ShardBy: "store"}, "lines": {ShardWithParent: true}, "local": {ShardWithParent: true},
+	}}
+	look := func(table string, on ...string) spec.Lookup {
+		return spec.Lookup{Name: "x", Table: table, On: on, Columns: []spec.TakeCol{{Name: "x_name", From: "name"}}}
+	}
+	run := func(src string, d *spec.Domain, ls []spec.Lookup, nests []spec.Nest) error {
+		_, _, err := lookupView(&spec.Spec{Domain: d, Datasource: spec.Datasource{Table: src, Lookups: ls, Nests: nests}}, cat, keys, nil)
+		return err
+	}
+	// 随父: 分库的表 → 随父的表 OK;不分库的表 → 随父的表 NG;随父的表 → 普通的表 NG
+	if err := run("orders", dom, []spec.Lookup{look("local", "sku = sku")}, nil); err != nil {
+		t.Errorf("分库 → 随父: %v", err)
+	}
+	if err := run("unsharded", dom, []spec.Lookup{look("local", "sku = sku")}, nil); err == nil || !strings.Contains(err.Error(), "随父") {
+		t.Errorf("不分库 → 随父 应该报错: %v", err)
+	}
+	nestLines := func(ls ...spec.Lookup) []spec.Nest {
+		return []spec.Nest{{Name: "ls", Table: "lines", On: []string{"id = order_id"}, OrderBy: []string{"no asc"}, Max: 5,
+			Columns: []spec.TakeCol{{Name: "no", From: "no"}}, Lookups: ls}}
+	}
+	if err := run("orders", dom, nil, nestLines(look("local", "sku = sku"))); err != nil {
+		t.Errorf("嵌套(随父)里的关联 → 随父: %v", err)
+	}
+	if err := run("orders", dom, nil, nestLines(look("plain", "sku = sku"))); err == nil || !strings.Contains(err.Error(), "随父") {
+		t.Errorf("随父的子表 → 普通的表 应该报错: %v", err)
+	}
+	// 对方的列 = 常量 + 按日期: 唯一键 = 键 + 固定的列 + 开始
+	free := &spec.Domain{Entities: map[string]spec.Entity{}}
+	rate := spec.Lookup{Name: "r", Table: "rates", On: []string{"sku = sku", "kind = 'STD'"}, Columns: []spec.TakeCol{{Name: "rate", From: "rate"}},
+		AsOf: &spec.LookupAsOf{Start: "from_day", End: "to_day", EndIn: true, Ref: "day"}}
+	if err := run("orders", free, []spec.Lookup{rate}, nil); err != nil {
+		t.Errorf("按日期 + 常量: %v", err)
+	}
+	noConst := rate
+	noConst.On = []string{"sku = sku"}
+	if err := run("orders", free, []spec.Lookup{noConst}, nil); err == nil || !strings.Contains(err.Error(), "不是主键或唯一约束") {
+		t.Errorf("按日期 但 kind 没有固定 应该报错: %v", err)
+	}
+	badRef := rate
+	badRef.AsOf = &spec.LookupAsOf{Start: "from_day", Ref: "nope"}
+	if err := run("orders", free, []spec.Lookup{badRef}, nil); err == nil || !strings.Contains(err.Error(), "参照") {
+		t.Errorf("参照不是列 应该报错: %v", err)
+	}
+	onlyConst := rate
+	onlyConst.On = []string{"kind = 'STD'"}
+	if err := run("orders", free, []spec.Lookup{onlyConst}, nil); err == nil {
+		t.Errorf("只有常量的条件 应该报错")
+	}
+}

@@ -81,6 +81,7 @@ func WritePackaging(dir string) error {
 }
 
 const dockerfile = generatedHeader + `# The service's image: docker build -t <image> .   (run: DATABASE_URL and AUTH_MODE come from the deployment)
+# A service that sends or handles messages (R4) also needs AMQP_URL: without it the outbox is written but never sent
 FROM golang:%[1]s-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./

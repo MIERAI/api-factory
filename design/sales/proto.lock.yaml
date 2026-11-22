@@ -57,6 +57,12 @@
     ListCurrentPricesResponse:
         next_page_token: 2
         store_prices: 1
+    ListDailySalesCostRatesRequest:
+        from: 2
+        store_code: 1
+        to: 3
+    ListDailySalesCostRatesResponse:
+        daily_sales: 1
     ListDiscountedSalesRequest:
         page_size: 1
         page_token: 2
@@ -107,6 +113,12 @@
         store_code: 1
     ListRecentSnapshotsResponse:
         snapshots: 1
+    ListStorePriceNamesRequest:
+        product_name: 3
+        product_prefix: 2
+        store_code: 1
+    ListStorePriceNamesResponse:
+        store_prices: 1
     ListStorePricesByPrefixRequest:
         product_prefix: 2
         store_code: 1
@@ -169,6 +181,12 @@
         price: 3
         product_code: 1
         snap_ymd: 2
+    SaleWithCostRate:
+        amount: 2
+        cost_rate: 3
+        current_cost_rate: 5
+        rate_from: 4
+        sales_date: 1
     StoreDaySale:
         amount: 2
         closed_on: 4
@@ -184,6 +202,12 @@
         old_price: 4
         product_code: 2
         store_code: 1
+    StorePriceWithName:
+        price: 5
+        product_code: 1
+        product_name: 2
+        valid_from: 3
+        valid_to: 4
     StoreSale:
         amount: 2
         discount: 3

@@ -44,3 +44,20 @@ CREATE TABLE IF NOT EXISTS price_snapshots (
 );
 -- 店舗 + 期間(整数のまま範囲で引く: 日付として比べる条件も整数の比較に直して使う)
 CREATE INDEX IF NOT EXISTS price_snapshots_store_ymd_idx ON price_snapshots (store_code, snap_ymd);
+
+-- 店舗の原価率の履歴(区分ごと: STD = 通常 / SALE = 特売)。改定すると行が増える(開始日が違う)。
+-- valid_to は最終日(含)。空 = 次の改定まで(按日期的关联の例: 開始日が最大の行を引く)
+CREATE TABLE IF NOT EXISTS store_cost_rates (
+    store_code INTEGER NOT NULL CHECK (store_code > 0),
+    rate_kind  TEXT    NOT NULL,
+    valid_from DATE    NOT NULL,
+    valid_to   DATE,
+    cost_rate  NUMERIC NOT NULL CHECK (cost_rate >= 0),
+    PRIMARY KEY (store_code, rate_kind, valid_from)
+);
+
+-- 店舗の DB ごとの商品マスタ(分库: 随父 の例: 店舗コードの列がない。売価の行と同じ店舗の DB にある)
+CREATE TABLE IF NOT EXISTS local_products (
+    product_code TEXT PRIMARY KEY,
+    name         TEXT NOT NULL
+);

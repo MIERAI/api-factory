@@ -26,6 +26,8 @@ type Plan struct {
 	Enums    []Enum    `json:"enums"` // 领域层的 enum 映射(DB 值 ↔ proto enum)
 	Storages []Storage `json:"storages,omitempty"`
 	Shards   []Shard   `json:"shards,omitempty"` // 分库的表(验收把数据写进分库键对应的库)
+	// ShardWithParent: 分库: 随父 的表(没有分库键的列;验收把行写进父行的库 / 每个库都写一份)
+	ShardWithParent []string `json:"shard_with_parent,omitempty"`
 }
 
 type Service struct {
@@ -540,6 +542,16 @@ func (p *Plan) Shard(table string) *Shard {
 		}
 	}
 	return nil
+}
+
+// WithParent: 表 table 是 分库: 随父。
+func (p *Plan) WithParent(table string) bool {
+	for _, t := range p.ShardWithParent {
+		if t == table {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *Plan) Enum(table, column string) *Enum {

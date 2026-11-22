@@ -124,7 +124,7 @@ func UsesNow(e *Expr) bool {
 // PipelineUsesNow: 流水线里有没有 now()(适配器要接时钟、测试要固定 now)。
 func (p *Pipeline) UsesNow() bool {
 	for _, st := range p.Steps {
-		if UsesNow(st.Pred) {
+		if UsesNow(st.Pred) || (st.AsOf != nil && UsesNow(st.AsOf.Ref)) {
 			return true
 		}
 		for _, x := range st.Project {
@@ -168,6 +168,9 @@ type Step struct {
 	Unique  [][]string `json:"unique,omitempty"`  // 对方的表的唯一键(主键 / 唯一约束;DRC 用)
 	// NullEq: 只给差分测试的"错误实现"用(NULL 当作相等的关联),参考求值器认,SQL 后端和 IR 里没有
 	NullEq bool `json:"-"`
+	// AsOf: lookup 按日期查历史表(lookup_asof.go): 键相等、开始 ≤ 参照(有结束时 参照 < 结束)的行里开始最大的一行。
+	// lookup 的 Pred = 对方的列上的条件(对方的列 = 常量 …),先筛对方的行
+	AsOf *AsOf `json:"as_of,omitempty"`
 	// nest / child_agg(Table / Columns / On / Unique 同 lookup;On 的 Key = 子表的列。Pred = 子表的列上的条件;
 	// Order = 子行的顺序;N = 子行的上限;Take = 子行的列)
 	// (Aggs / As 见上: child_agg 的聚合、nest 的列名)

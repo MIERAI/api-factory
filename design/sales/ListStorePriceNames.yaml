@@ -1,0 +1,69 @@
+# ============================================================================
+# ListStorePriceNames: 店舗の売価 + 商品名(分库: 随父 の表への关联)
+#   local_products は店舗コードの列がなく、売価の行と同じ店舗の DB にある(分库: 随父)
+# ============================================================================
+API: ListStorePriceNames
+说明: 店舗を指定して、売価(有効期間つき)を商品名つきで商品コード順に返す
+背景: 店舗の売価確認画面。商品名は店舗の DB にある商品マスタ(店舗ごとに表示名が違う)から引く。
+  商品マスタに無い商品も売価は表示する(商品名が空)。商品コードの先頭・商品名で絞れる。絞った後で 300 件を超えるときは
+  エラーにして、さらに絞ってもらう(絞った後が 300 件以下なら店舗全体の件数は問わない)
+负责人: sales-team
+风险: 低
+
+种类: 多条
+数据来源: store_prices
+
+关联:
+  product: { 表: local_products, 条件: [product_code = product_code], 列: { product_name: name } }
+
+输入:
+  store_code:     { 类型: 整数32, 必填: 是, 范围: "> 0", 说明: 店舗コード, 筛选: store_code 等于 }
+  product_prefix: { 类型: 文本, 必填: 否, 长度: 1~20, 说明: 商品コードの先頭(省略 = 全商品), 筛选: product_code 前缀匹配 }
+  product_name:   { 类型: 文本, 必填: 否, 长度: 1~40, 说明: 商品名(店舗の商品マスタの表示名と一致。省略 = 絞らない), 筛选: product_name 等于 }
+
+输出:
+  product_code: 商品コード
+  product_name: 商品名(店舗の商品マスタに無い = 不设置)
+  valid_from:   適用開始日
+  valid_to:     適用終了日
+  price:        売価
+
+排序: [product_code 小到大, valid_from 新到旧]
+上限: 300
+输出行名: StorePriceWithName
+
+业务规则:
+  - 情况: 店舗の商品マスタに無い商品
+    结果: 売価は返す。商品名は空
+  - 情况: 絞った後の売価が 300 件を超える
+    结果: エラー(FAILED_PRECONDITION)。途中で切り捨てない
+
+例子:
+  准备数据:
+    store_prices:
+      - { store_code: 1, product_code: "4901", valid_from: 2026-11-01, valid_to: 2026-11-30, price: 98 }
+      - { store_code: 1, product_code: "4901", valid_from: 2026-12-01, valid_to: null,       price: 95 }
+      - { store_code: 1, product_code: "5001", valid_from: 2026-11-01, valid_to: null,       price: 200 }
+      - { store_code: 3, product_code: "4901", valid_from: 2026-11-01, valid_to: null,       price: 99 }
+    local_products:
+      - { product_code: "4901", name: お茶 500ml }
+  用例:
+    - 说明: 商品コード順、同じ商品は新しい適用開始日から。商品マスタに無い 5001 は商品名が空
+      输入: { store_code: 1 }
+      结果:
+        store_prices:
+          - { product_code: "4901", product_name: お茶 500ml, valid_from: 2026-12-01 }
+          - { product_code: "4901", product_name: お茶 500ml, valid_from: 2026-11-01 }
+          - { product_code: "5001", product_name: 不设置 }
+    - 说明: 商品コードの先頭と商品名で絞る(商品名で絞ると商品マスタに無い商品は出ない)
+      输入: { store_code: 1, product_prefix: "4", product_name: お茶 500ml }
+      结果: { store_prices: [{ product_code: "4901", valid_from: 2026-12-01 }, { product_code: "4901", valid_from: 2026-11-01 }] }
+    - 说明: 商品名だけで絞ると、商品マスタに無い商品(5001)は出ない
+      输入: { store_code: 1, product_name: お茶 500ml }
+      结果: { store_prices: [{ product_code: "4901", valid_from: 2026-12-01 }, { product_code: "4901", valid_from: 2026-11-01 }] }
+    - 说明: 売価の無い店舗コードは空の一覧(エラーにしない)
+      输入: { store_code: 99999 }
+      结果: { store_prices: [] }
+    - 说明: 別の店舗(別の DB)でも同じ商品マスタの行がある
+      输入: { store_code: 3 }
+      结果: { store_prices: [{ product_code: "4901", product_name: お茶 500ml, price: "99" }] }

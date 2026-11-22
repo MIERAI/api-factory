@@ -20,6 +20,7 @@ import (
 	"apifactory/factory/core"
 	"apifactory/factory/sources"
 	"apifactory/factory/spec"
+	"apifactory/factory/where"
 )
 
 // lookupView: 关联的流水线步骤 + 加了关联列的目录(来源的表的列 + 每个关联加的列;keep 的列可空)。
@@ -49,101 +50,11 @@ func lookupView(s *spec.Spec, cat *catalog, keys map[string][][]string, lib *cel
 	}
 	var steps []core.Step
 	for _, l := range ls {
-		at := fmt.Sprintf("关联 %s", l.Name)
-		other, ok := cat.tables[l.Table]
-		if !ok {
-			return nil, nil, fmt.Errorf("%s: 表 %q 不在 db/schema 里", at, l.Table)
+		st, next, err := lookupStep(s, cat, keys, lib, l, fmt.Sprintf("关联 %s", l.Name), table, cols, shardCols)
+		if err != nil {
+			return nil, nil, err
 		}
-		st := core.Step{Kind: "lookup", Table: l.Table, From: at, Unique: keys[l.Table]}
-		if err := relatedSource(s, &st, cat, lib); err != nil { // 逻辑表: 来源的展开 + 唯一键 = 自然键
-			return nil, nil, fmt.Errorf("%s: %w", at, err)
-		}
-		switch l.Missing {
-		case "", "keep":
-			st.Missing = "keep"
-		case "drop":
-			st.Missing = "drop"
-		default:
-			return nil, nil, fmt.Errorf("%s: missing 只能是 keep / drop,实际是 %q", at, l.Missing)
-		}
-		for _, c := range other {
-			t, err := coreType(l.Table, c)
-			if err != nil {
-				return nil, nil, fmt.Errorf("%s: %w", at, err)
-			}
-			st.Columns = append(st.Columns, core.NamedType{Name: c.Name, Type: t})
-		}
-		has := func(cs []catColumn, n string) bool {
-			for _, c := range cs {
-				if c.Name == n {
-					return true
-				}
-			}
-			return false
-		}
-		shardOK := false
-		for _, on := range l.On {
-			a, b, ok := strings.Cut(on, "=")
-			a, b = strings.TrimSpace(a), strings.TrimSpace(b)
-			if !ok || a == "" || b == "" || strings.Contains(b, "=") {
-				return nil, nil, fmt.Errorf("%s: 条件 %q 写成 \"当前行的列 = %s 的列\"", at, on, l.Table)
-			}
-			if !has(cols, a) {
-				return nil, nil, fmt.Errorf("%s: 条件 %q: %s 不是 %s 的列(也不是前面的关联加的列)", at, on, a, table)
-			}
-			if !has(other, b) {
-				return nil, nil, fmt.Errorf("%s: 条件 %q: %s 不是 %s 的列", at, on, b, l.Table)
-			}
-			if sb := entity(l.Table).ShardBy; sb != "" && b == sb && shardCols[a] {
-				shardOK = true
-			}
-			st.On = append(st.On, core.JoinKey{Col: a, Key: b})
-		}
-		onKeys := map[string]bool{}
-		var keyList []string
-		for _, k := range st.On {
-			onKeys[k.Key] = true
-			keyList = append(keyList, k.Key)
-		}
-		unique := false
-		for _, u := range st.Unique {
-			all := true
-			for _, c := range u {
-				all = all && onKeys[c]
-			}
-			unique = unique || all
-		}
-		if !unique {
-			return nil, nil, fmt.Errorf("%s: 条件里 %s 的列 %v 不是主键或唯一约束(%s 的唯一键: %v)。"+
-				"关联是多对一: 对方最多一行匹配;一对多请用嵌套", at, l.Table, keyList, l.Table, st.Unique)
-		}
-		switch src, dst := entity(table).ShardBy, entity(l.Table).ShardBy; {
-		case src == "" && dst != "":
-			return nil, nil, fmt.Errorf("%s: %s 按 %s 分库,%s 不分库: 不分库的表不能关联分库的表(一个请求只访问一个库)", at, l.Table, dst, table)
-		case src != "" && dst == "":
-			return nil, nil, fmt.Errorf("%s: %s 按 %s 分库,%s 不分库: 分库的表只能关联同一个分库里的表", at, table, src, l.Table)
-		case src != "" && !shardOK:
-			return nil, nil, fmt.Errorf("%s: 分库的表之间的关联,条件里要有「%s = %s」(两边的分库键相等 → 对方的行在同一个库里)", at, src, dst)
-		}
-		for _, t := range l.Columns {
-			var oc *catColumn
-			for i := range other {
-				if other[i].Name == t.From {
-					oc = &other[i]
-				}
-			}
-			if oc == nil {
-				return nil, nil, fmt.Errorf("%s: 列 %s: %s 没有列 %s", at, t.Name, l.Table, t.From)
-			}
-			if has(cols, t.Name) {
-				return nil, nil, fmt.Errorf("%s: 加的列 %s 和 %s 的列(或前面的关联加的列)重名", at, t.Name, table)
-			}
-			cols = append(cols, catColumn{Name: t.Name, Type: oc.Type, NotNull: oc.NotNull && st.Missing == "drop"})
-			st.Take = append(st.Take, core.TakeCol{Name: t.Name, Col: t.From})
-			if sb := entity(l.Table).ShardBy; sb != "" && t.From == sb {
-				shardCols[t.Name] = true
-			}
-		}
+		cols = next
 		steps = append(steps, st)
 	}
 	cols, children, err := childSteps(s, cat, keys, cols, shardCols, lib)
@@ -152,6 +63,162 @@ func lookupView(s *spec.Spec, cat *catalog, keys map[string][][]string, lib *cel
 	}
 	view.tables[table] = cols
 	return view, append(steps, children...), nil
+}
+
+// lookupStep: 一个关联 → 核心的 lookup 和加了列之后的当前行的列。table = 当前行的表(报错 / 分库用:
+// 数据来源的表,或嵌套的子表);cols = 当前行的列(条件的左边);shardCols: 当前行里来自分库键的列(加的列也会登记)。
+func lookupStep(s *spec.Spec, cat *catalog, keys map[string][][]string, lib *cells.Library, l spec.Lookup, at, table string, cols []catColumn, shardCols map[string]bool) (core.Step, []catColumn, error) {
+	cols = append([]catColumn(nil), cols...)
+	entity := func(t string) spec.Entity {
+		if s.Domain == nil {
+			return spec.Entity{}
+		}
+		return s.Domain.Entities[t]
+	}
+	st := core.Step{Kind: "lookup", Table: l.Table, From: at, Unique: keys[l.Table]}
+	other, ok := cat.tables[l.Table]
+	if !ok {
+		return st, nil, fmt.Errorf("%s: 表 %q 不在 db/schema 里", at, l.Table)
+	}
+	if err := relatedSource(s, &st, cat, lib); err != nil { // 逻辑表: 来源的展开 + 唯一键 = 自然键
+		return st, nil, fmt.Errorf("%s: %w", at, err)
+	}
+	switch l.Missing {
+	case "", "keep":
+		st.Missing = "keep"
+	case "drop":
+		st.Missing = "drop"
+	default:
+		return st, nil, fmt.Errorf("%s: missing 只能是 keep / drop,实际是 %q", at, l.Missing)
+	}
+	for _, c := range other {
+		t, err := coreType(l.Table, c)
+		if err != nil {
+			return st, nil, fmt.Errorf("%s: %w", at, err)
+		}
+		st.Columns = append(st.Columns, core.NamedType{Name: c.Name, Type: t})
+	}
+	has := func(cs []catColumn, n string) bool {
+		for _, c := range cs {
+			if c.Name == n {
+				return true
+			}
+		}
+		return false
+	}
+	shardOK := false
+	var preds []*core.Expr // 对方的列 = 常量(对方的行先按它筛)
+	for _, on := range l.On {
+		a, b, ok := strings.Cut(on, "=")
+		a, b = strings.TrimSpace(a), strings.TrimSpace(b)
+		if ok && isLiteral(b) {
+			e, err := where.Parse(on, WhereTypes(other))
+			if err != nil {
+				return st, nil, fmt.Errorf("%s: 条件 %q(对方的列 = 常量): %w", at, on, err)
+			}
+			preds = append(preds, e)
+			continue
+		}
+		if !ok || a == "" || b == "" || strings.Contains(b, "=") {
+			return st, nil, fmt.Errorf("%s: 条件 %q 写成 \"当前行的列 = %s 的列\"", at, on, l.Table)
+		}
+		if !has(cols, a) {
+			return st, nil, fmt.Errorf("%s: 条件 %q: %s 不是 %s 的列(也不是前面的关联加的列)", at, on, a, table)
+		}
+		if !has(other, b) {
+			return st, nil, fmt.Errorf("%s: 条件 %q: %s 不是 %s 的列", at, on, b, l.Table)
+		}
+		if sb := entity(l.Table).ShardBy; sb != "" && b == sb && shardCols[a] {
+			shardOK = true
+		}
+		st.On = append(st.On, core.JoinKey{Col: a, Key: b})
+	}
+	switch len(preds) {
+	case 0:
+	case 1:
+		st.Pred = preds[0]
+	default:
+		st.Pred = core.And(preds...)
+	}
+	if len(st.On) == 0 {
+		return st, nil, fmt.Errorf("%s: 条件里要有 \"当前行的列 = %s 的列\"(只有常量的条件不是关联)", at, l.Table)
+	}
+	if a := l.AsOf; a != nil {
+		if !has(other, a.Start) {
+			return st, nil, fmt.Errorf("%s: 按日期的开始 %s 不是 %s 的列", at, a.Start, l.Table)
+		}
+		if a.End != "" && !has(other, a.End) {
+			return st, nil, fmt.Errorf("%s: 按日期的结束 %s 不是 %s 的列", at, a.End, l.Table)
+		}
+		var ref *core.Expr
+		switch {
+		case a.Ref == "今天":
+			ref = core.Today(whereOpt(s, table).Zone)
+		case a.Ref == "现在":
+			ref = core.Now()
+		case has(cols, a.Ref):
+			ref = core.Col(a.Ref)
+		default:
+			return st, nil, fmt.Errorf("%s: 按日期的参照 %s 不是当前行的列(也不是 今天 / 现在)", at, a.Ref)
+		}
+		st.AsOf = &core.AsOf{Start: a.Start, End: a.End, EndIn: a.EndIn, Ref: ref}
+	}
+	onKeys := map[string]bool{}
+	for c := range core.PinnedCols(st.Pred) {
+		onKeys[c] = true
+	}
+	if st.AsOf != nil {
+		onKeys[st.AsOf.Start] = true
+	}
+	var keyList []string
+	for _, k := range st.On {
+		onKeys[k.Key] = true
+		keyList = append(keyList, k.Key)
+	}
+	unique := false
+	for _, u := range st.Unique {
+		all := true
+		for _, c := range u {
+			all = all && onKeys[c]
+		}
+		unique = unique || all
+	}
+	if !unique {
+		return st, nil, fmt.Errorf("%s: 条件里 %s 的列 %v 不是主键或唯一约束(%s 的唯一键: %v)。"+
+			"关联是多对一: 对方最多一行匹配;一对多请用嵌套", at, l.Table, keyList, l.Table, st.Unique)
+	}
+	if err := withParentRule(at, table, l.Table, entity(table), entity(l.Table)); err != nil {
+		return st, nil, err
+	}
+	switch src, dst := entity(table).ShardBy, entity(l.Table).ShardBy; {
+	case entity(l.Table).ShardWithParent || entity(table).ShardWithParent: // 分库: 随父(withParentRule 已经检查)
+	case src == "" && dst != "":
+		return st, nil, fmt.Errorf("%s: %s 按 %s 分库,%s 不分库: 不分库的表不能关联分库的表(一个请求只访问一个库)", at, l.Table, dst, table)
+	case src != "" && dst == "":
+		return st, nil, fmt.Errorf("%s: %s 按 %s 分库,%s 不分库: 分库的表只能关联同一个分库里的表", at, table, src, l.Table)
+	case src != "" && !shardOK:
+		return st, nil, fmt.Errorf("%s: 分库的表之间的关联,条件里要有「%s = %s」(两边的分库键相等 → 对方的行在同一个库里)", at, src, dst)
+	}
+	for _, t := range l.Columns {
+		var oc *catColumn
+		for i := range other {
+			if other[i].Name == t.From {
+				oc = &other[i]
+			}
+		}
+		if oc == nil {
+			return st, nil, fmt.Errorf("%s: 列 %s: %s 没有列 %s", at, t.Name, l.Table, t.From)
+		}
+		if has(cols, t.Name) {
+			return st, nil, fmt.Errorf("%s: 加的列 %s 和 %s 的列(或前面的关联加的列)重名", at, t.Name, table)
+		}
+		cols = append(cols, catColumn{Name: t.Name, Type: oc.Type, NotNull: oc.NotNull && st.Missing == "drop"})
+		st.Take = append(st.Take, core.TakeCol{Name: t.Name, Col: t.From})
+		if sb := entity(l.Table).ShardBy; sb != "" && t.From == sb {
+			shardCols[t.Name] = true
+		}
+	}
+	return st, cols, nil
 }
 
 // LookupColumns: 设计编译器用: 加了关联列之后的来源的列(检查筛选 / 输出 / 固定条件用)。
@@ -310,5 +377,33 @@ func relatedSource(s *spec.Spec, st *core.Step, cat *catalog, lib *cells.Library
 		return fmt.Errorf("表 %s 的来源: %w", st.Table, err)
 	}
 	st.Source = steps
+	return nil
+}
+
+// isLiteral: 条件的右边是常量('文本' / 数字): "对方的列 = 常量"。
+func isLiteral(s string) bool {
+	if s == "" {
+		return false
+	}
+	if s[0] == '\'' {
+		return true
+	}
+	if s[0] == '-' {
+		s = s[1:]
+	}
+	return s != "" && s[0] >= '0' && s[0] <= '9'
+}
+
+// withParentRule: 分库: 随父 的表(没有分库键的列,行在父行的库里)。
+//   - 对方 / 子表是随父的表: 当前行的表必须分库(按分库键,或者自己也随父)—— 不分库的表在主库,随父的表在各个分库
+//   - 当前行的表是随父的表(嵌套的子表上的关联 …): 对方也只能是随父的表(分库键不在当前行上,确认不了是同一个库)
+func withParentRule(at, table, other string, cur, dst spec.Entity) error {
+	curSharded := cur.ShardBy != "" || cur.ShardWithParent
+	switch {
+	case dst.ShardWithParent && !curSharded:
+		return fmt.Errorf("%s: %s 是 分库: 随父,%s 不分库: 随父的表只能从分库的表关联(行在父行的那个库里)", at, other, table)
+	case cur.ShardWithParent && !dst.ShardWithParent:
+		return fmt.Errorf("%s: %s 是 分库: 随父,只能再关联随父的表(%s 不是: 确认不了在同一个库里)", at, table, other)
+	}
 	return nil
 }

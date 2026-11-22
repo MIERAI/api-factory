@@ -1350,6 +1350,86 @@
     ]
   },
   {
+    "id": "logistics.list-carrier-warehouses",
+    "method": "ListCarrierWarehouses",
+    "summary": "配送業者を、契約している倉庫(倉庫名・地域名つき、地域名順)と一緒に返す",
+    "path": "/factory.logistics.v1.LogisticService/ListCarrierWarehouses",
+    "pattern": "list_keyset",
+    "cases": [
+      {
+        "name": "地域名順(九州 → 関東)、同じ倉庫は開始日順。地域名が空の契約(地域未設定・倉庫マスタに無い)は末尾に倉庫コード順",
+        "request": {},
+        "response": {
+          "carriers": [
+            {
+              "carrier_id": 1,
+              "contracts": [
+                {
+                  "region_name": "九州",
+                  "valid_from": "2024-01-01",
+                  "warehouse_code": "W2",
+                  "warehouse_name": "福岡倉庫"
+                },
+                {
+                  "region_name": "関東",
+                  "valid_from": "2025-04-01",
+                  "valid_to": "2026-03-31",
+                  "warehouse_code": "W1",
+                  "warehouse_name": "東京倉庫"
+                },
+                {
+                  "region_name": "関東",
+                  "valid_from": "2026-04-01",
+                  "valid_to": "$absent",
+                  "warehouse_code": "W1",
+                  "warehouse_name": "東京倉庫"
+                },
+                {
+                  "region_name": "$absent",
+                  "warehouse_code": "W3",
+                  "warehouse_name": "未設定倉庫"
+                },
+                {
+                  "region_name": "$absent",
+                  "warehouse_code": "W9",
+                  "warehouse_name": "$absent"
+                }
+              ]
+            },
+            {
+              "carrier_id": 2,
+              "contracts": [
+                {
+                  "region_name": "$absent",
+                  "warehouse_code": "W4",
+                  "warehouse_name": "旧地域倉庫"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "name": "取引先コードで絞り込む",
+        "request": {
+          "partner_code": "P2"
+        },
+        "response": {
+          "carriers": [
+            {
+              "carrier_id": 2,
+              "contracts": [
+                {
+                  "warehouse_code": "W4"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
     "id": "logistics.list-shipment-packages",
     "method": "ListShipmentPackages",
     "summary": "出荷日の出荷を、封緘済みの梱包(重い順)と梱包の集計つきで返す",
@@ -2356,6 +2436,84 @@
     ]
   },
   {
+    "id": "sales.list-daily-sales-cost-rates",
+    "method": "ListDailySalesCostRates",
+    "summary": "店舗の売上を from〜to(両端を含む)で日付順に返す。各日に適用されていた通常の原価率と、今日の通常の原価率をつける",
+    "path": "/factory.sales.v1.SaleService/ListDailySalesCostRates",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "11/1(開始日)・11/2(最終日)は期間限定の 0.65、10/31 と 11/3(期間限定が終わった翌日)は前から続いている 0.70。今日(日本の 11/5)の原価率は 0.68",
+        "request": {
+          "from": "2026-10-31",
+          "store_code": 1
+        },
+        "response": {
+          "daily_sales": [
+            {
+              "cost_rate": "0.70",
+              "current_cost_rate": "0.68",
+              "rate_from": "2026-04-01",
+              "sales_date": "2026-10-31"
+            },
+            {
+              "cost_rate": "0.65",
+              "current_cost_rate": "0.68",
+              "rate_from": "2026-11-01",
+              "sales_date": "2026-11-01"
+            },
+            {
+              "cost_rate": "0.65",
+              "current_cost_rate": "0.68",
+              "rate_from": "2026-11-01",
+              "sales_date": "2026-11-02"
+            },
+            {
+              "cost_rate": "0.70",
+              "current_cost_rate": "0.68",
+              "rate_from": "2026-04-01",
+              "sales_date": "2026-11-03"
+            }
+          ]
+        }
+      },
+      {
+        "name": "開始日より前の売上は原価率なし。UTC ではまだ 11/4 の時刻だが今日 = 11/5",
+        "request": {
+          "from": "2026-11-01",
+          "store_code": 2,
+          "to": "2026-11-01"
+        },
+        "response": {
+          "daily_sales": [
+            {
+              "amount": "90",
+              "cost_rate": "$absent",
+              "current_cost_rate": "0.60",
+              "sales_date": "2026-11-01"
+            }
+          ]
+        }
+      },
+      {
+        "name": "日本の 11/4 23:59 では今日 = 11/4。11/5 からの改定はまだ、期間限定(11/1〜11/2)は終わっているので今日の原価率は 0.70",
+        "request": {
+          "from": "2026-11-03",
+          "store_code": 1
+        },
+        "response": {
+          "daily_sales": [
+            {
+              "cost_rate": "0.70",
+              "current_cost_rate": "0.70",
+              "sales_date": "2026-11-03"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
     "id": "sales.list-discounted-sales",
     "method": "ListDiscountedSales",
     "summary": "売上日を指定して、値引きのあった店舗の売上を売上金額の大きい順に返す(分页)",
@@ -2799,6 +2957,78 @@
               "price": "104",
               "product_code": "A",
               "snap_ymd": 20260302
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "sales.list-store-price-names",
+    "method": "ListStorePriceNames",
+    "summary": "店舗を指定して、売価(有効期間つき)を商品名つきで商品コード順に返す",
+    "path": "/factory.sales.v1.SaleService/ListStorePriceNames",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "商品コード順、同じ商品は新しい適用開始日から。商品マスタに無い 5001 は商品名が空",
+        "request": {
+          "store_code": 1
+        },
+        "response": {
+          "store_prices": [
+            {
+              "product_code": "4901",
+              "product_name": "お茶 500ml",
+              "valid_from": "2026-12-01"
+            },
+            {
+              "product_code": "4901",
+              "product_name": "お茶 500ml",
+              "valid_from": "2026-11-01"
+            },
+            {
+              "product_code": "5001",
+              "product_name": "$absent"
+            }
+          ]
+        }
+      },
+      {
+        "name": "商品コードの先頭と商品名で絞る(商品名で絞ると商品マスタに無い商品は出ない)",
+        "request": {
+          "product_name": "お茶 500ml",
+          "product_prefix": "4",
+          "store_code": 1
+        },
+        "response": {
+          "store_prices": [
+            {
+              "product_code": "4901",
+              "valid_from": "2026-12-01"
+            },
+            {
+              "product_code": "4901",
+              "valid_from": "2026-11-01"
+            }
+          ]
+        }
+      },
+      {
+        "name": "商品名だけで絞ると、商品マスタに無い商品(5001)は出ない",
+        "request": {
+          "product_name": "お茶 500ml",
+          "store_code": 1
+        },
+        "response": {
+          "store_prices": [
+            {
+              "product_code": "4901",
+              "valid_from": "2026-12-01"
+            },
+            {
+              "product_code": "4901",
+              "valid_from": "2026-11-01"
             }
           ]
         }
