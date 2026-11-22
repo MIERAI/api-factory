@@ -5,6 +5,7 @@ package ledger
 import (
 	"context"
 	"errors"
+	"math/big"
 
 	"github.com/jackc/pgx/v5"
 	"google.golang.org/protobuf/proto"
@@ -30,6 +31,16 @@ func emitMsg(kind message.Kind, typ string, version int, subject string, data pr
 type protoData struct{ m proto.Message }
 
 func (d protoData) MarshalJSON() ([]byte, error) { return message.EncodeData(d.m) }
+
+// decCmp: 两个十进制的文本按数值比较(-1 / 0 / 1)。解不开的当成 0(契约的校验已经拒绝了不合法的写法)。
+func decCmp(a, b string) int {
+	x, ok1 := new(big.Rat).SetString(a)
+	y, ok2 := new(big.Rat).SetString(b)
+	if !ok1 || !ok2 {
+		return 0
+	}
+	return x.Cmp(y)
+}
 
 // resultError: 结果的 当 成立(保存点回滚,走那个结果的分支)。
 type resultError string
