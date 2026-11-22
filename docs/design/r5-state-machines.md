@@ -1,6 +1,6 @@
 # 设计稿：R5 — 状态机（storefront v2 的订单 saga）
 
-> 版本 v0.1（2026-11-22）· 状态：**评审中**（标 ⚖️ 的地方需要决定）
+> 版本 v0.2（2026-11-22）· 状态：**已批准**（⚖️ 全部：2026-11-22 用户决定**按推荐**）
 > 上级计划：`docs/design/storefront-v2-readiness.md` 的 R5（C6 状态机 → W5、M4–M9、J2）。**95% 的过关线 = R5 完成（27 / 28）。**
 > 前提：R3（写操作是数据、一个事务、乐观锁、状态差分）和 R4（`docs/design/r4-events-messages.md`：outbox、消息处理器、去重、可重入 DRC、不承诺顺序）。R2-3 的测试时钟（`FACTORY_TEST_CLOCK` / `X-Factory-Now`）。
 
