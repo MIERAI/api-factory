@@ -49,6 +49,9 @@ service InventoryMessageHandlerService {
   // 确认一个订单的预留(支付成功之后): HELD → COMMITTED,已预留数量减少(出库)。预留已经释放了 → 进 DLQ(收到 inventory.commit v1;入口 = RabbitMQ 的队列,不是 HTTP)
   rpc CommitStock(CommitStockRequest) returns (CommitStockResponse);
 
+  // 收到新商品的事件,为这个 SKU 建一条库存记录(可用 0、已预留 0)。已经有了就什么都不改(收到 catalog.product_created v1;入口 = RabbitMQ 的队列,不是 HTTP)
+  rpc InitStock(InitStockRequest) returns (InitStockResponse);
+
   // 释放一个订单的预留(补偿): HELD 的加回可售;预留还没到的留下墓碑(之后迟到的预留不再扣)(收到 inventory.release v1;入口 = RabbitMQ 的队列,不是 HTTP)
   rpc ReleaseStock(ReleaseStockRequest) returns (ReleaseStockResponse);
 
@@ -119,6 +122,16 @@ message GetStockResponse {
   int32 reserved = 2;
   // 找到了: true。找不到时 false(其他字段都不设置)
   bool found = 3;
+}
+
+// 收到新商品的事件,为这个 SKU 建一条库存记录(可用 0、已预留 0)。已经有了就什么都不改
+message InitStockRequest {
+  // SKU
+  string sku = 1 [(buf.validate.field).string.pattern = "^[A-Z0-9-]+$", (buf.validate.field).string.min_len = 3, (buf.validate.field).string.max_len = 32];
+}
+
+// 收到新商品的事件,为这个 SKU 建一条库存记录(可用 0、已预留 0)。已经有了就什么都不改
+message InitStockResponse {
 }
 
 // 每个 SKU 的库存(可售数 + 已预留数)

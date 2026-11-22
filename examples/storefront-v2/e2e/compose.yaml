@@ -1,6 +1,10 @@
-# storefront v2 end-to-end stack: RabbitMQ + one Postgres (one database per service) + inventory / payment /
-# notification / order built from their generated Dockerfiles. Hand-written (boundaries.md §8: the system's layer, not the
-# factory's). `make e2e` in this directory runs it; see README.md.
+# storefront v2 end-to-end stack: RabbitMQ + one Postgres (one database per service) + the system topology job +
+# catalog / inventory / payment / notification / order built from their generated Dockerfiles. Hand-written
+# (boundaries.md §8: the system's layer, not the factory's). `make e2e` in this directory runs it; see README.md.
+#
+# Start order (what a platform does on a first deploy): rabbitmq, postgres → schema-* and topology (one-shot) → services.
+# `up --wait` returns when every service is healthy = its /readyz is 200 = topology declared, every consumer subscribed
+# (the generated Dockerfile's HEALTHCHECK runs `/server probe`).
 #
 # Dedicated project name and non-default host ports: other containers on the same machine are never touched.
 name: sf2-e2e
@@ -24,8 +28,9 @@ x-schema: &schema
       cat /schema/*.sql | PGOPTIONS='-c client_min_messages=warning' psql -q -v ON_ERROR_STOP=1 -d "$$DB"
       echo "schema applied: $$DB"
 
-# What every generated server needs (api-factory-runtime/server): DATABASE_URL, AUTH_MODE; AMQP_URL turns on the
-# topology / outbox relay / consumers. PAGE_TOKEN_KEY: stable page tokens (only a warning without it).
+# What every generated server needs (api-factory-runtime/server; the full list is in each project's README.md,
+# "Environment"): DATABASE_URL, AUTH_MODE; AMQP_URL turns on the topology / outbox relay / consumers. PAGE_TOKEN_KEY:
+# stable page tokens (only a warning without it).
 x-service-env: &service-env
   AMQP_URL: amqp://e2e:e2e@rabbitmq:5672/e2e
   AUTH_MODE: none
@@ -61,6 +66,26 @@ services:
       timeout: 3s
       retries: 60
 
+  # The system's topology (every queue, binding, retry queue and DLQ of all the services), applied once before any
+  # service starts: an event sent before its subscriber's first start has a queue (GAPS G23). The services still declare
+  # their own queues at start-up (idempotent).
+  topology:
+    build:
+      context: .
+      dockerfile: topology.Dockerfile
+      args: { RUNTIME_VERSION: "${RUNTIME_VERSION:?run through the Makefile (it reads the runtime version from driver/go.mod)}" }
+    image: sf2-e2e/topology:local
+    restart: "no"
+    environment: { AMQP_URL: "amqp://e2e:e2e@rabbitmq:5672/e2e" }
+    volumes: ["../contracts/topology.json:/topology.json:ro"]
+    command: ["topology", "apply", "--file", "/topology.json", "--timeout", "60s"]
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+
+  schema-catalog:
+    <<: *schema
+    environment: { <<: *pg-env, DB: catalog }
+    volumes: ["../catalog/db/schema:/schema:ro"]
   schema-inventory:
     <<: *schema
     environment: { <<: *pg-env, DB: inventory }
@@ -78,6 +103,15 @@ services:
     environment: { <<: *pg-env, DB: order }
     volumes: ["../order/db/schema:/schema:ro"]
 
+  # catalog: W1–W3; CreateProduct emits catalog.product_created → inventory's InitStock creates the stock row (M13)
+  catalog:
+    build: { context: ../catalog }
+    image: sf2-e2e/catalog:local
+    environment: { <<: *service-env, DATABASE_URL: "postgres://e2e:e2e@postgres:5432/catalog?sslmode=disable" }
+    ports: ["58085:8080", "59095:9090"]
+    depends_on:
+      schema-catalog: { condition: service_completed_successfully }
+      topology: { condition: service_completed_successfully }
   inventory:
     build: { context: ../inventory }
     image: sf2-e2e/inventory:local
@@ -85,7 +119,7 @@ services:
     ports: ["58081:8080", "59091:9090"]
     depends_on:
       schema-inventory: { condition: service_completed_successfully }
-      rabbitmq: { condition: service_healthy }
+      topology: { condition: service_completed_successfully }
   payment:
     build: { context: ../payment }
     image: sf2-e2e/payment:local
@@ -93,7 +127,7 @@ services:
     ports: ["58082:8080", "59092:9090"]
     depends_on:
       schema-payment: { condition: service_completed_successfully }
-      rabbitmq: { condition: service_healthy }
+      topology: { condition: service_completed_successfully }
   notification:
     build: { context: ../notification }
     image: sf2-e2e/notification:local
@@ -101,7 +135,7 @@ services:
     ports: ["58083:8080", "59093:9090"]
     depends_on:
       schema-notification: { condition: service_completed_successfully }
-      rabbitmq: { condition: service_healthy }
+      topology: { condition: service_completed_successfully }
   # order: W5 PlaceOrder + the order saga (R5). With AMQP_URL its timeout scanner runs too (real clock: resends
   # after 30 s; nothing in the driver waits that long)
   order:
@@ -111,4 +145,4 @@ services:
     ports: ["58084:8080", "59094:9090"]
     depends_on:
       schema-order: { condition: service_completed_successfully }
-      rabbitmq: { condition: service_healthy }
+      topology: { condition: service_completed_successfully }

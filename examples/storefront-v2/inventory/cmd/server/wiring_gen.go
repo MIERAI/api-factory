@@ -31,6 +31,8 @@ func services(deps server.Deps, opts ...connect.HandlerOption) []server.Service 
 		out = append(out, server.Service{Path: path, Handler: hh})
 		consumers = append(consumers, &consume.Consumer{Queue: "inventory.inventory.commit", Handler: h.CommitStock, Exec: tx, Broker: deps.AMQP,
 			Accept: []consume.Accept{{Type: "inventory.commit", Versions: []int{1}}}})
+		consumers = append(consumers, &consume.Consumer{Queue: "inventory.catalog.product_created", Handler: h.InitStock, Exec: tx, Broker: deps.AMQP,
+			Accept: []consume.Accept{{Type: "catalog.product_created", Versions: []int{1}}}})
 		consumers = append(consumers, &consume.Consumer{Queue: "inventory.inventory.release", Handler: h.ReleaseStock, Exec: tx, Broker: deps.AMQP,
 			Accept: []consume.Accept{{Type: "inventory.release", Versions: []int{1}}}})
 		consumers = append(consumers, &consume.Consumer{Queue: "inventory.inventory.reserve", Handler: h.ReserveStock, Exec: tx, Broker: deps.AMQP,
@@ -50,19 +52,24 @@ func messaging(deps server.Deps, consumers []*consume.Consumer) []server.Service
 	}
 	spec := topology.Spec{Retry: topology.DefaultRetry, Queues: []topology.Queue{
 		{Name: "inventory.inventory.commit", Subscriptions: []topology.Subscription{{Kind: message.Command, Type: "inventory.commit"}}},
+		{Name: "inventory.catalog.product_created", Subscriptions: []topology.Subscription{{Kind: message.Event, Type: "catalog.product_created"}}},
 		{Name: "inventory.inventory.release", Subscriptions: []topology.Subscription{{Kind: message.Command, Type: "inventory.release"}}},
 		{Name: "inventory.inventory.reserve", Subscriptions: []topology.Subscription{{Kind: message.Command, Type: "inventory.reserve"}}},
 	}}
+	// 准备好了(/readyz 在那之前 503): 拓扑声明好了 + 每个消费循环订阅了。消费循环先等拓扑再订阅
+	topo := deps.Workers.Ready("topology")
 	deps.Workers.Go("topology", func(ctx context.Context) error {
 		if err := topology.Ensure(ctx, deps.AMQP, spec); err != nil {
 			return err
 		}
+		topo.Done()
 		<-ctx.Done()
 		return nil
 	})
 	relay := &outbox.Relay{DB: deps.Pool, Broker: deps.AMQP}
 	deps.Workers.Go("outbox relay", relay.Run)
 	for _, c := range consumers {
+		c.WaitFor, c.Subscribed = topo.C(), deps.Workers.Ready("consume "+c.Queue).Done
 		deps.Workers.Go("consume "+c.Queue, c.Run)
 	}
 	return []server.Service{test}

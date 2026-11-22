@@ -93,7 +93,7 @@ endif
 projects:         ## 其他项目(examples/ 下有 factory.yaml 的目录,factory --project): 设计 → 生成物最新 → 编译 → 验收
 	@scripts/projects.sh
 
-e2e:              ## storefront v2 端到端(手写层,examples/storefront-v2/e2e): compose 起 RabbitMQ + 3 个服务 → 驱动 → down -v
+e2e:              ## storefront v2 端到端(手写层,examples/storefront-v2/e2e): compose 起 RabbitMQ + 拓扑 + 5 个服务 → 驱动 → down -v
 	@$(MAKE) --no-print-directory -C examples/storefront-v2/e2e e2e
 
 review-local:     ## 推送前的 AI 审查(和 CI 的 spec-pr 同一个脚本: 本仓库 + examples/ 的项目;本地 claude CLI;BASE=origin/main)

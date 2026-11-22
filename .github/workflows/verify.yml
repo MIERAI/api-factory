@@ -1,5 +1,6 @@
 # 阶段 3: 代码的 PR(生成物 / 工厂本身)。生成物是最新的 + 编译 + 单元测试 + 验收(3 个种子)+ 变异余量
 # 只改了 design/ 的 PR 由 spec-pr 负责(生成物还没生成,这里会说"不是最新的")
+# 变异余量按变异分成 4 个并行 job(一个 job 50 分钟的上限;分片合起来 = 全部变异 × 3 个种子,判定不变)
 name: verify
 on:
   pull_request:
@@ -24,3 +25,24 @@ jobs:
         uses: ./.github/actions/setup
       - if: steps.scope.outputs.code == '1'
         run: scripts/ci/verify.sh
+        env: { SKIP_MARGIN: "1" }
+  margin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, ref: "${{ inputs.ref }}" }
+      - name: 只改了式样书?
+        id: scope
+        run: |
+          if [ "${{ github.event_name }}" != pull_request ]; then echo "code=1" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if git -c core.quotePath=false diff --name-only origin/${{ github.base_ref }}...HEAD | grep -qv '^design/'; then echo "code=1" >> "$GITHUB_OUTPUT"; fi
+      - if: steps.scope.outputs.code == '1'
+        uses: ./.github/actions/setup
+      - if: steps.scope.outputs.code == '1'
+        run: scripts/ci/margin.sh
+        env: { MARGIN_SHARD: "${{ matrix.shard }}/4" }

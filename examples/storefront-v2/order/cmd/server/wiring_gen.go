@@ -69,16 +69,20 @@ func messaging(deps server.Deps, consumers []*consume.Consumer, scanners []*sm.S
 		{Name: "order.inventory.committed", Subscriptions: []topology.Subscription{{Kind: message.Event, Type: "inventory.committed"}}},
 		{Name: "order.inventory.released", Subscriptions: []topology.Subscription{{Kind: message.Event, Type: "inventory.released"}}},
 	}}
+	// 准备好了(/readyz 在那之前 503): 拓扑声明好了 + 每个消费循环订阅了。消费循环先等拓扑再订阅
+	topo := deps.Workers.Ready("topology")
 	deps.Workers.Go("topology", func(ctx context.Context) error {
 		if err := topology.Ensure(ctx, deps.AMQP, spec); err != nil {
 			return err
 		}
+		topo.Done()
 		<-ctx.Done()
 		return nil
 	})
 	relay := &outbox.Relay{DB: deps.Pool, Broker: deps.AMQP}
 	deps.Workers.Go("outbox relay", relay.Run)
 	for _, c := range consumers {
+		c.WaitFor, c.Subscribed = topo.C(), deps.Workers.Ready("consume "+c.Queue).Done
 		deps.Workers.Go("consume "+c.Queue, c.Run)
 	}
 	for _, s := range scanners {

@@ -1,8 +1,9 @@
-// Command driver runs the storefront v2 system end to end against the running e2e stack (compose.yaml): orders are
-// placed through the generated order service (W5 PlaceOrder) and the generated order saga (R5: OrderSaga) drives
-// inventory and payment through the real RabbitMQ. The driver only places orders, injects the odd message (a late
-// answer, a redelivery, poison) and checks what the services answer (events and commands on the exchanges) and
-// store (their query APIs).
+// Command driver runs the storefront v2 system end to end against the running e2e stack (compose.yaml): products are
+// created through catalog (W1, which emits catalog.product_created; inventory's InitStock creates the stock row: M13),
+// orders are placed through the generated order service (W5 PlaceOrder) and the generated order saga (R5: OrderSaga)
+// drives inventory and payment through the real RabbitMQ. The driver only creates products, places orders, injects
+// the odd message (a late answer, a redelivery, poison) and checks what the services sent (read from each service's
+// outbox: published_at set = the relay got the broker's confirm) and store (their query APIs).
 //
 // Envelopes, exchanges, routing keys and headers are the runtime's (api-factory-runtime message / topology): the
 // driver uses the same packages a generated service uses, so a mismatch shows up here as a failed step.
@@ -36,12 +37,12 @@ import (
 )
 
 type cfg struct {
-	amqp                                                string
-	inventory, payment, notification, order             string // API base URLs
-	inventoryMet, paymentMet, notificationMet, orderMet string // metrics base URLs (METRICS_PORT)
-	inventoryDB, paymentDB, notificationDB, orderDB     string
-	wait                                                time.Duration // how long to wait for an answer
-	quiet                                               time.Duration // how long "no answer" must hold
+	amqp                                                            string
+	catalog, inventory, payment, notification, order                string // API base URLs
+	catalogMet, inventoryMet, paymentMet, notificationMet, orderMet string // metrics base URLs (METRICS_PORT)
+	catalogDB, inventoryDB, paymentDB, notificationDB, orderDB      string
+	wait                                                            time.Duration // how long to wait for an answer
+	quiet                                                           time.Duration // how long "no answer" must hold
 }
 
 func env(k, def string) string {
@@ -55,6 +56,9 @@ func config() cfg {
 	db := env("E2E_PG", "postgres://e2e:e2e@127.0.0.1:56432")
 	return cfg{
 		amqp:            env("E2E_AMQP_URL", "amqp://e2e:e2e@127.0.0.1:56672/e2e"),
+		catalog:         env("E2E_CATALOG_URL", "http://127.0.0.1:58085"),
+		catalogMet:      env("E2E_CATALOG_METRICS", "http://127.0.0.1:59095"),
+		catalogDB:       db + "/catalog?sslmode=disable",
 		inventory:       env("E2E_INVENTORY_URL", "http://127.0.0.1:58081"),
 		payment:         env("E2E_PAYMENT_URL", "http://127.0.0.1:58082"),
 		notification:    env("E2E_NOTIFICATION_URL", "http://127.0.0.1:58083"),
@@ -72,17 +76,16 @@ func config() cfg {
 	}
 }
 
-// The queues the generated wiring declares (cmd/server/wiring_gen.go of each project): <service>.<message type>.
+// The queues the generated wiring declares (cmd/server/wiring_gen.go of each project; the system's topology.json, applied
+// before the services start, has the same): <service>.<message type>.
 var consumedQueues = []string{
+	"inventory.catalog.product_created",
 	"inventory.inventory.reserve", "inventory.inventory.commit", "inventory.inventory.release",
 	"payment.payment.charge",
 	"notification.order.confirmed", "notification.order.cancelled",
 	"order.inventory.reserved", "order.inventory.reservation_failed", "order.inventory.committed", "order.inventory.released",
 	"order.payment.succeeded", "order.payment.failed",
 }
-
-// The commands the order saga sends (the driver also listens to them: which command, when, with which data).
-var sagaCommands = []string{"inventory.reserve", "inventory.commit", "inventory.release", "payment.charge"}
 
 func main() {
 	start := time.Now()
@@ -116,8 +119,10 @@ type driver struct {
 	broker *broker.Conn // the runtime's connection: DLQ inspection with the operator tooling (consume.DLQList)
 	invDB  *pgx.Conn
 
+	outboxes []*pgx.Conn // one per service database (watchOutboxes)
+
 	mu     sync.Mutex
-	events []message.Envelope // everything published on factory.events (a "#" listener) + the saga's commands
+	events []message.Envelope // every message the services sent (their outboxes, once published) + the driver's own
 
 	run_   string // this run's id: SKUs and order ids are unique per run (the stack can be reused)
 	order  int64
@@ -138,46 +143,17 @@ func newDriver(ctx context.Context, c cfg) (*driver, error) {
 	if d.conn, err = amqp.Dial(c.amqp); err != nil {
 		return nil, fmt.Errorf("amqp: %w", err)
 	}
-	// listener: a private queue bound to every event and to the commands the saga sends (a direct exchange delivers
-	// a command to every bound queue: the executing service's and this one) — bind before publishing anything
-	lch, err := d.conn.Channel()
-	if err != nil {
-		return nil, err
-	}
-	if err := topology.DeclareExchanges(lch, topology.DefaultExchanges); err != nil {
-		return nil, err
-	}
-	q, err := lch.QueueDeclare("", false, true, true, false, nil)
-	if err != nil {
-		return nil, err
-	}
-	if err := lch.QueueBind(q.Name, "#", topology.DefaultExchanges.Events, false, nil); err != nil {
-		return nil, err
-	}
-	for _, c := range sagaCommands {
-		if err := lch.QueueBind(q.Name, c, topology.DefaultExchanges.Commands, false, nil); err != nil {
-			return nil, err
+	// what the services sent: each service's outbox (published rows, in seq order). No private "#" queue on the
+	// exchanges any more (GAPS G23: the topology job declares every queue before the services start, so nothing the
+	// services send is lost, and the driver does not have to be bound first to see it)
+	for _, u := range []string{c.catalogDB, c.inventoryDB, c.paymentDB, c.notificationDB, c.orderDB} {
+		conn, err := pgx.Connect(ctx, u)
+		if err != nil {
+			return nil, fmt.Errorf("outbox %s: %w", u, err)
 		}
+		d.outboxes = append(d.outboxes, conn)
 	}
-	deliveries, err := lch.Consume(q.Name, "e2e-listener", true, true, false, false, nil)
-	if err != nil {
-		return nil, err
-	}
-	go func() {
-		for dl := range deliveries {
-			env, err := message.Decode(dl.Body)
-			if err != nil {
-				fmt.Printf("  ! undecodable message on %s: %v\n", dl.Exchange, err)
-				continue
-			}
-			if dl.MessageId != env.ID || dl.Type != env.Type {
-				fmt.Printf("  ! AMQP properties disagree with the envelope: message_id=%q type=%q vs %s %s\n", dl.MessageId, dl.Type, env.ID, env.Type)
-			}
-			d.mu.Lock()
-			d.events = append(d.events, env)
-			d.mu.Unlock()
-		}
-	}()
+	go d.watchOutboxes(ctx)
 	if d.pub, err = d.conn.Channel(); err != nil {
 		return nil, err
 	}
@@ -195,39 +171,36 @@ func (d *driver) close() {
 	if d.invDB != nil {
 		_ = d.invDB.Close(context.Background())
 	}
+	d.mu.Lock() // the watcher holds the lock while it reads
+	for _, c := range d.outboxes {
+		_ = c.Close(context.Background())
+	}
+	d.outboxes = nil
+	d.mu.Unlock()
 	if d.conn != nil {
 		_ = d.conn.Close()
 	}
 	_ = d.broker.Close()
 }
 
-// waitReady: every service answers /readyz and every handler queue has a consumer. /readyz alone is not enough:
-// it is 200 as soon as HTTP listens, before the topology is declared and the consumers subscribed (GAPS G19).
+// waitReady: every service's /readyz is 200. Since R4.1 that means the topology is declared and every consumer is
+// subscribed (GAPS G19; `docker compose up --wait` already waited for it through the image's HEALTHCHECK — this is for
+// `make driver` against a stack that is still starting).
 func (d *driver) waitReady(ctx context.Context) error {
 	deadline := time.Now().Add(90 * time.Second)
-	for _, u := range []string{d.c.inventory, d.c.payment, d.c.notification, d.c.order} {
+	for _, u := range []string{d.c.catalog, d.c.inventory, d.c.payment, d.c.notification, d.c.order} {
 		for {
 			resp, err := http.Get(u + "/readyz")
+			status := 0
 			if err == nil {
+				status = resp.StatusCode
 				resp.Body.Close()
-				if resp.StatusCode == 200 {
+				if status == 200 {
 					break
 				}
 			}
-			if time.Now().After(deadline) {
-				return fmt.Errorf("%s/readyz not ready: %v", u, err)
-			}
-			time.Sleep(200 * time.Millisecond)
-		}
-	}
-	for _, q := range consumedQueues {
-		for {
-			n, err := d.consumers(ctx, q)
-			if err == nil && n > 0 {
-				break
-			}
-			if time.Now().After(deadline) {
-				return fmt.Errorf("queue %s has no consumer (err %v)", q, err)
+			if time.Now().After(deadline) || ctx.Err() != nil {
+				return fmt.Errorf("%s/readyz not ready: %d %v", u, status, err)
 			}
 			time.Sleep(200 * time.Millisecond)
 		}
@@ -235,17 +208,46 @@ func (d *driver) waitReady(ctx context.Context) error {
 	return nil
 }
 
-func (d *driver) consumers(ctx context.Context, queue string) (int, error) {
-	ch, err := d.broker.Channel(ctx)
-	if err != nil {
-		return 0, err
+// watchOutboxes: every 50 ms, the newly published rows of every service's outbox → d.events (in the order the relay
+// marked them: published_at, then seq; a row published late — a retried command — is still seen).
+func (d *driver) watchOutboxes(ctx context.Context) {
+	since := make([]time.Time, len(d.outboxes))
+	seen := make([]map[int64]bool, len(d.outboxes))
+	for i := range seen {
+		seen[i] = map[int64]bool{}
 	}
-	defer ch.Close()
-	q, err := ch.QueueDeclarePassive(queue, true, false, false, false, nil)
-	if err != nil {
-		return 0, err
+	for ctx.Err() == nil {
+		d.mu.Lock()
+		if d.outboxes == nil {
+			d.mu.Unlock()
+			return
+		}
+		for i, conn := range d.outboxes {
+			rows, err := conn.Query(ctx, `SELECT seq, published_at, envelope::text FROM factory_outbox
+WHERE published_at >= $1 ORDER BY published_at, seq`, since[i])
+			if err != nil {
+				continue
+			}
+			for rows.Next() {
+				var seq int64
+				var at time.Time
+				var body string
+				if rows.Scan(&seq, &at, &body) != nil || seen[i][seq] {
+					continue
+				}
+				seen[i][seq], since[i] = true, at
+				env, err := message.Decode([]byte(body))
+				if err != nil {
+					fmt.Printf("  ! undecodable outbox row %d: %v\n", seq, err)
+					continue
+				}
+				d.events = append(d.events, env)
+			}
+			rows.Close()
+		}
+		d.mu.Unlock()
+		time.Sleep(50 * time.Millisecond)
 	}
-	return q.Consumers, nil
 }
 
 // ─── steps ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -274,11 +276,26 @@ func (d *driver) run(ctx context.Context) {
 	a, b := d.sku("A"), d.sku("B")
 	itemsJSON := func(items ...item) []item { return items }
 
-	// ── seed: the stock rows (no API creates them: GAPS G18), then AdjustStock (W4) through the API ──
-	d.step("seed: stock rows (SQL) + AdjustStock +10 / +5 (API)", func() error {
+	// ── seed: CreateProduct (W1) → catalog.product_created → InitStock (M13) creates the stock row → AdjustStock (W4) ──
+	d.step("seed: CreateProduct → product_created → InitStock → AdjustStock +10 / +5", func() error {
 		for _, s := range []string{a, b} {
-			if _, err := d.invDB.Exec(ctx, `INSERT INTO stock (sku, available) VALUES ($1, 0)`, s); err != nil {
+			var out struct{ Sku, Status string }
+			if err := d.call(d.c.catalog, "catalog.catalog.v1.CatalogService/CreateProduct",
+				map[string]any{"sku": s, "name": "e2e " + s, "category": "e2e", "price": "1"}, &out); err != nil {
 				return err
+			}
+			if out.Sku != s || out.Status != "PRODUCT_STATUS_ON_SALE" {
+				return fmt.Errorf("CreateProduct %s → %+v", s, out)
+			}
+			ev, err := d.awaitSubject("catalog.product_created", s)
+			if err != nil {
+				return err
+			}
+			if ev.Source != "catalog" || field(ev, "sku") != s {
+				return fmt.Errorf("catalog.product_created from %q sku %q", ev.Source, field(ev, "sku"))
+			}
+			if err := d.eventually(func() error { return d.expectStock(s, 0, 0) }); err != nil {
+				return fmt.Errorf("InitStock: %w", err)
 			}
 		}
 		for _, x := range []item{{a, 10}, {b, 5}} {
@@ -292,6 +309,42 @@ func (d *driver) run(ctx context.Context) {
 			}
 		}
 		return d.expectStock(a, 10, 0)
+	})
+	d.step("M13 product_created again (new id) → stock row unchanged", func() error {
+		h := map[string]string{"handler": "inventory.catalog.product_created", "outcome": "ok"}
+		before, err := metric(d.c.inventoryMet, "factory_messages_total", h)
+		if err != nil {
+			return err
+		}
+		raw, _ := json.Marshal(map[string]any{"sku": a})
+		ev := message.Envelope{ID: message.NewID(), Type: "catalog.product_created", Version: 1, OccurredAt: time.Now(),
+			Source: "e2e-driver", Subject: a, Data: raw}
+		if err := d.publish(message.Event, ev, nil); err != nil {
+			return err
+		}
+		if err := d.awaitMetric(d.c.inventoryMet, "factory_messages_total", h, before+1); err != nil {
+			return err
+		}
+		return d.expectStock(a, 10, 0)
+	})
+	d.step("CreateProduct with an existing SKU → ALREADY_EXISTS, no event", func() error {
+		var out struct{}
+		err := d.call(d.c.catalog, "catalog.catalog.v1.CatalogService/CreateProduct",
+			map[string]any{"sku": a, "name": "again", "category": "e2e", "price": "2"}, &out)
+		if err == nil || !strings.Contains(err.Error(), "already_exists") {
+			return fmt.Errorf("want already_exists, got %v", err)
+		}
+		time.Sleep(d.c.quiet)
+		n := 0
+		for _, e := range d.matchingSubject("catalog.product_created", a) {
+			if e.Source == "catalog" {
+				n++
+			}
+		}
+		if n != 1 {
+			return fmt.Errorf("catalog sent %d catalog.product_created for %s, want 1", n, a)
+		}
+		return nil
 	})
 
 	// ── the saga, happy path: PlaceOrder → reserve → charge → commit → CONFIRMED (M1, M10, M2, M4, M6, M8, M11) ──
@@ -560,7 +613,7 @@ func (d *driver) run(ctx context.Context) {
 
 	// ── invariants at the end ──
 	d.step("I1 outboxes drained (every committed message published)", func() error {
-		for _, u := range []string{d.c.inventoryDB, d.c.paymentDB, d.c.notificationDB, d.c.orderDB} {
+		for _, u := range []string{d.c.catalogDB, d.c.inventoryDB, d.c.paymentDB, d.c.notificationDB, d.c.orderDB} {
 			n, err := pendingOutbox(ctx, u)
 			if err != nil {
 				return err
@@ -579,6 +632,18 @@ func (d *driver) run(ctx context.Context) {
 			}
 			if n != 0 {
 				return fmt.Errorf("%s: %d messages", topology.DLQ(q), n)
+			}
+		}
+		return nil
+	})
+	d.step("G23 nothing unroutable (factory_outbox_unroutable_total absent on every service)", func() error {
+		for _, u := range []string{d.c.catalogMet, d.c.inventoryMet, d.c.paymentMet, d.c.notificationMet, d.c.orderMet} {
+			n, err := metric(u, "factory_outbox_unroutable_total", nil)
+			if err != nil {
+				return err
+			}
+			if n != 0 {
+				return fmt.Errorf("%s: a message had no queue (%v)", u, n)
 			}
 		}
 		return nil
@@ -673,7 +738,7 @@ func (d *driver) envelope(typ string, subject int64, data map[string]any) messag
 }
 
 // publish: the way the outbox relay publishes (outbox/relay.go): exchange by kind, routing key = type, persistent,
-// message_id = envelope id, type / x-factory-version in the properties; commands mandatory (unroutable = error).
+// message_id = envelope id, type / x-factory-version in the properties, mandatory (unroutable = error).
 func (d *driver) publish(kind message.Kind, env message.Envelope, headers amqp.Table) error {
 	body, err := env.Encode()
 	if err != nil {
@@ -687,7 +752,14 @@ func (d *driver) publish(kind message.Kind, env message.Envelope, headers amqp.T
 	for k, v := range headers {
 		h[k] = v
 	}
-	return d.publishRaw(ex, env.Type, env.ID, env.Type, body, h, kind == message.Command)
+	// mandatory for both kinds, like the relay since R4.1: every queue is declared by the topology job
+	if err := d.publishRaw(ex, env.Type, env.ID, env.Type, body, h, true); err != nil {
+		return err
+	}
+	d.mu.Lock()
+	d.events = append(d.events, env) // the driver's own messages count as seen (expectNone skips source e2e-driver)
+	d.mu.Unlock()
+	return nil
 }
 
 func (d *driver) publishRaw(exchange, key, id, typ string, body []byte, h amqp.Table, mandatory ...bool) error {
@@ -719,15 +791,43 @@ func (d *driver) publishRaw(exchange, key, id, typ string, body []byte, h amqp.T
 }
 
 func (d *driver) matching(typ string, subject int64) []message.Envelope {
+	return d.matchingSubject(typ, str(subject))
+}
+
+func (d *driver) matchingSubject(typ, subject string) []message.Envelope {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	var out []message.Envelope
 	for _, e := range d.events {
-		if (e.Type == typ || strings.HasSuffix(typ, ".") && strings.HasPrefix(e.Type, typ)) && e.Subject == str(subject) {
+		if (e.Type == typ || strings.HasSuffix(typ, ".") && strings.HasPrefix(e.Type, typ)) && e.Subject == subject {
 			out = append(out, e)
 		}
 	}
 	return out
+}
+
+// awaitSubject: the first message of typ for a non-numeric subject (catalog: the SKU).
+func (d *driver) awaitSubject(typ, subject string) (message.Envelope, error) {
+	deadline := time.Now().Add(d.c.wait)
+	for time.Now().Before(deadline) {
+		if m := d.matchingSubject(typ, subject); len(m) > 0 {
+			return m[0], nil
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return message.Envelope{}, fmt.Errorf("no %s for %s within %s", typ, subject, d.c.wait)
+}
+
+// eventually: check until it passes or the wait is over (asynchronous handlers).
+func (d *driver) eventually(check func() error) error {
+	deadline := time.Now().Add(d.c.wait)
+	for {
+		err := check()
+		if err == nil || time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 func (d *driver) count(typ string, subject int64) int { return len(d.matching(typ, subject)) }

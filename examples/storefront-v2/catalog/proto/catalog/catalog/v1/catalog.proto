@@ -21,7 +21,7 @@ enum ProductStatus {
 
 // 商品和价格
 service CatalogService {
-  // 新建一个商品,返回新建的商品(状态 = 在售,版本号 = 1,由数据库的默认值决定)
+  // 新建一个商品,返回新建的商品(状态 = 在售,版本号 = 1),同时发出 catalog.product_created
   rpc CreateProduct(CreateProductRequest) returns (CreateProductResponse);
 
   // 下架一个商品(状态 → 已下架)。请求带读到的版本号,版本号不一致(别人先改过)时不改
@@ -40,7 +40,13 @@ service CatalogService {
   rpc UpdatePrice(UpdatePriceRequest) returns (UpdatePriceResponse);
 }
 
-// 新建一个商品,返回新建的商品(状态 = 在售,版本号 = 1,由数据库的默认值决定)
+// 消息 catalog.product_created v1 的 data(新商品登记好了(CreateProduct))
+message CatalogProductCreatedV1 {
+  // SKU
+  string sku = 1 [(buf.validate.field).string.pattern = "^[A-Z0-9-]+$", (buf.validate.field).string.min_len = 3, (buf.validate.field).string.max_len = 32];
+}
+
+// 新建一个商品,返回新建的商品(状态 = 在售,版本号 = 1),同时发出 catalog.product_created
 message CreateProductRequest {
   // SKU(大写英文字母、数字和 -)
   string sku = 1 [(buf.validate.field).string.pattern = "^[A-Z0-9-]+$", (buf.validate.field).string.min_len = 3, (buf.validate.field).string.max_len = 32];
@@ -52,7 +58,7 @@ message CreateProductRequest {
   string price = 4 [(buf.validate.field).string.pattern = "^\\d+(\\.\\d+)?$"];
 }
 
-// 新建一个商品,返回新建的商品(状态 = 在售,版本号 = 1,由数据库的默认值决定)
+// 新建一个商品,返回新建的商品(状态 = 在售,版本号 = 1),同时发出 catalog.product_created
 message CreateProductResponse {
   // SKU
   string sku = 1;

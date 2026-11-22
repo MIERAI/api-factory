@@ -27,6 +27,8 @@
         available: 1
         found: 3
         reserved: 2
+    InitStockRequest:
+        sku: 1
     InventoryCommittedV1:
         order_id: 1
     InventoryReleasedV1:

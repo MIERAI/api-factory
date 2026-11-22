@@ -13,6 +13,7 @@ package design
 //	    版本: 1
 //	    主体: order_id          # envelope.subject 取哪个字段
 //	    说明: 预留成功
+//	    外部: 否                # 可选: 是 = 系统外也有发送方 / 接收方(factory system 的跨项目检查不要求系统里有对方)
 //	    字段:
 //	      order_id: { 类型: 整数64, 必填: 是, 说明: 订单号 }
 //	      items:    { 类型: 列表, 必填: 是, 个数: 1~50, 唯一: [sku], 元素: { sku: { 类型: 文本, 长度: 3~32 }, qty: { 类型: 整数32, 范围: 1~1000 } } }
@@ -40,6 +41,8 @@ const (
 	ContractsFile = "消息.yaml"
 	ListType      = "列表"
 	lockFile      = "contracts.lock.yaml"
+	// TopologyFile: 契约目录里的系统级拓扑清单(factory system 生成;不是契约)
+	TopologyFile = "topology.json"
 )
 
 var contractKinds = map[string]string{"事件": "event", "命令": "command"}
@@ -57,6 +60,9 @@ func loadContracts(dir string, cfg Config) (*contractSet, error) {
 	files, _ := filepath.Glob(filepath.Join(cs.dir, "*.json"))
 	sort.Strings(files)
 	for _, f := range files {
+		if filepath.Base(f) == TopologyFile {
+			continue
+		}
 		b, err := os.ReadFile(f)
 		if err != nil {
 			return nil, err
@@ -85,8 +91,12 @@ func loadContracts(dir string, cfg Config) (*contractSet, error) {
 	e := &errs{file: path}
 	checkKeys(e, root, "消息.yaml", "消息")
 	for _, p := range pairs(get(root, "消息")) {
-		checkKeys(e, p.Val, "消息 "+p.Key, "种类", "版本", "主体", "说明", "字段")
-		c := &spec.Contract{Type: p.Key, Kind: contractKinds[str(p.Val, "种类")], Subject: str(p.Val, "主体"), Desc: str(p.Val, "说明")}
+		checkKeys(e, p.Val, "消息 "+p.Key, "种类", "版本", "主体", "说明", "字段", "外部")
+		c := &spec.Contract{Type: p.Key, Kind: contractKinds[str(p.Val, "种类")], Subject: str(p.Val, "主体"), Desc: str(p.Val, "说明"),
+			External: str(p.Val, "外部") == "是"}
+		if x := str(p.Val, "外部"); x != "" && x != "是" && x != "否" {
+			e.add(p.Line, "消息 %s: 外部 只能是 是 / 否(是 = 系统外也有发送方 / 接收方,factory system 不要求系统里有对方)", p.Key)
+		}
 		if c.Kind == "" {
 			e.add(p.Line, "消息 %s: 种类 只能是 事件 / 命令", p.Key)
 		}
@@ -160,7 +170,7 @@ func contractFields(e *errs, where string, n *yaml.Node, elem bool) []spec.Contr
 			if len(f.Elem) < 2 {
 				e.add(p.Line, "%s 的字段 %s: 元素至少 2 个字段", where, p.Key)
 			}
-			f.Unique = strList(get(p.Val, "唯一"))
+			f.Unique = strs(e, get(p.Val, "唯一"), where+" 的字段 "+p.Key+" 的唯一")
 			for _, u := range f.Unique {
 				ok := false
 				for _, x := range f.Elem {

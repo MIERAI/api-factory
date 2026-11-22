@@ -103,6 +103,29 @@
     ]
   },
   {
+    "id": "inventory.init-stock",
+    "method": "InitStock",
+    "summary": "收到新商品的事件,为这个 SKU 建一条库存记录(可用 0、已预留 0)。已经有了就什么都不改(收到 catalog.product_created v1;入口 = RabbitMQ 的队列,不是 HTTP)",
+    "path": "/inventory.inventory.v1.InventoryMessageHandlerService/InitStock",
+    "pattern": "message",
+    "cases": [
+      {
+        "name": "新的 SKU → 库存 0",
+        "request": {
+          "sku": "MUG-004"
+        },
+        "response": {}
+      },
+      {
+        "name": "已经有库存记录 → 不改",
+        "request": {
+          "sku": "BEAN-001"
+        },
+        "response": {}
+      }
+    ]
+  },
+  {
     "id": "inventory.list-stock-by-skus",
     "method": "ListStockBySkus",
     "summary": "返回指定的多个 SKU 的库存,按 SKU 排序。没有记录的 SKU 不出现在结果里",

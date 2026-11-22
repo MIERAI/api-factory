@@ -214,7 +214,7 @@ func loadDomain(dir string) (*Domain, error) {
 	}
 	for _, p := range pairs(get(root, "表")) {
 		checkKeys(e, p.Val, "表 "+p.Key, append([]string{"说明", "主键", "更新方式", "列", "规则", "存储", "分库"}, sources.AllKeys()...)...)
-		t := &Table{Name: p.Key, Desc: str(p.Val, "说明"), PrimaryKey: strList(get(p.Val, "主键")), ColDesc: map[string]string{}, ColEnum: map[string]string{}, ColEncode: map[string]string{}}
+		t := &Table{Name: p.Key, Desc: str(p.Val, "说明"), PrimaryKey: strs(e, get(p.Val, "主键"), "表 "+p.Key+" 的主键"), ColDesc: map[string]string{}, ColEnum: map[string]string{}, ColEncode: map[string]string{}}
 		switch str(p.Val, "更新方式") {
 		case "", "可以更新":
 			t.Policy = "mutable"
@@ -364,7 +364,7 @@ func parseLookups(e *errs, node *yaml.Node, at string) []*Lookup {
 	var out []*Lookup
 	for _, p := range pairs(node) {
 		checkKeys(e, p.Val, at+" "+p.Key, LookupKeys()...)
-		l := &Lookup{Name: p.Key, Table: str(p.Val, "表"), On: strList(get(p.Val, "条件")), Line: p.Line}
+		l := &Lookup{Name: p.Key, Table: str(p.Val, "表"), On: strs(e, get(p.Val, "条件"), at+" "+p.Key+" 的条件"), Line: p.Line}
 		if l.Table == "" || len(l.On) == 0 {
 			e.add(p.Line, at+" %s: 要写 表 和 条件(例: 条件: [customer_id = id])", p.Key)
 		}
@@ -484,8 +484,8 @@ func loadAPI(path string) (*API, error) {
 	checkKeys(e, get(root, "分页"), "分页", "默认每页", "每页最多")
 	a := &API{
 		Path: path, Name: str(root, "API"), Desc: str(root, "说明"), Background: str(root, "背景"),
-		Owner: str(root, "负责人"), Source: str(root, "数据来源"), UseColumns: strList(get(root, "使用的列")),
-		InputRules: strList(get(root, "输入之间的规则")), Where: strList(get(root, "固定条件")),
+		Owner: str(root, "负责人"), Source: str(root, "数据来源"), UseColumns: strs(e, get(root, "使用的列"), "使用的列"),
+		InputRules: strs(e, get(root, "输入之间的规则"), "输入之间的规则"), Where: strs(e, get(root, "固定条件"), "固定条件"),
 		ItemName: str(root, "输出行名"), ListField: str(root, "输出列表名"),
 		Fixtures: get(get(root, "例子"), "准备数据"), Now: str(get(root, "例子"), "现在"),
 	}
@@ -512,12 +512,12 @@ func loadAPI(path string) (*API, error) {
 	a.Lookups = parseLookups(e, get(root, "关联"), "关联")
 	for _, p := range pairs(get(root, "嵌套")) {
 		checkKeys(e, p.Val, "嵌套 "+p.Key, NestKeys()...)
-		n := &Nest{Name: p.Key, Table: str(p.Val, "表"), On: strList(get(p.Val, "条件")), Where: strOrList(get(p.Val, "固定条件")),
+		n := &Nest{Name: p.Key, Table: str(p.Val, "表"), On: strs(e, get(p.Val, "条件"), "嵌套 "+p.Key+" 的条件"), Where: strs(e, get(p.Val, "固定条件"), "嵌套 "+p.Key+" 的固定条件"),
 			ItemName: str(p.Val, "行名"), Line: p.Line}
 		if n.Table == "" || len(n.On) == 0 {
 			e.add(p.Line, "嵌套 %s: 要写 表 和 条件(例: 条件: [id = order_id])", p.Key)
 		}
-		cols, desc, err := parseOrder(strList(get(p.Val, "排序")))
+		cols, desc, err := parseOrder(strs(e, get(p.Val, "排序"), "嵌套 "+p.Key+" 的排序"))
 		if err != nil {
 			e.add(p.Line, "嵌套 %s: %v", p.Key, err)
 		}
@@ -545,7 +545,7 @@ func loadAPI(path string) (*API, error) {
 	}
 	for _, p := range pairs(get(root, "子聚合")) {
 		checkKeys(e, p.Val, "子聚合 "+p.Key, ChildAggKeys()...)
-		g := &ChildAgg{Name: p.Key, Table: str(p.Val, "表"), On: strList(get(p.Val, "条件")), Where: strOrList(get(p.Val, "固定条件")), Line: p.Line}
+		g := &ChildAgg{Name: p.Key, Table: str(p.Val, "表"), On: strs(e, get(p.Val, "条件"), "子聚合 "+p.Key+" 的条件"), Where: strs(e, get(p.Val, "固定条件"), "子聚合 "+p.Key+" 的固定条件"), Line: p.Line}
 		if g.Table == "" || len(g.On) == 0 {
 			e.add(p.Line, "子聚合 %s: 要写 表 和 条件(例: 条件: [id = order_id])", p.Key)
 		}
@@ -575,7 +575,7 @@ func loadAPI(path string) (*API, error) {
 		if f := str(p.Val, "必填"); f != "是" && f != "否" {
 			e.add(p.Line, "输入 %s: 必填 只能是 是 / 否", p.Key)
 		}
-		in.Unique = strList(get(p.Val, "唯一"))
+		in.Unique = strs(e, get(p.Val, "唯一"), "输入 "+p.Key+" 的唯一")
 		if len(in.Unique) > 0 && in.Type != GroupListType {
 			e.add(p.Line, "输入 %s: 唯一 只能用于 %s(元素的唯一键)", p.Key, GroupListType)
 		}
@@ -743,7 +743,7 @@ type designReader struct {
 func (r designReader) Str(key string) string      { return str(r.root, key) }
 func (r designReader) Node(key string) *yaml.Node { return get(r.root, key) }
 func (r designReader) Order(key string) ([]string, []bool, error) {
-	return parseOrder(strList(get(r.root, key)))
+	return parseOrder(strs(r.e, get(r.root, key), key))
 }
 func (r designReader) OrderList(items []string) ([]string, []bool, error) { return parseOrder(items) }
 func (r designReader) Err(format string, args ...any)                     { r.e.add(r.root.Line, format, args...) }
@@ -793,18 +793,41 @@ var (
 	reAggCall = regexp.MustCompile(`^(合计|最小|最大)\s*[((]\s*([A-Za-z_][A-Za-z0-9_]*)\s*[))]$`)
 )
 
-// strOrList: 一个字符串或字符串的列表(固定条件)。
-func strOrList(n *yaml.Node) []string {
+// strs: 一个字符串或字符串的列表(固定条件 / 条件 / 排序 / 主键 …)。别的形状(映射、列表里的映射或列表)
+// 报错: 以前顶层的 固定条件 只认列表,写成一个字符串时被悄悄丢掉(条件没了,查询照样能编译)。
+func strs(e *errs, n *yaml.Node, where string) []string {
 	if n == nil {
 		return nil
 	}
-	if n.Kind == yaml.ScalarNode {
+	switch n.Kind {
+	case yaml.ScalarNode:
 		if v := strings.TrimSpace(n.Value); v != "" {
 			return []string{v}
 		}
 		return nil
+	case yaml.SequenceNode:
+		var out []string
+		for _, c := range n.Content {
+			if c.Kind != yaml.ScalarNode {
+				e.add(c.Line, "%s: 每一项要写成一个字符串(现在是%s;值里有「: 」时请加引号)", where, kindWord(c))
+				continue
+			}
+			out = append(out, strings.TrimSpace(c.Value))
+		}
+		return out
 	}
-	return strList(n)
+	e.add(n.Line, "%s: 要写成一个字符串或字符串的列表(现在是%s;值里有「: 」时请加引号)", where, kindWord(n))
+	return nil
+}
+
+func kindWord(n *yaml.Node) string {
+	switch n.Kind {
+	case yaml.MappingNode:
+		return "映射 { 键: 值 }"
+	case yaml.SequenceNode:
+		return "列表"
+	}
+	return "别的形状"
 }
 
 // LookupKeys: 关联的一项可以写的键。

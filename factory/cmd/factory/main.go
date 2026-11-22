@@ -5,6 +5,7 @@
 //	factory prompt  <spec.yaml>                  生成交给 AI 的指令
 //	factory guard   [specs-dir]                  路径闸门(检查 git 工作区的改动)
 //	factory accept  --server bin/server --db URL [specs-dir]  验收执行器
+//	factory system  <dir> [--check]              跨项目的消息契约检查 + 系统级的拓扑清单(<契约目录>/topology.json)
 package main
 
 import (
@@ -109,6 +110,8 @@ func main() {
 		err = cmdDoc(args)
 	case "init":
 		err = cmdInit(args)
+	case "system":
+		err = cmdSystem(args)
 	default:
 		usage()
 	}
@@ -228,9 +231,31 @@ func cmdPrepare(args []string) error {
 		if err := proj.WritePackaging("."); err != nil {
 			return err
 		}
+		// ⑤ README 的环境变量表(运行时的 server.Env + 这个项目用到的;GAPS G22)
+		if err := proj.WriteEnvDoc(".", envUses(plan)); err != nil {
+			return err
+		}
 	}
 	fmt.Printf("✓ prepared %d spec(s)\n", len(specs))
 	return nil
+}
+
+// envUses: 影响环境变量的东西(有没有消息 / 状态机 / 分库的表)。
+func envUses(plan *ir.Plan) proj.Uses {
+	u := proj.Uses{Shards: len(plan.Shards) > 0}
+	for _, a := range plan.APIs {
+		c := a.Command
+		if c == nil {
+			continue
+		}
+		if c.IsMachine() {
+			u.Messaging, u.Machines = true, true
+		}
+		if c.IsHandler() || len(c.Emits) > 0 {
+			u.Messaging = true
+		}
+	}
+	return u
 }
 
 func cmdPrompt(args []string) error {
