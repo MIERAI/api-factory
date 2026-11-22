@@ -1,6 +1,6 @@
 # 设计稿：R4 — 事件（outbox + RabbitMQ）与消息处理器
 
-> 版本 v0.2（2026-11-22）· 状态：**已批准**（⚖️ 全部：2026-11-22 用户决定**按推荐**）
+> 版本 v0.3（2026-11-22）· 状态：**已实现**（⚖️ 全部：2026-11-22 用户决定**按推荐**;实现和设计稿的差别见文末"实现记录"）
 > 上级计划：`docs/design/storefront-v2-readiness.md` 的 R4（C4 事件 + C5 消息处理器 → M1–M3、M10–M12，以及 W5 的事件）。
 > 前提：R3 命令工厂（`docs/design/r3-command-factory.md`）：写操作是数据、平台在一个事务里执行、错误映射、状态差分测试、故障注入、并发不变量、重放幂等。本稿只在它上面加东西，不改它的语义。
 > R5（状态机）在本稿的消息处理器之上扩展。
@@ -437,3 +437,22 @@ R3 的参考求值器维护"模型状态"（每张表的行）。R4 加两样：
 | E6 | 重试的实现 | 消费者把副本发到分级 TTL 队列（1s / 10s / 60s），最多 5 次 → DLQ；不用 delayed-message 插件、不用 requeue |
 | E7 | 契约文件放在哪 | 系统级共享目录 `contracts/`（生产者写、消费者读，锁文件检查兼容性），项目用 `factory.yaml` 的 `contracts:` 指向 |
 | E8 | 重发（同内容、新 id）的语义 | 新 id + "命令的处理器必须可重入"的 DRC；不让重发复用旧 id（复用会被去重跳过，卡住的 saga 仍然卡住） |
+
+---
+
+## 实现记录（2026-11-22）
+
+和上面的设计稿不同的地方（都是缩小或更具体，不改语义）：
+
+| 设计稿 | 实现 | 理由 |
+|---|---|---|
+| 处理器的入口不是 RPC | proto 里另外一个服务 `<领域>MessageHandlerService` 列出处理器（`rpc X(XRequest) returns (XResponse)`，请求 = 契约的 data），**不挂载**；生成的处理器是 `consume.Handler` | 复用工厂的 proto → IR → 校验（protovalidate）的整条路径；buf lint 的命名规则 |
+| 契约的 data 字段由消费方从 JSON Schema 读 | JSON Schema 里带 `x-factory`（字段的声明原样），消费方读它生成自己的 `XRequest` | 不写 JSON Schema 的反向解析器;Schema 本身照样给别的语言的消费方用 |
+| `版本: [1, 2]`（并行期两个版本都发） | 一个类型同时只有一个版本 | 样例里没有需要;见 GAPS |
+| 契约里的枚举 | 不支持（用 文本） | 枚举属于领域，跨服务共享要另外的规则;见 GAPS |
+| M10 的 `计算: decideCharge`（AI 的纯函数） | `如果 消息.amount > 100000 则 FAILED 否则 SUCCEEDED`（设计语言的表达式） | 模拟支付的规则一句话就能写，不需要 AI |
+| `expires_at: "now() + 24 小时"` | 表的默认值 `DEFAULT (now() + interval '24 hours')` | 表达式里还没有时间的加减（见 GAPS） |
+| 结果的 `当` 和 `每项` 里的失败 | 某一项 `不满足` → 立刻回滚，结果 = 那个原因码;`当` 只在全部做完之后判定 | 先到的失败决定结果，判定顺序固定 |
+| 进程内的测试驱动 | 运行时的 `POST /factory.test/deliver`（只在 `FACTORY_TEST_FAULTS=1` 时响应），驱动按 HTTP 投递 | 生成的服务是子进程，驱动不链接生成代码 |
+| 真实 RabbitMQ 的场景（每个处理器十几个） | 每个 API 4 个（投递 → 处理 → 发出;同一个 id;毒消息 + requeue;重试之后成功），`make accept-mq`（独立 vhost，串行） | 语义在进程内的差分里验证;投递和崩溃点由运行时的集成测试覆盖（`consume_int_test.go` 的崩溃点、重试分级、DLQ 管理;`outbox` 的中继崩溃点） |
+| 重试成功的路径 | 测试 header `x-factory-fail-attempts: n`（前 n 次失败） | `x-factory-fail-after` 会被重试的副本带着，每次都失败 |

@@ -1,6 +1,6 @@
 # 工厂就绪度：以 storefront v2 为验收标准
 
-> 版本 v0.5（2026-11-22）· 状态：**已批准** · 进度：**R3 完成（13 / 28）**
+> 版本 v0.6（2026-11-22）· 状态：**已批准** · 进度：**R4 完成（19 / 28）**
 > 决定（2026-11-22，用户）：**先利其器**。工厂能生成 storefront v2 所需 API 的 **95% 以上**之后，再开始开发 storefront v2。
 > storefront v2 的设计书：MIERAI/storefront `docs/design/v2-microservices.md`（PR #8）
 
@@ -58,13 +58,13 @@
 
 | # | 服务 | 收到 | 做什么 | 现状 |
 |---|---|---|---|---|
-| M1 | inventory | `inventory.reserve` | **条件更新**（库存够才扣）+ 写预留记录 + 发 reserved 或 failed | ❌（C3、C4、C5） |
-| M2 | inventory | `inventory.commit` | 确认预留：预留数减少，预留记录标为已确认 | ❌（C5） |
-| M3 | inventory | `inventory.release` | 补偿：库存加回，预留记录标为已释放 | ❌（C5） |
+| M1 | inventory | `inventory.reserve` | **条件更新**（库存够才扣）+ 写预留记录 + 发 reserved 或 failed | ✅ R4（`消息处理` + `每项` + 幂等新建 + `仅当: 预留.新建` + 条件更新 + 墓碑的结果 RELEASED：ReserveStock） |
+| M2 | inventory | `inventory.commit` | 确认预留：预留数减少，预留记录标为已确认 | ✅ R4（`不满足: 跳过` + `仅当: 确认.已更新` + `处理: 死信` 的 ALREADY_RELEASED：CommitStock） |
+| M3 | inventory | `inventory.release` | 补偿：库存加回，预留记录标为已释放 | ✅ R4（墓碑 = 幂等新建 RELEASED + 跳过 + 仅当 已更新：ReleaseStock） |
 | M4–M9 | order | reserved / reservation_failed / payment.succeeded / payment.failed / committed / released | **saga 的 6 个状态转移**：检查当前状态 → 改状态 → 发下一条命令或事件 | ❌（C6） |
-| M10 | payment | `payment.charge` | **幂等插入**（订单号唯一）+ 模拟支付 + 发 succeeded 或 failed | ❌（C3、C4、C5） |
-| M11 | notification | `order.confirmed` | 去重后写通知记录 | ❌（C5） |
-| M12 | notification | `order.cancelled` | 同上 | ❌（C5） |
+| M10 | payment | `payment.charge` | **幂等插入**（订单号唯一）+ 模拟支付 + 发 succeeded 或 failed | ✅ R4（幂等新建 + `如果 消息.amount > 100000 则 FAILED 否则 SUCCEEDED` + 按存下来的结果分支：ChargePayment） |
+| M11 | notification | `order.confirmed` | 去重后写通知记录 | ✅ R4（以 `信封.id` 为主键的幂等新建：RecordOrderConfirmed;契约归 order） |
+| M12 | notification | `order.cancelled` | 同上 | ✅ R4（RecordOrderCancelled） |
 
 ### 2.4 定时任务（2 个）
 
@@ -77,10 +77,12 @@
 
 | | 个数 | 占比 |
 |---|---|---|
-| ✅ 能生成并通过验证 | 13 | 46%（R1 + R2 + R3 完成，2026-11-22） |
-| ❌ 需要新能力 | 15 | 54%（W5 + 消息 / 状态机 / 任务：R4–R6） |
+| ✅ 能生成并通过验证 | 19 | 68%（R1 + R2 + R3 + R4 完成，2026-11-22） |
+| ❌ 需要新能力 | 9 | 32%（W5 + saga 的状态机 M4–M9 + 任务 J1 / J2：R5–R6） |
 
 （v0.1 写的"只差 F0 的 7 个"实际是 6 个：Q7 需要相对时间筛选，属于 R2。）
+
+**R4 的产出**（设计 `docs/design/r4-events-messages.md`，⚖️ E1–E8 按推荐）：消息契约 `design/<领域>/消息.yaml` → 共享目录的 `<type>.v<N>.json`（JSON Schema 2020-12，`x-factory` = 字段的声明）+ 锁文件 `contracts.lock.yaml`（同一个版本里只能新增可选字段）；组合命令的 `发出`（和写操作同一个事务进 outbox）；种类 `消息处理`：`收到` / `每项`（按元素的唯一键排序）/ `仅当: 操作名.新建 | 操作名.已更新` / `不满足: 跳过` / `信封.id` / `如果 … 则 … 否则 …` / `结果`（原因码、`当`（`任一项`）、`处理: 死信`、成功的分支）；可重入的 DRC（E8）；平台表 `db/schema/zz_factory_platform.sql`（E1）；生成的 wiring 带拓扑 / 中继 / 消费循环 / 进程内投递的测试入口。运行时 `api-factory-runtime` v0.4.2（`message.DecodeData` / `EncodeData`、`consume.TestHandler`、跳过时 `Into` = 现在的行、`topology.Ensure`、测试 header `x-factory-fail-attempts`）。验证：进程内投递的状态差分（表 + outbox 的新消息 + 去重表，模型 vs 数据库；重投（同一个 id）/ 重发（新 id）/ 每种结果 / 第 k 项不满足 / 跳过）、故障注入（第 k 个写操作之后失败，含 outbox 的行 → 什么都不变；再投 → 处理一次）、并发（同一条消息 8 次 → 只处理一次；不同的消息 8 条 → 串行的结果）、组合命令的 发出（每个请求的 outbox、回滚 = 没有消息）、真实 RabbitMQ 的场景（`make accept-mq`：中继 + 旁听队列、同一个 id 只处理一次、毒消息 → DLQ + requeue 保留 id、前 1 次失败 → 1s 的重试队列 → 成功）、变异 15 个（每个 ≥3 个差分用例 × 3 个种子）。模型新增 CHECK `列 比较 整数` 的判定。storefront 样例：M1–M3、M10–M12 + 契约（inventory / payment / order）；工厂仓库自己的 ledger 领域：OpenAccount（发出）、RecordAccountOpened、DebitAccounts、ReverseDebits、SettleDebits。W5 的 `order.created` / `inventory.reserve` 已经能用 `发出` 写，W5 整体（启动 saga）在 R5。
 
 **R3-2 的产出**（设计 `docs/design/r3-command-factory.md` 的 §7 R3-2）：种类 `组合命令`：`操作` = 按顺序的写操作（`新建` / `幂等新建` / `更新` / `删除`），一个事务，后面的操作引用前面的返回值（`操作名.列`，包括数据库生成的序号）；`更新` 的 `条件` + `不满足`（业务原因码：FAILED_PRECONDITION，消息的开头 + `google.rpc.ErrorInfo`）；`幂等新建` 的 `键`（冲突 → 返回已有的行，`操作名.新建`）。运行时 `api-factory-runtime` v0.4.1（`Cond` / `Unmet`、`Conflict` / `Created`、`Later`）。验证：组合命令的状态差分（多表的随机初始状态，每个操作的成功和每种失败 ≥4 次）+ 所有命令的故障注入（第 k 个写操作之后失败，每个 k）+ 并发不变量（同一个请求同时 8 个；乐观锁的重读循环；幂等新建只有一行）+ 重放（幂等新建）+ 变异 12 个。storefront 样例：inventory **W4 AdjustStock**（+ 表 `stock_adjustments`）、payment RecordCharge（幂等新建，M10 的写入部分）、catalog ReactivateProduct（条件更新 + 乐观锁）；工厂仓库自己的 runs 领域：ConsumeJobQuota（条件更新）、StartJobRun（条件更新 + 两个新建，日志引用数据库生成的执行 id）、SubmitJobRequest（幂等新建）。M1 / M10 需要的"条件更新 / 幂等新建"的形状已经能生成，剩下的是 R4 的消息处理器、`每项`、可重入的检查。
 
@@ -187,7 +189,7 @@ R2.5 之后,上面 6 个形状都能用元件表达(已知差异: 名次相同�
 | **R1** | F0（第二个项目）+ F0-R | Q1–Q4、Q8、Q9 | 6 / 28（21%） |
 | **R2** | Q-J、Q-A、Q-T | Q5、Q6、Q7 | 9 / 28（32%） |
 | **R3** | 命令工厂设计书 + C1、C2、C3 + 写操作的验证体系 | W1–W4（R3-1：W1–W3；R3-2：W4 ✅ 13 / 28） | 13 / 28（46%） |
-| **R4** | C4（事件、outbox、RabbitMQ）+ C5（消息处理器） | M1–M3、M10–M12 | 19 / 28（68%） |
+| **R4** | C4（事件、outbox、RabbitMQ）+ C5（消息处理器） | M1–M3、M10–M12 ✅ | 19 / 28（68%） |
 | **R5** | C6（状态机，含超时） | W5、M4–M9、J2 | 27 / 28（96%） |
 | **R6** | C7（批量任务） | J1 | 28 / 28（100%） |
 
