@@ -43,6 +43,8 @@ func WithServer(ctx context.Context, serverBin, databaseURL, logPath string, cmd
 	if os.Getenv("AUTH_MODE") == "" { // 测试: 不认证(认证本身由 api-factory-runtime 的 server 包的单元测试测)
 		env = append(env, "AUTH_MODE=none")
 	}
+	// 测试时钟: 请求头 X-Factory-Now 固定 now()(用例和参考求值器用同一个时刻)。生产环境不设置 → 请求头被忽略
+	env = append(env, "FACTORY_TEST_CLOCK=1")
 	if spec := os.Getenv("FACTORY_SHARDS"); spec != "" { // 分库也一样不用索引扫描
 		rules, err := shard.Parse(spec)
 		if err != nil {

@@ -66,6 +66,9 @@ sqlc 不再是类型的来源(见 §9 决定 1)。
 | `json_field(c, key, type)` | 键不存在或 JSON null → NULL;格式错 → 查询失败(与 SQL cast 一致) |
 | `map(a, {db值 → 名字}, 默认)` | 枚举映射;未知值 → 默认(并记录指标) |
 | `tuple_after(cols, dirs, params)` | 游标之后(keyset)。本可由 and/or 组合,单列为元件是为了 SQL 能用上索引(行比较) |
+| `now()` | 请求开始的时刻(时间,不为 NULL)。不来自请求: SQL 参数 `factory_now`,适配器接运行时的 `clock.Now(ctx)`;参考求值器用 `Params[factory_now]`(测试时两边同一个值)。R2-3 |
+| `add(x, n, 单位)` 单位 ∈ minute hour day month | x(日期 / 时间)加 n 个单位;任一边 NULL → NULL。**月按 Postgres**(1/31 + 1 个月 = 2/28、闰年 2/29);日期只能加 day / month;时间的 day / month 按领域的时区的日历(`AT TIME ZONE`,不受会话时区影响),minute / hour 是绝对时长。n 超出 int4 → 查询失败。R2-3 |
+| `trunc(x, 单位)` 单位 ∈ day month | 截到那一天 / 那个月的开始;时间先换算到领域的时区再截(结果是那个时刻),日期的结果还是日期。夏令时的切换按 Postgres 的规则(不存在的时刻用切换前的偏移,有两个的用切换后的)。R2-3 |
 
 ### 4.2 关系(行集 → 行集)
 

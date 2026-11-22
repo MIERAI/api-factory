@@ -16,6 +16,15 @@ import (
 	"apifactory/factory/sources"
 )
 
+func sortedKeys(m map[string]string) []string {
+	var out []string
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
 func Reference() (string, error) {
 	lib, err := cells.Load()
 	if err != nil {
@@ -117,9 +126,19 @@ func Reference() (string, error) {
 		row(n, "`"+id+"`", "`"+lib.Filters[n]+"`")
 	}
 
+	w("\n## 派生参数\n\n`派生参数:` 下面每个名字一个: 筛选的值由 `现在` 和输入计算,**不出现在请求里**。键: %s。\n\n", code(DerivedKeys()))
+	w("```yaml\n派生参数:\n  stuck_before: { 计算: 现在 - stuck_minutes 分钟, 筛选: updated_at 小于 }\n  month_start:  { 计算: 月初(base_date - 1 个月), 筛选: sales_date 大于等于 }\n```\n\n")
+	w("计算的写法(从左到右): `值 = 项 { (+ | -) 个数 单位 }`;项 = `现在` / 日期·时间的输入 / `月初(值)` / `日初(值)` / `(值)`;")
+	w("个数 = 整数 / 整数的输入;单位 = %s。\n\n", code(sortedKeys(derivedUnits)))
+	w("- `现在` = 请求开始的时刻(服务器的时钟)。用到 `现在` 的 API,`例子` 要写 `现在: \"2026-11-01 09:00\"`(领域的时区;用例也可以各自写 `现在`)\n")
+	w("- 月的加减按 Postgres: 1/31 + 1 个月 = 2/28(闰年 2/29);日期只能加减天 / 月\n")
+	w("- `月初` / `日初` = 截到那个月 / 那一天的开始;时间先换算到领域的时区(`时区`)。时间的天 / 月的加减也按领域的时区的日历\n")
+	w("- 筛选只能是比较(%s);用在派生参数里的输入不能再写 `筛选`。输入不传(可选时)→ 值为空 → 不筛选\n", "等于 / 不等于 / 大于 / 大于等于 / 小于 / 小于等于")
+
 	w("\n## 输入之间的规则\n\n`输入之间的规则:` 下面一行一条。\n\n")
 	for _, f := range constraints.RelationForms() {
 		w("- `%s`\n", f)
 	}
+	w("\n`不超过 N 天` 用于两个时间或两个日期。\n")
 	return b.String(), nil
 }

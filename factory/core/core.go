@@ -88,6 +88,12 @@ func comparable(a, b Kind) bool {
 //	tuple_after  Args(列)按 Desc 方向严格在参数 Params 之后(keyset 游标)。参数 Params[0] 没有指定 → TRUE
 //	in_tuples    组的列表: Params 是同样长的列表参数(第 i 个组 = 每个参数的第 i 个值)。
 //	             有一个组和 Args(列)逐个相等 → TRUE,否则 FALSE(两值,和 EXISTS 一样: 列为 NULL 时不相等,不是 UNKNOWN);空列表 → FALSE
+//	now          请求开始时的时刻(timestamp,不为 NULL)。值不来自请求: 服务器的时钟(测试时固定,见 NowParam)
+//	add          Args[0](日期 / 时间)加 Args[1](整数)个单位,Name = 单位 ∈ minute hour day month;Neg = 减。
+//	             月按 Postgres: 1 月 31 日 + 1 个月 = 2 月 28 日(29 日);日期只能加 day / month(结果还是日期)。
+//	             时间的 day / month 按领域的时区(Zone)的日历加(minute / hour 是绝对时长)。任一边 NULL → NULL
+//	trunc        Args[0] 截到 Name ∈ day month 的开始。时间先换算到领域的时区(Zone)再截,结果是那个时刻;
+//	             日期的结果还是日期。NULL → NULL
 type Expr struct {
 	Op     string   `json:"op"`
 	Name   string   `json:"name,omitempty"`
@@ -96,6 +102,63 @@ type Expr struct {
 	Args   []*Expr  `json:"args,omitempty"`
 	Params []string `json:"params,omitempty"`
 	Desc   bool     `json:"desc,omitempty"`
+	Neg    bool     `json:"neg,omitempty"`  // add: 减
+	Zone   string   `json:"zone,omitempty"` // add / trunc: 领域的时区(IANA 名;空 = UTC)
+}
+
+// NowParam: now() 的值在参考求值器的 Params 里的键,也是 SQL 里的参数名(sqlc.arg(factory_now))。
+// 适配器把它接到运行时的时钟(请求开始的时刻);请求(proto)里没有这个字段。
+const NowParam = "factory_now"
+
+// 时间的单位。
+const (
+	Minute = "minute"
+	Hour   = "hour"
+	Day    = "day"
+	Month  = "month"
+)
+
+func Now() *Expr { return &Expr{Op: "now"} }
+
+// Add: x + n 个单位(neg: 减)。zone: 时间的 day / month 按哪个时区的日历。
+func Add(x, n *Expr, unit string, neg bool, zone string) *Expr {
+	return &Expr{Op: "add", Name: unit, Args: []*Expr{x, n}, Neg: neg, Zone: zone}
+}
+
+// Trunc: x 截到 unit 的开始(时间按 zone 的日历)。
+func Trunc(x *Expr, unit, zone string) *Expr {
+	return &Expr{Op: "trunc", Name: unit, Args: []*Expr{x}, Zone: zone}
+}
+
+// UsesNow: 表达式里有没有 now()。
+func UsesNow(e *Expr) bool {
+	if e == nil {
+		return false
+	}
+	if e.Op == "now" {
+		return true
+	}
+	for _, a := range e.Args {
+		if UsesNow(a) {
+			return true
+		}
+	}
+	return false
+}
+
+// PipelineUsesNow: 流水线里有没有 now()(适配器要接时钟、测试要固定 now)。
+func (p *Pipeline) UsesNow() bool {
+	for _, st := range p.Steps {
+		if UsesNow(st.Pred) {
+			return true
+		}
+		for _, x := range st.Project {
+			if UsesNow(x.Expr) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func Col(name string) *Expr              { return &Expr{Op: "col", Name: name} }

@@ -4,6 +4,7 @@ package compiler
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"apifactory/factory/cells"
@@ -37,7 +38,8 @@ func WhereTypes(cols []Column) func(string) (core.Type, bool) {
 	}
 }
 
-func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []resolvedFilter, cat *catalog) (*core.Pipeline, error) {
+// inputs: 请求字段名 → 有没有 presence(派生参数的输入: 没有 presence = 必填)。
+func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []resolvedFilter, cat *catalog, inputs map[string]bool) (*core.Pipeline, error) {
 	table := s.Datasource.Table
 	p := &core.Pipeline{}
 	source, err := sourceSteps(s, lib, cat)
@@ -76,6 +78,11 @@ func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []re
 		}
 		parts.Filters = append(parts.Filters, e)
 	}
+	derived, err := derivedFilters(s, lib, cat, p, inputs)
+	if err != nil {
+		return nil, err
+	}
+	parts.Filters = append(parts.Filters, derived...)
 	for _, w := range s.Datasource.Where { // 固定条件: 和筛选一样作用在来源的列上
 		e, err := where.Parse(w, WhereTypes(cat.tables[table]))
 		if err != nil {
@@ -112,6 +119,53 @@ func buildPipeline(s *spec.Spec, lib *cells.Library, cols []string, filters []re
 		return nil, fmt.Errorf("设计规则检查:\n%w", err)
 	}
 	return p, nil
+}
+
+// derivedFilters: 派生参数(datasource.derived)→ 筛选。值 = 核心代数的时间运算(now / add / trunc),
+// 名字 = 请求参数(派生参数的输入,加进流水线的参数;必填 = proto 里没有 presence)。按名字排序(SQL 确定)。
+func derivedFilters(s *spec.Spec, lib *cells.Library, cat *catalog, p *core.Pipeline, presence map[string]bool) ([]*core.Expr, error) {
+	ds := s.Datasource
+	names := make([]string, 0, len(ds.Derived))
+	for n := range ds.Derived {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	var out []*core.Expr
+	for _, name := range names {
+		d := ds.Derived[name]
+		var optional []string
+		for id := range d.Inputs {
+			if _, ok := presence[id]; !ok {
+				return nil, fmt.Errorf("派生参数 %s: 输入 %s 不是请求字段", name, id)
+			}
+		}
+		v, err := core.ParseExpr(d.Expr, func(id string) (*core.Expr, bool) {
+			k, ok := d.Inputs[id]
+			if !ok {
+				return nil, false
+			}
+			if p.Param(id) == nil {
+				p.Params = append(p.Params, core.ParamDecl{Name: id, Type: core.Type{Kind: core.Kind(k)}, Required: !presence[id]})
+			}
+			if !p.Param(id).Required && !contains(optional, id) {
+				optional = append(optional, id)
+			}
+			return core.Param(id), true
+		})
+		if err != nil {
+			return nil, fmt.Errorf("派生参数 %s: %w", name, err)
+		}
+		core.SetZone(v, d.TimeZone)
+		if _, ok := cat.column(ds.Table, d.Column); !ok {
+			return nil, fmt.Errorf("派生参数 %s: 列 %s 不在 %s 里", name, d.Column, ds.Table)
+		}
+		e, err := lib.FilterValue(d.Op, []string{d.Column}, v, optional)
+		if err != nil {
+			return nil, fmt.Errorf("派生参数 %s: %w", name, err)
+		}
+		out = append(out, e)
+	}
+	return out, nil
 }
 
 // checkPickUnique: 每组取一条(API 部分)的 分组键 + 组内的排序 必须覆盖一个唯一键,否则组内可能并列,

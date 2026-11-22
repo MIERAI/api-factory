@@ -1,0 +1,21 @@
+# 由设计编译器维护,不要手改。proto 的字段编号对外发布后不能变: 只追加,删掉的字段编号保留(reserved)
+字段编号:
+    ListStuckOrdersRequest:
+        stuck_minutes: 1
+    ListStuckOrdersResponse:
+        orders: 1
+    OrderStatus:
+        ORDER_STATUS_CANCELLED: 7
+        ORDER_STATUS_CHARGING: 3
+        ORDER_STATUS_CONFIRMED: 6
+        ORDER_STATUS_CONFIRMING: 4
+        ORDER_STATUS_PENDING: 1
+        ORDER_STATUS_RELEASING: 5
+        ORDER_STATUS_RESERVING: 2
+    StuckOrder:
+        created_at: 5
+        customer_id: 2
+        id: 1
+        status: 3
+        total: 4
+        updated_at: 6

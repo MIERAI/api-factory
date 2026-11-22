@@ -223,6 +223,9 @@ func (g *sqlGen) orderItems(lv *sqlLevel, order []SortKey) []string {
 
 func (g *sqlGen) param(name string) (string, *ParamDecl) {
 	d := g.p.Param(name)
+	if d == nil && name == NowParam { // now(): 不是请求参数,由适配器接到运行时的时钟
+		d = &ParamDecl{Name: NowParam, Type: Type{Kind: Timestamp}, Required: true}
+	}
 	i, ok := g.index[name]
 	if !ok {
 		g.params = append(g.params, *d)
@@ -367,8 +370,73 @@ func (g *sqlGen) expr(e *Expr, lv *sqlLevel) (string, error) {
 			}
 		}
 		return fmt.Sprintf("EXISTS (SELECT 1 FROM %s WHERE %s)", strings.Join(from, ", "), strings.Join(conds, " AND ")), nil
+	case "now":
+		s, _ := g.param(NowParam)
+		return s, nil
+	case "add":
+		x, err := sub(e.Args[0])
+		if err != nil {
+			return "", err
+		}
+		n, err := g.intArg(e.Args[1], lv)
+		if err != nil {
+			return "", err
+		}
+		t, _ := g.p.typeOf(e.Args[0], lv.in)
+		sign := "+"
+		if e.Neg {
+			sign = "-"
+		}
+		field := map[string]string{Minute: "mins", Hour: "hours", Day: "days", Month: "months"}[e.Name]
+		iv := fmt.Sprintf("make_interval(%s => %s)", field, n)
+		switch {
+		case t.Kind == Date && e.Name == Day: // date ± int → date
+			return fmt.Sprintf("(%s %s %s)", x, sign, n), nil
+		case t.Kind == Date: // date ± interval → timestamp(没有时区)→ 日期
+			return fmt.Sprintf("((%s %s %s)::date)", x, sign, iv), nil
+		case e.Name == Minute || e.Name == Hour: // 绝对时长(和时区无关)
+			return fmt.Sprintf("(%s %s %s)", x, sign, iv), nil
+		}
+		// 天 / 月: 在领域的时区的日历上加(不受会话时区影响)
+		z := quoteLit(zoneName(e.Zone))
+		return fmt.Sprintf("(((%s AT TIME ZONE %s) %s %s) AT TIME ZONE %s)", x, z, sign, iv, z), nil
+	case "trunc":
+		x, err := sub(e.Args[0])
+		if err != nil {
+			return "", err
+		}
+		t, _ := g.p.typeOf(e.Args[0], lv.in)
+		if t.Kind == Date { // timestamp(没有时区)上截: 不受会话时区影响
+			return fmt.Sprintf("(date_trunc(%s, (%s)::timestamp)::date)", quoteLit(e.Name), x), nil
+		}
+		z := quoteLit(zoneName(e.Zone))
+		return fmt.Sprintf("(date_trunc(%s, (%s AT TIME ZONE %s)) AT TIME ZONE %s)", quoteLit(e.Name), x, z, z), nil
 	}
 	return "", fmt.Errorf("sql: unknown expr %q", e.Op)
+}
+
+func zoneName(z string) string {
+	if z == "" {
+		return "UTC"
+	}
+	return z
+}
+
+// intArg: add 的个数(make_interval 的参数是 int4)。常量直接写数字;int8 的表达式 cast 成 int4(超出范围 → 查询失败,和参考求值器一致)。
+func (g *sqlGen) intArg(e *Expr, lv *sqlLevel) (string, error) {
+	if e.Op == "const" {
+		if v, ok := e.Value.(int64); ok {
+			return fmt.Sprintf("(%d)", v), nil
+		}
+	}
+	s, err := g.expr(e, lv)
+	if err != nil {
+		return "", err
+	}
+	if t, _ := g.p.typeOf(e, lv.in); t.Kind == Int64 {
+		s = "(" + s + ")::int4"
+	}
+	return s, nil
 }
 
 func constSQL(v any, k Kind) (string, error) {

@@ -1,0 +1,56 @@
+# ============================================================================
+# ListStalePendingJobs: 今日作成されて、指定した分数以上終わっていない任務(多条 + 派生参数: 现在 − N 分钟、今日の 0 時)
+# ============================================================================
+API: ListStalePendingJobs
+说明: 今日作成されて、指定した分数以上たっても終わっていない任務を古い順に返す
+背景: 滞留アラート。「今日」は領域の時区(Asia/Tokyo)の日付。現在時刻はサーバーの時計で、
+  リクエストには含めない(テストでは例子の 现在 で固定する)
+负责人: platform-team
+风险: 低
+
+种类: 多条
+数据来源: jobs
+
+输入:
+  stale_minutes: { 类型: 整数32, 必填: 是, 范围: "1~1440", 说明: 作成からこの分数以上終わっていなければ滞留 }
+
+派生参数:
+  stale_before: { 计算: 现在 - stale_minutes 分钟, 筛选: created_at 小于, 说明: この時刻より前に作成された任務 }
+  today_start:  { 计算: 日初(现在), 筛选: created_at 大于等于, 说明: 今日(領域の時区)の 0 時以降に作成された任務 }
+
+固定条件:
+  - finished_at 为空
+
+输出:
+  id:         任務 id
+  job_type:   任務の種類
+  status:     処理状態
+  created_at: 作成時刻
+
+排序: [created_at 旧到新, id 小到大]
+上限: 50
+输出行名: StalePendingJob
+
+例子:
+  现在: 2026-11-02 10:00
+  准备数据:
+    jobs:
+      - { id: 1, job_type: export, status: PENDING,   created_at: 2026-11-01 23:59, finished_at: null }
+      - { id: 2, job_type: import, status: PENDING,   created_at: 2026-11-02 00:00, finished_at: null }
+      - { id: 3, job_type: export, status: PENDING,   created_at: 2026-11-02 09:30, finished_at: null }
+      - { id: 4, job_type: export, status: SUCCEEDED, created_at: 2026-11-02 08:00, finished_at: 2026-11-02 08:05 }
+      - { id: 5, job_type: export, status: PENDING,   created_at: 2026-11-02 09:59, finished_at: null }
+  用例:
+    - 说明: 30 分以上たった今日の任務(ちょうど 30 分前に作成されたものは含まない;昨日の任務は含まない)
+      输入: { stale_minutes: 30 }
+      结果: { jobs: [2] }
+    - 说明: 29 分にすると、30 分前の任務も入る
+      输入: { stale_minutes: 29 }
+      结果: { jobs: [2, 3] }
+    - 说明: 日付が変わった直後は、昨日の任務は対象外
+      现在: 2026-11-03 00:30
+      输入: { stale_minutes: 1 }
+      结果: { jobs: [] }
+    - 说明: 範囲外の分数
+      输入: { stale_minutes: 0 }
+      结果: 参数错误

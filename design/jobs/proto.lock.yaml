@@ -81,7 +81,16 @@
     ListPendingJobsResponse:
         jobs: 1
         next_page_token: 2
+    ListStalePendingJobsRequest:
+        stale_minutes: 1
+    ListStalePendingJobsResponse:
+        jobs: 1
     PendingJob:
+        created_at: 4
+        id: 1
+        job_type: 2
+        status: 3
+    StalePendingJob:
         created_at: 4
         id: 1
         job_type: 2

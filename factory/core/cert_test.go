@@ -62,11 +62,12 @@ var certDomain = map[string][]any{
 const certRows = 60
 
 type certEnv struct {
-	t    *testing.T
-	ctx  context.Context
-	conn *pgx.Conn
-	rows []Row
-	n    int
+	table string // 空 = "c"
+	t     *testing.T
+	ctx   context.Context
+	conn  *pgx.Conn
+	rows  []Row
+	n     int
 }
 
 func TestCertification(t *testing.T) {
@@ -475,7 +476,11 @@ func canonicalText(s *string, k Kind) string {
 func (e *certEnv) check(name string, p *Pipeline, params Params) {
 	e.t.Helper()
 	e.n++
-	want, werr := Eval(p, map[string][]Row{"c": e.rows}, params)
+	table := e.table
+	if table == "" {
+		table = "c"
+	}
+	want, werr := Eval(p, map[string][]Row{table: e.rows}, params)
 	got, q, gerr := e.run(p, params)
 	if errors.Is(werr, ErrAmbiguous) {
 		e.t.Fatalf("%s: 认证数据有并列(认证本身的问题): %v", name, werr)

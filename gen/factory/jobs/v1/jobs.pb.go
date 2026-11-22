@@ -1413,6 +1413,171 @@ func (x *ListPendingJobsResponse) GetNextPageToken() string {
 	return ""
 }
 
+// 任务
+type StalePendingJob struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 任務 id
+	Id int64 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	// 任務の種類
+	JobType string `protobuf:"bytes,2,opt,name=job_type,json=jobType,proto3" json:"job_type,omitempty"`
+	// 処理状態
+	Status JobStatus `protobuf:"varint,3,opt,name=status,proto3,enum=factory.jobs.v1.JobStatus" json:"status,omitempty"`
+	// 作成時刻
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StalePendingJob) Reset() {
+	*x = StalePendingJob{}
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StalePendingJob) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StalePendingJob) ProtoMessage() {}
+
+func (x *StalePendingJob) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StalePendingJob.ProtoReflect.Descriptor instead.
+func (*StalePendingJob) Descriptor() ([]byte, []int) {
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *StalePendingJob) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *StalePendingJob) GetJobType() string {
+	if x != nil {
+		return x.JobType
+	}
+	return ""
+}
+
+func (x *StalePendingJob) GetStatus() JobStatus {
+	if x != nil {
+		return x.Status
+	}
+	return JobStatus_JOB_STATUS_UNSPECIFIED
+}
+
+func (x *StalePendingJob) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+// 今日作成されて、指定した分数以上たっても終わっていない任務を古い順に返す
+type ListStalePendingJobsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 作成からこの分数以上終わっていなければ滞留
+	StaleMinutes  int32 `protobuf:"varint,1,opt,name=stale_minutes,json=staleMinutes,proto3" json:"stale_minutes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListStalePendingJobsRequest) Reset() {
+	*x = ListStalePendingJobsRequest{}
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListStalePendingJobsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListStalePendingJobsRequest) ProtoMessage() {}
+
+func (x *ListStalePendingJobsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListStalePendingJobsRequest.ProtoReflect.Descriptor instead.
+func (*ListStalePendingJobsRequest) Descriptor() ([]byte, []int) {
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *ListStalePendingJobsRequest) GetStaleMinutes() int32 {
+	if x != nil {
+		return x.StaleMinutes
+	}
+	return 0
+}
+
+// 今日作成されて、指定した分数以上たっても終わっていない任務を古い順に返す
+type ListStalePendingJobsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 最多 50 件;超过时返回错误(不会截断)
+	Jobs          []*StalePendingJob `protobuf:"bytes,1,rep,name=jobs,proto3" json:"jobs,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListStalePendingJobsResponse) Reset() {
+	*x = ListStalePendingJobsResponse{}
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListStalePendingJobsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListStalePendingJobsResponse) ProtoMessage() {}
+
+func (x *ListStalePendingJobsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_factory_jobs_v1_jobs_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListStalePendingJobsResponse.ProtoReflect.Descriptor instead.
+func (*ListStalePendingJobsResponse) Descriptor() ([]byte, []int) {
+	return file_factory_jobs_v1_jobs_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *ListStalePendingJobsResponse) GetJobs() []*StalePendingJob {
+	if x != nil {
+		return x.Jobs
+	}
+	return nil
+}
+
 var File_factory_jobs_v1_jobs_proto protoreflect.FileDescriptor
 
 const file_factory_jobs_v1_jobs_proto_rawDesc = "" +
@@ -1525,12 +1690,23 @@ const file_factory_jobs_v1_jobs_proto_rawDesc = "" +
 	"\rcreated_after\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\fcreatedAfter\"r\n" +
 	"\x17ListPendingJobsResponse\x12/\n" +
 	"\x04jobs\x18\x01 \x03(\v2\x1b.factory.jobs.v1.PendingJobR\x04jobs\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken*p\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xab\x01\n" +
+	"\x0fStalePendingJob\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x19\n" +
+	"\bjob_type\x18\x02 \x01(\tR\ajobType\x122\n" +
+	"\x06status\x18\x03 \x01(\x0e2\x1a.factory.jobs.v1.JobStatusR\x06status\x129\n" +
+	"\n" +
+	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"N\n" +
+	"\x1bListStalePendingJobsRequest\x12/\n" +
+	"\rstale_minutes\x18\x01 \x01(\x05B\n" +
+	"\xbaH\a\x1a\x05\x18\xa0\v(\x01R\fstaleMinutes\"T\n" +
+	"\x1cListStalePendingJobsResponse\x124\n" +
+	"\x04jobs\x18\x01 \x03(\v2 .factory.jobs.v1.StalePendingJobR\x04jobs*p\n" +
 	"\tJobStatus\x12\x1a\n" +
 	"\x16JOB_STATUS_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12JOB_STATUS_PENDING\x10\x01\x12\x18\n" +
 	"\x14JOB_STATUS_SUCCEEDED\x10\x02\x12\x15\n" +
-	"\x11JOB_STATUS_FAILED\x10\x032\xb9\x06\n" +
+	"\x11JOB_STATUS_FAILED\x10\x032\xae\a\n" +
 	"\n" +
 	"JobService\x12[\n" +
 	"\fGetJobStatus\x12$.factory.jobs.v1.GetJobStatusRequest\x1a%.factory.jobs.v1.GetJobStatusResponse\x12^\n" +
@@ -1540,7 +1716,8 @@ const file_factory_jobs_v1_jobs_proto_rawDesc = "" +
 	"\x0fListJobsByTypes\x12'.factory.jobs.v1.ListJobsByTypesRequest\x1a(.factory.jobs.v1.ListJobsByTypesResponse\x12y\n" +
 	"\x16ListLatestFinishedJobs\x12..factory.jobs.v1.ListLatestFinishedJobsRequest\x1a/.factory.jobs.v1.ListLatestFinishedJobsResponse\x12s\n" +
 	"\x14ListLatestJobPerType\x12,.factory.jobs.v1.ListLatestJobPerTypeRequest\x1a-.factory.jobs.v1.ListLatestJobPerTypeResponse\x12d\n" +
-	"\x0fListPendingJobs\x12'.factory.jobs.v1.ListPendingJobsRequest\x1a(.factory.jobs.v1.ListPendingJobsResponseB'Z%apifactory/gen/factory/jobs/v1;jobsv1b\x06proto3"
+	"\x0fListPendingJobs\x12'.factory.jobs.v1.ListPendingJobsRequest\x1a(.factory.jobs.v1.ListPendingJobsResponse\x12s\n" +
+	"\x14ListStalePendingJobs\x12,.factory.jobs.v1.ListStalePendingJobsRequest\x1a-.factory.jobs.v1.ListStalePendingJobsResponseB'Z%apifactory/gen/factory/jobs/v1;jobsv1b\x06proto3"
 
 var (
 	file_factory_jobs_v1_jobs_proto_rawDescOnce sync.Once
@@ -1555,7 +1732,7 @@ func file_factory_jobs_v1_jobs_proto_rawDescGZIP() []byte {
 }
 
 var file_factory_jobs_v1_jobs_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_factory_jobs_v1_jobs_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
+var file_factory_jobs_v1_jobs_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_factory_jobs_v1_jobs_proto_goTypes = []any{
 	(JobStatus)(0),                         // 0: factory.jobs.v1.JobStatus
 	(*GetJobStatusRequest)(nil),            // 1: factory.jobs.v1.GetJobStatusRequest
@@ -1579,55 +1756,63 @@ var file_factory_jobs_v1_jobs_proto_goTypes = []any{
 	(*PendingJob)(nil),                     // 19: factory.jobs.v1.PendingJob
 	(*ListPendingJobsRequest)(nil),         // 20: factory.jobs.v1.ListPendingJobsRequest
 	(*ListPendingJobsResponse)(nil),        // 21: factory.jobs.v1.ListPendingJobsResponse
-	(*timestamppb.Timestamp)(nil),          // 22: google.protobuf.Timestamp
+	(*StalePendingJob)(nil),                // 22: factory.jobs.v1.StalePendingJob
+	(*ListStalePendingJobsRequest)(nil),    // 23: factory.jobs.v1.ListStalePendingJobsRequest
+	(*ListStalePendingJobsResponse)(nil),   // 24: factory.jobs.v1.ListStalePendingJobsResponse
+	(*timestamppb.Timestamp)(nil),          // 25: google.protobuf.Timestamp
 }
 var file_factory_jobs_v1_jobs_proto_depIdxs = []int32{
 	0,  // 0: factory.jobs.v1.GetJobStatusResponse.status:type_name -> factory.jobs.v1.JobStatus
-	22, // 1: factory.jobs.v1.GetJobSummaryRequest.period_start:type_name -> google.protobuf.Timestamp
-	22, // 2: factory.jobs.v1.GetJobSummaryRequest.period_end:type_name -> google.protobuf.Timestamp
-	22, // 3: factory.jobs.v1.FailedJob.created_at:type_name -> google.protobuf.Timestamp
-	22, // 4: factory.jobs.v1.FailedJob.finished_at:type_name -> google.protobuf.Timestamp
-	22, // 5: factory.jobs.v1.ListFailedJobsRequest.created_after:type_name -> google.protobuf.Timestamp
+	25, // 1: factory.jobs.v1.GetJobSummaryRequest.period_start:type_name -> google.protobuf.Timestamp
+	25, // 2: factory.jobs.v1.GetJobSummaryRequest.period_end:type_name -> google.protobuf.Timestamp
+	25, // 3: factory.jobs.v1.FailedJob.created_at:type_name -> google.protobuf.Timestamp
+	25, // 4: factory.jobs.v1.FailedJob.finished_at:type_name -> google.protobuf.Timestamp
+	25, // 5: factory.jobs.v1.ListFailedJobsRequest.created_after:type_name -> google.protobuf.Timestamp
 	5,  // 6: factory.jobs.v1.ListFailedJobsResponse.jobs:type_name -> factory.jobs.v1.FailedJob
 	0,  // 7: factory.jobs.v1.Job.status:type_name -> factory.jobs.v1.JobStatus
-	22, // 8: factory.jobs.v1.Job.created_at:type_name -> google.protobuf.Timestamp
+	25, // 8: factory.jobs.v1.Job.created_at:type_name -> google.protobuf.Timestamp
 	0,  // 9: factory.jobs.v1.ListJobsRequest.status:type_name -> factory.jobs.v1.JobStatus
-	22, // 10: factory.jobs.v1.ListJobsRequest.created_after:type_name -> google.protobuf.Timestamp
-	22, // 11: factory.jobs.v1.ListJobsRequest.created_before:type_name -> google.protobuf.Timestamp
+	25, // 10: factory.jobs.v1.ListJobsRequest.created_after:type_name -> google.protobuf.Timestamp
+	25, // 11: factory.jobs.v1.ListJobsRequest.created_before:type_name -> google.protobuf.Timestamp
 	8,  // 12: factory.jobs.v1.ListJobsResponse.jobs:type_name -> factory.jobs.v1.Job
 	8,  // 13: factory.jobs.v1.ListJobsByTypesResponse.jobs:type_name -> factory.jobs.v1.Job
 	0,  // 14: factory.jobs.v1.FinishedJob.status:type_name -> factory.jobs.v1.JobStatus
-	22, // 15: factory.jobs.v1.FinishedJob.finished_at:type_name -> google.protobuf.Timestamp
+	25, // 15: factory.jobs.v1.FinishedJob.finished_at:type_name -> google.protobuf.Timestamp
 	0,  // 16: factory.jobs.v1.ListLatestFinishedJobsRequest.status:type_name -> factory.jobs.v1.JobStatus
 	13, // 17: factory.jobs.v1.ListLatestFinishedJobsResponse.jobs:type_name -> factory.jobs.v1.FinishedJob
 	0,  // 18: factory.jobs.v1.LatestJobOfType.status:type_name -> factory.jobs.v1.JobStatus
-	22, // 19: factory.jobs.v1.LatestJobOfType.created_at:type_name -> google.protobuf.Timestamp
+	25, // 19: factory.jobs.v1.LatestJobOfType.created_at:type_name -> google.protobuf.Timestamp
 	16, // 20: factory.jobs.v1.ListLatestJobPerTypeResponse.jobs:type_name -> factory.jobs.v1.LatestJobOfType
 	0,  // 21: factory.jobs.v1.PendingJob.status:type_name -> factory.jobs.v1.JobStatus
-	22, // 22: factory.jobs.v1.PendingJob.created_at:type_name -> google.protobuf.Timestamp
-	22, // 23: factory.jobs.v1.ListPendingJobsRequest.created_after:type_name -> google.protobuf.Timestamp
+	25, // 22: factory.jobs.v1.PendingJob.created_at:type_name -> google.protobuf.Timestamp
+	25, // 23: factory.jobs.v1.ListPendingJobsRequest.created_after:type_name -> google.protobuf.Timestamp
 	19, // 24: factory.jobs.v1.ListPendingJobsResponse.jobs:type_name -> factory.jobs.v1.PendingJob
-	1,  // 25: factory.jobs.v1.JobService.GetJobStatus:input_type -> factory.jobs.v1.GetJobStatusRequest
-	3,  // 26: factory.jobs.v1.JobService.GetJobSummary:input_type -> factory.jobs.v1.GetJobSummaryRequest
-	6,  // 27: factory.jobs.v1.JobService.ListFailedJobs:input_type -> factory.jobs.v1.ListFailedJobsRequest
-	9,  // 28: factory.jobs.v1.JobService.ListJobs:input_type -> factory.jobs.v1.ListJobsRequest
-	11, // 29: factory.jobs.v1.JobService.ListJobsByTypes:input_type -> factory.jobs.v1.ListJobsByTypesRequest
-	14, // 30: factory.jobs.v1.JobService.ListLatestFinishedJobs:input_type -> factory.jobs.v1.ListLatestFinishedJobsRequest
-	17, // 31: factory.jobs.v1.JobService.ListLatestJobPerType:input_type -> factory.jobs.v1.ListLatestJobPerTypeRequest
-	20, // 32: factory.jobs.v1.JobService.ListPendingJobs:input_type -> factory.jobs.v1.ListPendingJobsRequest
-	2,  // 33: factory.jobs.v1.JobService.GetJobStatus:output_type -> factory.jobs.v1.GetJobStatusResponse
-	4,  // 34: factory.jobs.v1.JobService.GetJobSummary:output_type -> factory.jobs.v1.GetJobSummaryResponse
-	7,  // 35: factory.jobs.v1.JobService.ListFailedJobs:output_type -> factory.jobs.v1.ListFailedJobsResponse
-	10, // 36: factory.jobs.v1.JobService.ListJobs:output_type -> factory.jobs.v1.ListJobsResponse
-	12, // 37: factory.jobs.v1.JobService.ListJobsByTypes:output_type -> factory.jobs.v1.ListJobsByTypesResponse
-	15, // 38: factory.jobs.v1.JobService.ListLatestFinishedJobs:output_type -> factory.jobs.v1.ListLatestFinishedJobsResponse
-	18, // 39: factory.jobs.v1.JobService.ListLatestJobPerType:output_type -> factory.jobs.v1.ListLatestJobPerTypeResponse
-	21, // 40: factory.jobs.v1.JobService.ListPendingJobs:output_type -> factory.jobs.v1.ListPendingJobsResponse
-	33, // [33:41] is the sub-list for method output_type
-	25, // [25:33] is the sub-list for method input_type
-	25, // [25:25] is the sub-list for extension type_name
-	25, // [25:25] is the sub-list for extension extendee
-	0,  // [0:25] is the sub-list for field type_name
+	0,  // 25: factory.jobs.v1.StalePendingJob.status:type_name -> factory.jobs.v1.JobStatus
+	25, // 26: factory.jobs.v1.StalePendingJob.created_at:type_name -> google.protobuf.Timestamp
+	22, // 27: factory.jobs.v1.ListStalePendingJobsResponse.jobs:type_name -> factory.jobs.v1.StalePendingJob
+	1,  // 28: factory.jobs.v1.JobService.GetJobStatus:input_type -> factory.jobs.v1.GetJobStatusRequest
+	3,  // 29: factory.jobs.v1.JobService.GetJobSummary:input_type -> factory.jobs.v1.GetJobSummaryRequest
+	6,  // 30: factory.jobs.v1.JobService.ListFailedJobs:input_type -> factory.jobs.v1.ListFailedJobsRequest
+	9,  // 31: factory.jobs.v1.JobService.ListJobs:input_type -> factory.jobs.v1.ListJobsRequest
+	11, // 32: factory.jobs.v1.JobService.ListJobsByTypes:input_type -> factory.jobs.v1.ListJobsByTypesRequest
+	14, // 33: factory.jobs.v1.JobService.ListLatestFinishedJobs:input_type -> factory.jobs.v1.ListLatestFinishedJobsRequest
+	17, // 34: factory.jobs.v1.JobService.ListLatestJobPerType:input_type -> factory.jobs.v1.ListLatestJobPerTypeRequest
+	20, // 35: factory.jobs.v1.JobService.ListPendingJobs:input_type -> factory.jobs.v1.ListPendingJobsRequest
+	23, // 36: factory.jobs.v1.JobService.ListStalePendingJobs:input_type -> factory.jobs.v1.ListStalePendingJobsRequest
+	2,  // 37: factory.jobs.v1.JobService.GetJobStatus:output_type -> factory.jobs.v1.GetJobStatusResponse
+	4,  // 38: factory.jobs.v1.JobService.GetJobSummary:output_type -> factory.jobs.v1.GetJobSummaryResponse
+	7,  // 39: factory.jobs.v1.JobService.ListFailedJobs:output_type -> factory.jobs.v1.ListFailedJobsResponse
+	10, // 40: factory.jobs.v1.JobService.ListJobs:output_type -> factory.jobs.v1.ListJobsResponse
+	12, // 41: factory.jobs.v1.JobService.ListJobsByTypes:output_type -> factory.jobs.v1.ListJobsByTypesResponse
+	15, // 42: factory.jobs.v1.JobService.ListLatestFinishedJobs:output_type -> factory.jobs.v1.ListLatestFinishedJobsResponse
+	18, // 43: factory.jobs.v1.JobService.ListLatestJobPerType:output_type -> factory.jobs.v1.ListLatestJobPerTypeResponse
+	21, // 44: factory.jobs.v1.JobService.ListPendingJobs:output_type -> factory.jobs.v1.ListPendingJobsResponse
+	24, // 45: factory.jobs.v1.JobService.ListStalePendingJobs:output_type -> factory.jobs.v1.ListStalePendingJobsResponse
+	37, // [37:46] is the sub-list for method output_type
+	28, // [28:37] is the sub-list for method input_type
+	28, // [28:28] is the sub-list for extension type_name
+	28, // [28:28] is the sub-list for extension extendee
+	0,  // [0:28] is the sub-list for field type_name
 }
 
 func init() { file_factory_jobs_v1_jobs_proto_init() }
@@ -1644,7 +1829,7 @@ func file_factory_jobs_v1_jobs_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_factory_jobs_v1_jobs_proto_rawDesc), len(file_factory_jobs_v1_jobs_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   21,
+			NumMessages:   24,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

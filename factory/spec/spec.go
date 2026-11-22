@@ -97,9 +97,32 @@ type Datasource struct {
 	Rename map[string]string `yaml:"rename,omitempty"`
 	// Where: 固定条件(不来自请求;factory/where 的写法,列名是来源的列),和筛选一起作用
 	Where []string `yaml:"where,omitempty"`
+	// Derived: 派生参数(不出现在请求里): 值由 now() 和请求参数计算(核心代数的时间运算),和筛选一样作用在来源的列上
+	Derived map[string]Derived `yaml:"derived,omitempty"`
 	// SQL: 逃生口(JOIN / 聚合 / 复杂条件)。写了 sql 就不写 filters/columns;
 	// table 可以写,表示结果列来自哪张表(用于查领域层的 enum 映射)
 	SQL string `yaml:"sql"`
+}
+
+// Derived: 一个派生参数。Expr 是核心代数的表达式(core.ParseExpr 的写法: now() / add(x, n, 单位) / trunc(x, 单位),
+// 名字 = Inputs 里的请求参数);Column + Op 和筛选一样(Op = 筛选单元的内部名)。
+type Derived struct {
+	Expr     string            `yaml:"expr"`
+	Column   string            `yaml:"column"`
+	Op       string            `yaml:"op"`
+	Inputs   map[string]string `yaml:"inputs,omitempty"`    // 用到的请求参数 → 核心类型(int32 / int64 / date / timestamp)
+	TimeZone string            `yaml:"time_zone,omitempty"` // 时间的天 / 月、截到天 / 月按这个时区(领域的时区)
+}
+
+// DerivedInputs: 派生参数用到的请求参数(这些请求字段不是筛选条件)。
+func (d Datasource) DerivedInputs() map[string]bool {
+	out := map[string]bool{}
+	for _, x := range d.Derived {
+		for n := range x.Inputs {
+			out[n] = true
+		}
+	}
+	return out
 }
 
 type Filter struct {
@@ -135,6 +158,9 @@ type Case struct {
 	Expect  Expect         `yaml:"expect"`
 	// Steps 用于多步用例(如翻页)。request 里的 "$prev.<field>" 会被替换成上一步响应的字段
 	Steps []Step `yaml:"steps"`
+	// Now: 请求开始的时刻(RFC 3339)。用到 now() 的 API 的用例必须固定它: 验收执行器发请求头 X-Factory-Now,
+	// 服务器只在 FACTORY_TEST_CLOCK=1(测试环境)时认这个头
+	Now string `yaml:"now,omitempty"`
 }
 
 type Step struct {
@@ -322,7 +348,7 @@ func (s *Spec) Check() []string {
 	// datasource: 声明式 / 逃生口 二选一
 	ds := s.Datasource
 	// 逃生口(sql)也可以写 table: 表示结果列来自哪张表(用于查领域层的 enum 等)
-	declarative := len(ds.Filters) > 0 || len(ds.Columns) > 0
+	declarative := len(ds.Filters) > 0 || len(ds.Columns) > 0 || len(ds.Derived) > 0
 	switch {
 	case ds.SQL != "" && declarative:
 		add("datasource: filters/columns are for the declarative form; with sql, write the conditions in sql (table is allowed as metadata)")
@@ -338,6 +364,14 @@ func (s *Spec) Check() []string {
 		}
 		if _, ok := FilterOps[f.Op]; !ok && f.Op == "" {
 			add("datasource.filters.%s: op is required (eq/gt/gte/lt/lte/prefix,或单元库里的筛选单元名)", field)
+		}
+	}
+	for name, d := range ds.Derived {
+		if d.Expr == "" || d.Column == "" || d.Op == "" {
+			add("datasource.derived.%s: expr, column and op are required", name)
+		}
+		if _, dup := ds.Filters[name]; dup {
+			add("datasource.derived.%s: also a filter (a derived parameter is not a request field)", name)
 		}
 	}
 	if s.PatternKind() == "compute" && ds.SQL == "" && len(ds.Columns) == 0 {
