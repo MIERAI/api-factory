@@ -146,3 +146,214 @@ func checkCommand(kind string, s *spec.Spec) []string {
 	}
 	return out
 }
+
+// ---------------------------------------------------------------------------
+// 组合命令(R3-2): 一个请求里按顺序执行的多个写操作,一个事务。条件更新、幂等新建是其中的操作。
+//
+//	种类: 组合命令
+//	操作:
+//	  - 扣减: { 更新: stock, 键: { sku: 输入.sku }, 设置: { available: "available + 输入.delta" },
+//	            条件: "available + 输入.delta >= 0", 不满足: INSUFFICIENT_STOCK, 找不到时: "…" }
+//	  - 记录: { 新建: stock_adjustments, 值: { sku: 扣减.sku, delta: 输入.delta } }
+//	  - 支付: { 幂等新建: payments, 键: [order_id], 值: { … } }
+//	输出:
+//	  available: { 说明: …, 来自: 扣减.available }
+//	  created:   { 说明: …, 来自: 支付.新建 }
+// ---------------------------------------------------------------------------
+
+// OpKinds: 操作的写法 → 内部名。
+var OpKinds = map[string]string{"新建": "insert", "幂等新建": "insert_idempotent", "更新": "update", "删除": "delete"}
+
+// OpKeys: 一个操作可以写的键(除了种类本身)。
+var OpKeys = []string{"键", "值", "设置", "条件", "不满足", "乐观锁", "找不到时"}
+
+// CreatedWord: 输出 来自 操作名.新建 = 幂等新建是否真的插入了。
+const CreatedWord = "新建"
+
+func init() {
+	Register(&Exit{
+		Kind: "command", Name: "组合命令", Cardinality: "one", Command: true,
+		DesignKeys: []string{"操作"},
+		Parse:      parseOps,
+		Check:      checkComposite,
+		IR: func(s *spec.Spec, api *ir.API) error {
+			api.Command = &ir.Command{Op: "command"}
+			return nil
+		},
+	})
+}
+
+// parseOps: 操作的列表 → spec(表达式保持设计稿的写法;设计编译器解释名字、换掉枚举的值名)。
+func parseOps(d Design, p *spec.Pattern) {
+	if p.Command == nil {
+		p.Command = &spec.Command{}
+	}
+	n := d.Node("操作")
+	if n == nil || n.Kind != yaml.SequenceNode || len(n.Content) == 0 {
+		d.Err("组合命令: 缺少 操作(写操作的列表: - 名字: { 新建 / 幂等新建 / 更新 / 删除: 表, … })")
+		return
+	}
+	for _, item := range n.Content {
+		if item.Kind != yaml.MappingNode || len(item.Content) != 2 || item.Content[1].Kind != yaml.MappingNode {
+			d.Err("操作 第 %d 行: 每个操作写成 - 名字: { 更新: 表, … }", item.Line)
+			continue
+		}
+		name, body := item.Content[0].Value, item.Content[1]
+		op := spec.CommandOp{Name: name}
+		for i := 0; i+1 < len(body.Content); i += 2 {
+			k, v := body.Content[i].Value, body.Content[i+1]
+			if kind, ok := OpKinds[k]; ok {
+				if op.Kind != "" {
+					d.Err("操作 %s: 新建 / 幂等新建 / 更新 / 删除 只能写一个", name)
+				}
+				op.Kind, op.Table = kind, strings.TrimSpace(v.Value)
+				continue
+			}
+			switch k {
+			case "键":
+				if v.Kind == yaml.SequenceNode { // 幂等新建: 键的列
+					for _, c := range v.Content {
+						op.Conflict = append(op.Conflict, strings.TrimSpace(c.Value))
+					}
+					continue
+				}
+				op.Key = append(op.Key, colExprs(d, name, k, v)...)
+			case "值", "设置":
+				op.Values = append(op.Values, colExprs(d, name, k, v)...)
+			case "乐观锁":
+				if xs := colExprs(d, name, k, v); len(xs) == 1 {
+					op.Lock = &xs[0]
+				} else {
+					d.Err("操作 %s: 乐观锁 写成 { 版本列: 输入.version }", name)
+				}
+			case "条件":
+				op.Cond = strings.TrimSpace(v.Value)
+			case "不满足":
+				op.Unmet = strings.TrimSpace(v.Value)
+			case "找不到时":
+				op.NotFound = v.Value
+			default:
+				d.Err("操作 %s: 不认识的键 %s(可以写: 新建 / 幂等新建 / 更新 / 删除 + %s)", name, k, strings.Join(OpKeys, " / "))
+			}
+		}
+		if op.Kind == "" {
+			d.Err("操作 %s: 要写 新建 / 幂等新建 / 更新 / 删除 中的一个(值 = 表)", name)
+		}
+		p.Command.Ops = append(p.Command.Ops, op)
+	}
+}
+
+func colExprs(d Design, op, key string, v *yaml.Node) []spec.ColExpr {
+	if v.Kind != yaml.MappingNode {
+		d.Err("操作 %s: %s 写成 { 列: 值 }", op, key)
+		return nil
+	}
+	var out []spec.ColExpr
+	for i := 0; i+1 < len(v.Content); i += 2 {
+		out = append(out, spec.ColExpr{Column: v.Content[i].Value, Expr: strings.TrimSpace(v.Content[i+1].Value)})
+	}
+	return out
+}
+
+// reasonCode: 业务原因码的写法(大写英文字母、数字、_)。
+func reasonCode(s string) bool {
+	if s == "" || s[0] < 'A' || s[0] > 'Z' {
+		return false
+	}
+	for _, r := range s {
+		if !(r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+// IsReasonCode: 例子的 错误: 写的是业务原因码(不是错误码)。
+func IsReasonCode(c *spec.Command, s string) bool {
+	if c == nil {
+		return false
+	}
+	for _, op := range c.Ops {
+		if op.Unmet == s {
+			return true
+		}
+	}
+	return false
+}
+
+func checkComposite(s *spec.Spec) []string {
+	var out []string
+	add := func(f string, a ...any) { out = append(out, fmt.Sprintf("pattern command: "+f, a...)) }
+	c := s.Pattern.Command
+	if c == nil || len(c.Ops) == 0 {
+		return []string{"pattern command: ops are required"}
+	}
+	if len(c.Key)+len(c.Write)+len(c.Set) > 0 || c.Lock != nil {
+		add("key / write / lock / set are for 新建 / 按键更新 / 按键删除 (a composite command writes with ops)")
+	}
+	if s.Datasource.SQL != "" || s.Datasource.Table != "" || len(s.Datasource.Filters)+len(s.Datasource.Lookups)+len(s.Datasource.Where) > 0 {
+		add("datasource is for queries (the ops name their tables)")
+	}
+	names := map[string]bool{}
+	codes := map[string]bool{"OK": true, "NOT_FOUND": true, "ABORTED": true, "ALREADY_EXISTS": true, "INVALID_ARGUMENT": true,
+		"FAILED_PRECONDITION": true, "INTERNAL": true, "UNAVAILABLE": true}
+	for i, op := range c.Ops {
+		if op.Name == "" || names[op.Name] {
+			add("ops[%d]: name %q is empty or used twice", i, op.Name)
+		}
+		names[op.Name] = true
+		if op.Table == "" {
+			add("ops[%d] %s: table is required", i, op.Name)
+		}
+		switch op.Kind {
+		case "insert", "insert_idempotent":
+			if len(op.Key) > 0 || op.Lock != nil || op.Cond != "" || op.NotFound != "" {
+				add("%s: key / lock / cond / not_found are for update and delete", op.Name)
+			}
+			if len(op.Values) == 0 {
+				add("%s: values are required", op.Name)
+			}
+			if (op.Kind == "insert_idempotent") != (len(op.Conflict) > 0) {
+				add("%s: conflict (the idempotency key) is required for insert_idempotent and only for it", op.Name)
+			}
+		case "update", "delete":
+			if len(op.Key) == 0 {
+				add("%s: key is required", op.Name)
+			}
+			if op.NotFound == "" {
+				add("%s: not_found is required", op.Name)
+			}
+			if op.Kind == "update" && len(op.Values) == 0 {
+				add("%s: values are required (what does the update change?)", op.Name)
+			}
+			if op.Kind == "delete" && (len(op.Values) > 0 || op.Cond != "") {
+				add("%s: values / cond are for update", op.Name)
+			}
+			if len(op.Conflict) > 0 {
+				add("%s: conflict is for insert_idempotent", op.Name)
+			}
+		default:
+			add("%s: kind %q (insert / insert_idempotent / update / delete)", op.Name, op.Kind)
+		}
+		if (op.Cond != "") != (op.Unmet != "") {
+			add("%s: cond and unmet go together (a condition needs the business reason code of its failure)", op.Name)
+		}
+		if op.Unmet != "" && (!reasonCode(op.Unmet) || codes[op.Unmet]) {
+			add("%s: unmet %q must be an UPPER_SNAKE business reason code (not an error code)", op.Name, op.Unmet)
+		}
+	}
+	for _, o := range c.Output {
+		if !names[o.Op] {
+			add("output %s: op %q does not exist", o.Field, o.Op)
+		}
+	}
+	for _, cs := range s.Acceptance.Cases {
+		if cs.After == nil {
+			add("acceptance.cases[%q]: after is required for commands", cs.Name)
+		}
+		if len(cs.Steps) > 0 {
+			add("acceptance.cases[%q]: steps are not supported for commands", cs.Name)
+		}
+	}
+	return out
+}

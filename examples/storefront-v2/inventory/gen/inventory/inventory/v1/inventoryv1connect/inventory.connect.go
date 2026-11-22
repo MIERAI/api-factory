@@ -36,6 +36,9 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// InventoryServiceAdjustStockProcedure is the fully-qualified name of the InventoryService's
+	// AdjustStock RPC.
+	InventoryServiceAdjustStockProcedure = "/inventory.inventory.v1.InventoryService/AdjustStock"
 	// InventoryServiceGetStockProcedure is the fully-qualified name of the InventoryService's GetStock
 	// RPC.
 	InventoryServiceGetStockProcedure = "/inventory.inventory.v1.InventoryService/GetStock"
@@ -46,6 +49,8 @@ const (
 
 // InventoryServiceClient is a client for the inventory.inventory.v1.InventoryService service.
 type InventoryServiceClient interface {
+	// 调整一个 SKU 的可售数量(入库、盘点、报损),同时写一条调整的审计记录。调整之后可售数量会小于 0 时不调整
+	AdjustStock(context.Context, *connect.Request[v1.AdjustStockRequest]) (*connect.Response[v1.AdjustStockResponse], error)
 	// 返回一个 SKU 的可售数量和已预留数量
 	GetStock(context.Context, *connect.Request[v1.GetStockRequest]) (*connect.Response[v1.GetStockResponse], error)
 	// 返回指定的多个 SKU 的库存,按 SKU 排序。没有记录的 SKU 不出现在结果里
@@ -63,6 +68,12 @@ func NewInventoryServiceClient(httpClient connect.HTTPClient, baseURL string, op
 	baseURL = strings.TrimRight(baseURL, "/")
 	inventoryServiceMethods := v1.File_inventory_inventory_v1_inventory_proto.Services().ByName("InventoryService").Methods()
 	return &inventoryServiceClient{
+		adjustStock: connect.NewClient[v1.AdjustStockRequest, v1.AdjustStockResponse](
+			httpClient,
+			baseURL+InventoryServiceAdjustStockProcedure,
+			connect.WithSchema(inventoryServiceMethods.ByName("AdjustStock")),
+			connect.WithClientOptions(opts...),
+		),
 		getStock: connect.NewClient[v1.GetStockRequest, v1.GetStockResponse](
 			httpClient,
 			baseURL+InventoryServiceGetStockProcedure,
@@ -80,8 +91,14 @@ func NewInventoryServiceClient(httpClient connect.HTTPClient, baseURL string, op
 
 // inventoryServiceClient implements InventoryServiceClient.
 type inventoryServiceClient struct {
+	adjustStock     *connect.Client[v1.AdjustStockRequest, v1.AdjustStockResponse]
 	getStock        *connect.Client[v1.GetStockRequest, v1.GetStockResponse]
 	listStockBySkus *connect.Client[v1.ListStockBySkusRequest, v1.ListStockBySkusResponse]
+}
+
+// AdjustStock calls inventory.inventory.v1.InventoryService.AdjustStock.
+func (c *inventoryServiceClient) AdjustStock(ctx context.Context, req *connect.Request[v1.AdjustStockRequest]) (*connect.Response[v1.AdjustStockResponse], error) {
+	return c.adjustStock.CallUnary(ctx, req)
 }
 
 // GetStock calls inventory.inventory.v1.InventoryService.GetStock.
@@ -97,6 +114,8 @@ func (c *inventoryServiceClient) ListStockBySkus(ctx context.Context, req *conne
 // InventoryServiceHandler is an implementation of the inventory.inventory.v1.InventoryService
 // service.
 type InventoryServiceHandler interface {
+	// 调整一个 SKU 的可售数量(入库、盘点、报损),同时写一条调整的审计记录。调整之后可售数量会小于 0 时不调整
+	AdjustStock(context.Context, *connect.Request[v1.AdjustStockRequest]) (*connect.Response[v1.AdjustStockResponse], error)
 	// 返回一个 SKU 的可售数量和已预留数量
 	GetStock(context.Context, *connect.Request[v1.GetStockRequest]) (*connect.Response[v1.GetStockResponse], error)
 	// 返回指定的多个 SKU 的库存,按 SKU 排序。没有记录的 SKU 不出现在结果里
@@ -110,6 +129,12 @@ type InventoryServiceHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewInventoryServiceHandler(svc InventoryServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
 	inventoryServiceMethods := v1.File_inventory_inventory_v1_inventory_proto.Services().ByName("InventoryService").Methods()
+	inventoryServiceAdjustStockHandler := connect.NewUnaryHandler(
+		InventoryServiceAdjustStockProcedure,
+		svc.AdjustStock,
+		connect.WithSchema(inventoryServiceMethods.ByName("AdjustStock")),
+		connect.WithHandlerOptions(opts...),
+	)
 	inventoryServiceGetStockHandler := connect.NewUnaryHandler(
 		InventoryServiceGetStockProcedure,
 		svc.GetStock,
@@ -124,6 +149,8 @@ func NewInventoryServiceHandler(svc InventoryServiceHandler, opts ...connect.Han
 	)
 	return "/inventory.inventory.v1.InventoryService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case InventoryServiceAdjustStockProcedure:
+			inventoryServiceAdjustStockHandler.ServeHTTP(w, r)
 		case InventoryServiceGetStockProcedure:
 			inventoryServiceGetStockHandler.ServeHTTP(w, r)
 		case InventoryServiceListStockBySkusProcedure:
@@ -136,6 +163,10 @@ func NewInventoryServiceHandler(svc InventoryServiceHandler, opts ...connect.Han
 
 // UnimplementedInventoryServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedInventoryServiceHandler struct{}
+
+func (UnimplementedInventoryServiceHandler) AdjustStock(context.Context, *connect.Request[v1.AdjustStockRequest]) (*connect.Response[v1.AdjustStockResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("inventory.inventory.v1.InventoryService.AdjustStock is not implemented"))
+}
 
 func (UnimplementedInventoryServiceHandler) GetStock(context.Context, *connect.Request[v1.GetStockRequest]) (*connect.Response[v1.GetStockResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("inventory.inventory.v1.InventoryService.GetStock is not implemented"))

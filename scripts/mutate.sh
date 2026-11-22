@@ -185,5 +185,22 @@ run "命令: 返回更新前的行(旧的版本号)"           $UJ 's/Version:(\
 run "命令: 更新漏写一列(enabled)"                $UJ 's/\n\s+\{Name: "enabled", Value: m\.GetEnabled\(\)\},//'
 run "命令: 可选的输入不传时写成空值(不是默认值)" $CJ 's/if v := m\.JobType; v != nil \{\n(\s+)values = append\(values, txn\.Col\{Name: "job_type", Value: \*v\}\)\n\s+\}/values = append(values, txn.Col{Name: "job_type", Value: m.GetJobType()})/'
 run "命令: 删除的键写错"                         $DJ 's/\{Name: "id", Value: m\.GetJobId\(\)\}/{Name: "id", Value: m.GetJobId() + 1}/'
+# 命令工厂(R3-2): 组合命令 / 条件更新 / 幂等新建。状态差分 + 故障注入 + 并发 + 重放(factory/accept/command_prog.go)
+CQ=internal/handler/runs/consume_job_quota_gen.go
+SR=internal/handler/runs/start_job_run_gen.go
+SQ=internal/handler/runs/submit_job_request_gen.go
+RE=internal/handler/runs/commands_gen.go
+run "条件更新: 去掉条件(扣成负数)"               $CQ 's/\n\s+Cond:\s+txn\.Cmp\(">=", txn\.C\("remaining"\), txn\.V\(m\.GetCount\(\)\)\),//'
+run "条件更新: >= 写成 >(边界)"                 $CQ 's/txn\.Cmp\(">=", txn\.C\("remaining"\)/txn.Cmp(">", txn.C("remaining")/'
+run "条件更新: 业务原因码写错"                   $CQ 's/Unmet:(\s+)"QUOTA_EXHAUSTED"/Unmet:${1}"QUOTA_EMPTY"/'
+run "条件更新: 设置成请求的值(不是减去)"          $CQ 's/Expr: txn\.Sub\(txn\.C\("remaining"\), txn\.V\(m\.GetCount\(\)\)\)/Expr: txn.V(m.GetCount())/'
+run "条件更新: 条件不满足的错误码写错(→ ABORTED)" $RE 's/(case txn\.Unmet:[^\n]*\n\s+ce := connect\.NewError\()connect\.CodeFailedPrecondition/${1}connect.CodeAborted/'
+run "条件更新: 条件和设置不一致(扣 1 检查 >= 0)"  $SR 's/txn\.Cmp\(">=", txn\.C\("remaining"\), txn\.V\(int32\(1\)\)\)/txn.Cmp(">=", txn.C("remaining"), txn.V(int32(0)))/'
+run "组合命令: 事务提前提交(拆成两个事务)"        $SR 's/\n(\t+)\},\n(\t+)txn\.Op\{ \/\/ 执行/\n${1}}); err != nil {\n\t\treturn nil, writeError(err)\n\t}\n\tif err := h.tx.Run(ctx,\n${2}txn.Op{ \/\/ 执行/'
+run "组合命令: 引用了错误的返回值(日志指向别的执行)" $SR 's/return r2\.Id \}\)/return r2.Id + 1 })/'
+run "组合命令: 输出取错操作的值"                 $SR 's/LogId:(\s+)r3\.Id,/LogId:${1}r2.Id,/'
+run "幂等新建: 冲突改成报错(去掉 ON CONFLICT)"    $SQ 's/\n\s+Conflict:\s+\[\]string\{"request_id"\},//'
+run "幂等新建: 新建的标志反了"                   $SQ 's/Created:(\s+)created1,/Created:${1}!created1,/'
+run "幂等新建: 命中时返回请求的值(不是已有的行)"   $SQ 's/JobType:(\s+)r1\.JobType,/JobType:${1}m.GetJobType(),/'
 [[ -n ${PLAN:-} ]] && exit 0
 go build -o bin/server ./cmd/server; git status --short

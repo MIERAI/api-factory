@@ -1,0 +1,70 @@
+# ============================================================================
+# ConsumeJobQuota: 扣任务类型的执行额度(命令: 组合命令,一个条件更新)
+# ============================================================================
+API: ConsumeJobQuota
+说明: 扣一个任务类型的执行额度(次数)。剩下的额度不够时不扣,返回额度不足
+背景: 批量提交任务的一方先按件数扣额度,扣成功了才提交。额度不能变成负数,两个提交方同时扣同一个任务类型时也不能超额
+负责人: platform-team
+风险: 中
+
+种类: 组合命令
+
+输入:
+  job_type: { 类型: 文本,   必填: 是, 长度: 1~64, 说明: 任务类型 }
+  count:    { 类型: 整数32, 必填: 是, 范围: 1~1000, 说明: 要扣的次数 }
+
+操作:
+  - 扣减:
+      更新: job_quotas
+      键: { job_type: 输入.job_type }
+      设置: { remaining: "remaining - 输入.count", updated_at: 现在 }
+      条件: "remaining >= 输入.count"
+      不满足: QUOTA_EXHAUSTED
+      找不到时: "job quota not found: {job_type}"
+
+输出:                             # 扣了之后
+  job_type:   { 说明: 任务类型, 来自: 扣减.job_type }
+  remaining:  { 说明: 扣了之后剩下的额度, 来自: 扣减.remaining }
+  updated_at: { 说明: 最后更新时间(= 请求的时刻), 来自: 扣减.updated_at }
+
+业务规则:
+  - 情况: 剩下的额度比要扣的少
+    结果: 额度不足(FAILED_PRECONDITION,原因码 QUOTA_EXHAUSTED),什么都不扣(不会扣成 0 之后再报错)
+  - 情况: 剩下的额度正好等于要扣的
+    结果: 扣成 0
+  - 情况: 没有这个任务类型的额度
+    结果: 找不到(NOT_FOUND)。额度由运维登记,这个 API 不新建
+
+例子:
+  现在: "2026-11-22 10:00"
+  准备数据:
+    job_quotas:
+      - { job_type: export, remaining: 5, updated_at: "2026-11-01 09:00" }
+      - { job_type: import, remaining: 0, updated_at: "2026-11-02 09:00" }
+  用例:
+    - 说明: 额度够 → 扣,更新时间 = 请求的时刻
+      输入: { job_type: export, count: 3 }
+      结果: { job_type: export, remaining: 2, updated_at: "2026-11-22 10:00" }
+      之后:
+        job_quotas:
+          - { job_type: export, remaining: 2, updated_at: "2026-11-22 10:00" }
+          - { job_type: import, remaining: 0, updated_at: "2026-11-02 09:00" }
+    - 说明: 正好用完 → 扣成 0
+      输入: { job_type: export, count: 5 }
+      结果: { remaining: 0 }
+      之后:
+        job_quotas:
+          - { job_type: export, remaining: 0 }
+          - { job_type: import, remaining: 0 }
+    - 说明: 额度不够 → 额度不足,什么都不扣
+      输入: { job_type: export, count: 6 }
+      错误: QUOTA_EXHAUSTED
+      之后: 不变
+    - 说明: 额度已经是 0 → 额度不足
+      输入: { job_type: import, count: 1 }
+      错误: QUOTA_EXHAUSTED
+      之后: 不变
+    - 说明: 没有登记额度的任务类型 → 找不到
+      输入: { job_type: report, count: 1 }
+      错误: 找不到
+      之后: 不变

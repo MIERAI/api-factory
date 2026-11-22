@@ -10,6 +10,7 @@ import (
 	"apifactory/gen/factory/jobs/v1/jobsv1connect"
 	"apifactory/gen/factory/logistics/v1/logisticsv1connect"
 	"apifactory/gen/factory/receipts/v1/receiptsv1connect"
+	"apifactory/gen/factory/runs/v1/runsv1connect"
 	"apifactory/gen/factory/sales/v1/salesv1connect"
 	"apifactory/gen/factory/schedules/v1/schedulesv1connect"
 	"apifactory/gen/factory/shop/v1/shopv1connect"
@@ -17,6 +18,7 @@ import (
 	jobshandler "apifactory/internal/handler/jobs"
 	logisticshandler "apifactory/internal/handler/logistics"
 	receiptshandler "apifactory/internal/handler/receipts"
+	runshandler "apifactory/internal/handler/runs"
 	saleshandler "apifactory/internal/handler/sales"
 	scheduleshandler "apifactory/internal/handler/schedules"
 	shophandler "apifactory/internal/handler/shop"
@@ -42,6 +44,10 @@ func services(deps server.Deps, opts ...connect.HandlerOption) []server.Service 
 	}
 	{
 		path, h := receiptsv1connect.NewReceiptServiceHandler(receiptshandler.New(q, deps.Pager, deps.Shards), opts...)
+		out = append(out, server.Service{Path: path, Handler: h})
+	}
+	{
+		path, h := runsv1connect.NewRunServiceHandler(runshandler.New(q, deps.Pager, deps.Shards, tx), opts...)
 		out = append(out, server.Service{Path: path, Handler: h})
 	}
 	{

@@ -23,4 +23,18 @@ entities:
         policy: mutable
         columns: {}
         invariants: []
+    stock_adjustments:
+        natural_key:
+            - id
+        policy: mutable
+        columns:
+            reason:
+                enum:
+                    proto: inventory.inventory.v1.AdjustmentReason
+                    values:
+                        1: ADJUSTMENT_REASON_RECEIVED
+                        2: ADJUSTMENT_REASON_STOCKTAKE
+                        3: ADJUSTMENT_REASON_DAMAGED
+                on_unknown: unspecified
+        invariants: []
 review_decisions: []

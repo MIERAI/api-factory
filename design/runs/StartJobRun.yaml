@@ -1,0 +1,77 @@
+# ============================================================================
+# StartJobRun: 开始一次任务的执行(命令: 组合命令 = 扣额度 + 执行记录 + 第一条日志,一个事务)
+# ============================================================================
+API: StartJobRun
+说明: 开始一次任务的执行。扣一次这个任务类型的额度,新建执行记录(执行中),写第一条日志。三件事一起成功或者一起不做
+背景: 执行方领到任务后调用。额度用完了就不能开始;执行记录的 id 由数据库生成,日志要指向这次执行。中途失败时不能留下"扣了额度却没有执行记录"或者"有执行记录没有日志"
+负责人: platform-team
+风险: 中
+
+种类: 组合命令
+
+输入:
+  job_type: { 类型: 文本, 必填: 是, 长度: 1~64,  说明: 任务类型 }
+  message:  { 类型: 文本, 必填: 是, 长度: 1~200, 说明: 第一条日志的内容 }
+
+操作:
+  - 额度:
+      更新: job_quotas
+      键: { job_type: 输入.job_type }
+      设置: { remaining: "remaining - 1", updated_at: 现在 }
+      条件: "remaining >= 1"
+      不满足: QUOTA_EXHAUSTED
+      找不到时: "job quota not found: {job_type}"
+  - 执行:
+      新建: job_runs
+      值: { job_type: 额度.job_type, status: RUNNING, started_at: 现在 }
+  - 日志:
+      新建: job_run_logs
+      值: { run_id: 执行.id, message: 输入.message, logged_at: 现在 }
+
+输出:
+  run_id:     { 说明: 执行 id(数据库生成), 来自: 执行.id }
+  status:     { 说明: 执行的状态(= RUNNING), 来自: 执行.status }
+  started_at: { 说明: 开始时间(= 请求的时刻), 来自: 执行.started_at }
+  remaining:  { 说明: 扣了之后剩下的额度, 来自: 额度.remaining }
+  log_id:     { 说明: 第一条日志的 id(数据库生成), 来自: 日志.id }
+
+业务规则:
+  - 情况: 剩下的额度是 0
+    结果: 额度不足(FAILED_PRECONDITION,原因码 QUOTA_EXHAUSTED),不新建执行记录、不写日志
+  - 情况: 没有这个任务类型的额度
+    结果: 找不到(NOT_FOUND),什么都不写
+  - 情况: 三件事中的任何一件失败(包括数据库的错误)
+    结果: 全部不做(一个事务)
+
+例子:
+  现在: "2026-11-22 10:00"
+  准备数据:
+    job_quotas:
+      - { job_type: export, remaining: 2, updated_at: "2026-11-01 09:00" }
+      - { job_type: import, remaining: 0, updated_at: "2026-11-02 09:00" }
+    job_runs:
+      - { id: 7, job_type: export, status: DONE, started_at: "2026-11-01 09:00" }
+    job_run_logs:
+      - { id: 20, run_id: 7, message: started, logged_at: "2026-11-01 09:00" }
+  用例:
+    - 说明: 有额度 → 扣一次,新建执行记录(数据库生成 id = 8),日志指向它
+      输入: { job_type: export, message: "worker-1 started" }
+      结果: { run_id: 8, status: RUNNING, started_at: "2026-11-22 10:00", remaining: 1, log_id: 21 }
+      之后:
+        job_quotas:
+          - { job_type: export, remaining: 1, updated_at: "2026-11-22 10:00" }
+          - { job_type: import, remaining: 0 }
+        job_runs:
+          - { id: 7, status: DONE }
+          - { id: 8, job_type: export, status: RUNNING, started_at: "2026-11-22 10:00" }
+        job_run_logs:
+          - { id: 20, run_id: 7 }
+          - { id: 21, run_id: 8, message: "worker-1 started", logged_at: "2026-11-22 10:00" }
+    - 说明: 额度是 0 → 额度不足,不新建执行记录、不写日志
+      输入: { job_type: import, message: "worker-2 started" }
+      错误: QUOTA_EXHAUSTED
+      之后: 不变
+    - 说明: 没有登记额度的任务类型 → 找不到,什么都不写
+      输入: { job_type: report, message: "worker-3 started" }
+      错误: 找不到
+      之后: 不变

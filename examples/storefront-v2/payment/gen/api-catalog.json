@@ -39,5 +39,59 @@
         }
       }
     ]
+  },
+  {
+    "id": "payment.record-charge",
+    "method": "RecordCharge",
+    "summary": "记录一个订单的扣款结果。同一个订单再次记录时不再写,返回第一次的结果",
+    "path": "/payment.payment.v1.PaymentService/RecordCharge",
+    "pattern": "command",
+    "cases": [
+      {
+        "name": "新的订单 → 记录,created = true",
+        "request": {
+          "amount": "1200.50",
+          "order_id": 1002,
+          "reason": "card declined",
+          "status": "PAYMENT_STATUS_FAILED"
+        },
+        "response": {
+          "amount": "1200.50",
+          "created": true,
+          "order_id": 1002,
+          "reason": "card declined",
+          "status": "PAYMENT_STATUS_FAILED"
+        }
+      },
+      {
+        "name": "成功,不传原因 → 原因为空",
+        "request": {
+          "amount": "300",
+          "order_id": 1003,
+          "status": "PAYMENT_STATUS_SUCCEEDED"
+        },
+        "response": {
+          "amount": "300",
+          "created": true,
+          "order_id": 1003,
+          "status": "PAYMENT_STATUS_SUCCEEDED"
+        }
+      },
+      {
+        "name": "重复的请求 → 不再写,返回第一次的结果,created = false",
+        "request": {
+          "amount": "2400",
+          "order_id": 1001,
+          "status": "PAYMENT_STATUS_SUCCEEDED"
+        },
+        "response": {
+          "amount": "2400",
+          "created": false,
+          "created_at": "2026-11-21T00:00:00Z",
+          "order_id": 1001,
+          "status": "PAYMENT_STATUS_SUCCEEDED"
+        }
+      }
+    ]
   }
 ]

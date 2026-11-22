@@ -1788,6 +1788,114 @@
     ]
   },
   {
+    "id": "runs.consume-job-quota",
+    "method": "ConsumeJobQuota",
+    "summary": "扣一个任务类型的执行额度(次数)。剩下的额度不够时不扣,返回额度不足",
+    "path": "/factory.runs.v1.RunService/ConsumeJobQuota",
+    "pattern": "command",
+    "cases": [
+      {
+        "name": "额度够 → 扣,更新时间 = 请求的时刻",
+        "request": {
+          "count": 3,
+          "job_type": "export"
+        },
+        "response": {
+          "job_type": "export",
+          "remaining": 2,
+          "updated_at": "2026-11-22T01:00:00Z"
+        }
+      },
+      {
+        "name": "正好用完 → 扣成 0",
+        "request": {
+          "count": 5,
+          "job_type": "export"
+        },
+        "response": {
+          "remaining": 0
+        }
+      }
+    ]
+  },
+  {
+    "id": "runs.start-job-run",
+    "method": "StartJobRun",
+    "summary": "开始一次任务的执行。扣一次这个任务类型的额度,新建执行记录(执行中),写第一条日志。三件事一起成功或者一起不做",
+    "path": "/factory.runs.v1.RunService/StartJobRun",
+    "pattern": "command",
+    "cases": [
+      {
+        "name": "有额度 → 扣一次,新建执行记录(数据库生成 id = 8),日志指向它",
+        "request": {
+          "job_type": "export",
+          "message": "worker-1 started"
+        },
+        "response": {
+          "log_id": 21,
+          "remaining": 1,
+          "run_id": 8,
+          "started_at": "2026-11-22T01:00:00Z",
+          "status": "RUN_STATUS_RUNNING"
+        }
+      }
+    ]
+  },
+  {
+    "id": "runs.submit-job-request",
+    "method": "SubmitJobRequest",
+    "summary": "登记一个任务的执行请求。同一个请求 id 再次提交时不再登记,返回第一次登记的内容",
+    "path": "/factory.runs.v1.RunService/SubmitJobRequest",
+    "pattern": "command",
+    "cases": [
+      {
+        "name": "新的请求 id → 登记,created = true",
+        "request": {
+          "job_type": "import",
+          "priority": 3,
+          "request_id": "REQ-0002"
+        },
+        "response": {
+          "created": true,
+          "job_type": "import",
+          "priority": 3,
+          "received_at": "2026-11-22T01:00:00Z",
+          "request_id": "REQ-0002"
+        }
+      },
+      {
+        "name": "重复提交 → 不再登记,返回第一次的内容,created = false",
+        "request": {
+          "job_type": "export",
+          "priority": 5,
+          "request_id": "REQ-0001"
+        },
+        "response": {
+          "created": false,
+          "job_type": "export",
+          "priority": 5,
+          "received_at": "2026-11-21T00:00:00Z",
+          "request_id": "REQ-0001"
+        }
+      },
+      {
+        "name": "同一个请求 id、内容不同 → 仍然返回第一次的内容",
+        "request": {
+          "job_type": "import",
+          "priority": 9,
+          "request_id": "REQ-0001"
+        },
+        "response": {
+          "created": false,
+          "job_type": "export",
+          "priority": 5,
+          "received_at": "2026-11-21T00:00:00Z",
+          "request_id": "REQ-0001"
+        }
+      }
+    ]
+  },
+  {
     "id": "sales.get-daily-sales-summary",
     "method": "GetDailySalesSummary",
     "summary": "指定した売上日の売上を店舗横断で集計する(合計・値引き・純売上・値引き率・締めの状況)",

@@ -142,6 +142,15 @@ func newGenCtx(plan *ir.Plan, api *ir.API, services []service, dbp *dbPackage) (
 			g.filterCol[norm(f.Field)] = f.Column
 		}
 	}
+	if api.Command != nil { // 组合命令: 写的每张表的枚举(键 = 表.列,composite.go)
+		for _, op := range api.Command.Ops {
+			for i := range plan.Enums {
+				if e := &plan.Enums[i]; e.Table == op.Table {
+					g.enums[e.Table+"."+e.Column] = mappingFrom(e, g.pbAlias)
+				}
+			}
+		}
+	}
 	return g, svc, nil
 }
 
@@ -161,6 +170,7 @@ type service struct {
 	ConnectPath  string // apifactory/gen/factory/jobs/v1/jobsv1connect
 	HandlerPath  string // apifactory/internal/handler/jobs
 	Commands     bool   // 有命令(写入)的 API: Handler 带事务执行器,commands_gen.go
+	Unmets       bool   // 有条件更新(组合命令的 条件): writeError 多一种原因(业务原因码)
 }
 
 func serviceFor(services []service, pkg, name string) service {
@@ -173,10 +183,13 @@ func serviceFor(services []service, pkg, name string) service {
 }
 
 func servicesFrom(plan *ir.Plan) []service {
-	commands := map[string]bool{}
+	commands, unmets := map[string]bool{}, map[string]bool{}
 	for _, a := range plan.APIs {
 		if a.Command != nil {
 			commands[a.ProtoPackage+"."+a.Service] = true
+			if len(a.Command.Unmets()) > 0 {
+				unmets[a.ProtoPackage+"."+a.Service] = true
+			}
 		}
 	}
 	var out []service
@@ -191,6 +204,7 @@ func servicesFrom(plan *ir.Plan) []service {
 			ConnectPath:  modulePath + "/gen/" + strings.Join(segs, "/") + "/" + connectPkg,
 			HandlerPath:  modulePath + "/internal/handler/" + s.Domain,
 			Commands:     commands[s.ProtoPackage+"."+s.Name],
+			Unmets:       unmets[s.ProtoPackage+"."+s.Name],
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ConnectPath < out[j].ConnectPath })

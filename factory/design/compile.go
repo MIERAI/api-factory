@@ -536,7 +536,7 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 	resp := &message{Name: a.Name + "Response", Desc: a.Desc}
 	rename := map[string]string{} // 输出改名: 响应字段 → 来源的列(来自)。计算的输出由 AI 的代码决定,不能改名
 	for _, o := range a.Outputs {
-		if o.From == "" || o.From == o.Name {
+		if o.From == "" || o.From == o.Name || a.Kind == "command" { // 组合命令: 来自 = 操作名.列(composite.go)
 			continue
 		}
 		switch {
@@ -641,6 +641,8 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 	}
 	itemKey := ""
 	switch {
+	case a.Kind == "command": // 组合命令: 响应字段 ← 操作的返回值(composite.go)
+		resp.Fields = c.compositeFields(a, e)
 	case a.Exit.Rows: // 响应 = 行的列表(+ 出口另外的字段)
 		itemName := a.ItemName
 		if itemName == "" {
@@ -733,7 +735,10 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 		return nil, "", err
 	}
 	var related []string // 准备数据里没写的关联 / 嵌套 / 子聚合的表 = 空表(不能留着别的用例的数据)
-	if a.Exit.Command { // 命令写的表: 准备数据里没写 = 空表
+	switch {
+	case a.Kind == "command": // 组合命令写的表: 准备数据里没写 = 空表
+		related = append(related, compositeTables(a.Pattern.Command)...)
+	case a.Exit.Command: // 命令写的表: 准备数据里没写 = 空表
 		related = append(related, table)
 	}
 	for _, l := range lookups {

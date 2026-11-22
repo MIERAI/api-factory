@@ -54,6 +54,8 @@ type cmdEnv struct {
 	t0     time.Time
 	locked bool
 	rows0  int // 初始状态的行数
+	// wideKeys: 文本的主键的候选补零到更长(最小长度 > 7 的键;R3-2)
+	wideKeys bool
 }
 
 func runCommandDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API) []Result {
@@ -295,6 +297,16 @@ func (e *cmdEnv) keySpace(n int) [][]any {
 			out = append(out, k)
 		}
 	}
+	if len(out) < n && !e.wideKeys { // 文本的键有最小长度(例: 8~64 个字符): 序号补零到更长再试
+		e.wideKeys = true
+		defer func() { e.wideKeys = false }()
+		for _, k := range e.keySpace(n - len(out)) {
+			if key := fmt.Sprint(k...); !seen[key] {
+				seen[key] = true
+				out = append(out, k)
+			}
+		}
+	}
 	return out
 }
 
@@ -305,7 +317,7 @@ func (e *cmdEnv) keyValue(c command.Column, i, j int) any {
 		return int64(i + 1)
 	}
 	f := e.byCol[c.Name]
-	if d := constraints.DomainOf(f); d != nil {
+	if d := constraints.DomainOf(f); d != nil && !e.wideKeys {
 		if d.Expand != nil {
 			return d.Expand(i)
 		}
@@ -315,6 +327,9 @@ func (e *cmdEnv) keyValue(c command.Column, i, j int) any {
 	}
 	if p := e.pools[c.Name]; i < len(p) && e.plan.Enum(e.t.Name, c.Name) != nil {
 		return p[i]
+	}
+	if e.wideKeys {
+		return fmt.Sprintf("%s-%08d", strings.ToUpper(c.Name[:min(3, len(c.Name))]), i+1)
 	}
 	return fmt.Sprintf("%s-%03d", strings.ToUpper(c.Name[:min(3, len(c.Name))]), i+1)
 }

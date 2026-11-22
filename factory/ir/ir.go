@@ -175,6 +175,81 @@ type Command struct {
 	Set       []CommandSet `json:"set,omitempty"`   // 列 ← 固定值 / 请求开始的时刻
 	Returning []Column     `json:"returning"`       // 响应的字段 = 这些列(写之后的行)
 	NotFound  string       `json:"not_found,omitempty"`
+	// 组合命令(R3-2,Op = command): 按顺序执行的写操作 + 响应字段的来源。上面的单个操作的字段不用
+	Ops     []CommandOp  `json:"ops,omitempty"`
+	Outputs []CommandOut `json:"outputs,omitempty"`
+}
+
+// Unmets: 组合命令里声明的业务原因码(条件不成立时)。
+func (c *Command) Unmets() []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, op := range c.Ops {
+		if op.Unmet != "" && !seen[op.Unmet] {
+			seen[op.Unmet] = true
+			out = append(out, op.Unmet)
+		}
+	}
+	return out
+}
+
+// CommandOp: 组合命令(R3-2)的一个写操作。语义(factory/command 的模型状态、运行时 txn、生成的代码一致):
+//   - insert: INSERT 值 RETURNING …
+//   - insert_idempotent: INSERT 值 ON CONFLICT (幂等键) DO NOTHING;冲突 → 读出已有的行(不写),新建 = false
+//   - update: UPDATE SET 值 [, 版本 + 1] WHERE 主键 [AND 版本 = 输入] [AND 条件] RETURNING …;
+//     没有碰到行 → 不存在 → NOT_FOUND / 版本不一致 → ABORTED / 条件不成立 → FAILED_PRECONDITION + Unmet
+//   - delete: DELETE WHERE 主键 [AND 版本 = 输入] RETURNING …
+//
+// 任何一个操作失败 → 整个事务回滚,返回那个操作的错误。后面的操作可以引用前面操作的返回值(ref)。
+type CommandOp struct {
+	Name      string       `json:"name"`
+	Kind      string       `json:"kind"`
+	Table     string       `json:"table"`
+	Key       []CommandVal `json:"key,omitempty"`
+	Values    []CommandVal `json:"values,omitempty"`
+	Lock      *CommandVal  `json:"lock,omitempty"`
+	Conflict  []string     `json:"conflict,omitempty"`
+	Cond      *CmdExpr     `json:"cond,omitempty"`
+	Unmet     string       `json:"unmet,omitempty"`
+	NotFound  string       `json:"not_found,omitempty"`
+	Returning []Column     `json:"returning,omitempty"` // 后面的操作 / 输出要用的列(没有 = RETURNING 1)
+	Created   bool         `json:"created,omitempty"`   // 输出要用 是否新建(insert_idempotent)
+}
+
+// CommandVal: 列 ← 表达式(Type / NotNull = 列的)。
+type CommandVal struct {
+	Column  string   `json:"column"`
+	Type    string   `json:"type"`
+	NotNull bool     `json:"not_null,omitempty"`
+	Expr    *CmdExpr `json:"expr"`
+}
+
+// CmdExpr: 组合命令的表达式(值 / 条件)。Op:
+//   - input: 请求字段 Name;ref: 操作 Ref 的返回值的列 Name;col: 这一行(update 的对象)的列 Name(更新之前的值)
+//   - const: 字面值 Value(数字 / 文本 / true / false;枚举 = 数据库值);now: 请求开始的时刻
+//   - "+" / "-": 加减;"=" / "<>" / "<" / "<=" / ">" / ">=": 比较(空 → 不成立);and: 全部成立
+//
+// Type: 这个值的 SQL 类型(input / const 跟着运算 / 比较的另一边或写入的列;枚举的输入 Column = 映射用的列)。
+type CmdExpr struct {
+	Op     string     `json:"op"`
+	Name   string     `json:"name,omitempty"`
+	Ref    string     `json:"ref,omitempty"`
+	Value  string     `json:"value,omitempty"`
+	Type   string     `json:"type,omitempty"`
+	Table  string     `json:"table,omitempty"`  // input 是枚举时: 映射用的表.列
+	Column string     `json:"column,omitempty"` //
+	Args   []*CmdExpr `json:"args,omitempty"`
+}
+
+// CommandOut: 组合命令的响应字段 ← 操作的返回值(Column)或 是否新建(Created)。
+type CommandOut struct {
+	Field   string `json:"field"`
+	Op      string `json:"op"`
+	Table   string `json:"table"`
+	Column  string `json:"column,omitempty"`
+	Type    string `json:"type,omitempty"`
+	NotNull bool   `json:"not_null,omitempty"`
+	Created bool   `json:"created,omitempty"`
 }
 
 // CommandCol: 请求字段 → 列(Type = 列的 SQL 类型)。
@@ -200,6 +275,32 @@ func (c *Command) UsesNow() bool {
 	}
 	for _, s := range c.Set {
 		if s.Now {
+			return true
+		}
+	}
+	for _, op := range c.Ops {
+		for _, v := range append(append([]CommandVal{}, op.Key...), op.Values...) {
+			if v.Expr.UsesNow() {
+				return true
+			}
+		}
+		if op.Cond.UsesNow() {
+			return true
+		}
+	}
+	return false
+}
+
+// UsesNow: 表达式里有 now。
+func (x *CmdExpr) UsesNow() bool {
+	if x == nil {
+		return false
+	}
+	if x.Op == "now" {
+		return true
+	}
+	for _, a := range x.Args {
+		if a.UsesNow() {
 			return true
 		}
 	}

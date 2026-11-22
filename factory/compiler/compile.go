@@ -188,58 +188,59 @@ func Compile(specs []*spec.Spec) (*ir.Plan, error) {
 	// 领域层的 enum(和 proto 的一致性在这里检查)
 	seen := map[string]bool{}
 	for _, s := range specs {
-		table := s.Datasource.Table
-		if table == "" || s.Domain == nil {
-			continue
-		}
-		e, ok := s.Domain.Entities[table]
-		if !ok {
-			continue
-		}
-		if e.ShardBy != "" && !seen["shard:"+table] {
-			seen["shard:"+table] = true
-			plan.Shards = append(plan.Shards, ir.Shard{Table: table, Column: e.ShardBy})
-		}
-		var related []string // 关联 / 嵌套 / 子聚合的分库的表(验收把数据写进分库键对应的库)
-		for _, l := range s.Datasource.Lookups {
-			related = append(related, l.Table)
-		}
-		for _, n := range s.Datasource.Nests {
-			related = append(related, n.Table)
-		}
-		for _, a := range s.Datasource.ChildAggs {
-			related = append(related, a.Table)
-		}
-		for _, t := range related {
-			if le := s.Domain.Entities[t]; le.ShardBy != "" && !seen["shard:"+t] {
-				seen["shard:"+t] = true
-				plan.Shards = append(plan.Shards, ir.Shard{Table: t, Column: le.ShardBy})
-			}
-			if le := s.Domain.Entities[t]; le.Storage != nil && !seen["storage:"+t] { // 关联 / 子表是逻辑表: 验收要按来源写物理表
-				seen["storage:"+t] = true
-				plan.Storages = append(plan.Storages, storageIR(t, le.NaturalKey, le.Storage))
-			}
-		}
-		if st := e.Storage; st != nil && !seen["storage:"+table] {
-			seen["storage:"+table] = true
-			plan.Storages = append(plan.Storages, storageIR(table, e.NaturalKey, st))
-		}
-		cols := make([]string, 0, len(e.Columns))
-		for c := range e.Columns {
-			cols = append(cols, c)
-		}
-		sort.Strings(cols)
-		for _, col := range cols {
-			if e.Columns[col].Enum == nil || seen[table+"."+col] {
+		for _, table := range specTables(s) {
+			if table == "" || s.Domain == nil {
 				continue
 			}
-			p, _ := s.RPCParts()
-			en, err := resolveEnum(s.Domain, table, col, files, cat, p.ProtoPackage)
-			if err != nil {
-				return nil, fmt.Errorf("%s: %w", s.Path, err)
+			e, ok := s.Domain.Entities[table]
+			if !ok {
+				continue
 			}
-			seen[table+"."+col] = true
-			plan.Enums = append(plan.Enums, *en)
+			if e.ShardBy != "" && !seen["shard:"+table] {
+				seen["shard:"+table] = true
+				plan.Shards = append(plan.Shards, ir.Shard{Table: table, Column: e.ShardBy})
+			}
+			var related []string // 关联 / 嵌套 / 子聚合的分库的表(验收把数据写进分库键对应的库)
+			for _, l := range s.Datasource.Lookups {
+				related = append(related, l.Table)
+			}
+			for _, n := range s.Datasource.Nests {
+				related = append(related, n.Table)
+			}
+			for _, a := range s.Datasource.ChildAggs {
+				related = append(related, a.Table)
+			}
+			for _, t := range related {
+				if le := s.Domain.Entities[t]; le.ShardBy != "" && !seen["shard:"+t] {
+					seen["shard:"+t] = true
+					plan.Shards = append(plan.Shards, ir.Shard{Table: t, Column: le.ShardBy})
+				}
+				if le := s.Domain.Entities[t]; le.Storage != nil && !seen["storage:"+t] { // 关联 / 子表是逻辑表: 验收要按来源写物理表
+					seen["storage:"+t] = true
+					plan.Storages = append(plan.Storages, storageIR(t, le.NaturalKey, le.Storage))
+				}
+			}
+			if st := e.Storage; st != nil && !seen["storage:"+table] {
+				seen["storage:"+table] = true
+				plan.Storages = append(plan.Storages, storageIR(table, e.NaturalKey, st))
+			}
+			cols := make([]string, 0, len(e.Columns))
+			for c := range e.Columns {
+				cols = append(cols, c)
+			}
+			sort.Strings(cols)
+			for _, col := range cols {
+				if e.Columns[col].Enum == nil || seen[table+"."+col] {
+					continue
+				}
+				p, _ := s.RPCParts()
+				en, err := resolveEnum(s.Domain, table, col, files, cat, p.ProtoPackage)
+				if err != nil {
+					return nil, fmt.Errorf("%s: %w", s.Path, err)
+				}
+				seen[table+"."+col] = true
+				plan.Enums = append(plan.Enums, *en)
+			}
 		}
 	}
 
@@ -249,6 +250,22 @@ func Compile(specs []*spec.Spec) (*ir.Plan, error) {
 }
 
 // Write: 最终的 SQL → db/queries,IR → path。
+// specTables: 式样书用到的表(数据来源;组合命令 = 操作写的表)。
+func specTables(s *spec.Spec) []string {
+	if c := s.Pattern.Command; c != nil && len(c.Ops) > 0 {
+		var out []string
+		seen := map[string]bool{}
+		for _, op := range c.Ops {
+			if !seen[op.Table] {
+				seen[op.Table] = true
+				out = append(out, op.Table)
+			}
+		}
+		return out
+	}
+	return []string{s.Datasource.Table}
+}
+
 func Write(plan *ir.Plan, path string) error {
 	old, _ := filepath.Glob(filepath.Join(queriesDir, "*.sql"))
 	for _, f := range old {

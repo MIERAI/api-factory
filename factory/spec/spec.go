@@ -81,12 +81,47 @@ type Pattern struct {
 //   - Lock: 乐观锁的版本列 ← 请求字段(update / delete;WHERE 版本 = 请求的值,update 时版本 + 1)
 //   - Set: 不来自请求的值(固定值 / now() = 请求开始的时刻)
 //
-// R3-2 的扩展点: Cond(条件更新)、Idempotent(幂等新建)、Ops(组合命令: 多个写操作)加在这里。
+// 组合命令(R3-2,种类 command): Ops = 按顺序执行的写操作(一个事务),Output = 响应字段 ← 操作的返回值。
+// 条件更新、幂等新建是 Ops 里的操作(update + Cond、insert_idempotent)。
 type Command struct {
 	Key   []Binding `yaml:"key,omitempty"`
 	Write []Binding `yaml:"write,omitempty"`
 	Lock  *Binding  `yaml:"lock,omitempty"`
 	Set   []SetCol  `yaml:"set,omitempty"`
+
+	Ops    []CommandOp  `yaml:"ops,omitempty"`
+	Output []OutputFrom `yaml:"output,omitempty"`
+	// R4 的扩展点(docs/design/r4-events-messages.md §5): Each(每项: 对列表输入的每个元素执行 Ops)加在这里,
+	// 每个操作的 Only(仅当: 前一个幂等新建的 新建 标志)加在 CommandOp;可重入的检查(E8)看 Ops 的种类
+}
+
+// CommandOp: 组合命令的一个写操作。表达式(Expr / Cond)是设计稿的写法规范化之后的文本
+// (factory/command 的 ParseExpr: 输入.x / 操作名.列 / 列 / 数字 / '文本' / now() / + - / 比较 / 并且;枚举已换成数据库值)。
+type CommandOp struct {
+	Name     string    `yaml:"name"`                // 设计稿里的名字(后面的操作 / 输出用它引用这个操作的返回值)
+	Kind     string    `yaml:"kind"`                // insert / insert_idempotent / update / delete
+	Table    string    `yaml:"table"`               //
+	Key      []ColExpr `yaml:"key,omitempty"`       // update / delete: 主键的列 ← 值(正好是表的主键)
+	Values   []ColExpr `yaml:"values,omitempty"`    // insert: 插入的值;update: SET
+	Lock     *ColExpr  `yaml:"lock,omitempty"`      // update / delete: 乐观锁的版本列 ← 输入(update 时版本 + 1)
+	Conflict []string  `yaml:"conflict,omitempty"`  // insert_idempotent: 幂等键(表的主键或唯一约束的列)
+	Cond     string    `yaml:"cond,omitempty"`      // update: 条件(不成立 → FAILED_PRECONDITION + Unmet)
+	Unmet    string    `yaml:"unmet,omitempty"`     // 条件不成立时的业务原因码(例: INSUFFICIENT_STOCK)
+	NotFound string    `yaml:"not_found,omitempty"` // update / delete: 行不存在时的消息
+}
+
+// ColExpr: 列 ← 表达式。
+type ColExpr struct {
+	Column string `yaml:"column"`
+	Expr   string `yaml:"expr"`
+}
+
+// OutputFrom: 响应字段 ← 操作的返回值(Column = 那个操作的表的列;Created = 幂等新建的 是否新建)。
+type OutputFrom struct {
+	Field   string `yaml:"field"`
+	Op      string `yaml:"op"`
+	Column  string `yaml:"column,omitempty"`
+	Created bool   `yaml:"created,omitempty"`
 }
 
 // Binding: 请求字段 → 列。
@@ -111,6 +146,16 @@ func (c *Command) UsesNow() bool {
 	}
 	for _, s := range c.Set {
 		if s.Value == NowValue {
+			return true
+		}
+	}
+	for _, op := range c.Ops {
+		for _, x := range append(append([]ColExpr{}, op.Key...), op.Values...) {
+			if strings.Contains(x.Expr, NowValue) {
+				return true
+			}
+		}
+		if strings.Contains(op.Cond, NowValue) {
 			return true
 		}
 	}
@@ -471,7 +516,7 @@ func (s *Spec) Check() []string {
 	switch {
 	case ds.SQL != "" && declarative:
 		add("datasource: filters/columns are for the declarative form; with sql, write the conditions in sql (table is allowed as metadata)")
-	case ds.SQL == "" && ds.Table == "":
+	case ds.SQL == "" && ds.Table == "" && !(s.Pattern.Command != nil && len(s.Pattern.Command.Ops) > 0): // 组合命令: 操作写自己的表
 		add("datasource: table (declarative) or sql (escape hatch) is required")
 	}
 	if ds.SQL != "" && writeSQL.MatchString(ds.SQL) {

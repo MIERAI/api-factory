@@ -11,3 +11,15 @@
     PaymentStatus:
         PAYMENT_STATUS_FAILED: 2
         PAYMENT_STATUS_SUCCEEDED: 1
+    RecordChargeRequest:
+        amount: 2
+        order_id: 1
+        reason: 4
+        status: 3
+    RecordChargeResponse:
+        amount: 2
+        created: 6
+        created_at: 5
+        order_id: 1
+        reason: 4
+        status: 3

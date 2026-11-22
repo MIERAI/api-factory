@@ -39,12 +39,17 @@ const (
 	// PaymentServiceGetPaymentByOrderProcedure is the fully-qualified name of the PaymentService's
 	// GetPaymentByOrder RPC.
 	PaymentServiceGetPaymentByOrderProcedure = "/payment.payment.v1.PaymentService/GetPaymentByOrder"
+	// PaymentServiceRecordChargeProcedure is the fully-qualified name of the PaymentService's
+	// RecordCharge RPC.
+	PaymentServiceRecordChargeProcedure = "/payment.payment.v1.PaymentService/RecordCharge"
 )
 
 // PaymentServiceClient is a client for the payment.payment.v1.PaymentService service.
 type PaymentServiceClient interface {
 	// 返回某个订单的支付结果
 	GetPaymentByOrder(context.Context, *connect.Request[v1.GetPaymentByOrderRequest]) (*connect.Response[v1.GetPaymentByOrderResponse], error)
+	// 记录一个订单的扣款结果。同一个订单再次记录时不再写,返回第一次的结果
+	RecordCharge(context.Context, *connect.Request[v1.RecordChargeRequest]) (*connect.Response[v1.RecordChargeResponse], error)
 }
 
 // NewPaymentServiceClient constructs a client for the payment.payment.v1.PaymentService service. By
@@ -64,12 +69,19 @@ func NewPaymentServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(paymentServiceMethods.ByName("GetPaymentByOrder")),
 			connect.WithClientOptions(opts...),
 		),
+		recordCharge: connect.NewClient[v1.RecordChargeRequest, v1.RecordChargeResponse](
+			httpClient,
+			baseURL+PaymentServiceRecordChargeProcedure,
+			connect.WithSchema(paymentServiceMethods.ByName("RecordCharge")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // paymentServiceClient implements PaymentServiceClient.
 type paymentServiceClient struct {
 	getPaymentByOrder *connect.Client[v1.GetPaymentByOrderRequest, v1.GetPaymentByOrderResponse]
+	recordCharge      *connect.Client[v1.RecordChargeRequest, v1.RecordChargeResponse]
 }
 
 // GetPaymentByOrder calls payment.payment.v1.PaymentService.GetPaymentByOrder.
@@ -77,10 +89,17 @@ func (c *paymentServiceClient) GetPaymentByOrder(ctx context.Context, req *conne
 	return c.getPaymentByOrder.CallUnary(ctx, req)
 }
 
+// RecordCharge calls payment.payment.v1.PaymentService.RecordCharge.
+func (c *paymentServiceClient) RecordCharge(ctx context.Context, req *connect.Request[v1.RecordChargeRequest]) (*connect.Response[v1.RecordChargeResponse], error) {
+	return c.recordCharge.CallUnary(ctx, req)
+}
+
 // PaymentServiceHandler is an implementation of the payment.payment.v1.PaymentService service.
 type PaymentServiceHandler interface {
 	// 返回某个订单的支付结果
 	GetPaymentByOrder(context.Context, *connect.Request[v1.GetPaymentByOrderRequest]) (*connect.Response[v1.GetPaymentByOrderResponse], error)
+	// 记录一个订单的扣款结果。同一个订单再次记录时不再写,返回第一次的结果
+	RecordCharge(context.Context, *connect.Request[v1.RecordChargeRequest]) (*connect.Response[v1.RecordChargeResponse], error)
 }
 
 // NewPaymentServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -96,10 +115,18 @@ func NewPaymentServiceHandler(svc PaymentServiceHandler, opts ...connect.Handler
 		connect.WithSchema(paymentServiceMethods.ByName("GetPaymentByOrder")),
 		connect.WithHandlerOptions(opts...),
 	)
+	paymentServiceRecordChargeHandler := connect.NewUnaryHandler(
+		PaymentServiceRecordChargeProcedure,
+		svc.RecordCharge,
+		connect.WithSchema(paymentServiceMethods.ByName("RecordCharge")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/payment.payment.v1.PaymentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case PaymentServiceGetPaymentByOrderProcedure:
 			paymentServiceGetPaymentByOrderHandler.ServeHTTP(w, r)
+		case PaymentServiceRecordChargeProcedure:
+			paymentServiceRecordChargeHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -111,4 +138,8 @@ type UnimplementedPaymentServiceHandler struct{}
 
 func (UnimplementedPaymentServiceHandler) GetPaymentByOrder(context.Context, *connect.Request[v1.GetPaymentByOrderRequest]) (*connect.Response[v1.GetPaymentByOrderResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("payment.payment.v1.PaymentService.GetPaymentByOrder is not implemented"))
+}
+
+func (UnimplementedPaymentServiceHandler) RecordCharge(context.Context, *connect.Request[v1.RecordChargeRequest]) (*connect.Response[v1.RecordChargeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("payment.payment.v1.PaymentService.RecordCharge is not implemented"))
 }

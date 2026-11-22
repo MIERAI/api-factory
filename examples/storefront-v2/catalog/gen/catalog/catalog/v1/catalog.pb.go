@@ -716,6 +716,134 @@ func (x *ListProductsResponse) GetNextPageToken() string {
 	return ""
 }
 
+// 把一个已下架的商品重新上架(状态 → 在售)。只有已下架的商品才能上架;请求带读到的版本号,版本号不一致时不改
+type ReactivateProductRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// SKU
+	Sku string `protobuf:"bytes,1,opt,name=sku,proto3" json:"sku,omitempty"`
+	// 读到的版本号
+	Version       int32 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReactivateProductRequest) Reset() {
+	*x = ReactivateProductRequest{}
+	mi := &file_catalog_catalog_v1_catalog_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReactivateProductRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReactivateProductRequest) ProtoMessage() {}
+
+func (x *ReactivateProductRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_catalog_catalog_v1_catalog_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReactivateProductRequest.ProtoReflect.Descriptor instead.
+func (*ReactivateProductRequest) Descriptor() ([]byte, []int) {
+	return file_catalog_catalog_v1_catalog_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *ReactivateProductRequest) GetSku() string {
+	if x != nil {
+		return x.Sku
+	}
+	return ""
+}
+
+func (x *ReactivateProductRequest) GetVersion() int32 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+// 把一个已下架的商品重新上架(状态 → 在售)。只有已下架的商品才能上架;请求带读到的版本号,版本号不一致时不改
+type ReactivateProductResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// SKU
+	Sku string `protobuf:"bytes,1,opt,name=sku,proto3" json:"sku,omitempty"`
+	// 状态(= 在售)
+	Status ProductStatus `protobuf:"varint,2,opt,name=status,proto3,enum=catalog.catalog.v1.ProductStatus" json:"status,omitempty"`
+	// 版本号(更新之后 = 请求的版本号 + 1)
+	Version int32 `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
+	// 最后更新时间(= 请求的时刻)
+	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReactivateProductResponse) Reset() {
+	*x = ReactivateProductResponse{}
+	mi := &file_catalog_catalog_v1_catalog_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReactivateProductResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReactivateProductResponse) ProtoMessage() {}
+
+func (x *ReactivateProductResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_catalog_catalog_v1_catalog_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReactivateProductResponse.ProtoReflect.Descriptor instead.
+func (*ReactivateProductResponse) Descriptor() ([]byte, []int) {
+	return file_catalog_catalog_v1_catalog_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *ReactivateProductResponse) GetSku() string {
+	if x != nil {
+		return x.Sku
+	}
+	return ""
+}
+
+func (x *ReactivateProductResponse) GetStatus() ProductStatus {
+	if x != nil {
+		return x.Status
+	}
+	return ProductStatus_PRODUCT_STATUS_UNSPECIFIED
+}
+
+func (x *ReactivateProductResponse) GetVersion() int32 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *ReactivateProductResponse) GetUpdatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return nil
+}
+
 // 调整一个商品的售价。请求带读到的版本号,版本号不一致(别人先改过)时不改
 type UpdatePriceRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -731,7 +859,7 @@ type UpdatePriceRequest struct {
 
 func (x *UpdatePriceRequest) Reset() {
 	*x = UpdatePriceRequest{}
-	mi := &file_catalog_catalog_v1_catalog_proto_msgTypes[9]
+	mi := &file_catalog_catalog_v1_catalog_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -743,7 +871,7 @@ func (x *UpdatePriceRequest) String() string {
 func (*UpdatePriceRequest) ProtoMessage() {}
 
 func (x *UpdatePriceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_catalog_catalog_v1_catalog_proto_msgTypes[9]
+	mi := &file_catalog_catalog_v1_catalog_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -756,7 +884,7 @@ func (x *UpdatePriceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdatePriceRequest.ProtoReflect.Descriptor instead.
 func (*UpdatePriceRequest) Descriptor() ([]byte, []int) {
-	return file_catalog_catalog_v1_catalog_proto_rawDescGZIP(), []int{9}
+	return file_catalog_catalog_v1_catalog_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *UpdatePriceRequest) GetSku() string {
@@ -797,7 +925,7 @@ type UpdatePriceResponse struct {
 
 func (x *UpdatePriceResponse) Reset() {
 	*x = UpdatePriceResponse{}
-	mi := &file_catalog_catalog_v1_catalog_proto_msgTypes[10]
+	mi := &file_catalog_catalog_v1_catalog_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -809,7 +937,7 @@ func (x *UpdatePriceResponse) String() string {
 func (*UpdatePriceResponse) ProtoMessage() {}
 
 func (x *UpdatePriceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_catalog_catalog_v1_catalog_proto_msgTypes[10]
+	mi := &file_catalog_catalog_v1_catalog_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -822,7 +950,7 @@ func (x *UpdatePriceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdatePriceResponse.ProtoReflect.Descriptor instead.
 func (*UpdatePriceResponse) Descriptor() ([]byte, []int) {
-	return file_catalog_catalog_v1_catalog_proto_rawDescGZIP(), []int{10}
+	return file_catalog_catalog_v1_catalog_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *UpdatePriceResponse) GetSku() string {
@@ -905,7 +1033,16 @@ const file_catalog_catalog_v1_catalog_proto_rawDesc = "" +
 	"\bcategory\x18\x03 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x182R\bcategory\"w\n" +
 	"\x14ListProductsResponse\x127\n" +
 	"\bproducts\x18\x01 \x03(\v2\x1b.catalog.catalog.v1.ProductR\bproducts\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\x8e\x01\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"h\n" +
+	"\x18ReactivateProductRequest\x12)\n" +
+	"\x03sku\x18\x01 \x01(\tB\x17\xbaH\x14r\x12\x10\x03\x18 2\f^[A-Z0-9-]+$R\x03sku\x12!\n" +
+	"\aversion\x18\x02 \x01(\x05B\a\xbaH\x04\x1a\x02 \x00R\aversion\"\xbd\x01\n" +
+	"\x19ReactivateProductResponse\x12\x10\n" +
+	"\x03sku\x18\x01 \x01(\tR\x03sku\x129\n" +
+	"\x06status\x18\x02 \x01(\x0e2!.catalog.catalog.v1.ProductStatusR\x06status\x12\x18\n" +
+	"\aversion\x18\x03 \x01(\x05R\aversion\x129\n" +
+	"\n" +
+	"updated_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\x8e\x01\n" +
 	"\x12UpdatePriceRequest\x12)\n" +
 	"\x03sku\x18\x01 \x01(\tB\x17\xbaH\x14r\x12\x10\x03\x18 2\f^[A-Z0-9-]+$R\x03sku\x12*\n" +
 	"\x05price\x18\x02 \x01(\tB\x14\xbaH\x11r\x0f2\r^\\d+(\\.\\d+)?$R\x05price\x12!\n" +
@@ -919,13 +1056,14 @@ const file_catalog_catalog_v1_catalog_proto_rawDesc = "" +
 	"\rProductStatus\x12\x1e\n" +
 	"\x1aPRODUCT_STATUS_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16PRODUCT_STATUS_ON_SALE\x10\x01\x12\x1f\n" +
-	"\x1bPRODUCT_STATUS_DISCONTINUED\x10\x022\x8b\x04\n" +
+	"\x1bPRODUCT_STATUS_DISCONTINUED\x10\x022\xfd\x04\n" +
 	"\x0eCatalogService\x12d\n" +
 	"\rCreateProduct\x12(.catalog.catalog.v1.CreateProductRequest\x1a).catalog.catalog.v1.CreateProductResponse\x12s\n" +
 	"\x12DiscontinueProduct\x12-.catalog.catalog.v1.DiscontinueProductRequest\x1a..catalog.catalog.v1.DiscontinueProductResponse\x12[\n" +
 	"\n" +
 	"GetProduct\x12%.catalog.catalog.v1.GetProductRequest\x1a&.catalog.catalog.v1.GetProductResponse\x12a\n" +
-	"\fListProducts\x12'.catalog.catalog.v1.ListProductsRequest\x1a(.catalog.catalog.v1.ListProductsResponse\x12^\n" +
+	"\fListProducts\x12'.catalog.catalog.v1.ListProductsRequest\x1a(.catalog.catalog.v1.ListProductsResponse\x12p\n" +
+	"\x11ReactivateProduct\x12,.catalog.catalog.v1.ReactivateProductRequest\x1a-.catalog.catalog.v1.ReactivateProductResponse\x12^\n" +
 	"\vUpdatePrice\x12&.catalog.catalog.v1.UpdatePriceRequest\x1a'.catalog.catalog.v1.UpdatePriceResponseBPZNgithub.com/MIERAI/storefront/services/catalog/gen/catalog/catalog/v1;catalogv1b\x06proto3"
 
 var (
@@ -941,7 +1079,7 @@ func file_catalog_catalog_v1_catalog_proto_rawDescGZIP() []byte {
 }
 
 var file_catalog_catalog_v1_catalog_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_catalog_catalog_v1_catalog_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_catalog_catalog_v1_catalog_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_catalog_catalog_v1_catalog_proto_goTypes = []any{
 	(ProductStatus)(0),                 // 0: catalog.catalog.v1.ProductStatus
 	(*CreateProductRequest)(nil),       // 1: catalog.catalog.v1.CreateProductRequest
@@ -953,34 +1091,40 @@ var file_catalog_catalog_v1_catalog_proto_goTypes = []any{
 	(*Product)(nil),                    // 7: catalog.catalog.v1.Product
 	(*ListProductsRequest)(nil),        // 8: catalog.catalog.v1.ListProductsRequest
 	(*ListProductsResponse)(nil),       // 9: catalog.catalog.v1.ListProductsResponse
-	(*UpdatePriceRequest)(nil),         // 10: catalog.catalog.v1.UpdatePriceRequest
-	(*UpdatePriceResponse)(nil),        // 11: catalog.catalog.v1.UpdatePriceResponse
-	(*timestamppb.Timestamp)(nil),      // 12: google.protobuf.Timestamp
+	(*ReactivateProductRequest)(nil),   // 10: catalog.catalog.v1.ReactivateProductRequest
+	(*ReactivateProductResponse)(nil),  // 11: catalog.catalog.v1.ReactivateProductResponse
+	(*UpdatePriceRequest)(nil),         // 12: catalog.catalog.v1.UpdatePriceRequest
+	(*UpdatePriceResponse)(nil),        // 13: catalog.catalog.v1.UpdatePriceResponse
+	(*timestamppb.Timestamp)(nil),      // 14: google.protobuf.Timestamp
 }
 var file_catalog_catalog_v1_catalog_proto_depIdxs = []int32{
 	0,  // 0: catalog.catalog.v1.CreateProductResponse.status:type_name -> catalog.catalog.v1.ProductStatus
-	12, // 1: catalog.catalog.v1.CreateProductResponse.updated_at:type_name -> google.protobuf.Timestamp
+	14, // 1: catalog.catalog.v1.CreateProductResponse.updated_at:type_name -> google.protobuf.Timestamp
 	0,  // 2: catalog.catalog.v1.DiscontinueProductResponse.status:type_name -> catalog.catalog.v1.ProductStatus
-	12, // 3: catalog.catalog.v1.DiscontinueProductResponse.updated_at:type_name -> google.protobuf.Timestamp
+	14, // 3: catalog.catalog.v1.DiscontinueProductResponse.updated_at:type_name -> google.protobuf.Timestamp
 	0,  // 4: catalog.catalog.v1.GetProductResponse.status:type_name -> catalog.catalog.v1.ProductStatus
-	12, // 5: catalog.catalog.v1.GetProductResponse.updated_at:type_name -> google.protobuf.Timestamp
+	14, // 5: catalog.catalog.v1.GetProductResponse.updated_at:type_name -> google.protobuf.Timestamp
 	7,  // 6: catalog.catalog.v1.ListProductsResponse.products:type_name -> catalog.catalog.v1.Product
-	12, // 7: catalog.catalog.v1.UpdatePriceResponse.updated_at:type_name -> google.protobuf.Timestamp
-	1,  // 8: catalog.catalog.v1.CatalogService.CreateProduct:input_type -> catalog.catalog.v1.CreateProductRequest
-	3,  // 9: catalog.catalog.v1.CatalogService.DiscontinueProduct:input_type -> catalog.catalog.v1.DiscontinueProductRequest
-	5,  // 10: catalog.catalog.v1.CatalogService.GetProduct:input_type -> catalog.catalog.v1.GetProductRequest
-	8,  // 11: catalog.catalog.v1.CatalogService.ListProducts:input_type -> catalog.catalog.v1.ListProductsRequest
-	10, // 12: catalog.catalog.v1.CatalogService.UpdatePrice:input_type -> catalog.catalog.v1.UpdatePriceRequest
-	2,  // 13: catalog.catalog.v1.CatalogService.CreateProduct:output_type -> catalog.catalog.v1.CreateProductResponse
-	4,  // 14: catalog.catalog.v1.CatalogService.DiscontinueProduct:output_type -> catalog.catalog.v1.DiscontinueProductResponse
-	6,  // 15: catalog.catalog.v1.CatalogService.GetProduct:output_type -> catalog.catalog.v1.GetProductResponse
-	9,  // 16: catalog.catalog.v1.CatalogService.ListProducts:output_type -> catalog.catalog.v1.ListProductsResponse
-	11, // 17: catalog.catalog.v1.CatalogService.UpdatePrice:output_type -> catalog.catalog.v1.UpdatePriceResponse
-	13, // [13:18] is the sub-list for method output_type
-	8,  // [8:13] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	0,  // 7: catalog.catalog.v1.ReactivateProductResponse.status:type_name -> catalog.catalog.v1.ProductStatus
+	14, // 8: catalog.catalog.v1.ReactivateProductResponse.updated_at:type_name -> google.protobuf.Timestamp
+	14, // 9: catalog.catalog.v1.UpdatePriceResponse.updated_at:type_name -> google.protobuf.Timestamp
+	1,  // 10: catalog.catalog.v1.CatalogService.CreateProduct:input_type -> catalog.catalog.v1.CreateProductRequest
+	3,  // 11: catalog.catalog.v1.CatalogService.DiscontinueProduct:input_type -> catalog.catalog.v1.DiscontinueProductRequest
+	5,  // 12: catalog.catalog.v1.CatalogService.GetProduct:input_type -> catalog.catalog.v1.GetProductRequest
+	8,  // 13: catalog.catalog.v1.CatalogService.ListProducts:input_type -> catalog.catalog.v1.ListProductsRequest
+	10, // 14: catalog.catalog.v1.CatalogService.ReactivateProduct:input_type -> catalog.catalog.v1.ReactivateProductRequest
+	12, // 15: catalog.catalog.v1.CatalogService.UpdatePrice:input_type -> catalog.catalog.v1.UpdatePriceRequest
+	2,  // 16: catalog.catalog.v1.CatalogService.CreateProduct:output_type -> catalog.catalog.v1.CreateProductResponse
+	4,  // 17: catalog.catalog.v1.CatalogService.DiscontinueProduct:output_type -> catalog.catalog.v1.DiscontinueProductResponse
+	6,  // 18: catalog.catalog.v1.CatalogService.GetProduct:output_type -> catalog.catalog.v1.GetProductResponse
+	9,  // 19: catalog.catalog.v1.CatalogService.ListProducts:output_type -> catalog.catalog.v1.ListProductsResponse
+	11, // 20: catalog.catalog.v1.CatalogService.ReactivateProduct:output_type -> catalog.catalog.v1.ReactivateProductResponse
+	13, // 21: catalog.catalog.v1.CatalogService.UpdatePrice:output_type -> catalog.catalog.v1.UpdatePriceResponse
+	16, // [16:22] is the sub-list for method output_type
+	10, // [10:16] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_catalog_catalog_v1_catalog_proto_init() }
@@ -994,7 +1138,7 @@ func file_catalog_catalog_v1_catalog_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_catalog_catalog_v1_catalog_proto_rawDesc), len(file_catalog_catalog_v1_catalog_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   11,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

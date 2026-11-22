@@ -46,6 +46,14 @@
     ProductStatus:
         PRODUCT_STATUS_DISCONTINUED: 2
         PRODUCT_STATUS_ON_SALE: 1
+    ReactivateProductRequest:
+        sku: 1
+        version: 2
+    ReactivateProductResponse:
+        sku: 1
+        status: 2
+        updated_at: 4
+        version: 3
     UpdatePriceRequest:
         price: 2
         sku: 1

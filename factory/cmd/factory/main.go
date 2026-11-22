@@ -1043,9 +1043,65 @@ func cmdDoc(args []string) error {
 	return nil
 }
 
+// compositeSQL: 组合命令的等价 SQL(审查用)。输入.x = 请求的值,操作名.列 = 前面的操作的返回值,now() = 请求开始的时刻。
+func compositeSQL(c *spec.Command) string {
+	var b strings.Builder
+	b.WriteString("BEGIN;  -- READ COMMITTED,一个事务: 任何一个操作失败 → ROLLBACK,返回那个操作的错误\n")
+	for i, op := range c.Ops {
+		fmt.Fprintf(&b, "-- %d. %s\n", i+1, op.Name)
+		var sets, where []string
+		for _, v := range op.Values {
+			sets = append(sets, v.Column+" = "+v.Expr)
+		}
+		for _, k := range op.Key {
+			where = append(where, k.Column+" = "+k.Expr)
+		}
+		if op.Lock != nil {
+			where = append(where, op.Lock.Column+" = "+op.Lock.Expr)
+		}
+		switch op.Kind {
+		case "insert", "insert_idempotent":
+			var cols, vals []string
+			for _, v := range op.Values {
+				cols, vals = append(cols, v.Column), append(vals, v.Expr)
+			}
+			fmt.Fprintf(&b, "INSERT INTO %s (%s) VALUES (%s)", op.Table, strings.Join(cols, ", "), strings.Join(vals, ", "))
+			if op.Kind == "insert_idempotent" {
+				fmt.Fprintf(&b, " ON CONFLICT (%s) DO NOTHING RETURNING *;\n--    没有插入(键已经有了)→ SELECT * FROM %s WHERE %s = <同样的值>: 返回已有的行,%s.新建 = false;不写、不报错\n",
+					strings.Join(op.Conflict, ", "), op.Table, strings.Join(op.Conflict, ", "), op.Name)
+				continue
+			}
+			b.WriteString(" RETURNING *;\n")
+		case "update":
+			if op.Lock != nil {
+				sets = append(sets, op.Lock.Column+" = "+op.Lock.Column+" + 1")
+			}
+			if op.Cond != "" {
+				where = append(where, "("+op.Cond+")")
+			}
+			fmt.Fprintf(&b, "UPDATE %s SET %s WHERE %s RETURNING *;\n", op.Table, strings.Join(sets, ", "), strings.Join(where, " AND "))
+			b.WriteString("--    没有碰到行: 同一个事务里按主键再读 → 不存在 = NOT_FOUND")
+			if op.Lock != nil {
+				b.WriteString(" / 版本不一致 = ABORTED")
+			}
+			if op.Cond != "" {
+				fmt.Fprintf(&b, " / 条件不成立 = FAILED_PRECONDITION(%s)", op.Unmet)
+			}
+			b.WriteString("\n")
+		case "delete":
+			fmt.Fprintf(&b, "DELETE FROM %s WHERE %s RETURNING *;\n--    没有碰到行 → NOT_FOUND / 版本不一致 = ABORTED\n", op.Table, strings.Join(where, " AND "))
+		}
+	}
+	b.WriteString("COMMIT;")
+	return b.String()
+}
+
 // commandSQL: 命令的写操作的等价 SQL(审查用;实际由运行时 api-factory-runtime/txn 组装,值都是参数)。
 func commandSQL(s *spec.Spec) string {
 	c := s.Pattern.Command
+	if len(c.Ops) > 0 { // 组合命令: 每个操作一条,一个事务
+		return compositeSQL(c)
+	}
 	t := s.Datasource.Table
 	val := func(field string) string { return "<请求的 " + field + ">" }
 	var sets, where []string
