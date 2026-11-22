@@ -15,8 +15,9 @@ import (
 // factory init <dir> --module M [--name N]: a new project — another repository / another database the factory generates
 // a service for (factory --project <dir> design|prepare|… afterwards). The project gets what this repository has at
 // its root and the factory does not generate: go.mod (the generated code's module, the protoc plugins as tools, the
-// public runtime), the buf configuration, cmd/server/main.go, the packaging template (Dockerfile, .dockerignore), and factory.yaml with only the project's keys (the proto
-// package prefix; models and the adapter come from the factory). design/ and db/schema/ are for the designer.
+// public runtime), the buf configuration, cmd/server/main.go, the packaging template (Dockerfile, .dockerignore;
+// prepare rewrites it), and factory.yaml with only the project's keys (the proto package prefix; models and the
+// adapter come from the factory). design/ and db/schema/ are for the designer.
 func cmdInit(args []string) error {
 	fs := flag.NewFlagSet("init", flag.ExitOnError)
 	module := fs.String("module", "", "Go module of the project (e.g. github.com/you/shop/services/catalog)")
