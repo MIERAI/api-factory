@@ -3,6 +3,7 @@
 package adapter
 
 import (
+	"apifactory/factory/proj"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -48,6 +49,7 @@ func (v Vars) replacer() *strings.Replacer {
 	return strings.NewReplacer(
 		"{id}", v.ID, "{domain}", v.Domain, "{method_snake}", snake(v.Method),
 		"{proto_dir}", dir, "{proto_base}", base, "{version}", filepath.Base(dir),
+		"{module}", projectModule(),
 	)
 }
 
@@ -56,14 +58,15 @@ func Load() (*Manifest, error) {
 	var cfg struct {
 		Adapter string `yaml:"adapter"`
 	}
-	b, err := os.ReadFile("factory.yaml")
+	b, err := proj.Config()
 	if err != nil {
 		return nil, fmt.Errorf("factory.yaml: %w", err)
 	}
 	if err := yaml.Unmarshal(b, &cfg); err != nil { // 只取 adapter,其他节由各自的包读取
 		return nil, fmt.Errorf("factory.yaml: %w", err)
 	}
-	path := filepath.Join(cfg.Adapter, "manifest.yaml")
+	dir := proj.HomePath(cfg.Adapter) // the factory's adapter, also when generating another project
+	path := filepath.Join(dir, "manifest.yaml")
 	b, err = os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -77,8 +80,26 @@ func Load() (*Manifest, error) {
 	if m.ManifestVersion != "1" {
 		return nil, fmt.Errorf("%s: unsupported manifest_version %q", path, m.ManifestVersion)
 	}
-	m.Dir = cfg.Adapter
+	m.Dir = dir
+	// {module} in the guard's import rules = the project's Go module: "{module}/gen/db" must stay forbidden in pure
+	// functions whatever the project is called (a literal would only match this repository)
+	module := projectModule()
+	for i, imp := range m.Guard.ForbiddenImports {
+		m.Guard.ForbiddenImports[i] = strings.ReplaceAll(imp, "{module}", module)
+	}
+	for i, imp := range m.Guard.Pure.ForbiddenImports {
+		m.Guard.Pure.ForbiddenImports[i] = strings.ReplaceAll(imp, "{module}", module)
+	}
 	return &m, nil
+}
+
+// projectModule: the module of the project in the current directory; this repository's when there is no go.mod
+// (unit tests run in package directories).
+func projectModule() string {
+	if mod, err := proj.Module(); err == nil {
+		return mod
+	}
+	return "apifactory"
 }
 
 // AIFilesFor: 这个模式下 AI 负责的文件(模式 API 为空)。

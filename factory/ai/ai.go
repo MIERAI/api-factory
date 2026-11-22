@@ -3,6 +3,7 @@
 package ai
 
 import (
+	"apifactory/factory/proj"
 	"context"
 	"fmt"
 	"io"
@@ -32,7 +33,7 @@ type Role struct {
 }
 
 func Load() (*Config, error) {
-	b, err := os.ReadFile("factory.yaml")
+	b, err := proj.Config()
 	if err != nil {
 		return nil, fmt.Errorf("factory.yaml: %w", err)
 	}

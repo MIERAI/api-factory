@@ -36,6 +36,7 @@ import (
 	"apifactory/factory/guard"
 	"apifactory/factory/ir"
 	"apifactory/factory/perf"
+	"apifactory/factory/proj"
 	"apifactory/factory/prompts"
 	"apifactory/factory/protoload"
 	"apifactory/factory/review"
@@ -44,6 +45,17 @@ import (
 )
 
 func main() {
+	// factory [--project DIR] <command> ...: DIR = another project's root (its own design/, db/schema, gen/ …); the
+	// factory's own resources (factory.yaml defaults, the adapter) stay here (factory/proj).
+	project := ""
+	if len(os.Args) > 2 && os.Args[1] == "--project" {
+		project = os.Args[2]
+		os.Args = append(os.Args[:1], os.Args[3:]...)
+	}
+	if err := proj.Setup(project); err != nil {
+		fmt.Fprintln(os.Stderr, "✗", err)
+		os.Exit(1)
+	}
 	if len(os.Args) < 2 {
 		usage()
 	}
@@ -88,6 +100,8 @@ func main() {
 		err = cmdLoadgen(args)
 	case "doc":
 		err = cmdDoc(args)
+	case "init":
+		err = cmdInit(args)
 	default:
 		usage()
 	}
@@ -98,7 +112,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: factory check|prepare|prompt|guard|accept|fixtures ...")
+	fmt.Fprintln(os.Stderr, "usage: factory [--project DIR] check|prepare|prompt|guard|accept|fixtures ...")
 	os.Exit(2)
 }
 

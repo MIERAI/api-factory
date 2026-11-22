@@ -1,0 +1,38 @@
+[
+  {
+    "id": "notification.list-notifications-by-order",
+    "method": "ListNotificationsByOrder",
+    "summary": "返回某个订单发出过的通知,按发出时间排序",
+    "path": "/notification.notification.v1.NotificationService/ListNotificationsByOrder",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "某个订单的通知,按发出时间排序",
+        "request": {
+          "order_id": 101
+        },
+        "response": {
+          "notifications": [
+            {
+              "event_id": "e-1",
+              "kind": "NOTIFICATION_KIND_ORDER_CONFIRMED"
+            },
+            {
+              "event_id": "e-2",
+              "kind": "NOTIFICATION_KIND_ORDER_CANCELLED"
+            }
+          ]
+        }
+      },
+      {
+        "name": "没有通知的订单",
+        "request": {
+          "order_id": 999
+        },
+        "response": {
+          "notifications": []
+        }
+      }
+    ]
+  }
+]

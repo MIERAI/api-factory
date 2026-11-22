@@ -1,0 +1,3 @@
+# This project's settings; everything else (AI models, the adapter) comes from the factory's factory.yaml.
+proto:
+  package_prefix: inventory

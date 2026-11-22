@@ -1,0 +1,86 @@
+[
+  {
+    "id": "catalog.get-product",
+    "method": "GetProduct",
+    "summary": "按 SKU 返回商品详情,包括状态(下架的商品也返回)",
+    "path": "/catalog.catalog.v1.CatalogService/GetProduct",
+    "pattern": "get_by_id",
+    "cases": [
+      {
+        "name": "在售的商品",
+        "request": {
+          "sku": "BEAN-001"
+        },
+        "response": {
+          "category": "coffee",
+          "found": true,
+          "name": "咖啡豆",
+          "price": "1200.5",
+          "status": "PRODUCT_STATUS_ON_SALE",
+          "updated_at": "2026-11-01T00:00:00Z",
+          "version": 2
+        }
+      },
+      {
+        "name": "下架的商品也返回(带状态)",
+        "request": {
+          "sku": "OLD-003"
+        },
+        "response": {
+          "found": true,
+          "status": "PRODUCT_STATUS_DISCONTINUED"
+        }
+      },
+      {
+        "name": "不存在的 SKU 不是错误",
+        "request": {
+          "sku": "NONE-999"
+        },
+        "response": {
+          "found": false
+        }
+      }
+    ]
+  },
+  {
+    "id": "catalog.list-products",
+    "method": "ListProducts",
+    "summary": "返回某个分类下在售的商品,按 SKU 排序,分页",
+    "path": "/catalog.catalog.v1.CatalogService/ListProducts",
+    "pattern": "list_keyset",
+    "cases": [
+      {
+        "name": "分类内在售的商品,按 SKU 排序(下架的不显示)",
+        "request": {
+          "category": "coffee"
+        },
+        "response": {
+          "products": [
+            {
+              "sku": "BAG-002"
+            },
+            {
+              "sku": "BEAN-001"
+            }
+          ]
+        }
+      },
+      {
+        "name": "其他分类",
+        "request": {
+          "category": "goods"
+        },
+        "response": {
+          "products": [
+            {
+              "name": "马克杯",
+              "price": "1600",
+              "sku": "MUG-004",
+              "version": 1
+            }
+          ]
+        }
+      }
+    ]
+  }
+]

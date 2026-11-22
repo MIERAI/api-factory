@@ -289,7 +289,7 @@ func (g *genCtx) queryCall0() (string, error) {
 	case g.query.ParamType == "":
 		return fmt.Sprintf("h.q.%s(ctx)", name), nil
 	case g.db.structs[g.query.ParamType] != nil:
-		g.use("apifactory/gen/db", "")
+		g.use(modulePath+"/gen/db", "")
 		lines, err := g.paramAssignments(func(string) bool { return false })
 		if err != nil {
 			return "", err
@@ -437,7 +437,7 @@ func genListKeyset(g *genCtx) (string, error) {
 	k := g.api.Keyset
 	g.use(runtimeModule+"/apierr", "")
 	g.use(runtimeModule+"/paging", "")
-	g.use("apifactory/gen/db", "")
+	g.use(modulePath+"/gen/db", "")
 
 	items := out.Field(k.ItemsField)
 	if items == nil || items.Message == nil {

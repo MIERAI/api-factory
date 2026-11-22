@@ -10,7 +10,7 @@ SPEC    ?= specs/jobs/get-job-status/spec.yaml
 MODEL   ?= claude
 ACCEPT_SPECS ?= specs
 
-.PHONY: perf hooks margin doctor db-up db-down db-schema design check prepare build test guard accept loop
+.PHONY: projects perf hooks margin doctor db-up db-down db-schema design check prepare build test guard accept loop
 
 # 排序规则用 ICU(en-US): Alpine 的 en_US.utf8 实际按字节排,和 C 一样,测不出"忘了 COLLATE C"(生产不是这样)
 hooks:            ## 安装 git 钩子(内容防护: 产品分支不能出现试用公司的内容)
@@ -78,6 +78,9 @@ ifdef SERIAL
 else
 	@DB_URL='$(DB_URL)' PG_NAME=$(PG_NAME) python3 scripts/accept-par.py $(if $(SEEDS),--seeds '$(SEEDS)') $(ACCEPT_SPECS)
 endif
+
+projects:         ## 其他项目(examples/ 下有 go.mod 的目录,factory --project): 设计 → 生成物最新 → 编译 → 验收
+	@scripts/projects.sh
 
 loop:             ## 整条流水线: 闸门 → 审查 → 生成 → AI → 闸门 → 验收 (MODEL=claude|claude-sonnet)
 	@./scripts/loop.sh $(SPEC) $(MODEL)

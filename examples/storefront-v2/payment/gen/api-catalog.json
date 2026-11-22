@@ -1,0 +1,43 @@
+[
+  {
+    "id": "payment.get-payment-by-order",
+    "method": "GetPaymentByOrder",
+    "summary": "返回某个订单的支付结果",
+    "path": "/payment.payment.v1.PaymentService/GetPaymentByOrder",
+    "pattern": "get_by_id",
+    "cases": [
+      {
+        "name": "成功的支付(没有失败原因)",
+        "request": {
+          "order_id": 101
+        },
+        "response": {
+          "amount": "1380",
+          "found": true,
+          "reason": "$absent",
+          "status": "PAYMENT_STATUS_SUCCEEDED"
+        }
+      },
+      {
+        "name": "失败的支付",
+        "request": {
+          "order_id": 102
+        },
+        "response": {
+          "found": true,
+          "reason": "余额不足",
+          "status": "PAYMENT_STATUS_FAILED"
+        }
+      },
+      {
+        "name": "还没有扣款的订单",
+        "request": {
+          "order_id": 999
+        },
+        "response": {
+          "found": false
+        }
+      }
+    ]
+  }
+]
