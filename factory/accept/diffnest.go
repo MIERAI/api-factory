@@ -784,7 +784,7 @@ func (e *diffEnv) nestTargets() []sensTarget {
 		if st.Pred != nil {
 			out = append(out, sensTarget{desc: name + " 的子表的条件(去掉)", mutate: with(i, func(s *core.Step) { s.Pred = nil })})
 		}
-		out = append(out, sourceTargets(i, st, name)...) // 子表是逻辑表: 版本 / 删除
+		out = append(out, sourceTargets(i, st, name)...)       // 子表是逻辑表: 版本 / 删除
 		out = append(out, nestedLookupTargets(i, st, name)...) // 嵌套里的关联
 
 		// 关联列换成当前行的另一列(类型相同的第一列)
