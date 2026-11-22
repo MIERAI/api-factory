@@ -31,7 +31,7 @@ type OrderStatus int32
 
 const (
 	OrderStatus_ORDER_STATUS_UNSPECIFIED OrderStatus = 0
-	// 已下单(saga 还没开始)
+	// 已下单(saga 还没开始;下单直接进入 RESERVING、saga 不用这个状态)
 	OrderStatus_ORDER_STATUS_PENDING OrderStatus = 1
 	// 等待库存预留
 	OrderStatus_ORDER_STATUS_RESERVING OrderStatus = 2
@@ -718,6 +718,1138 @@ func (x *ListStuckOrdersResponse) GetOrders() []*StuckOrder {
 	return nil
 }
 
+type InventoryReservedV1Item struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Sku           string                 `protobuf:"bytes,1,opt,name=sku,proto3" json:"sku,omitempty"`
+	Qty           int32                  `protobuf:"varint,2,opt,name=qty,proto3" json:"qty,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InventoryReservedV1Item) Reset() {
+	*x = InventoryReservedV1Item{}
+	mi := &file_order_order_v1_order_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InventoryReservedV1Item) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InventoryReservedV1Item) ProtoMessage() {}
+
+func (x *InventoryReservedV1Item) ProtoReflect() protoreflect.Message {
+	mi := &file_order_order_v1_order_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InventoryReservedV1Item.ProtoReflect.Descriptor instead.
+func (*InventoryReservedV1Item) Descriptor() ([]byte, []int) {
+	return file_order_order_v1_order_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *InventoryReservedV1Item) GetSku() string {
+	if x != nil {
+		return x.Sku
+	}
+	return ""
+}
+
+func (x *InventoryReservedV1Item) GetQty() int32 {
+	if x != nil {
+		return x.Qty
+	}
+	return 0
+}
+
+// 消息 inventory.reserved v1 的 data(预留成功(全部 SKU))
+type InventoryReservedV1 struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 订单号
+	OrderId       int64                      `protobuf:"varint,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
+	Items         []*InventoryReservedV1Item `protobuf:"bytes,2,rep,name=items,proto3" json:"items,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InventoryReservedV1) Reset() {
+	*x = InventoryReservedV1{}
+	mi := &file_order_order_v1_order_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InventoryReservedV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InventoryReservedV1) ProtoMessage() {}
+
+func (x *InventoryReservedV1) ProtoReflect() protoreflect.Message {
+	mi := &file_order_order_v1_order_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InventoryReservedV1.ProtoReflect.Descriptor instead.
+func (*InventoryReservedV1) Descriptor() ([]byte, []int) {
+	return file_order_order_v1_order_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *InventoryReservedV1) GetOrderId() int64 {
+	if x != nil {
+		return x.OrderId
+	}
+	return 0
+}
+
+func (x *InventoryReservedV1) GetItems() []*InventoryReservedV1Item {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+// 消息 inventory.reservation_failed v1 的 data(预留失败(一个 SKU 都没有预留))
+type InventoryReservationFailedV1 struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 订单号
+	OrderId int64 `protobuf:"varint,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
+	// INSUFFICIENT_STOCK / RELEASED
+	Reason        string `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InventoryReservationFailedV1) Reset() {
+	*x = InventoryReservationFailedV1{}
+	mi := &file_order_order_v1_order_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InventoryReservationFailedV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InventoryReservationFailedV1) ProtoMessage() {}
+
+func (x *InventoryReservationFailedV1) ProtoReflect() protoreflect.Message {
+	mi := &file_order_order_v1_order_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InventoryReservationFailedV1.ProtoReflect.Descriptor instead.
+func (*InventoryReservationFailedV1) Descriptor() ([]byte, []int) {
+	return file_order_order_v1_order_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *InventoryReservationFailedV1) GetOrderId() int64 {
+	if x != nil {
+		return x.OrderId
+	}
+	return 0
+}
+
+func (x *InventoryReservationFailedV1) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+// 消息 payment.succeeded v1 的 data(扣款成功)
+type PaymentSucceededV1 struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 订单号
+	OrderId int64 `protobuf:"varint,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
+	// 金额
+	Amount        string `protobuf:"bytes,2,opt,name=amount,proto3" json:"amount,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PaymentSucceededV1) Reset() {
+	*x = PaymentSucceededV1{}
+	mi := &file_order_order_v1_order_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PaymentSucceededV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PaymentSucceededV1) ProtoMessage() {}
+
+func (x *PaymentSucceededV1) ProtoReflect() protoreflect.Message {
+	mi := &file_order_order_v1_order_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PaymentSucceededV1.ProtoReflect.Descriptor instead.
+func (*PaymentSucceededV1) Descriptor() ([]byte, []int) {
+	return file_order_order_v1_order_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *PaymentSucceededV1) GetOrderId() int64 {
+	if x != nil {
+		return x.OrderId
+	}
+	return 0
+}
+
+func (x *PaymentSucceededV1) GetAmount() string {
+	if x != nil {
+		return x.Amount
+	}
+	return ""
+}
+
+// 消息 payment.failed v1 的 data(扣款失败)
+type PaymentFailedV1 struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 订单号
+	OrderId int64 `protobuf:"varint,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
+	// 失败的原因
+	Reason        *string `protobuf:"bytes,2,opt,name=reason,proto3,oneof" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PaymentFailedV1) Reset() {
+	*x = PaymentFailedV1{}
+	mi := &file_order_order_v1_order_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PaymentFailedV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PaymentFailedV1) ProtoMessage() {}
+
+func (x *PaymentFailedV1) ProtoReflect() protoreflect.Message {
+	mi := &file_order_order_v1_order_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PaymentFailedV1.ProtoReflect.Descriptor instead.
+func (*PaymentFailedV1) Descriptor() ([]byte, []int) {
+	return file_order_order_v1_order_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *PaymentFailedV1) GetOrderId() int64 {
+	if x != nil {
+		return x.OrderId
+	}
+	return 0
+}
+
+func (x *PaymentFailedV1) GetReason() string {
+	if x != nil && x.Reason != nil {
+		return *x.Reason
+	}
+	return ""
+}
+
+// 消息 inventory.committed v1 的 data(预留已确认(出库))
+type InventoryCommittedV1 struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 订单号
+	OrderId       int64 `protobuf:"varint,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InventoryCommittedV1) Reset() {
+	*x = InventoryCommittedV1{}
+	mi := &file_order_order_v1_order_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InventoryCommittedV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InventoryCommittedV1) ProtoMessage() {}
+
+func (x *InventoryCommittedV1) ProtoReflect() protoreflect.Message {
+	mi := &file_order_order_v1_order_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InventoryCommittedV1.ProtoReflect.Descriptor instead.
+func (*InventoryCommittedV1) Descriptor() ([]byte, []int) {
+	return file_order_order_v1_order_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *InventoryCommittedV1) GetOrderId() int64 {
+	if x != nil {
+		return x.OrderId
+	}
+	return 0
+}
+
+// 消息 inventory.released v1 的 data(预留已释放)
+type InventoryReleasedV1 struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 订单号
+	OrderId       int64 `protobuf:"varint,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InventoryReleasedV1) Reset() {
+	*x = InventoryReleasedV1{}
+	mi := &file_order_order_v1_order_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InventoryReleasedV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InventoryReleasedV1) ProtoMessage() {}
+
+func (x *InventoryReleasedV1) ProtoReflect() protoreflect.Message {
+	mi := &file_order_order_v1_order_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InventoryReleasedV1.ProtoReflect.Descriptor instead.
+func (*InventoryReleasedV1) Descriptor() ([]byte, []int) {
+	return file_order_order_v1_order_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *InventoryReleasedV1) GetOrderId() int64 {
+	if x != nil {
+		return x.OrderId
+	}
+	return 0
+}
+
+// 每个 SKU 预留多少
+type InventoryReserveV1Item struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Sku           string                 `protobuf:"bytes,1,opt,name=sku,proto3" json:"sku,omitempty"`
+	Qty           int32                  `protobuf:"varint,2,opt,name=qty,proto3" json:"qty,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InventoryReserveV1Item) Reset() {
+	*x = InventoryReserveV1Item{}
+	mi := &file_order_order_v1_order_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InventoryReserveV1Item) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InventoryReserveV1Item) ProtoMessage() {}
+
+func (x *InventoryReserveV1Item) ProtoReflect() protoreflect.Message {
+	mi := &file_order_order_v1_order_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InventoryReserveV1Item.ProtoReflect.Descriptor instead.
+func (*InventoryReserveV1Item) Descriptor() ([]byte, []int) {
+	return file_order_order_v1_order_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *InventoryReserveV1Item) GetSku() string {
+	if x != nil {
+		return x.Sku
+	}
+	return ""
+}
+
+func (x *InventoryReserveV1Item) GetQty() int32 {
+	if x != nil {
+		return x.Qty
+	}
+	return 0
+}
+
+// 消息 inventory.reserve v1 的 data(为一个订单预留库存(全部 SKU 都够才预留))
+type InventoryReserveV1 struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 订单号
+	OrderId int64 `protobuf:"varint,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
+	// 每个 SKU 预留多少
+	Items         []*InventoryReserveV1Item `protobuf:"bytes,2,rep,name=items,proto3" json:"items,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InventoryReserveV1) Reset() {
+	*x = InventoryReserveV1{}
+	mi := &file_order_order_v1_order_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InventoryReserveV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InventoryReserveV1) ProtoMessage() {}
+
+func (x *InventoryReserveV1) ProtoReflect() protoreflect.Message {
+	mi := &file_order_order_v1_order_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InventoryReserveV1.ProtoReflect.Descriptor instead.
+func (*InventoryReserveV1) Descriptor() ([]byte, []int) {
+	return file_order_order_v1_order_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *InventoryReserveV1) GetOrderId() int64 {
+	if x != nil {
+		return x.OrderId
+	}
+	return 0
+}
+
+func (x *InventoryReserveV1) GetItems() []*InventoryReserveV1Item {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+// 消息 payment.charge v1 的 data(给一个订单扣款(订单号 = 幂等键))
+type PaymentChargeV1 struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 订单号
+	OrderId int64 `protobuf:"varint,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
+	// 金额
+	Amount        string `protobuf:"bytes,2,opt,name=amount,proto3" json:"amount,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PaymentChargeV1) Reset() {
+	*x = PaymentChargeV1{}
+	mi := &file_order_order_v1_order_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PaymentChargeV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PaymentChargeV1) ProtoMessage() {}
+
+func (x *PaymentChargeV1) ProtoReflect() protoreflect.Message {
+	mi := &file_order_order_v1_order_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PaymentChargeV1.ProtoReflect.Descriptor instead.
+func (*PaymentChargeV1) Descriptor() ([]byte, []int) {
+	return file_order_order_v1_order_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *PaymentChargeV1) GetOrderId() int64 {
+	if x != nil {
+		return x.OrderId
+	}
+	return 0
+}
+
+func (x *PaymentChargeV1) GetAmount() string {
+	if x != nil {
+		return x.Amount
+	}
+	return ""
+}
+
+type InventoryCommitV1Item struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Sku           string                 `protobuf:"bytes,1,opt,name=sku,proto3" json:"sku,omitempty"`
+	Qty           int32                  `protobuf:"varint,2,opt,name=qty,proto3" json:"qty,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InventoryCommitV1Item) Reset() {
+	*x = InventoryCommitV1Item{}
+	mi := &file_order_order_v1_order_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InventoryCommitV1Item) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InventoryCommitV1Item) ProtoMessage() {}
+
+func (x *InventoryCommitV1Item) ProtoReflect() protoreflect.Message {
+	mi := &file_order_order_v1_order_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InventoryCommitV1Item.ProtoReflect.Descriptor instead.
+func (*InventoryCommitV1Item) Descriptor() ([]byte, []int) {
+	return file_order_order_v1_order_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *InventoryCommitV1Item) GetSku() string {
+	if x != nil {
+		return x.Sku
+	}
+	return ""
+}
+
+func (x *InventoryCommitV1Item) GetQty() int32 {
+	if x != nil {
+		return x.Qty
+	}
+	return 0
+}
+
+// 消息 inventory.commit v1 的 data(确认一个订单的预留(支付成功之后))
+type InventoryCommitV1 struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 订单号
+	OrderId       int64                    `protobuf:"varint,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
+	Items         []*InventoryCommitV1Item `protobuf:"bytes,2,rep,name=items,proto3" json:"items,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InventoryCommitV1) Reset() {
+	*x = InventoryCommitV1{}
+	mi := &file_order_order_v1_order_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InventoryCommitV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InventoryCommitV1) ProtoMessage() {}
+
+func (x *InventoryCommitV1) ProtoReflect() protoreflect.Message {
+	mi := &file_order_order_v1_order_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InventoryCommitV1.ProtoReflect.Descriptor instead.
+func (*InventoryCommitV1) Descriptor() ([]byte, []int) {
+	return file_order_order_v1_order_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *InventoryCommitV1) GetOrderId() int64 {
+	if x != nil {
+		return x.OrderId
+	}
+	return 0
+}
+
+func (x *InventoryCommitV1) GetItems() []*InventoryCommitV1Item {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+type InventoryReleaseV1Item struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Sku           string                 `protobuf:"bytes,1,opt,name=sku,proto3" json:"sku,omitempty"`
+	Qty           int32                  `protobuf:"varint,2,opt,name=qty,proto3" json:"qty,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InventoryReleaseV1Item) Reset() {
+	*x = InventoryReleaseV1Item{}
+	mi := &file_order_order_v1_order_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InventoryReleaseV1Item) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InventoryReleaseV1Item) ProtoMessage() {}
+
+func (x *InventoryReleaseV1Item) ProtoReflect() protoreflect.Message {
+	mi := &file_order_order_v1_order_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InventoryReleaseV1Item.ProtoReflect.Descriptor instead.
+func (*InventoryReleaseV1Item) Descriptor() ([]byte, []int) {
+	return file_order_order_v1_order_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *InventoryReleaseV1Item) GetSku() string {
+	if x != nil {
+		return x.Sku
+	}
+	return ""
+}
+
+func (x *InventoryReleaseV1Item) GetQty() int32 {
+	if x != nil {
+		return x.Qty
+	}
+	return 0
+}
+
+// 消息 inventory.release v1 的 data(释放一个订单的预留(补偿;预留还没到也要挡住之后迟到的预留))
+type InventoryReleaseV1 struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 订单号
+	OrderId       int64                     `protobuf:"varint,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
+	Items         []*InventoryReleaseV1Item `protobuf:"bytes,2,rep,name=items,proto3" json:"items,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InventoryReleaseV1) Reset() {
+	*x = InventoryReleaseV1{}
+	mi := &file_order_order_v1_order_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InventoryReleaseV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InventoryReleaseV1) ProtoMessage() {}
+
+func (x *InventoryReleaseV1) ProtoReflect() protoreflect.Message {
+	mi := &file_order_order_v1_order_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InventoryReleaseV1.ProtoReflect.Descriptor instead.
+func (*InventoryReleaseV1) Descriptor() ([]byte, []int) {
+	return file_order_order_v1_order_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *InventoryReleaseV1) GetOrderId() int64 {
+	if x != nil {
+		return x.OrderId
+	}
+	return 0
+}
+
+func (x *InventoryReleaseV1) GetItems() []*InventoryReleaseV1Item {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+// 消息 order.cancelled v1 的 data(订单取消(库存不足 / 支付失败))
+type OrderCancelledV1 struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 订单号
+	OrderId int64 `protobuf:"varint,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
+	// 客户
+	CustomerId int64 `protobuf:"varint,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`
+	// 取消的原因
+	Reason        *string `protobuf:"bytes,3,opt,name=reason,proto3,oneof" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OrderCancelledV1) Reset() {
+	*x = OrderCancelledV1{}
+	mi := &file_order_order_v1_order_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OrderCancelledV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OrderCancelledV1) ProtoMessage() {}
+
+func (x *OrderCancelledV1) ProtoReflect() protoreflect.Message {
+	mi := &file_order_order_v1_order_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OrderCancelledV1.ProtoReflect.Descriptor instead.
+func (*OrderCancelledV1) Descriptor() ([]byte, []int) {
+	return file_order_order_v1_order_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *OrderCancelledV1) GetOrderId() int64 {
+	if x != nil {
+		return x.OrderId
+	}
+	return 0
+}
+
+func (x *OrderCancelledV1) GetCustomerId() int64 {
+	if x != nil {
+		return x.CustomerId
+	}
+	return 0
+}
+
+func (x *OrderCancelledV1) GetReason() string {
+	if x != nil && x.Reason != nil {
+		return *x.Reason
+	}
+	return ""
+}
+
+// 消息 order.confirmed v1 的 data(订单完成(库存确认、支付成功))
+type OrderConfirmedV1 struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 订单号
+	OrderId int64 `protobuf:"varint,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
+	// 客户
+	CustomerId int64 `protobuf:"varint,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`
+	// 订单金额
+	Total         string `protobuf:"bytes,3,opt,name=total,proto3" json:"total,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OrderConfirmedV1) Reset() {
+	*x = OrderConfirmedV1{}
+	mi := &file_order_order_v1_order_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OrderConfirmedV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OrderConfirmedV1) ProtoMessage() {}
+
+func (x *OrderConfirmedV1) ProtoReflect() protoreflect.Message {
+	mi := &file_order_order_v1_order_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OrderConfirmedV1.ProtoReflect.Descriptor instead.
+func (*OrderConfirmedV1) Descriptor() ([]byte, []int) {
+	return file_order_order_v1_order_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *OrderConfirmedV1) GetOrderId() int64 {
+	if x != nil {
+		return x.OrderId
+	}
+	return 0
+}
+
+func (x *OrderConfirmedV1) GetCustomerId() int64 {
+	if x != nil {
+		return x.CustomerId
+	}
+	return 0
+}
+
+func (x *OrderConfirmedV1) GetTotal() string {
+	if x != nil {
+		return x.Total
+	}
+	return ""
+}
+
+// 状态机 OrderSaga 没有请求(只是类型的说明: 转移的入口是收到的消息,超时由扫描任务驱动)
+type OrderSagaRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OrderSagaRequest) Reset() {
+	*x = OrderSagaRequest{}
+	mi := &file_order_order_v1_order_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OrderSagaRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OrderSagaRequest) ProtoMessage() {}
+
+func (x *OrderSagaRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_order_order_v1_order_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OrderSagaRequest.ProtoReflect.Descriptor instead.
+func (*OrderSagaRequest) Descriptor() ([]byte, []int) {
+	return file_order_order_v1_order_proto_rawDescGZIP(), []int{25}
+}
+
+// 状态机 OrderSaga 没有响应
+type OrderSagaResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OrderSagaResponse) Reset() {
+	*x = OrderSagaResponse{}
+	mi := &file_order_order_v1_order_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OrderSagaResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OrderSagaResponse) ProtoMessage() {}
+
+func (x *OrderSagaResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_order_order_v1_order_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OrderSagaResponse.ProtoReflect.Descriptor instead.
+func (*OrderSagaResponse) Descriptor() ([]byte, []int) {
+	return file_order_order_v1_order_proto_rawDescGZIP(), []int{26}
+}
+
+// 明细(同一个 SKU 只能出现一次;行号也不能重复)
+type PlaceOrderItem struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 行号
+	LineNo int32 `protobuf:"varint,1,opt,name=line_no,json=lineNo,proto3" json:"line_no,omitempty"`
+	// SKU
+	Sku string `protobuf:"bytes,2,opt,name=sku,proto3" json:"sku,omitempty"`
+	// 数量
+	Qty int32 `protobuf:"varint,3,opt,name=qty,proto3" json:"qty,omitempty"`
+	// 单价
+	Price         string `protobuf:"bytes,4,opt,name=price,proto3" json:"price,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PlaceOrderItem) Reset() {
+	*x = PlaceOrderItem{}
+	mi := &file_order_order_v1_order_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlaceOrderItem) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlaceOrderItem) ProtoMessage() {}
+
+func (x *PlaceOrderItem) ProtoReflect() protoreflect.Message {
+	mi := &file_order_order_v1_order_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlaceOrderItem.ProtoReflect.Descriptor instead.
+func (*PlaceOrderItem) Descriptor() ([]byte, []int) {
+	return file_order_order_v1_order_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *PlaceOrderItem) GetLineNo() int32 {
+	if x != nil {
+		return x.LineNo
+	}
+	return 0
+}
+
+func (x *PlaceOrderItem) GetSku() string {
+	if x != nil {
+		return x.Sku
+	}
+	return ""
+}
+
+func (x *PlaceOrderItem) GetQty() int32 {
+	if x != nil {
+		return x.Qty
+	}
+	return 0
+}
+
+func (x *PlaceOrderItem) GetPrice() string {
+	if x != nil {
+		return x.Price
+	}
+	return ""
+}
+
+// 下单。订单和明细一起写进去(订单金额 = 明细金额之和),订单进入 RESERVING,同时发出 inventory.reserve
+type PlaceOrderRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 顾客 id
+	CustomerId int64 `protobuf:"varint,1,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`
+	// 明细(同一个 SKU 只能出现一次;行号也不能重复)
+	Items         []*PlaceOrderItem `protobuf:"bytes,2,rep,name=items,proto3" json:"items,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PlaceOrderRequest) Reset() {
+	*x = PlaceOrderRequest{}
+	mi := &file_order_order_v1_order_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlaceOrderRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlaceOrderRequest) ProtoMessage() {}
+
+func (x *PlaceOrderRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_order_order_v1_order_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlaceOrderRequest.ProtoReflect.Descriptor instead.
+func (*PlaceOrderRequest) Descriptor() ([]byte, []int) {
+	return file_order_order_v1_order_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *PlaceOrderRequest) GetCustomerId() int64 {
+	if x != nil {
+		return x.CustomerId
+	}
+	return 0
+}
+
+func (x *PlaceOrderRequest) GetItems() []*PlaceOrderItem {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+// 下单。订单和明细一起写进去(订单金额 = 明细金额之和),订单进入 RESERVING,同时发出 inventory.reserve
+type PlaceOrderResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 订单号
+	OrderId int64 `protobuf:"varint,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
+	// 订单的状态(= 等待库存预留)
+	Status OrderStatus `protobuf:"varint,2,opt,name=status,proto3,enum=order.order.v1.OrderStatus" json:"status,omitempty"`
+	// 下单时间(= 请求的时刻)
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PlaceOrderResponse) Reset() {
+	*x = PlaceOrderResponse{}
+	mi := &file_order_order_v1_order_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlaceOrderResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlaceOrderResponse) ProtoMessage() {}
+
+func (x *PlaceOrderResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_order_order_v1_order_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlaceOrderResponse.ProtoReflect.Descriptor instead.
+func (*PlaceOrderResponse) Descriptor() ([]byte, []int) {
+	return file_order_order_v1_order_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *PlaceOrderResponse) GetOrderId() int64 {
+	if x != nil {
+		return x.OrderId
+	}
+	return 0
+}
+
+func (x *PlaceOrderResponse) GetStatus() OrderStatus {
+	if x != nil {
+		return x.Status
+	}
+	return OrderStatus_ORDER_STATUS_UNSPECIFIED
+}
+
+func (x *PlaceOrderResponse) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
 var File_order_order_v1_order_proto protoreflect.FileDescriptor
 
 const file_order_order_v1_order_proto_rawDesc = "" +
@@ -776,7 +1908,86 @@ const file_order_order_v1_order_proto_rawDesc = "" +
 	"\rstuck_minutes\x18\x01 \x01(\x05B\n" +
 	"\xbaH\a\x1a\x05\x18\xa0\v(\x01R\fstuckMinutes\"M\n" +
 	"\x17ListStuckOrdersResponse\x122\n" +
-	"\x06orders\x18\x01 \x03(\v2\x1a.order.order.v1.StuckOrderR\x06orders*\xed\x01\n" +
+	"\x06orders\x18\x01 \x03(\v2\x1a.order.order.v1.StuckOrderR\x06orders\"b\n" +
+	"\x17InventoryReservedV1Item\x12)\n" +
+	"\x03sku\x18\x01 \x01(\tB\x17\xbaH\x14r\x12\x10\x03\x18 2\f^[A-Z0-9-]+$R\x03sku\x12\x1c\n" +
+	"\x03qty\x18\x02 \x01(\x05B\n" +
+	"\xbaH\a\x1a\x05\x18\xe8\a(\x01R\x03qty\"\xcd\x01\n" +
+	"\x13InventoryReservedV1\x12\x19\n" +
+	"\border_id\x18\x01 \x01(\x03R\aorderId\x12\x9a\x01\n" +
+	"\x05items\x18\x02 \x03(\v2'.order.order.v1.InventoryReservedV1ItemB[\xbaHX\xba\x01N\n" +
+	"\fitems.unique\x12\x19items: sku must be unique\x1a#this.map(x, string(x.sku)).unique()\x92\x01\x04\b\x01\x102R\x05items\"\\\n" +
+	"\x1cInventoryReservationFailedV1\x12\x19\n" +
+	"\border_id\x18\x01 \x01(\x03R\aorderId\x12!\n" +
+	"\x06reason\x18\x02 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18 R\x06reason\"]\n" +
+	"\x12PaymentSucceededV1\x12\x19\n" +
+	"\border_id\x18\x01 \x01(\x03R\aorderId\x12,\n" +
+	"\x06amount\x18\x02 \x01(\tB\x14\xbaH\x11r\x0f2\r^\\d+(\\.\\d+)?$R\x06amount\"`\n" +
+	"\x0fPaymentFailedV1\x12\x19\n" +
+	"\border_id\x18\x01 \x01(\x03R\aorderId\x12'\n" +
+	"\x06reason\x18\x02 \x01(\tB\n" +
+	"\xbaH\ar\x05\x10\x01\x18\xc8\x01H\x00R\x06reason\x88\x01\x01B\t\n" +
+	"\a_reason\"1\n" +
+	"\x14InventoryCommittedV1\x12\x19\n" +
+	"\border_id\x18\x01 \x01(\x03R\aorderId\"0\n" +
+	"\x13InventoryReleasedV1\x12\x19\n" +
+	"\border_id\x18\x01 \x01(\x03R\aorderId\"a\n" +
+	"\x16InventoryReserveV1Item\x12)\n" +
+	"\x03sku\x18\x01 \x01(\tB\x17\xbaH\x14r\x12\x10\x03\x18 2\f^[A-Z0-9-]+$R\x03sku\x12\x1c\n" +
+	"\x03qty\x18\x02 \x01(\x05B\n" +
+	"\xbaH\a\x1a\x05\x18\xe8\a(\x01R\x03qty\"\xd4\x01\n" +
+	"\x12InventoryReserveV1\x12\"\n" +
+	"\border_id\x18\x01 \x01(\x03B\a\xbaH\x04\"\x02 \x00R\aorderId\x12\x99\x01\n" +
+	"\x05items\x18\x02 \x03(\v2&.order.order.v1.InventoryReserveV1ItemB[\xbaHX\xba\x01N\n" +
+	"\fitems.unique\x12\x19items: sku must be unique\x1a#this.map(x, string(x.sku)).unique()\x92\x01\x04\b\x01\x102R\x05items\"c\n" +
+	"\x0fPaymentChargeV1\x12\"\n" +
+	"\border_id\x18\x01 \x01(\x03B\a\xbaH\x04\"\x02 \x00R\aorderId\x12,\n" +
+	"\x06amount\x18\x02 \x01(\tB\x14\xbaH\x11r\x0f2\r^\\d+(\\.\\d+)?$R\x06amount\"`\n" +
+	"\x15InventoryCommitV1Item\x12)\n" +
+	"\x03sku\x18\x01 \x01(\tB\x17\xbaH\x14r\x12\x10\x03\x18 2\f^[A-Z0-9-]+$R\x03sku\x12\x1c\n" +
+	"\x03qty\x18\x02 \x01(\x05B\n" +
+	"\xbaH\a\x1a\x05\x18\xe8\a(\x01R\x03qty\"\xd2\x01\n" +
+	"\x11InventoryCommitV1\x12\"\n" +
+	"\border_id\x18\x01 \x01(\x03B\a\xbaH\x04\"\x02 \x00R\aorderId\x12\x98\x01\n" +
+	"\x05items\x18\x02 \x03(\v2%.order.order.v1.InventoryCommitV1ItemB[\xbaHX\xba\x01N\n" +
+	"\fitems.unique\x12\x19items: sku must be unique\x1a#this.map(x, string(x.sku)).unique()\x92\x01\x04\b\x01\x102R\x05items\"a\n" +
+	"\x16InventoryReleaseV1Item\x12)\n" +
+	"\x03sku\x18\x01 \x01(\tB\x17\xbaH\x14r\x12\x10\x03\x18 2\f^[A-Z0-9-]+$R\x03sku\x12\x1c\n" +
+	"\x03qty\x18\x02 \x01(\x05B\n" +
+	"\xbaH\a\x1a\x05\x18\xe8\a(\x01R\x03qty\"\xd4\x01\n" +
+	"\x12InventoryReleaseV1\x12\"\n" +
+	"\border_id\x18\x01 \x01(\x03B\a\xbaH\x04\"\x02 \x00R\aorderId\x12\x99\x01\n" +
+	"\x05items\x18\x02 \x03(\v2&.order.order.v1.InventoryReleaseV1ItemB[\xbaHX\xba\x01N\n" +
+	"\fitems.unique\x12\x19items: sku must be unique\x1a#this.map(x, string(x.sku)).unique()\x92\x01\x04\b\x01\x102R\x05items\"\x93\x01\n" +
+	"\x10OrderCancelledV1\x12\"\n" +
+	"\border_id\x18\x01 \x01(\x03B\a\xbaH\x04\"\x02 \x00R\aorderId\x12(\n" +
+	"\vcustomer_id\x18\x02 \x01(\x03B\a\xbaH\x04\"\x02 \x00R\n" +
+	"customerId\x12&\n" +
+	"\x06reason\x18\x03 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18@H\x00R\x06reason\x88\x01\x01B\t\n" +
+	"\a_reason\"\x8c\x01\n" +
+	"\x10OrderConfirmedV1\x12\"\n" +
+	"\border_id\x18\x01 \x01(\x03B\a\xbaH\x04\"\x02 \x00R\aorderId\x12(\n" +
+	"\vcustomer_id\x18\x02 \x01(\x03B\a\xbaH\x04\"\x02 \x00R\n" +
+	"customerId\x12*\n" +
+	"\x05total\x18\x03 \x01(\tB\x14\xbaH\x11r\x0f2\r^\\d+(\\.\\d+)?$R\x05total\"\x12\n" +
+	"\x10OrderSagaRequest\"\x13\n" +
+	"\x11OrderSagaResponse\"\xa9\x01\n" +
+	"\x0ePlaceOrderItem\x12\"\n" +
+	"\aline_no\x18\x01 \x01(\x05B\t\xbaH\x06\x1a\x04\x182(\x01R\x06lineNo\x12)\n" +
+	"\x03sku\x18\x02 \x01(\tB\x17\xbaH\x14r\x12\x10\x03\x18 2\f^[A-Z0-9-]+$R\x03sku\x12\x1c\n" +
+	"\x03qty\x18\x03 \x01(\x05B\n" +
+	"\xbaH\a\x1a\x05\x18\xe8\a(\x01R\x03qty\x12*\n" +
+	"\x05price\x18\x04 \x01(\tB\x14\xbaH\x11r\x0f2\r^\\d+(\\.\\d+)?$R\x05price\"\xd1\x01\n" +
+	"\x11PlaceOrderRequest\x12(\n" +
+	"\vcustomer_id\x18\x01 \x01(\x03B\a\xbaH\x04\"\x02 \x00R\n" +
+	"customerId\x12\x91\x01\n" +
+	"\x05items\x18\x02 \x03(\v2\x1e.order.order.v1.PlaceOrderItemB[\xbaHX\xba\x01N\n" +
+	"\fitems.unique\x12\x19items: sku must be unique\x1a#this.map(x, string(x.sku)).unique()\x92\x01\x04\b\x01\x102R\x05items\"\x9f\x01\n" +
+	"\x12PlaceOrderResponse\x12\x19\n" +
+	"\border_id\x18\x01 \x01(\x03R\aorderId\x123\n" +
+	"\x06status\x18\x02 \x01(\x0e2\x1b.order.order.v1.OrderStatusR\x06status\x129\n" +
+	"\n" +
+	"created_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt*\xed\x01\n" +
 	"\vOrderStatus\x12\x1c\n" +
 	"\x18ORDER_STATUS_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14ORDER_STATUS_PENDING\x10\x01\x12\x1a\n" +
@@ -785,11 +1996,15 @@ const file_order_order_v1_order_proto_rawDesc = "" +
 	"\x17ORDER_STATUS_CONFIRMING\x10\x04\x12\x1a\n" +
 	"\x16ORDER_STATUS_RELEASING\x10\x05\x12\x1a\n" +
 	"\x16ORDER_STATUS_CONFIRMED\x10\x06\x12\x1a\n" +
-	"\x16ORDER_STATUS_CANCELLED\x10\a2\xb4\x02\n" +
+	"\x16ORDER_STATUS_CANCELLED\x10\a2\x89\x03\n" +
 	"\fOrderService\x12M\n" +
 	"\bGetOrder\x12\x1f.order.order.v1.GetOrderRequest\x1a .order.order.v1.GetOrderResponse\x12q\n" +
 	"\x14ListOrdersByCustomer\x12+.order.order.v1.ListOrdersByCustomerRequest\x1a,.order.order.v1.ListOrdersByCustomerResponse\x12b\n" +
-	"\x0fListStuckOrders\x12&.order.order.v1.ListStuckOrdersRequest\x1a'.order.order.v1.ListStuckOrdersResponseBHZFgithub.com/MIERAI/storefront/services/order/gen/order/order/v1;orderv1b\x06proto3"
+	"\x0fListStuckOrders\x12&.order.order.v1.ListStuckOrdersRequest\x1a'.order.order.v1.ListStuckOrdersResponse\x12S\n" +
+	"\n" +
+	"PlaceOrder\x12!.order.order.v1.PlaceOrderRequest\x1a\".order.order.v1.PlaceOrderResponse2n\n" +
+	"\x1aOrderMessageHandlerService\x12P\n" +
+	"\tOrderSaga\x12 .order.order.v1.OrderSagaRequest\x1a!.order.order.v1.OrderSagaResponseBHZFgithub.com/MIERAI/storefront/services/order/gen/order/order/v1;orderv1b\x06proto3"
 
 var (
 	file_order_order_v1_order_proto_rawDescOnce sync.Once
@@ -804,7 +2019,7 @@ func file_order_order_v1_order_proto_rawDescGZIP() []byte {
 }
 
 var file_order_order_v1_order_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_order_order_v1_order_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_order_order_v1_order_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
 var file_order_order_v1_order_proto_goTypes = []any{
 	(OrderStatus)(0),                     // 0: order.order.v1.OrderStatus
 	(*OrderItem)(nil),                    // 1: order.order.v1.OrderItem
@@ -816,31 +2031,63 @@ var file_order_order_v1_order_proto_goTypes = []any{
 	(*StuckOrder)(nil),                   // 7: order.order.v1.StuckOrder
 	(*ListStuckOrdersRequest)(nil),       // 8: order.order.v1.ListStuckOrdersRequest
 	(*ListStuckOrdersResponse)(nil),      // 9: order.order.v1.ListStuckOrdersResponse
-	(*timestamppb.Timestamp)(nil),        // 10: google.protobuf.Timestamp
+	(*InventoryReservedV1Item)(nil),      // 10: order.order.v1.InventoryReservedV1Item
+	(*InventoryReservedV1)(nil),          // 11: order.order.v1.InventoryReservedV1
+	(*InventoryReservationFailedV1)(nil), // 12: order.order.v1.InventoryReservationFailedV1
+	(*PaymentSucceededV1)(nil),           // 13: order.order.v1.PaymentSucceededV1
+	(*PaymentFailedV1)(nil),              // 14: order.order.v1.PaymentFailedV1
+	(*InventoryCommittedV1)(nil),         // 15: order.order.v1.InventoryCommittedV1
+	(*InventoryReleasedV1)(nil),          // 16: order.order.v1.InventoryReleasedV1
+	(*InventoryReserveV1Item)(nil),       // 17: order.order.v1.InventoryReserveV1Item
+	(*InventoryReserveV1)(nil),           // 18: order.order.v1.InventoryReserveV1
+	(*PaymentChargeV1)(nil),              // 19: order.order.v1.PaymentChargeV1
+	(*InventoryCommitV1Item)(nil),        // 20: order.order.v1.InventoryCommitV1Item
+	(*InventoryCommitV1)(nil),            // 21: order.order.v1.InventoryCommitV1
+	(*InventoryReleaseV1Item)(nil),       // 22: order.order.v1.InventoryReleaseV1Item
+	(*InventoryReleaseV1)(nil),           // 23: order.order.v1.InventoryReleaseV1
+	(*OrderCancelledV1)(nil),             // 24: order.order.v1.OrderCancelledV1
+	(*OrderConfirmedV1)(nil),             // 25: order.order.v1.OrderConfirmedV1
+	(*OrderSagaRequest)(nil),             // 26: order.order.v1.OrderSagaRequest
+	(*OrderSagaResponse)(nil),            // 27: order.order.v1.OrderSagaResponse
+	(*PlaceOrderItem)(nil),               // 28: order.order.v1.PlaceOrderItem
+	(*PlaceOrderRequest)(nil),            // 29: order.order.v1.PlaceOrderRequest
+	(*PlaceOrderResponse)(nil),           // 30: order.order.v1.PlaceOrderResponse
+	(*timestamppb.Timestamp)(nil),        // 31: google.protobuf.Timestamp
 }
 var file_order_order_v1_order_proto_depIdxs = []int32{
 	0,  // 0: order.order.v1.GetOrderResponse.status:type_name -> order.order.v1.OrderStatus
-	10, // 1: order.order.v1.GetOrderResponse.created_at:type_name -> google.protobuf.Timestamp
-	10, // 2: order.order.v1.GetOrderResponse.updated_at:type_name -> google.protobuf.Timestamp
+	31, // 1: order.order.v1.GetOrderResponse.created_at:type_name -> google.protobuf.Timestamp
+	31, // 2: order.order.v1.GetOrderResponse.updated_at:type_name -> google.protobuf.Timestamp
 	1,  // 3: order.order.v1.GetOrderResponse.items:type_name -> order.order.v1.OrderItem
 	0,  // 4: order.order.v1.OrderSummary.status:type_name -> order.order.v1.OrderStatus
-	10, // 5: order.order.v1.OrderSummary.created_at:type_name -> google.protobuf.Timestamp
+	31, // 5: order.order.v1.OrderSummary.created_at:type_name -> google.protobuf.Timestamp
 	4,  // 6: order.order.v1.ListOrdersByCustomerResponse.orders:type_name -> order.order.v1.OrderSummary
 	0,  // 7: order.order.v1.StuckOrder.status:type_name -> order.order.v1.OrderStatus
-	10, // 8: order.order.v1.StuckOrder.created_at:type_name -> google.protobuf.Timestamp
-	10, // 9: order.order.v1.StuckOrder.updated_at:type_name -> google.protobuf.Timestamp
+	31, // 8: order.order.v1.StuckOrder.created_at:type_name -> google.protobuf.Timestamp
+	31, // 9: order.order.v1.StuckOrder.updated_at:type_name -> google.protobuf.Timestamp
 	7,  // 10: order.order.v1.ListStuckOrdersResponse.orders:type_name -> order.order.v1.StuckOrder
-	2,  // 11: order.order.v1.OrderService.GetOrder:input_type -> order.order.v1.GetOrderRequest
-	5,  // 12: order.order.v1.OrderService.ListOrdersByCustomer:input_type -> order.order.v1.ListOrdersByCustomerRequest
-	8,  // 13: order.order.v1.OrderService.ListStuckOrders:input_type -> order.order.v1.ListStuckOrdersRequest
-	3,  // 14: order.order.v1.OrderService.GetOrder:output_type -> order.order.v1.GetOrderResponse
-	6,  // 15: order.order.v1.OrderService.ListOrdersByCustomer:output_type -> order.order.v1.ListOrdersByCustomerResponse
-	9,  // 16: order.order.v1.OrderService.ListStuckOrders:output_type -> order.order.v1.ListStuckOrdersResponse
-	14, // [14:17] is the sub-list for method output_type
-	11, // [11:14] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	10, // 11: order.order.v1.InventoryReservedV1.items:type_name -> order.order.v1.InventoryReservedV1Item
+	17, // 12: order.order.v1.InventoryReserveV1.items:type_name -> order.order.v1.InventoryReserveV1Item
+	20, // 13: order.order.v1.InventoryCommitV1.items:type_name -> order.order.v1.InventoryCommitV1Item
+	22, // 14: order.order.v1.InventoryReleaseV1.items:type_name -> order.order.v1.InventoryReleaseV1Item
+	28, // 15: order.order.v1.PlaceOrderRequest.items:type_name -> order.order.v1.PlaceOrderItem
+	0,  // 16: order.order.v1.PlaceOrderResponse.status:type_name -> order.order.v1.OrderStatus
+	31, // 17: order.order.v1.PlaceOrderResponse.created_at:type_name -> google.protobuf.Timestamp
+	2,  // 18: order.order.v1.OrderService.GetOrder:input_type -> order.order.v1.GetOrderRequest
+	5,  // 19: order.order.v1.OrderService.ListOrdersByCustomer:input_type -> order.order.v1.ListOrdersByCustomerRequest
+	8,  // 20: order.order.v1.OrderService.ListStuckOrders:input_type -> order.order.v1.ListStuckOrdersRequest
+	29, // 21: order.order.v1.OrderService.PlaceOrder:input_type -> order.order.v1.PlaceOrderRequest
+	26, // 22: order.order.v1.OrderMessageHandlerService.OrderSaga:input_type -> order.order.v1.OrderSagaRequest
+	3,  // 23: order.order.v1.OrderService.GetOrder:output_type -> order.order.v1.GetOrderResponse
+	6,  // 24: order.order.v1.OrderService.ListOrdersByCustomer:output_type -> order.order.v1.ListOrdersByCustomerResponse
+	9,  // 25: order.order.v1.OrderService.ListStuckOrders:output_type -> order.order.v1.ListStuckOrdersResponse
+	30, // 26: order.order.v1.OrderService.PlaceOrder:output_type -> order.order.v1.PlaceOrderResponse
+	27, // 27: order.order.v1.OrderMessageHandlerService.OrderSaga:output_type -> order.order.v1.OrderSagaResponse
+	23, // [23:28] is the sub-list for method output_type
+	18, // [18:23] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_order_order_v1_order_proto_init() }
@@ -848,15 +2095,17 @@ func file_order_order_v1_order_proto_init() {
 	if File_order_order_v1_order_proto != nil {
 		return
 	}
+	file_order_order_v1_order_proto_msgTypes[13].OneofWrappers = []any{}
+	file_order_order_v1_order_proto_msgTypes[23].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_order_order_v1_order_proto_rawDesc), len(file_order_order_v1_order_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   9,
+			NumMessages:   30,
 			NumExtensions: 0,
-			NumServices:   1,
+			NumServices:   2,
 		},
 		GoTypes:           file_order_order_v1_order_proto_goTypes,
 		DependencyIndexes: file_order_order_v1_order_proto_depIdxs,

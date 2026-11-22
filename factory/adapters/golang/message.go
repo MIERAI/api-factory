@@ -221,6 +221,10 @@ func (cg *cmdGen) emitValue(v ir.EmitVal, cf *ir.Field) (string, error) {
 		if f.Optional {
 			return "m." + goCamelCase(f.Name), nil
 		}
+		if cf.Optional { // 必填的值写进可选的字段(R5: 收到的原因 → 发出的可选的原因)
+			g.use(runtimeModule+"/conv", "")
+			return fmt.Sprintf("conv.Ptr(m.Get%s())", goCamelCase(f.Name)), nil
+		}
 		return fmt.Sprintf("m.Get%s()", goCamelCase(f.Name)), nil
 	case "ref":
 		n := cg.idx[x.Ref]
@@ -241,7 +245,12 @@ func (cg *cmdGen) emitValue(v ir.EmitVal, cf *ir.Field) (string, error) {
 	case "env":
 		return "env.ID", nil
 	case "const":
-		return constLit(x)
+		lit, err := constLit(x)
+		if err == nil && cf.Optional && !cf.List { // 常量写进可选的字段
+			g.use(runtimeModule+"/conv", "")
+			lit = "conv.Ptr(" + lit + ")"
+		}
+		return lit, err
 	}
 	return "", fmt.Errorf("%s cannot be emitted (输入 / 操作名.列 / 常量 / 现在 / 信封.id)", x.Op)
 }

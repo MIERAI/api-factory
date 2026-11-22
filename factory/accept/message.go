@@ -207,7 +207,8 @@ func (e *msgEnv) checkRows(want []command.Msg, got []outRow) []string {
 			out = append(out, "没有契约 "+w.Type)
 			continue
 		}
-		if ws := command.ShowRaw(canonField(ct.Message.Field(ct.Subject), w.Data[ct.Subject])); ws != g.Subject {
+		if _, gen := w.Data[ct.Subject].(command.Gen); gen { // 主体是数据库生成的值(新建的 id): 只能看 data 的字段(Gen 和任何值相等)
+		} else if ws := command.ShowRaw(canonField(ct.Message.Field(ct.Subject), w.Data[ct.Subject])); ws != g.Subject {
 			out = append(out, fmt.Sprintf("第 %d 条消息 %s 的主体: 模型 %s,outbox %s", i+1, w.Type, ws, g.Subject))
 		}
 		for _, f := range ct.Message.Fields {

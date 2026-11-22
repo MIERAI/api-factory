@@ -416,6 +416,36 @@ func (e *progEnv) sample() map[string]any {
 			}
 		}
 	}
+	for _, op := range e.ops { // 每项(R5): 请求的列表随机 1 ~ 3 个元素(唯一键取不同的值;偶尔重复 → 参数错误)
+		f := e.api.Request.Field(op.Each)
+		if op.Each == "" || f == nil || f.Message == nil {
+			continue
+		}
+		if _, done := req[f.Name]; done {
+			continue
+		}
+		n := 1 + e.rnd.Intn(3)
+		used := map[string]bool{}
+		var list []any
+		for i := 0; i < n*4 && len(list) < n; i++ {
+			el := map[string]any{}
+			for j := range f.Message.Fields {
+				sf := &f.Message.Fields[j]
+				vals := fieldVals(sf)
+				el[sf.Name] = vals[e.rnd.Intn(len(vals))]
+			}
+			k := ""
+			for _, u := range op.EachKey {
+				k += fmt.Sprint(el[u]) + "|"
+			}
+			if len(op.EachKey) > 0 && used[k] && e.rnd.Intn(10) > 0 {
+				continue
+			}
+			used[k] = true
+			list = append(list, el)
+		}
+		req[f.Name] = list
+	}
 	for _, f := range e.api.Request.Fields { // 剩下的字段: 写进的列的值域,或者基础请求
 		if _, done := req[f.Name]; done {
 			continue

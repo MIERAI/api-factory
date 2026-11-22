@@ -11,11 +11,18 @@ import (
 	"math/big"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
-// Gen: 数据库生成的值(默认值 now()、序号 …)。
-type Gen struct{}
+// Gen: 数据库生成的值(默认值 now()、序号 …)。N: 新建时的编号(同一个模型里不同的行的生成值互相区分:
+// 后面的操作按键找"刚新建的那一行"时用;比较时仍然和任何不为空的值相等)。
+type Gen struct{ N int64 }
+
+var genSeq atomic.Int64
+
+// NewGen: 一个新的生成值(编号不重复)。
+func NewGen() Gen { return Gen{N: genSeq.Add(1)} }
 
 func (Gen) String() string { return "<数据库生成>" }
 

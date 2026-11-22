@@ -236,5 +236,26 @@ run "跳过: 条件不成立当成错误"                     $RV 's/\} else if 
 run "仅当 已更新: 跳过时也退回"                     $RV 's/if updated3 \{ \/\/ 仅当 检查/if updated3 || true { \/\/ 仅当 检查/'
 run "墓碑写成 HELD(迟到的扣款照样扣)"              $RV 's/\{Name: "status", Value: int32\(3\)\},/{Name: "status", Value: int32(1)},/'
 run "死信的结果提交了(不进 DLQ)"                   $SD 's/return consume\.Poison\(errors\.New\("ALREADY_REVERSED: [^"]*"\)\)/_ = errors.New; return nil/'
+# R5: 状态机(转移 / 分类 / 守卫 / 超时 / 期限 / 乐观锁 / 载入)+ 组合命令的 每项
+DR=internal/handler/approvals/document_review_gen.go
+SDOC=internal/handler/approvals/submit_document_gen.go
+run "状态机: 不检查当前状态(终态也接受转移)"       $DR 's/Cond:(\s+)txn\.Cmp\("=", txn\.C\("status"\), txn\.V\(int32\(2\)\)\),/Cond:${1}txn.Cmp("<>", txn.C("status"), txn.V(int32(0))),/'
+run "状态机: 转移到错的状态"                     $DR 's/\{Name: "status", Value: int32\(3\)\},/{Name: "status", Value: int32(5)},/'
+run "状态机: 去掉守卫"                           $DR 's/txn\.And\((txn\.Cmp\("=", txn\.C\("status"\), txn\.V\(int32\(1\)\)\)), txn\.Cmp\("=", txn\.V\(m\.GetRevision\(\)\), txn\.C\("revision"\)\)\)/$1/'
+run "状态机: 忽略的消息也发出了事件"               $DR 's/(OnReviewRejected\(ctx.*?sm\.Ignored\("DocumentReview", "late"\)\n\t\t\tconsume\.Business\(ctx, "IGNORED"\)\n\t\t\t)return nil/${1}return h.emit(ctx, tx, emitMsg(message.Event, "document.rejected", 1, fmt.Sprint(m.GetDocId()), &approvalsv1.DocumentRejectedV1{DocId: m.GetDocId(), Reason: m.GetReason()}))/s'
+run "状态机: 迟到当成不可能(进 DLQ)"             $DR 's/case 2, 3, 4, 5: \/\/ 迟到/case 99: \/\/ 迟到/'
+run "状态机: 不可能当成迟到(吞掉)"               $DR 's/case 3: \/\/ 迟到/case 1, 3, 4, 5: \/\/ 迟到/'
+run "状态机: 进入等待状态发出别的命令"             $DR 's/emitMsg\(message\.Command, "publish\.request", 1, fmt\.Sprint\(d1\.GetDocId\(\)\), d1\)/emitMsg(message.Command, "review.request", 1, fmt.Sprint(d1.GetDocId()), d1)/'
+run "状态机: 进入终态不发出事件"                   $DR 's/return h\.emit\(ctx, tx,\n\t\temitMsg\(message\.Event, "document\.published", 1, fmt\.Sprint\(d1\.GetDocId\(\)\), d1\),\n\t\)/_ = d1\n\treturn nil/'
+run "状态机: 进入新状态不清零重发计数"             $DR 's/\n\t\t\t\{Name: "attempts", Value: int32\(0\)\},//'
+run "超时: 刚好到 不重发(<= 写成 <)"              $DR 's/if !cur\.Entered\.Add\(time\.Duration\(30\+60\*int64\(cur\.Attempts\)\) \* time\.Second\)\.After\(now\)/if cur.Entered.Add(time.Duration(30+60*int64(cur.Attempts)) * time.Second).Before(now)/'
+run "超时: 扫描的比较 <= 写成 <"                 $DR 's/\(30 \+ 60 \* \\"attempts\\"\) <= \$1/(30 + 60 * \\"attempts\\") < \$1/'
+run "超时: 重发不累加计数"                        $DR 's/\n\t+\{Name: "attempts", Expr: txn\.Add\(txn\.C\("attempts"\), txn\.V\(int32\(1\)\)\)\},//'
+run "超时: 期限差一秒"                            $DR 's/cur\.Entered\.Add\(3600 \* time\.Second\)/cur.Entered.Add(3601 * time.Second)/'
+run "超时: 期限的扫描条件漏了"                     $DR 's/ OR \\"entered_at\\" \+ interval .3600 seconds. <= \$1//'
+run "超时: 去掉版本的乐观锁(两个扫描各重发一次)"   $DR 's/\n\t+Version:\s+&txn\.Col\{Name: "version", Value: cur\.Version\},//g'
+run "载入: 子行的顺序反了"                        $DR 's/ORDER BY \\"reviewer\\" ASC/ORDER BY \\"reviewer\\" DESC/'
+run "每项(组合命令): 只处理第一项"                 $SDOC 's/for _, it := range items2 \{/for _, it := range items2[:1] {/'
+run "每项(组合命令): 发出的列表少了元素"           $SDOC 's/for _, x := range m\.GetReviewers\(\) \{/for _, x := range m.GetReviewers()[:1] {/'
 [[ -n ${PLAN:-} ]] && exit 0
 go build -o bin/server ./cmd/server; git status --short

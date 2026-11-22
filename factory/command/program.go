@@ -160,7 +160,7 @@ func (s *State) exec(ts *TableState, op ir.CommandOp, ec *evalCtx) (OpResult, Ou
 			case c.Default == nil:
 				row[c.Name] = nil
 			case c.Default.Generated:
-				row[c.Name] = Gen{}
+				row[c.Name] = NewGen()
 			default:
 				row[c.Name] = c.Default.Value
 			}
@@ -323,7 +323,7 @@ func (ec *evalCtx) eval(x *ir.CmdExpr) (any, error) {
 			return nil, fmt.Errorf("op %s has no result", x.Ref)
 		}
 		return r.Row[x.Name], nil
-	case "+", "-":
+	case "+", "-", "*":
 		a, err := ec.eval(x.Args[0])
 		if err != nil {
 			return nil, err
@@ -344,8 +344,11 @@ func (ec *evalCtx) eval(x *ir.CmdExpr) (any, error) {
 			if ra == nil || rb == nil {
 				return nil, fmt.Errorf("not a decimal: %v %v", a, b)
 			}
-			if x.Op == "+" {
+			switch x.Op {
+			case "+":
 				return new(big.Rat).Add(ra, rb).RatString(), nil
+			case "*":
+				return new(big.Rat).Mul(ra, rb).RatString(), nil
 			}
 			return new(big.Rat).Sub(ra, rb).RatString(), nil
 		}
@@ -356,9 +359,12 @@ func (ec *evalCtx) eval(x *ir.CmdExpr) (any, error) {
 		}
 		ba, bb := big.NewInt(ia), big.NewInt(ib)
 		var n *big.Int
-		if x.Op == "+" {
+		switch x.Op {
+		case "+":
 			n = new(big.Int).Add(ba, bb)
-		} else {
+		case "*":
+			n = new(big.Int).Mul(ba, bb)
+		default:
 			n = new(big.Int).Sub(ba, bb)
 		}
 		lo, hi := intRange(x.Type)

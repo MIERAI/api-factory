@@ -108,7 +108,7 @@ func (s *State) Apply(op, table string, req Request) Result {
 			case c.Default == nil:
 				row[c.Name] = nil
 			case c.Default.Generated:
-				row[c.Name] = Gen{}
+				row[c.Name] = NewGen()
 			default:
 				row[c.Name] = c.Default.Value
 			}
@@ -227,7 +227,10 @@ func sameKey(a, b Row, cols []string) bool {
 		if x == nil || y == nil {
 			return false
 		}
-		if _, g := x.(Gen); g {
+		if gx, g := x.(Gen); g { // 同一个新建的行的生成值(编号相同): 相等(R5: 同一个新订单的两条明细)
+			if gy, g2 := y.(Gen); g2 && gx.N != 0 && gx == gy {
+				continue
+			}
 			return false
 		}
 		if _, g := y.(Gen); g {
@@ -251,6 +254,16 @@ func refers(child Row, ccols []string, parent Row, pcols []string) bool {
 
 // find: 主键 = key 的行的下标(没有 → -1)。
 func (ts *TableState) find(key Row) int {
+	for i, r := range ts.Rows { // 键是刚新建的行的生成值(编号): 先找那一行(R5: 组合命令里按新建的 id 更新)
+		ok := len(key) > 0
+		for c, v := range key {
+			g, isGen := v.(Gen)
+			ok = ok && isGen && g.N != 0 && r[c] == v
+		}
+		if ok {
+			return i
+		}
+	}
 	for i, r := range ts.Rows {
 		ok := true
 		for c, v := range key {
@@ -342,15 +355,47 @@ func Diff(t *Table, model, db []Row, adopt bool) string {
 		}
 	}
 	sort.SliceStable(rest, func(i, j int) bool { return t.keyLess(rest[i], rest[j]) })
-	for i, m := range pending {
-		if i >= len(rest) {
+	// 新的行: 按主键里不是生成值的列对应(同一个生成值(编号)对应同一个数据库的值);对不上的按序号的顺序
+	taken := make([]bool, len(rest))
+	genVal := map[int64]any{}
+	fits := func(m, d Row) bool {
+		for _, c := range t.PK {
+			if g, ok := m[c].(Gen); ok {
+				if v, known := genVal[g.N]; known && g.N != 0 && !Equal(v, d[c]) {
+					return false
+				}
+				continue
+			}
+			if !Equal(m[c], d[c]) {
+				return false
+			}
+		}
+		return true
+	}
+	for _, m := range pending {
+		j := -1
+		for i, d := range rest {
+			if !taken[i] && fits(m, d) {
+				j = i
+				break
+			}
+		}
+		if j < 0 {
 			out = append(out, fmt.Sprintf("%s[%s]: 模型有(新的行)、数据库没有", t.Name, t.KeyOf(m)))
 			continue
 		}
-		compare(t.KeyOf(rest[i]), m, rest[i])
+		taken[j] = true
+		for _, c := range t.PK {
+			if g, ok := m[c].(Gen); ok && g.N != 0 {
+				genVal[g.N] = rest[j][c]
+			}
+		}
+		compare(t.KeyOf(rest[j]), m, rest[j])
 	}
-	for _, d := range rest[min(len(pending), len(rest)):] {
-		out = append(out, fmt.Sprintf("%s[%s]: 数据库有、模型没有", t.Name, t.KeyOf(d)))
+	for i, d := range rest {
+		if !taken[i] {
+			out = append(out, fmt.Sprintf("%s[%s]: 数据库有、模型没有", t.Name, t.KeyOf(d)))
+		}
 	}
 	sort.Strings(out)
 	if len(out) > 4 {

@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"math/big"
 	"math/rand"
 	"net/http"
 	"os"
@@ -771,6 +772,9 @@ func jsonForm(f *ir.Field, v any) any {
 		return fmt.Sprint(v) == "true"
 	}
 	if s, ok := v.(string); ok {
+		if r, ok := new(big.Rat).SetString(s); ok && strings.Contains(s, "/") { // 十进制的规范值(1300.5 = "2601/2")→ 十进制的文本
+			return ratText(r)
+		}
 		return s
 	}
 	return fmt.Sprint(v)

@@ -108,6 +108,19 @@ func (cg *cmdGen) expr(x *ir.CmdExpr) (string, error) {
 		}
 		fn := map[string]string{"+": "Add", "-": "Sub"}[x.Op]
 		return fmt.Sprintf("txn.%s(%s, %s)", fn, a, b), nil
+	case "*": // 乘(R5): 两边常常都是参数,写明参数的类型(Postgres 推不出 $1 * $2 的类型)
+		var parts [2]string
+		for i, a := range x.Args {
+			s, err := cg.expr(a)
+			if err != nil {
+				return "", err
+			}
+			if a.Op != "col" {
+				s = fmt.Sprintf("txn.T(%s, %q)", s, a.Type)
+			}
+			parts[i] = s
+		}
+		return fmt.Sprintf("txn.Mul(%s, %s)", parts[0], parts[1]), nil
 	case "=", "<>", "<", "<=", ">", ">=":
 		a, err := cg.expr(x.Args[0])
 		if err != nil {

@@ -33,3 +33,5 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20260819154853-08b0e4226688 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260819154853-08b0e4226688 // indirect
 )
+
+replace github.com/MIERAI/api-factory-runtime => /private/tmp/claude-502/-Users-yangzaiqi-workspace/13ff8649-f6ca-41c2-bce4-b5856e7f3800/scratchpad/afr-r5

@@ -4,7 +4,8 @@ package command
 //
 //	条件   = 比较 { "并且" 比较 }
 //	比较   = 值 ("=" | "<>" | "<" | "<=" | ">" | ">=") 值
-//	值     = 项 { ("+" | "-") 项 }
+//	值     = 积 { ("+" | "-") 积 }
+//	积     = 项 { "*" 项 }                         (R5: 数量 × 单价;乘的两边是单个的项)
 //	项     = 输入.字段 | 操作名.列 | 列 | 数字 | '文本' | 现在 | now() | 名字(枚举的值名,设计稿里)
 //
 // 例: available + 输入.delta >= 0 并且 status = HELD
@@ -113,18 +114,35 @@ func (p *exprParser) cmp() (*ir.CmdExpr, error) {
 }
 
 func (p *exprParser) value() (*ir.CmdExpr, error) {
-	x, err := p.term()
+	x, err := p.product()
 	if err != nil {
 		return nil, err
 	}
 	for p.peek() == "+" || p.peek() == "-" {
 		op := p.peek()
 		p.pos++
-		y, err := p.term()
+		y, err := p.product()
 		if err != nil {
 			return nil, err
 		}
 		x = &ir.CmdExpr{Op: op, Args: []*ir.CmdExpr{x, y}}
+	}
+	return x, nil
+}
+
+// product: 项 { "*" 项 }(R5)。
+func (p *exprParser) product() (*ir.CmdExpr, error) {
+	x, err := p.term()
+	if err != nil {
+		return nil, err
+	}
+	for p.peek() == "*" || p.peek() == "×" {
+		p.pos++
+		y, err := p.term()
+		if err != nil {
+			return nil, err
+		}
+		x = &ir.CmdExpr{Op: "*", Args: []*ir.CmdExpr{x, y}}
 	}
 	return x, nil
 }
@@ -259,7 +277,7 @@ func lexExpr(src string) ([]string, error) {
 				out = append(out, string(r))
 				i++
 			}
-		case r == '=' || r == '+' || r == '-':
+		case r == '=' || r == '+' || r == '-' || r == '*' || r == '×':
 			out = append(out, string(r))
 			i++
 		case unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_':
@@ -401,7 +419,7 @@ func typeHint(x *ir.CmdExpr, sc Scope) (string, error) {
 		return "text", nil
 	case "now":
 		return "timestamptz", nil
-	case "+", "-":
+	case "+", "-", "*":
 		ta, err := typeHint(x.Args[0], sc)
 		if err != nil || ta != "" {
 			return ta, err
@@ -569,6 +587,24 @@ func resolveValue(x *ir.CmdExpr, sc Scope, want, wantTable, wantCol string) (str
 		t := widest(ta, tb)
 		if isInt(t) && isNum(base) && base == "numeric" {
 			t = widest(t, "int8")
+		}
+		x.Type = t
+		return t, nil
+	case "*": // 乘(R5: 数量 × 单价): 整数 × 整数 = 整数(溢出 = 数据库的规则),有十进制 = 十进制
+		ta, err := resolveValue(x.Args[0], sc, want, "", "")
+		if err != nil {
+			return "", err
+		}
+		tb, err := resolveValue(x.Args[1], sc, want, "", "")
+		if err != nil {
+			return "", err
+		}
+		if !isNum(ta) || !isNum(tb) {
+			return "", fmt.Errorf("乘只用于整数 / 十进制(%s * %s)", ta, tb)
+		}
+		t := widest(ta, tb)
+		if ta == "numeric" || tb == "numeric" {
+			t = "numeric"
 		}
 		x.Type = t
 		return t, nil

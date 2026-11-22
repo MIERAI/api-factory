@@ -13,8 +13,10 @@
       customer_id: 顾客 id
       status:      { 说明: 订单(saga)的状态, 枚举: OrderStatus }
       total:       合计金额(十进制)
+      version:     行的版本(每次状态转移 / 重发 + 1)
+      state_attempts: 当前状态的命令重发了几次(进入新状态时清零)
       created_at:  下单时间
-      updated_at:  最后一次状态转移的时间
+      updated_at:  最后一次状态转移的时间(进入当前状态的时间)
     规则:
       - 规则: status 只能是 1~7
         数据库保证: 是
@@ -36,7 +38,7 @@
   OrderStatus:
     说明: 订单的状态(下单 saga 的步骤)
     值:
-      PENDING:    { 说明: 已下单(saga 还没开始), 数据库值: 1 }
+      PENDING:    { 说明: 已下单(saga 还没开始;下单直接进入 RESERVING、saga 不用这个状态), 数据库值: 1 }
       RESERVING:  { 说明: 等待库存预留, 数据库值: 2 }
       CHARGING:   { 说明: 等待支付, 数据库值: 3 }
       CONFIRMING: { 说明: 等待库存确认, 数据库值: 4 }

@@ -26,6 +26,9 @@ const _ = connect.IsAtLeastVersion1_13_0
 const (
 	// OrderServiceName is the fully-qualified name of the OrderService service.
 	OrderServiceName = "order.order.v1.OrderService"
+	// OrderMessageHandlerServiceName is the fully-qualified name of the OrderMessageHandlerService
+	// service.
+	OrderMessageHandlerServiceName = "order.order.v1.OrderMessageHandlerService"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -44,6 +47,11 @@ const (
 	// OrderServiceListStuckOrdersProcedure is the fully-qualified name of the OrderService's
 	// ListStuckOrders RPC.
 	OrderServiceListStuckOrdersProcedure = "/order.order.v1.OrderService/ListStuckOrders"
+	// OrderServicePlaceOrderProcedure is the fully-qualified name of the OrderService's PlaceOrder RPC.
+	OrderServicePlaceOrderProcedure = "/order.order.v1.OrderService/PlaceOrder"
+	// OrderMessageHandlerServiceOrderSagaProcedure is the fully-qualified name of the
+	// OrderMessageHandlerService's OrderSaga RPC.
+	OrderMessageHandlerServiceOrderSagaProcedure = "/order.order.v1.OrderMessageHandlerService/OrderSaga"
 )
 
 // OrderServiceClient is a client for the order.order.v1.OrderService service.
@@ -54,6 +62,8 @@ type OrderServiceClient interface {
 	ListOrdersByCustomer(context.Context, *connect.Request[v1.ListOrdersByCustomerRequest]) (*connect.Response[v1.ListOrdersByCustomerResponse], error)
 	// 返回在等待状态(库存预留 / 支付 / 库存确认 / 库存释放)里停留超过指定分钟数的订单,最后一次状态转移早的在前
 	ListStuckOrders(context.Context, *connect.Request[v1.ListStuckOrdersRequest]) (*connect.Response[v1.ListStuckOrdersResponse], error)
+	// 下单。订单和明细一起写进去(订单金额 = 明细金额之和),订单进入 RESERVING,同时发出 inventory.reserve
+	PlaceOrder(context.Context, *connect.Request[v1.PlaceOrderRequest]) (*connect.Response[v1.PlaceOrderResponse], error)
 }
 
 // NewOrderServiceClient constructs a client for the order.order.v1.OrderService service. By
@@ -85,6 +95,12 @@ func NewOrderServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(orderServiceMethods.ByName("ListStuckOrders")),
 			connect.WithClientOptions(opts...),
 		),
+		placeOrder: connect.NewClient[v1.PlaceOrderRequest, v1.PlaceOrderResponse](
+			httpClient,
+			baseURL+OrderServicePlaceOrderProcedure,
+			connect.WithSchema(orderServiceMethods.ByName("PlaceOrder")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -93,6 +109,7 @@ type orderServiceClient struct {
 	getOrder             *connect.Client[v1.GetOrderRequest, v1.GetOrderResponse]
 	listOrdersByCustomer *connect.Client[v1.ListOrdersByCustomerRequest, v1.ListOrdersByCustomerResponse]
 	listStuckOrders      *connect.Client[v1.ListStuckOrdersRequest, v1.ListStuckOrdersResponse]
+	placeOrder           *connect.Client[v1.PlaceOrderRequest, v1.PlaceOrderResponse]
 }
 
 // GetOrder calls order.order.v1.OrderService.GetOrder.
@@ -110,6 +127,11 @@ func (c *orderServiceClient) ListStuckOrders(ctx context.Context, req *connect.R
 	return c.listStuckOrders.CallUnary(ctx, req)
 }
 
+// PlaceOrder calls order.order.v1.OrderService.PlaceOrder.
+func (c *orderServiceClient) PlaceOrder(ctx context.Context, req *connect.Request[v1.PlaceOrderRequest]) (*connect.Response[v1.PlaceOrderResponse], error) {
+	return c.placeOrder.CallUnary(ctx, req)
+}
+
 // OrderServiceHandler is an implementation of the order.order.v1.OrderService service.
 type OrderServiceHandler interface {
 	// 返回一个订单和它的明细(按行号)
@@ -118,6 +140,8 @@ type OrderServiceHandler interface {
 	ListOrdersByCustomer(context.Context, *connect.Request[v1.ListOrdersByCustomerRequest]) (*connect.Response[v1.ListOrdersByCustomerResponse], error)
 	// 返回在等待状态(库存预留 / 支付 / 库存确认 / 库存释放)里停留超过指定分钟数的订单,最后一次状态转移早的在前
 	ListStuckOrders(context.Context, *connect.Request[v1.ListStuckOrdersRequest]) (*connect.Response[v1.ListStuckOrdersResponse], error)
+	// 下单。订单和明细一起写进去(订单金额 = 明细金额之和),订单进入 RESERVING,同时发出 inventory.reserve
+	PlaceOrder(context.Context, *connect.Request[v1.PlaceOrderRequest]) (*connect.Response[v1.PlaceOrderResponse], error)
 }
 
 // NewOrderServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -145,6 +169,12 @@ func NewOrderServiceHandler(svc OrderServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(orderServiceMethods.ByName("ListStuckOrders")),
 		connect.WithHandlerOptions(opts...),
 	)
+	orderServicePlaceOrderHandler := connect.NewUnaryHandler(
+		OrderServicePlaceOrderProcedure,
+		svc.PlaceOrder,
+		connect.WithSchema(orderServiceMethods.ByName("PlaceOrder")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/order.order.v1.OrderService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case OrderServiceGetOrderProcedure:
@@ -153,6 +183,8 @@ func NewOrderServiceHandler(svc OrderServiceHandler, opts ...connect.HandlerOpti
 			orderServiceListOrdersByCustomerHandler.ServeHTTP(w, r)
 		case OrderServiceListStuckOrdersProcedure:
 			orderServiceListStuckOrdersHandler.ServeHTTP(w, r)
+		case OrderServicePlaceOrderProcedure:
+			orderServicePlaceOrderHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -172,4 +204,82 @@ func (UnimplementedOrderServiceHandler) ListOrdersByCustomer(context.Context, *c
 
 func (UnimplementedOrderServiceHandler) ListStuckOrders(context.Context, *connect.Request[v1.ListStuckOrdersRequest]) (*connect.Response[v1.ListStuckOrdersResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("order.order.v1.OrderService.ListStuckOrders is not implemented"))
+}
+
+func (UnimplementedOrderServiceHandler) PlaceOrder(context.Context, *connect.Request[v1.PlaceOrderRequest]) (*connect.Response[v1.PlaceOrderResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("order.order.v1.OrderService.PlaceOrder is not implemented"))
+}
+
+// OrderMessageHandlerServiceClient is a client for the order.order.v1.OrderMessageHandlerService
+// service.
+type OrderMessageHandlerServiceClient interface {
+	// 下单的 saga。按状态发命令给 inventory / payment、收它们的回答、失败时释放库存再取消订单(状态机: 收到 inventory.committed / inventory.released / inventory.reservation_failed / inventory.reserved / payment.failed / payment.succeeded;超时由扫描任务驱动)
+	OrderSaga(context.Context, *connect.Request[v1.OrderSagaRequest]) (*connect.Response[v1.OrderSagaResponse], error)
+}
+
+// NewOrderMessageHandlerServiceClient constructs a client for the
+// order.order.v1.OrderMessageHandlerService service. By default, it uses the Connect protocol with
+// the binary Protobuf Codec, asks for gzipped responses, and sends uncompressed requests. To use
+// the gRPC or gRPC-Web protocols, supply the connect.WithGRPC() or connect.WithGRPCWeb() options.
+//
+// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
+// http://api.acme.com or https://acme.com/grpc).
+func NewOrderMessageHandlerServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) OrderMessageHandlerServiceClient {
+	baseURL = strings.TrimRight(baseURL, "/")
+	orderMessageHandlerServiceMethods := v1.File_order_order_v1_order_proto.Services().ByName("OrderMessageHandlerService").Methods()
+	return &orderMessageHandlerServiceClient{
+		orderSaga: connect.NewClient[v1.OrderSagaRequest, v1.OrderSagaResponse](
+			httpClient,
+			baseURL+OrderMessageHandlerServiceOrderSagaProcedure,
+			connect.WithSchema(orderMessageHandlerServiceMethods.ByName("OrderSaga")),
+			connect.WithClientOptions(opts...),
+		),
+	}
+}
+
+// orderMessageHandlerServiceClient implements OrderMessageHandlerServiceClient.
+type orderMessageHandlerServiceClient struct {
+	orderSaga *connect.Client[v1.OrderSagaRequest, v1.OrderSagaResponse]
+}
+
+// OrderSaga calls order.order.v1.OrderMessageHandlerService.OrderSaga.
+func (c *orderMessageHandlerServiceClient) OrderSaga(ctx context.Context, req *connect.Request[v1.OrderSagaRequest]) (*connect.Response[v1.OrderSagaResponse], error) {
+	return c.orderSaga.CallUnary(ctx, req)
+}
+
+// OrderMessageHandlerServiceHandler is an implementation of the
+// order.order.v1.OrderMessageHandlerService service.
+type OrderMessageHandlerServiceHandler interface {
+	// 下单的 saga。按状态发命令给 inventory / payment、收它们的回答、失败时释放库存再取消订单(状态机: 收到 inventory.committed / inventory.released / inventory.reservation_failed / inventory.reserved / payment.failed / payment.succeeded;超时由扫描任务驱动)
+	OrderSaga(context.Context, *connect.Request[v1.OrderSagaRequest]) (*connect.Response[v1.OrderSagaResponse], error)
+}
+
+// NewOrderMessageHandlerServiceHandler builds an HTTP handler from the service implementation. It
+// returns the path on which to mount the handler and the handler itself.
+//
+// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
+// and JSON codecs. They also support gzip compression.
+func NewOrderMessageHandlerServiceHandler(svc OrderMessageHandlerServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	orderMessageHandlerServiceMethods := v1.File_order_order_v1_order_proto.Services().ByName("OrderMessageHandlerService").Methods()
+	orderMessageHandlerServiceOrderSagaHandler := connect.NewUnaryHandler(
+		OrderMessageHandlerServiceOrderSagaProcedure,
+		svc.OrderSaga,
+		connect.WithSchema(orderMessageHandlerServiceMethods.ByName("OrderSaga")),
+		connect.WithHandlerOptions(opts...),
+	)
+	return "/order.order.v1.OrderMessageHandlerService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case OrderMessageHandlerServiceOrderSagaProcedure:
+			orderMessageHandlerServiceOrderSagaHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+
+// UnimplementedOrderMessageHandlerServiceHandler returns CodeUnimplemented from all methods.
+type UnimplementedOrderMessageHandlerServiceHandler struct{}
+
+func (UnimplementedOrderMessageHandlerServiceHandler) OrderSaga(context.Context, *connect.Request[v1.OrderSagaRequest]) (*connect.Response[v1.OrderSagaResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("order.order.v1.OrderMessageHandlerService.OrderSaga is not implemented"))
 }
