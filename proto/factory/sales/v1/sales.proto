@@ -47,6 +47,9 @@ service SaleService {
   // 店舗の、今日を含む直近 days 日分(days = 0 なら今日だけ)の売価スナップショットを新しい日から返す
   rpc ListRecentSnapshots(ListRecentSnapshotsRequest) returns (ListRecentSnapshotsResponse);
 
+  // 店舗を指定して、売価(有効期間つき)を商品名つきで商品コード順に返す
+  rpc ListStorePriceNames(ListStorePriceNamesRequest) returns (ListStorePriceNamesResponse);
+
   // 店舗を指定して、商品コードの前方一致で売価(有効期間つき)を返す
   rpc ListStorePricesByPrefix(ListStorePricesByPrefixRequest) returns (ListStorePricesByPrefixResponse);
 
@@ -405,6 +408,32 @@ message ListRecentSnapshotsRequest {
 message ListRecentSnapshotsResponse {
   // 最多 200 件;超过时返回错误(不会截断)
   repeated RecentSnapshot snapshots = 1;
+}
+
+// 店別の売価(有効期間つき)。店舗ごとの DB に分かれている
+message StorePriceWithName {
+  // 商品コード
+  string product_code = 1;
+  // 商品名(店舗の商品マスタに無い = 不设置)
+  optional string product_name = 2;
+  // 適用開始日
+  string valid_from = 3;
+  // 適用終了日
+  optional string valid_to = 4;
+  // 売価
+  string price = 5;
+}
+
+// 店舗を指定して、売価(有効期間つき)を商品名つきで商品コード順に返す
+message ListStorePriceNamesRequest {
+  // 店舗コード
+  int32 store_code = 1 [(buf.validate.field).int32.gt = 0];
+}
+
+// 店舗を指定して、売価(有効期間つき)を商品名つきで商品コード順に返す
+message ListStorePriceNamesResponse {
+  // 最多 300 件;超过时返回错误(不会截断)
+  repeated StorePriceWithName store_prices = 1;
 }
 
 // 店舗を指定して、商品コードの前方一致で売価(有効期間つき)を返す

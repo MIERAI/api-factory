@@ -55,3 +55,9 @@ CREATE TABLE IF NOT EXISTS store_cost_rates (
     cost_rate  NUMERIC NOT NULL CHECK (cost_rate >= 0),
     PRIMARY KEY (store_code, rate_kind, valid_from)
 );
+
+-- 店舗の DB ごとの商品マスタ(分库: 随父 の例: 店舗コードの列がない。売価の行と同じ店舗の DB にある)
+CREATE TABLE IF NOT EXISTS local_products (
+    product_code TEXT PRIMARY KEY,
+    name         TEXT NOT NULL
+);

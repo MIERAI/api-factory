@@ -187,7 +187,11 @@ func lookupStep(s *spec.Spec, cat *catalog, keys map[string][][]string, lib *cel
 		return st, nil, fmt.Errorf("%s: 条件里 %s 的列 %v 不是主键或唯一约束(%s 的唯一键: %v)。"+
 			"关联是多对一: 对方最多一行匹配;一对多请用嵌套", at, l.Table, keyList, l.Table, st.Unique)
 	}
+	if err := withParentRule(at, table, l.Table, entity(table), entity(l.Table)); err != nil {
+		return st, nil, err
+	}
 	switch src, dst := entity(table).ShardBy, entity(l.Table).ShardBy; {
+	case entity(l.Table).ShardWithParent || entity(table).ShardWithParent: // 分库: 随父(withParentRule 已经检查)
 	case src == "" && dst != "":
 		return st, nil, fmt.Errorf("%s: %s 按 %s 分库,%s 不分库: 不分库的表不能关联分库的表(一个请求只访问一个库)", at, l.Table, dst, table)
 	case src != "" && dst == "":
@@ -388,4 +392,18 @@ func isLiteral(s string) bool {
 		s = s[1:]
 	}
 	return s != "" && s[0] >= '0' && s[0] <= '9'
+}
+
+// withParentRule: 分库: 随父 的表(没有分库键的列,行在父行的库里)。
+//   - 对方 / 子表是随父的表: 当前行的表必须分库(按分库键,或者自己也随父)—— 不分库的表在主库,随父的表在各个分库
+//   - 当前行的表是随父的表(嵌套的子表上的关联 …): 对方也只能是随父的表(分库键不在当前行上,确认不了是同一个库)
+func withParentRule(at, table, other string, cur, dst spec.Entity) error {
+	curSharded := cur.ShardBy != "" || cur.ShardWithParent
+	switch {
+	case dst.ShardWithParent && !curSharded:
+		return fmt.Errorf("%s: %s 是 分库: 随父,%s 不分库: 随父的表只能从分库的表关联(行在父行的那个库里)", at, other, table)
+	case cur.ShardWithParent && !dst.ShardWithParent:
+		return fmt.Errorf("%s: %s 是 分库: 随父,只能再关联随父的表(%s 不是: 确认不了在同一个库里)", at, table, other)
+	}
+	return nil
 }

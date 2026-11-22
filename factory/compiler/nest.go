@@ -73,7 +73,11 @@ func childSteps(s *spec.Spec, cat *catalog, keys map[string][][]string, cols []c
 			}
 			st.On = append(st.On, core.JoinKey{Col: a, Key: b})
 		}
+		if err := withParentRule(at, table, child, entity(table), entity(child)); err != nil {
+			return st, nil, err
+		}
 		switch src, dst := entity(table).ShardBy, entity(child).ShardBy; {
+		case entity(child).ShardWithParent || entity(table).ShardWithParent: // 分库: 随父(withParentRule 已经检查)
 		case src == "" && dst != "":
 			return st, nil, fmt.Errorf("%s: %s 按 %s 分库,%s 不分库: 子表必须和父表在同一个库里", at, child, dst, table)
 		case src != "" && dst == "":

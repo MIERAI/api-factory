@@ -72,6 +72,9 @@ const (
 	// SaleServiceListRecentSnapshotsProcedure is the fully-qualified name of the SaleService's
 	// ListRecentSnapshots RPC.
 	SaleServiceListRecentSnapshotsProcedure = "/factory.sales.v1.SaleService/ListRecentSnapshots"
+	// SaleServiceListStorePriceNamesProcedure is the fully-qualified name of the SaleService's
+	// ListStorePriceNames RPC.
+	SaleServiceListStorePriceNamesProcedure = "/factory.sales.v1.SaleService/ListStorePriceNames"
 	// SaleServiceListStorePricesByPrefixProcedure is the fully-qualified name of the SaleService's
 	// ListStorePricesByPrefix RPC.
 	SaleServiceListStorePricesByPrefixProcedure = "/factory.sales.v1.SaleService/ListStorePricesByPrefix"
@@ -124,6 +127,8 @@ type SaleServiceClient interface {
 	ListPricesAsOf(context.Context, *connect.Request[v1.ListPricesAsOfRequest]) (*connect.Response[v1.ListPricesAsOfResponse], error)
 	// 店舗の、今日を含む直近 days 日分(days = 0 なら今日だけ)の売価スナップショットを新しい日から返す
 	ListRecentSnapshots(context.Context, *connect.Request[v1.ListRecentSnapshotsRequest]) (*connect.Response[v1.ListRecentSnapshotsResponse], error)
+	// 店舗を指定して、売価(有効期間つき)を商品名つきで商品コード順に返す
+	ListStorePriceNames(context.Context, *connect.Request[v1.ListStorePriceNamesRequest]) (*connect.Response[v1.ListStorePriceNamesResponse], error)
 	// 店舗を指定して、商品コードの前方一致で売価(有効期間つき)を返す
 	ListStorePricesByPrefix(context.Context, *connect.Request[v1.ListStorePricesByPrefixRequest]) (*connect.Response[v1.ListStorePricesByPrefixResponse], error)
 	// 指定した売上日の、店舗別の売上を返す(分页なし)
@@ -225,6 +230,12 @@ func NewSaleServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(saleServiceMethods.ByName("ListRecentSnapshots")),
 			connect.WithClientOptions(opts...),
 		),
+		listStorePriceNames: connect.NewClient[v1.ListStorePriceNamesRequest, v1.ListStorePriceNamesResponse](
+			httpClient,
+			baseURL+SaleServiceListStorePriceNamesProcedure,
+			connect.WithSchema(saleServiceMethods.ByName("ListStorePriceNames")),
+			connect.WithClientOptions(opts...),
+		),
 		listStorePricesByPrefix: connect.NewClient[v1.ListStorePricesByPrefixRequest, v1.ListStorePricesByPrefixResponse](
 			httpClient,
 			baseURL+SaleServiceListStorePricesByPrefixProcedure,
@@ -290,6 +301,7 @@ type saleServiceClient struct {
 	listPriceChangesForStores *connect.Client[v1.ListPriceChangesForStoresRequest, v1.ListPriceChangesForStoresResponse]
 	listPricesAsOf            *connect.Client[v1.ListPricesAsOfRequest, v1.ListPricesAsOfResponse]
 	listRecentSnapshots       *connect.Client[v1.ListRecentSnapshotsRequest, v1.ListRecentSnapshotsResponse]
+	listStorePriceNames       *connect.Client[v1.ListStorePriceNamesRequest, v1.ListStorePriceNamesResponse]
 	listStorePricesByPrefix   *connect.Client[v1.ListStorePricesByPrefixRequest, v1.ListStorePricesByPrefixResponse]
 	listStoreSales            *connect.Client[v1.ListStoreSalesRequest, v1.ListStoreSalesResponse]
 	listStoreSalesByPeriod    *connect.Client[v1.ListStoreSalesByPeriodRequest, v1.ListStoreSalesByPeriodResponse]
@@ -360,6 +372,11 @@ func (c *saleServiceClient) ListRecentSnapshots(ctx context.Context, req *connec
 	return c.listRecentSnapshots.CallUnary(ctx, req)
 }
 
+// ListStorePriceNames calls factory.sales.v1.SaleService.ListStorePriceNames.
+func (c *saleServiceClient) ListStorePriceNames(ctx context.Context, req *connect.Request[v1.ListStorePriceNamesRequest]) (*connect.Response[v1.ListStorePriceNamesResponse], error) {
+	return c.listStorePriceNames.CallUnary(ctx, req)
+}
+
 // ListStorePricesByPrefix calls factory.sales.v1.SaleService.ListStorePricesByPrefix.
 func (c *saleServiceClient) ListStorePricesByPrefix(ctx context.Context, req *connect.Request[v1.ListStorePricesByPrefixRequest]) (*connect.Response[v1.ListStorePricesByPrefixResponse], error) {
 	return c.listStorePricesByPrefix.CallUnary(ctx, req)
@@ -426,6 +443,8 @@ type SaleServiceHandler interface {
 	ListPricesAsOf(context.Context, *connect.Request[v1.ListPricesAsOfRequest]) (*connect.Response[v1.ListPricesAsOfResponse], error)
 	// 店舗の、今日を含む直近 days 日分(days = 0 なら今日だけ)の売価スナップショットを新しい日から返す
 	ListRecentSnapshots(context.Context, *connect.Request[v1.ListRecentSnapshotsRequest]) (*connect.Response[v1.ListRecentSnapshotsResponse], error)
+	// 店舗を指定して、売価(有効期間つき)を商品名つきで商品コード順に返す
+	ListStorePriceNames(context.Context, *connect.Request[v1.ListStorePriceNamesRequest]) (*connect.Response[v1.ListStorePriceNamesResponse], error)
 	// 店舗を指定して、商品コードの前方一致で売価(有効期間つき)を返す
 	ListStorePricesByPrefix(context.Context, *connect.Request[v1.ListStorePricesByPrefixRequest]) (*connect.Response[v1.ListStorePricesByPrefixResponse], error)
 	// 指定した売上日の、店舗別の売上を返す(分页なし)
@@ -523,6 +542,12 @@ func NewSaleServiceHandler(svc SaleServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(saleServiceMethods.ByName("ListRecentSnapshots")),
 		connect.WithHandlerOptions(opts...),
 	)
+	saleServiceListStorePriceNamesHandler := connect.NewUnaryHandler(
+		SaleServiceListStorePriceNamesProcedure,
+		svc.ListStorePriceNames,
+		connect.WithSchema(saleServiceMethods.ByName("ListStorePriceNames")),
+		connect.WithHandlerOptions(opts...),
+	)
 	saleServiceListStorePricesByPrefixHandler := connect.NewUnaryHandler(
 		SaleServiceListStorePricesByPrefixProcedure,
 		svc.ListStorePricesByPrefix,
@@ -597,6 +622,8 @@ func NewSaleServiceHandler(svc SaleServiceHandler, opts ...connect.HandlerOption
 			saleServiceListPricesAsOfHandler.ServeHTTP(w, r)
 		case SaleServiceListRecentSnapshotsProcedure:
 			saleServiceListRecentSnapshotsHandler.ServeHTTP(w, r)
+		case SaleServiceListStorePriceNamesProcedure:
+			saleServiceListStorePriceNamesHandler.ServeHTTP(w, r)
 		case SaleServiceListStorePricesByPrefixProcedure:
 			saleServiceListStorePricesByPrefixHandler.ServeHTTP(w, r)
 		case SaleServiceListStoreSalesProcedure:
@@ -668,6 +695,10 @@ func (UnimplementedSaleServiceHandler) ListPricesAsOf(context.Context, *connect.
 
 func (UnimplementedSaleServiceHandler) ListRecentSnapshots(context.Context, *connect.Request[v1.ListRecentSnapshotsRequest]) (*connect.Response[v1.ListRecentSnapshotsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.sales.v1.SaleService.ListRecentSnapshots is not implemented"))
+}
+
+func (UnimplementedSaleServiceHandler) ListStorePriceNames(context.Context, *connect.Request[v1.ListStorePriceNamesRequest]) (*connect.Response[v1.ListStorePriceNamesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.sales.v1.SaleService.ListStorePriceNames is not implemented"))
 }
 
 func (UnimplementedSaleServiceHandler) ListStorePricesByPrefix(context.Context, *connect.Request[v1.ListStorePricesByPrefixRequest]) (*connect.Response[v1.ListStorePricesByPrefixResponse], error) {

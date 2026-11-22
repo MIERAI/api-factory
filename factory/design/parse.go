@@ -154,6 +154,7 @@ type Table struct {
 	Rules      []Rule
 	Storage    *spec.Storage // 存储: JSON版本(逻辑表 → 物理表的映射)
 	ShardBy    string        // 分库: 分库键的列(按店铺分库等)
+	ShardWith  bool          // 分库: 随父(没有分库键的列: 行在关联到它的父行的那个库里)
 }
 
 type Rule struct {
@@ -262,6 +263,9 @@ func loadDomain(dir string) (*Domain, error) {
 			}
 		}
 		t.ShardBy = str(p.Val, "分库")
+		if t.ShardBy == "随父" {
+			t.ShardBy, t.ShardWith = "", true
+		}
 		d.Tables[p.Key] = t
 	}
 	for _, t := range d.Tables {

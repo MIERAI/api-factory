@@ -2739,6 +2739,54 @@
     ]
   },
   {
+    "id": "sales.list-store-price-names",
+    "method": "ListStorePriceNames",
+    "summary": "店舗を指定して、売価(有効期間つき)を商品名つきで商品コード順に返す",
+    "path": "/factory.sales.v1.SaleService/ListStorePriceNames",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "商品コード順、同じ商品は新しい適用開始日から。商品マスタに無い 5001 は商品名が空",
+        "request": {
+          "store_code": 1
+        },
+        "response": {
+          "store_prices": [
+            {
+              "product_code": "4901",
+              "product_name": "お茶 500ml",
+              "valid_from": "2026-12-01"
+            },
+            {
+              "product_code": "4901",
+              "product_name": "お茶 500ml",
+              "valid_from": "2026-11-01"
+            },
+            {
+              "product_code": "5001",
+              "product_name": "$absent"
+            }
+          ]
+        }
+      },
+      {
+        "name": "別の店舗(別の DB)でも同じ商品マスタの行がある",
+        "request": {
+          "store_code": 3
+        },
+        "response": {
+          "store_prices": [
+            {
+              "price": "99",
+              "product_code": "4901",
+              "product_name": "お茶 500ml"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
     "id": "sales.list-store-prices-by-prefix",
     "method": "ListStorePricesByPrefix",
     "summary": "店舗を指定して、商品コードの前方一致で売価(有効期間つき)を返す",

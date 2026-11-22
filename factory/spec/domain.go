@@ -24,12 +24,15 @@ type Domain struct {
 }
 
 type Entity struct {
-	NaturalKey []string              `yaml:"natural_key"`
-	Policy     string                `yaml:"policy"` // mutable / versioned
-	Storage    *Storage              `yaml:"storage,omitempty"`
-	ShardBy    string                `yaml:"shard_by,omitempty"` // 分库键的列(按店铺分库等)
-	Columns    map[string]ColumnMeta `yaml:"columns"`
-	Invariants []Invariant           `yaml:"invariants"`
+	NaturalKey []string `yaml:"natural_key"`
+	Policy     string   `yaml:"policy"` // mutable / versioned
+	Storage    *Storage `yaml:"storage,omitempty"`
+	ShardBy    string   `yaml:"shard_by,omitempty"` // 分库键的列(按店铺分库等)
+	// ShardWithParent: 分库: 随父 —— 没有分库键的列,行在关联到它的父行(分库的表)的那个库里。
+	// 只能经由 关联 / 嵌套 / 子聚合 从分库的表(或别的随父的表)访问
+	ShardWithParent bool                  `yaml:"shard_with_parent,omitempty"`
+	Columns         map[string]ColumnMeta `yaml:"columns"`
+	Invariants      []Invariant           `yaml:"invariants"`
 }
 
 // Storage: 逻辑表(实体名)和物理存储不一致时的映射。现在只有 json_versions:

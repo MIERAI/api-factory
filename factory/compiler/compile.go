@@ -206,11 +206,18 @@ func Compile(specs []*spec.Spec) (*ir.Plan, error) {
 			}
 			for _, n := range s.Datasource.Nests {
 				related = append(related, n.Table)
+				for _, l := range n.Lookups { // 嵌套里的关联的表
+					related = append(related, l.Table)
+				}
 			}
 			for _, a := range s.Datasource.ChildAggs {
 				related = append(related, a.Table)
 			}
 			for _, t := range related {
+				if le := s.Domain.Entities[t]; le.ShardWithParent && !seen["with:"+t] {
+					seen["with:"+t] = true
+					plan.ShardWithParent = append(plan.ShardWithParent, t)
+				}
 				if le := s.Domain.Entities[t]; le.ShardBy != "" && !seen["shard:"+t] {
 					seen["shard:"+t] = true
 					plan.Shards = append(plan.Shards, ir.Shard{Table: t, Column: le.ShardBy})
@@ -434,6 +441,9 @@ func shardOf(s *spec.Spec, filters []resolvedFilter) (*ir.Shard, error) {
 		return nil, nil
 	}
 	e, ok := s.Domain.Entities[s.Datasource.Table]
+	if ok && e.ShardWithParent {
+		return nil, fmt.Errorf("表 %s 是 分库: 随父(没有分库键): 不能做数据来源,只能经由 关联 / 嵌套 / 子聚合 从分库的表访问", s.Datasource.Table)
+	}
 	if !ok || e.ShardBy == "" {
 		return nil, nil
 	}

@@ -33,19 +33,20 @@ import (
 
 // childTable: 嵌套 / 子聚合的一张子表(同一张表被用好几次也只有一份数据)。
 type childTable struct {
-	table  string
-	cols   []core.NamedType
-	rows   []core.Row
-	rowDB  []*pgx.Conn
-	shard  *ir.Shard
-	max    int           // 子行数的分布用的上限(嵌套的 N;只有子聚合 = 4)
-	owner  string        // 父行所在的表(来源的表 / 关联的表)
-	fkCols []string      // 子表的关联列
-	pkCols []string      // 父行的列(逐个对应)
-	lt     *logicalTable // 子表是逻辑表(diffsource.go)
-	pred   *core.Expr    // 嵌套的固定条件(子表的列): 正好上限 / 上限 + 1 的父行按通过条件的子行数造
-	nest   bool          // 有嵌套用这张表(不只是子聚合): 子行数超过上限的父行要少
-	source []core.Step   // 嵌套里的关联: 子表的来源(scan + lookup …),固定条件作用在它的输出上
+	table      string
+	cols       []core.NamedType
+	rows       []core.Row
+	rowDB      []*pgx.Conn
+	shard      *ir.Shard
+	max        int           // 子行数的分布用的上限(嵌套的 N;只有子聚合 = 4)
+	owner      string        // 父行所在的表(来源的表 / 关联的表)
+	fkCols     []string      // 子表的关联列
+	pkCols     []string      // 父行的列(逐个对应)
+	lt         *logicalTable // 子表是逻辑表(diffsource.go)
+	pred       *core.Expr    // 嵌套的固定条件(子表的列): 正好上限 / 上限 + 1 的父行按通过条件的子行数造
+	nest       bool          // 有嵌套用这张表(不只是子聚合): 子行数超过上限的父行要少
+	withParent bool          // 分库: 随父: 子行写进父行所在的库
+	source     []core.Step   // 嵌套里的关联: 子表的来源(scan + lookup …),固定条件作用在它的输出上
 }
 
 // initChildren: 从流水线的 nest / child_agg 推出子表(initOthers 之后调用: from = 列 → 物理的出处)。
@@ -58,7 +59,7 @@ func (e *diffEnv) initChildren(from map[string]origin) {
 		}
 		ct, ok := byName[st.Table]
 		if !ok {
-			ct = &childTable{table: st.Table, cols: st.Columns, shard: e.plan.Shard(st.Table), max: 4, lt: e.newLogical(st)}
+			ct = &childTable{table: st.Table, cols: st.Columns, shard: e.plan.Shard(st.Table), max: 4, lt: e.newLogical(st), withParent: e.plan.WithParent(st.Table)}
 			if ct.lt == nil && len(st.Source) > 0 && st.Source[0].Kind == "scan" { // 嵌套里的关联: 子表 = scan 的列(物理的列)
 				ct.cols, ct.source = st.Source[0].Columns, st.Source
 			}
@@ -89,6 +90,19 @@ func (e *diffEnv) initChildren(from map[string]origin) {
 			ct.owner, ct.fkCols, ct.pkCols = owner, fk, pk
 		}
 	}
+}
+
+// parentDBs: parentRows 的每一行所在的库(分库: 随父 的子行写进去)。不知道 → nil。
+func (e *diffEnv) parentDBs(table, source string) []*pgx.Conn {
+	if table == source {
+		return e.rowDB
+	}
+	for _, ot := range e.others {
+		if ot.table == table && ot.lt == nil {
+			return ot.rowDB
+		}
+	}
+	return nil
 }
 
 // parentRows: 父行(来源的表 source = e.rows;关联的表 = 它的行)。
@@ -134,7 +148,7 @@ func (e *diffEnv) loadChildren() error {
 	saved := e.table
 	defer func() { e.table = saved }()
 	for _, ct := range e.children {
-		targets, err := e.db.targets(ct.shard)
+		targets, err := e.tableTargets(ct.shard, ct.withParent)
 		if err != nil {
 			return err
 		}
@@ -219,6 +233,7 @@ func (e *diffEnv) loadChildren() error {
 		ident := pgx.Identifier{ct.table}.Sanitize()
 		insert := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", ident, strings.Join(names, ", "), strings.Join(holders, ", "))
 		seq := 0
+		var parentDB *pgx.Conn // 分库: 随父: 当前的父行所在的库
 		// keep 不为空: 造好的行先过 keep,不过的不插入
 		put := func(parent core.Row, j int, keep func(map[string]any) bool) (map[string]any, bool, error) {
 			physical := map[string]any{}
@@ -258,16 +273,28 @@ func (e *diffEnv) loadChildren() error {
 					return nil, false, err
 				}
 			}
+			if ct.withParent { // 分库: 随父: 父行所在的库(孤立的子行: 随机的分库)
+				if parentDB != nil {
+					conn = parentDB
+				} else if shards, err := e.db.shards(); err == nil {
+					conn = shards[e.rnd.Intn(len(shards))]
+				}
+			}
 			_, err := conn.Exec(e.ctx, insert, args...) // 违反约束的行被拒绝,跳过
 			return physical, err == nil, nil
 		}
 		if ct.owner != "" {
 			parents := e.parentRows(ct.owner, saved)
+			pdbs := e.parentDBs(ct.owner, saved)
 			pred := ct.pred
 			if pred != nil && usesAny(pred, gen) { // 条件里有生成列: 插入之前算不出来 → 和没有固定条件一样造
 				pred = nil
 			}
 			for pi, parent := range parents {
+				parentDB = nil
+				if pi < len(pdbs) {
+					parentDB = pdbs[pi]
+				}
 				skip := false
 				for _, c := range ct.pkCols {
 					skip = skip || parent[c] == nil
@@ -314,6 +341,7 @@ func (e *diffEnv) loadChildren() error {
 					}
 				}
 			}
+			parentDB = nil
 			for j := 0; j < 3; j++ {
 				if _, _, err := put(nil, j, nil); err != nil {
 					return err
@@ -326,7 +354,11 @@ func (e *diffEnv) loadChildren() error {
 				}
 			}
 		}
-		if ct.rows, ct.rowDB, err = e.readBack(ct.table, ct.cols, ct.shard); err != nil {
+		sh := ct.shard
+		if ct.withParent && sh == nil {
+			sh = &ir.Shard{Table: ct.table} // 读回: 所有的库(只用来选库)
+		}
+		if ct.rows, ct.rowDB, err = e.readBack(ct.table, ct.cols, sh); err != nil {
 			return err
 		}
 	}
@@ -665,7 +697,7 @@ func (e *diffEnv) childTablesIn(conn *pgx.Conn, m map[string][]core.Row) {
 			m[ct.lt.st.Table] = ct.lt.phys
 			continue
 		}
-		if conn == nil || ct.shard == nil {
+		if conn == nil || (ct.shard == nil && !ct.withParent) {
 			m[ct.table] = ct.rows
 			continue
 		}

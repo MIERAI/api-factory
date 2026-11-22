@@ -34,6 +34,9 @@ type otherTable struct {
 	rowDB []*pgx.Conn
 	shard *ir.Shard
 	lt    *logicalTable // 对方是逻辑表(来源单元展开的表): 版本写进物理表(diffsource.go)
+	// withParent: 分库: 随父(没有分库键): 每一行写进一个随机的分库(约 1/3 每个分库都写一份)——
+	// 父行在别的库里时找不到(查错了库的实现看得出来)
+	withParent bool
 	// pinned: 关联的条件里 "对方的列 = 常量" 的列 → 常量(约 2/3 的行取这个值,否则几乎没有行能匹配)
 	pinned map[string][]any
 	// asofCols: 按日期的关联的开始 / 结束列(参照是当前行的列): 约一半的行取和来源的唯一的日期一样分布的值
@@ -83,7 +86,7 @@ func (e *diffEnv) initOthers() error {
 		case st.Kind == "lookup":
 			ot, ok := byName[st.Table]
 			if !ok {
-				ot = &otherTable{table: st.Table, cols: st.Columns, shard: e.plan.Shard(st.Table), lt: e.newLogical(st)}
+				ot = &otherTable{table: st.Table, cols: st.Columns, shard: e.plan.Shard(st.Table), lt: e.newLogical(st), withParent: e.plan.WithParent(st.Table)}
 				byName[st.Table] = ot
 				e.others = append(e.others, ot)
 			}
@@ -129,7 +132,7 @@ func (e *diffEnv) initOthers() error {
 				case "lookup":
 					ot, ok := byName[s.Table]
 					if !ok {
-						ot = &otherTable{table: s.Table, cols: s.Columns, shard: e.plan.Shard(s.Table)}
+						ot = &otherTable{table: s.Table, cols: s.Columns, shard: e.plan.Shard(s.Table), withParent: e.plan.WithParent(s.Table)}
 						byName[s.Table] = ot
 						e.others = append(e.others, ot)
 					}
@@ -230,7 +233,7 @@ func (e *diffEnv) loadOthers() error {
 	saved := e.table // value / scalarFor 按 e.table 查枚举
 	defer func() { e.table = saved }()
 	for _, ot := range e.others {
-		targets, err := e.db.targets(ot.shard)
+		targets, err := e.tableTargets(ot.shard, ot.withParent)
 		if err != nil {
 			return err
 		}
@@ -313,10 +316,23 @@ func (e *diffEnv) loadOthers() error {
 					return err
 				}
 			}
+			if ot.withParent { // 分库: 随父: 随机的一个分库,约 1/3 每个分库都写
+				shards, err := e.db.shards()
+				if err != nil {
+					return err
+				}
+				if e.rnd.Intn(3) == 0 {
+					for _, c := range shards {
+						_, _ = c.Exec(e.ctx, insert, args...)
+					}
+					continue
+				}
+				conn = shards[e.rnd.Intn(len(shards))]
+			}
 			_, _ = conn.Exec(e.ctx, insert, args...) // 违反约束(唯一键重复等)的行被拒绝,跳过
 		}
 		ot.rows, ot.rowDB = nil, nil
-		targets, err := e.db.targets(ot.shard)
+		targets, err := e.tableTargets(ot.shard, ot.withParent)
 		if err != nil {
 			return err
 		}
@@ -485,7 +501,7 @@ func (e *diffEnv) tablesIn(conn *pgx.Conn, main []core.Row) map[string][]core.Ro
 			m[ot.lt.st.Table] = ot.lt.phys
 			continue
 		}
-		if conn == nil || ot.shard == nil {
+		if conn == nil || (ot.shard == nil && !ot.withParent) {
 			m[ot.table] = ot.rows
 			continue
 		}
@@ -688,4 +704,12 @@ func (ot *otherTable) asOf(st core.Step) {
 	if a.End != "" {
 		ot.asofCols[a.End] = true
 	}
+}
+
+// tableTargets: 表要清空 / 读回的库: 分库的表、分库: 随父 的表 = 所有的库;其他 = 主库。
+func (e *diffEnv) tableTargets(sh *ir.Shard, withParent bool) ([]*pgx.Conn, error) {
+	if withParent {
+		return e.db.all()
+	}
+	return e.db.targets(sh)
 }

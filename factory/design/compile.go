@@ -821,7 +821,7 @@ func (c *ctx) enumValueName(en, v string) string { return upperSnake(en) + "_" +
 func (c *ctx) machineDomain() *spec.Domain {
 	md := &spec.Domain{DomainVersion: spec.DomainVersion, Entities: map[string]spec.Entity{}}
 	for name, t := range c.d.Tables {
-		ent := spec.Entity{NaturalKey: t.PrimaryKey, Policy: t.Policy, Storage: t.Storage, ShardBy: t.ShardBy}
+		ent := spec.Entity{NaturalKey: t.PrimaryKey, Policy: t.Policy, Storage: t.Storage, ShardBy: t.ShardBy, ShardWithParent: t.ShardWith}
 		for col, en := range t.ColEnum {
 			e := c.d.Enum(en)
 			vals := map[int64]string{}

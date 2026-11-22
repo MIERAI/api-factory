@@ -153,6 +153,9 @@ func loadFixtures(ctx context.Context, d *dbs, plan *ir.Plan, fixtures map[strin
 			continue
 		}
 		targets, err := d.targets(plan.Shard(table))
+		if plan.WithParent(table) { // 分库: 随父: 所有的库
+			targets, err = d.all()
+		}
 		if err != nil {
 			return err
 		}
@@ -194,8 +197,16 @@ func loadFixtures(ctx context.Context, d *dbs, plan *ir.Plan, fixtures map[strin
 				args[i] = v
 			}
 			sql := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", ident, strings.Join(idents, ","), strings.Join(holders, ","))
-			if _, err := conn.Exec(ctx, sql, args...); err != nil {
-				return fmt.Errorf("insert %v: %w", row, err)
+			conns := []*pgx.Conn{conn}
+			if plan.WithParent(table) { // 分库: 随父: 例子的行写进每个分库(父行在哪个库都找得到)
+				if conns, err = d.shards(); err != nil {
+					return err
+				}
+			}
+			for _, c := range conns {
+				if _, err := c.Exec(ctx, sql, args...); err != nil {
+					return fmt.Errorf("insert %v: %w", row, err)
+				}
 			}
 		}
 		if sh == nil {
