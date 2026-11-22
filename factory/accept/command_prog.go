@@ -68,32 +68,14 @@ type progEnv struct {
 	t0       time.Time
 	seq      int
 	unmetMsg map[string]bool
+	msg      *msgEnv // 有 发出 的组合命令(R4): outbox
 }
 
 // runProg: 一个命令的 R3-2 验证。diff = 是否跑状态差分(组合命令;R3-1 的命令有自己的差分,command_diff.go)。
 func runProg(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API, diff bool) []Result {
-	fail := func(format string, args ...any) []Result {
-		return []Result{{Spec: api.ID, Suite: "diff", Case: "R3-2 准备", Passed: false, Detail: fmt.Sprintf(format, args...)}}
-	}
-	h := fnv.New64a()
-	h.Write([]byte(api.ID + "/prog" + os.Getenv("FACTORY_DIFF_SEED")))
-	e := &progEnv{ctx: ctx, conn: d.main, url: url, plan: plan, api: api, ops: command.OpsOf(api.Command),
-		rnd: rand.New(rand.NewSource(int64(h.Sum64()))), cat: map[string]*command.Table{}, helper: map[string]*cmdEnv{},
-		keys: map[string][][]any{}, home: map[string][2]string{}, base: api.BaseRequest, t0: time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)}
-	files, err := protoload.Load()
-	if err != nil {
-		return fail("proto: %v", err)
-	}
-	md, err := protoload.FindMethod(files, api.ProtoPackage, api.Service, api.Method)
-	if err != nil {
-		return fail("proto: %v", err)
-	}
-	e.val = validator{md: md.Input()}
-	if _, err := e.conn.Exec(ctx, "SET TimeZone = 'UTC'"); err != nil {
-		return fail("%v", err)
-	}
-	if err := e.load(); err != nil {
-		return fail("初始状态: %v", err)
+	e, fail := newProgEnv(ctx, d, url, plan, api)
+	if fail != nil {
+		return fail
 	}
 	var results []Result
 	if diff {
@@ -102,11 +84,42 @@ func runProg(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 	// 每组测试从新的随机初始状态开始: 前面的请求可能用完了某种行(例: 重新上架之后没有已下架的商品了)
 	for _, suite := range []func() []Result{e.faults, e.concurrency, e.replay} {
 		if err := e.load(); err != nil {
-			return append(results, fail("初始状态: %v", err)...)
+			return append(results, Result{Spec: api.ID, Suite: "diff", Case: "R3-2 准备", Passed: false, Detail: "初始状态: " + err.Error()})
 		}
 		results = append(results, suite()...)
 	}
 	return results
+}
+
+// newProgEnv: 验证的环境(随机的初始状态已经灌好)。失败 → 结果。
+func newProgEnv(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API) (*progEnv, []Result) {
+	fail := func(format string, args ...any) []Result {
+		return []Result{{Spec: api.ID, Suite: "diff", Case: "R3-2 准备", Passed: false, Detail: fmt.Sprintf(format, args...)}}
+	}
+	h := fnv.New64a()
+	h.Write([]byte(api.ID + "/prog" + os.Getenv("FACTORY_DIFF_SEED")))
+	e := &progEnv{ctx: ctx, conn: d.main, url: url, plan: plan, api: api, ops: command.OpsOf(api.Command),
+		rnd: rand.New(rand.NewSource(int64(h.Sum64()))), cat: map[string]*command.Table{}, helper: map[string]*cmdEnv{},
+		keys: map[string][][]any{}, home: map[string][2]string{}, base: api.BaseRequest, t0: time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)}
+	if len(api.Command.Emits) > 0 { // 发出(R4): 每个请求新增的 outbox 行和模型比较
+		e.msg = newMsgEnv(ctx, d, url, api)
+	}
+	files, err := protoload.Load()
+	if err != nil {
+		return nil, fail("proto: %v", err)
+	}
+	md, err := protoload.FindMethod(files, api.ProtoPackage, api.Service, api.Method)
+	if err != nil {
+		return nil, fail("proto: %v", err)
+	}
+	e.val = validator{md: md.Input()}
+	if _, err := e.conn.Exec(ctx, "SET TimeZone = 'UTC'"); err != nil {
+		return nil, fail("%v", err)
+	}
+	if err := e.load(); err != nil {
+		return nil, fail("初始状态: %v", err)
+	}
+	return e, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -160,6 +173,11 @@ func (e *progEnv) load() error {
 	}
 	if _, err := e.conn.Exec(e.ctx, "TRUNCATE "+strings.Join(idents, ", ")+" RESTART IDENTITY CASCADE"); err != nil {
 		return err
+	}
+	if e.msg != nil {
+		if err := e.msg.reset(); err != nil {
+			return err
+		}
 	}
 	// 请求字段 → 列(第一个写进的列)
 	byCol := map[string]map[string]*ir.Field{}
@@ -871,6 +889,9 @@ func (e *progEnv) step(name string, req map[string]any) (Result, command.ProgRes
 	} else {
 		want = model.Run(e.ops, e.inputs(req), e.now())
 	}
+	if e.msg != nil {
+		_, _ = e.msg.newRows() // 前面不检查的请求(并发 …)发出的
+	}
 	r := e.call(req, e.nowText(), 0)
 	db, err := e.readState()
 	if err != nil {
@@ -879,6 +900,17 @@ func (e *progEnv) step(name string, req map[string]any) (Result, command.ProgRes
 	problems := e.diffState(model, db, true)
 	for i := range problems {
 		problems[i] = "状态: " + problems[i]
+	}
+	if e.msg != nil { // 发出(R4): 成功 = 模型的消息(和写入同一个事务),失败 = 没有消息
+		var emits []command.Msg
+		if want.Outcome == command.OK {
+			emits = command.RunEmits(e.api.Command, e.inputs(req), e.now(), want.Ops)
+		}
+		rows, err := e.msg.newRows()
+		if err != nil {
+			problems = append(problems, err.Error())
+		}
+		problems = append(problems, e.msg.checkRows(emits, rows)...)
 	}
 	problems = append(e.checkReply(want, r), problems...)
 	desc := fmt.Sprintf("%s → %s", describeReq(req), outcomeText(want))
@@ -1052,7 +1084,7 @@ func (e *progEnv) diff() []Result {
 
 func (e *progEnv) faults() []Result {
 	var results []Result
-	for k := 1; k <= len(e.ops); k++ {
+	for k := 1; k <= len(e.ops)+len(e.api.Command.Emits); k++ { // 发出: outbox 的每一行也是一个写操作
 		for rep := 1; rep <= 2; rep++ {
 			name := fmt.Sprintf("故障注入: 第 %d 个写操作之后失败 #%d", k, rep)
 			req := e.find(progAim{-1, command.OK})
@@ -1061,6 +1093,9 @@ func (e *progEnv) faults() []Result {
 				continue
 			}
 			e.seq++
+			if e.msg != nil {
+				_, _ = e.msg.newRows()
+			}
 			r := e.call(req, e.nowText(), k)
 			db, err := e.readState()
 			if err != nil {
@@ -1079,6 +1114,11 @@ func (e *progEnv) faults() []Result {
 			if d := e.diffState(e.state, db, false); len(d) > 0 {
 				problems = append(problems, "状态应该不变(事务回滚): "+strings.Join(d, "; "))
 				e.syncState(db)
+			}
+			if e.msg != nil { // 发出(R4): 回滚 = outbox 里也没有
+				if rows, _ := e.msg.newRows(); len(rows) > 0 {
+					problems = append(problems, fmt.Sprintf("回滚了却有 %d 条消息进了 outbox", len(rows)))
+				}
 			}
 			results = append(results, Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: len(problems) == 0,
 				Detail: describeReq(req) + " | " + strings.Join(append([]string{"回滚 ✓"}, problems...), " | ")})

@@ -91,8 +91,67 @@ type Command struct {
 
 	Ops    []CommandOp  `yaml:"ops,omitempty"`
 	Output []OutputFrom `yaml:"output,omitempty"`
-	// R4 的扩展点(docs/design/r4-events-messages.md §5): Each(每项: 对列表输入的每个元素执行 Ops)加在这里,
-	// 每个操作的 Only(仅当: 前一个幂等新建的 新建 标志)加在 CommandOp;可重入的检查(E8)看 Ops 的种类
+
+	// R4(docs/design/r4-events-messages.md): 消息。
+	//   Emit: 组合命令的 发出(操作全部成功时,同一个事务里写进 outbox)
+	//   Receive / Each / Results: 消息处理器(种类 message): 收到的消息类型、每项(对消息的列表字段逐项执行 Ops)、
+	//   结果(业务结果的分支和各自发出的消息)
+	//   Contracts: 用到的消息契约(收到的 + 发出的;来自 消息.yaml / 共享的 contracts/)
+	Emit      []Emit      `yaml:"emit,omitempty"`
+	Receive   *MessageRef `yaml:"receive,omitempty"`
+	Each      string      `yaml:"each,omitempty"`
+	Results   []Result    `yaml:"results,omitempty"`
+	Contracts []Contract  `yaml:"contracts,omitempty"`
+}
+
+// MessageRef: 消息类型 + 契约版本 + 生成的 proto 消息名(data)。
+type MessageRef struct {
+	Type    string `yaml:"type"`
+	Version int    `yaml:"version"`
+}
+
+// Emit: 发出的一条消息: data 的字段 ← 表达式(和写入的值同一套写法;列表字段可以原样传 输入.列表)。
+type Emit struct {
+	Type   string    `yaml:"type"`
+	Values []ColExpr `yaml:"values"` // Column = data 的字段
+}
+
+// Result: 消息处理器的一个结果(按顺序判定)。Name = 成功 / 业务原因码。
+//   - 业务原因码 = 某个操作的 不满足: 那个操作的条件不成立 → 回滚已做的操作(保存点),发出这里的消息
+//   - When(当): 操作全部做完之后判定(Any = 任一项);成立 → 回滚(不是 成功 的结果)/ 选这个分支(成功 的结果)
+//   - DLQ(处理: 死信): 不提交,消息进 DLQ(需要人处理的异常)
+type Result struct {
+	Name string `yaml:"name"`
+	When string `yaml:"when,omitempty"`
+	Any  bool   `yaml:"any,omitempty"`
+	Emit []Emit `yaml:"emit,omitempty"`
+	DLQ  bool   `yaml:"dlq,omitempty"`
+}
+
+// SuccessResult: 结果 成功 的名字(例子的 结果 也这样写)。
+const SuccessResult = "成功"
+
+// Contract: 一个消息契约(消息.yaml 的一项)。字段的类型是设计语言的类型名(factory/kinds)。
+// 共享目录的契约文件(JSON Schema)的 x-factory 也是这个结构(Proto 不写进去: 每个使用方自己生成)。
+type Contract struct {
+	Type    string          `yaml:"type" json:"type"`
+	Kind    string          `yaml:"kind" json:"kind"` // event / command
+	Version int             `yaml:"version" json:"version"`
+	Subject string          `yaml:"subject" json:"subject"` // envelope.subject 取哪个字段
+	Desc    string          `yaml:"desc,omitempty" json:"desc,omitempty"`
+	Proto   string          `yaml:"proto,omitempty" json:"-"` // data 的 proto 消息名(同一个包里)
+	Fields  []ContractField `yaml:"fields" json:"fields"`
+}
+
+// ContractField: 契约的一个字段。Type 列表 = 列表(Elem = 元素的字段,Unique = 元素的唯一键,Rules 的 个数 = 上限)。
+type ContractField struct {
+	Name     string            `yaml:"name" json:"name"`
+	Type     string            `yaml:"type" json:"type"`
+	Required bool              `yaml:"required,omitempty" json:"required,omitempty"`
+	Desc     string            `yaml:"desc,omitempty" json:"desc,omitempty"`
+	Rules    map[string]string `yaml:"rules,omitempty" json:"rules,omitempty"` // 约束(范围 / 长度 / 格式 / 个数)
+	Elem     []ContractField   `yaml:"elem,omitempty" json:"elem,omitempty"`
+	Unique   []string          `yaml:"unique,omitempty" json:"unique,omitempty"`
 }
 
 // CommandOp: 组合命令的一个写操作。表达式(Expr / Cond)是设计稿的写法规范化之后的文本
@@ -108,6 +167,10 @@ type CommandOp struct {
 	Cond     string    `yaml:"cond,omitempty"`      // update: 条件(不成立 → FAILED_PRECONDITION + Unmet)
 	Unmet    string    `yaml:"unmet,omitempty"`     // 条件不成立时的业务原因码(例: INSUFFICIENT_STOCK)
 	NotFound string    `yaml:"not_found,omitempty"` // update / delete: 行不存在时的消息
+	// R4: 仅当(操作名.新建 = 前面的幂等新建真的插入了 / 操作名.已更新 = 前面的更新真的更新了);
+	// Skip = 不满足: 跳过(条件不成立不是错误,这个操作不做;后面用 操作名.列 看到的是现在的行)
+	Only string `yaml:"only,omitempty"`
+	Skip bool   `yaml:"skip,omitempty"`
 }
 
 // ColExpr: 列 ← 表达式。
@@ -318,6 +381,14 @@ type Case struct {
 	Now string `yaml:"now,omitempty"`
 	// After: 命令的用例: 请求之后的数据(命令工厂;只看响应验证不了写操作)。每个用例从 fixtures 的状态开始
 	After *After `yaml:"after,omitempty"`
+	// Emitted: 写进 outbox 的消息(R4: 有 发出 的命令 / 消息处理器的用例必须写;[] = 什么都不发)
+	Emitted *[]EmittedMsg `yaml:"emitted,omitempty"`
+}
+
+// EmittedMsg: 用例期待发出的一条消息(data 写出来的字段都比较;没写的字段不比较)。
+type EmittedMsg struct {
+	Type string         `yaml:"type"`
+	Data map[string]any `yaml:"data"`
 }
 
 // After: 请求之后的状态。Unchanged = 所有表和请求之前一样;否则 Tables 里写出的表 = 之后的全部行

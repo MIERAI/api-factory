@@ -24,6 +24,19 @@ import (
 // InputPrefix: 表达式里请求字段的前缀(输入.字段)。
 const InputPrefix = "输入."
 
+// R4(消息处理器,docs/design/r4-events-messages.md §5)的写法:
+//
+//	消息.字段   收到的消息的 data 的字段(= 处理器的"请求";spec 里规范化成 输入.字段)
+//	项.字段     每项: 列表的当前元素的字段
+//	信封.id     消息的 id(envelope.id,文本;例: 以事件 id 为主键的通知记录)
+//	如果 条件 则 值 否则 值   条件只用 输入 / 项 / 常量(例: 模拟支付 如果 消息.amount <= 100000 则 SUCCEEDED 否则 FAILED)
+//	空          空值(只能写进可以为空的列;如果 的分支里用)
+const (
+	MessagePrefix = "消息."
+	ItemPrefix    = "项."
+	EnvPrefix     = "信封."
+)
+
 var cmpWords = map[string]bool{"=": true, "<>": true, "<": true, "<=": true, ">": true, ">=": true}
 
 // ParseExpr: 表达式的文本 → 没有类型的树(名字的解释交给 Resolve)。cond = 条件(比较 / 并且),否则是值。
@@ -133,12 +146,46 @@ func (p *exprParser) term() (*ir.CmdExpr, error) {
 		n := p.peek()
 		p.pos++
 		return &ir.CmdExpr{Op: "const", Value: "-" + n}, nil
-	case strings.HasPrefix(t, InputPrefix):
-		name := strings.TrimPrefix(t, InputPrefix)
+	case strings.HasPrefix(t, InputPrefix) || strings.HasPrefix(t, MessagePrefix):
+		name := strings.TrimPrefix(strings.TrimPrefix(t, InputPrefix), MessagePrefix)
 		if !isIdent(name) {
-			return nil, fmt.Errorf("%q: 输入. 后面写输入的名字", t)
+			return nil, fmt.Errorf("%q: 输入. / 消息. 后面写字段的名字", t)
 		}
 		return &ir.CmdExpr{Op: "input", Name: name}, nil
+	case strings.HasPrefix(t, ItemPrefix):
+		name := strings.TrimPrefix(t, ItemPrefix)
+		if !isIdent(name) {
+			return nil, fmt.Errorf("%q: 项. 后面写元素的字段名", t)
+		}
+		return &ir.CmdExpr{Op: "item", Name: name}, nil
+	case t == EnvPrefix+"id":
+		return &ir.CmdExpr{Op: "env", Name: "id", Type: "text"}, nil
+	case strings.HasPrefix(t, EnvPrefix):
+		return nil, fmt.Errorf("%q: 信封 只能取 信封.id(消息的 id)", t)
+	case t == "空":
+		return &ir.CmdExpr{Op: "null"}, nil
+	case t == "如果":
+		c, err := p.cond()
+		if err != nil {
+			return nil, err
+		}
+		if p.peek() != "则" {
+			return nil, fmt.Errorf("如果 … 则 … 否则 …: 缺少 则")
+		}
+		p.pos++
+		a, err := p.value()
+		if err != nil {
+			return nil, err
+		}
+		if p.peek() != "否则" {
+			return nil, fmt.Errorf("如果 … 则 … 否则 …: 缺少 否则")
+		}
+		p.pos++
+		b, err := p.value()
+		if err != nil {
+			return nil, err
+		}
+		return &ir.CmdExpr{Op: "if", Args: []*ir.CmdExpr{c, a, b}}, nil
 	case strings.Count(t, ".") == 1:
 		op, col, _ := strings.Cut(t, ".")
 		if !isIdent(op) || !isIdent(col) {
@@ -245,6 +292,10 @@ type Scope struct {
 	Input  func(name string) (typ string, err error)          // 请求字段的 SQL 类型(枚举 = "enum")
 	Enum   func(table, col, name string) (db string, ok bool) // 枚举列的值名 → 数据库值
 	EnumOf func(table, col string) bool                       // 这一列是枚举
+	// R4: 每项的元素的字段(nil = 没有 每项);操作名.列 是枚举的列时 → 表(和枚举的值名比较);信封.id 能不能用
+	Item    func(name string) (typ string, err error)
+	RefEnum func(op, col string) (table string, ok bool)
+	Env     bool
 }
 
 // Resolve: 给树加上类型(Type),名字 → 列 / 枚举的值;want = 这个值要写进的列的类型("" = 条件)。
@@ -287,6 +338,13 @@ func resolveCond(x *ir.CmdExpr, sc Scope) error {
 		hintT, hintTable, hintCol := ta, enumTableOf(a, sc), enumColOf(a, sc)
 		if hintT == "" {
 			hintT, hintTable, hintCol = tb, enumTableOf(b, sc), enumColOf(b, sc)
+		}
+		for _, side := range []*ir.CmdExpr{a, b} { // 操作名.列 是枚举的列: 另一边的值名按这一列的枚举解释
+			if side.Op == "ref" && sc.RefEnum != nil {
+				if t, ok := sc.RefEnum(side.Ref, side.Name); ok {
+					hintT, hintTable, hintCol = "enum:"+t+"."+side.Name, t, side.Name
+				}
+			}
 		}
 		if hintT == "" {
 			return fmt.Errorf("比较的两边至少要有一个列 / 输入 / 前面操作的值")
@@ -334,6 +392,13 @@ func typeHint(x *ir.CmdExpr, sc Scope) (string, error) {
 			return "", err // 枚举的输入: 跟着比较的列
 		}
 		return t, err
+	case "item":
+		if sc.Item == nil {
+			return "", fmt.Errorf("项.%s: 没有 每项(项. 只能用在 每项 的操作里)", x.Name)
+		}
+		return sc.Item(x.Name)
+	case "env":
+		return "text", nil
 	case "now":
 		return "timestamptz", nil
 	case "+", "-":
@@ -394,7 +459,60 @@ func resolveValue(x *ir.CmdExpr, sc Scope, want, wantTable, wantCol string) (str
 			return "", err
 		}
 		x.Type = t
+		if isEnumT(want) && sc.RefEnum != nil {
+			if et, ok := sc.RefEnum(x.Ref, x.Name); ok && want == "enum:"+et+"."+x.Name {
+				return want, nil // 同一个枚举的列(数据库值)
+			}
+		}
 		return t, nil
+	case "item":
+		if sc.Item == nil {
+			return "", fmt.Errorf("项.%s: 没有 每项(项. 只能用在 每项 的操作里)", x.Name)
+		}
+		t, err := sc.Item(x.Name)
+		if err != nil {
+			return "", err
+		}
+		if isInt(t) && isInt(base) && intWidth(t) > intWidth(base) {
+			return "", fmt.Errorf("项.%s 是 %s,比对方(%s)宽: 数据库按 %s 收参数,大的值会溢出", x.Name, t, base, base)
+		}
+		x.Type = t
+		return t, nil
+	case "env":
+		if !sc.Env {
+			return "", fmt.Errorf("信封.id 只能用在消息处理器里")
+		}
+		x.Type = "text"
+		return "text", nil
+	case "null":
+		if want == "" {
+			return "", fmt.Errorf("空 只能作为值(写进列)")
+		}
+		x.Type = base
+		return want, nil
+	case "if":
+		s2 := sc
+		s2.Column = nil // 条件只看 输入 / 项 / 常量(在 Go 里算好,不进 SQL)
+		if err := resolveCond(x.Args[0], s2); err != nil {
+			return "", fmt.Errorf("如果 的条件: %w", err)
+		}
+		if mentionsRow(x.Args[0]) || len(Refs(x.Args[0])) > 0 {
+			return "", fmt.Errorf("如果 的条件只能用 输入 / 消息 / 项 / 常量")
+		}
+		for _, br := range x.Args[1:] {
+			if br.Op != "const" && br.Op != "name" && br.Op != "null" && br.Op != "input" && br.Op != "item" {
+				return "", fmt.Errorf("如果 的分支写 常量 / 枚举的值名 / 空 / 输入 / 项")
+			}
+			t, err := resolveValue(br, s2, want, wantTable, wantCol)
+			if err != nil {
+				return "", err
+			}
+			if !assignable(t, want) {
+				return "", fmt.Errorf("如果 的分支 %s 不能写进 %s 的列", t, want)
+			}
+		}
+		x.Type = base
+		return want, nil
 	case "input":
 		t, err := sc.Input(x.Name)
 		if err != nil {
@@ -501,6 +619,9 @@ func assignable(t, want string) bool {
 }
 
 func mentionsRow(x *ir.CmdExpr) bool {
+	if x.Op == "if" { // 如果 的条件不看这一行(分支的值名不是列)
+		return false
+	}
 	if x.Op == "col" || x.Op == "name" {
 		return true
 	}
@@ -517,6 +638,14 @@ func Format(x *ir.CmdExpr) string {
 	switch x.Op {
 	case "input":
 		return InputPrefix + x.Name
+	case "item":
+		return ItemPrefix + x.Name
+	case "env":
+		return EnvPrefix + x.Name
+	case "null":
+		return "空"
+	case "if":
+		return "如果 " + Format(x.Args[0]) + " 则 " + Format(x.Args[1]) + " 否则 " + Format(x.Args[2])
 	case "ref":
 		return x.Ref + "." + x.Name
 	case "col", "name":

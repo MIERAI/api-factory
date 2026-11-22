@@ -1,0 +1,66 @@
+# ============================================================================
+# ReverseDebits: 收到 account.reverse → 撤销扣款(消息处理器: 墓碑 + 跳过 + 仅当 已更新)
+# ============================================================================
+API: ReverseDebits
+说明: "撤销一笔转账的扣款: 已扣下的退回;扣款还没到的留下墓碑(之后迟到的扣款不再扣)"
+背景: "转账失败时的补偿。不保证顺序: 撤销可能先于扣款到达。重复的撤销不能退两次"
+负责人: platform-team
+风险: 高
+
+种类: 消息处理
+收到: account.reverse
+每项: 消息.lines
+
+操作:
+  - 墓碑:
+      幂等新建: debits
+      键: [transfer_id, account_id]
+      值: { transfer_id: 消息.transfer_id, account_id: 项.account_id, amount: 项.amount, status: REVERSED, debited_at: 现在 }
+  - 撤销:
+      更新: debits
+      键: { transfer_id: 消息.transfer_id, account_id: 项.account_id }
+      设置: { status: REVERSED }
+      条件: "status = HELD"
+      不满足: 跳过
+      找不到时: "debit not found (transfer {transfer_id})"
+  - 退回:
+      更新: accounts
+      键: { account_id: 项.account_id }
+      仅当: 撤销.已更新
+      设置: { balance: "balance + 撤销.amount", held: "held - 撤销.amount" }
+      找不到时: "account not found (transfer {transfer_id})"
+
+结果:
+  成功:
+    发出:
+      - account.reversed: { transfer_id: 消息.transfer_id }
+
+业务规则:
+  - 情况: 扣款是 HELD
+    结果: 改成 REVERSED,按扣款记录的金额退回余额、held 减少
+  - 情况: 扣款还没到
+    结果: 留下 REVERSED 的墓碑(不动余额)
+  - 情况: 已经撤销过 / 已经结算
+    结果: 跳过(不动余额)
+  - 情况: 撤销完成
+    结果: 发出 account.reversed
+
+例子:
+  现在: "2026-11-22 10:00"
+  准备数据:
+    accounts:
+      - { account_id: "ACC-001", owner: alice, balance: 450, held: 50, opened_at: "2026-11-01 09:00" }
+    debits:
+      - { transfer_id: 7, account_id: "ACC-001", amount: 50, status: HELD, debited_at: "2026-11-21 09:00" }
+  用例:
+    - 说明: HELD → 退回;没到的账户 → 墓碑
+      消息: { transfer_id: 7, lines: [ { account_id: "ACC-001", amount: 50 }, { account_id: "ACC-009", amount: 5 } ] }
+      结果: 成功
+      发出:
+        - account.reversed: { transfer_id: 7 }
+      之后:
+        accounts:
+          - { account_id: "ACC-001", balance: 500, held: 0 }
+        debits:
+          - { transfer_id: 7, account_id: "ACC-001", amount: 50, status: REVERSED, debited_at: "2026-11-21 09:00" }
+          - { transfer_id: 7, account_id: "ACC-009", amount: 5, status: REVERSED, debited_at: "2026-11-22 10:00" }

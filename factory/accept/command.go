@@ -29,13 +29,36 @@ import (
 
 // runCommand: 一个命令 API 的全部验收(人写的用例 → 自动生成的用例 → 状态差分测试)。
 func runCommand(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API, s *spec.Spec) ([]Result, error) {
+	if api.Command.IsHandler() { // 消息处理器(R4): 进程内投递(message.go)
+		return runHandler(ctx, d, url, plan, api, s)
+	}
 	var results []Result
 	tables, err := commandTables(ctx, d.main, api, s.Acceptance.Fixtures, s.Acceptance.Cases)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", s.ID(), err)
 	}
+	var msg *msgEnv
+	if len(api.Command.Emits) > 0 { // 发出(R4): 用例比较 outbox
+		msg = newMsgEnv(ctx, d, url, api)
+	}
 	for _, c := range s.Acceptance.Cases {
+		if msg != nil {
+			if err := msg.reset(); err != nil {
+				return nil, err
+			}
+		}
 		ok, detail := runCommandCase(ctx, d, url, plan, api, tables, s.Acceptance.Fixtures, c)
+		if ok && msg != nil && c.Emitted != nil {
+			rows, err := msg.newRows()
+			if err != nil {
+				return nil, err
+			}
+			if p := emittedDiff(*c.Emitted, rows); len(p) > 0 {
+				ok, detail = false, detail+" | "+strings.Join(p, "; ")
+			} else {
+				detail += " | 发出 ✓"
+			}
+		}
 		results = append(results, Result{Spec: s.ID(), Case: c.Name, Passed: ok, Detail: detail})
 	}
 	auto, err := spec.LoadAutoAcceptance(s.ID())

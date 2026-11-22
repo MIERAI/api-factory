@@ -5,6 +5,9 @@ package constraints
 import (
 	"errors"
 	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
 
 	"buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 
@@ -29,12 +32,13 @@ func init() {
 			}
 			return append(rs, "repeated.max_items = "+m[2]), nil
 		},
-		Boundaries: func(r *validate.FieldRules, _ *ir.Field, elem any) ([]Boundary, string) {
+		Boundaries: func(r *validate.FieldRules, f *ir.Field, elem any) ([]Boundary, string) {
 			x := r.GetRepeated()
+			uniq := uniqueKeys(f)
 			rep := func(n uint64) []any {
 				out := make([]any, n)
 				for i := range out {
-					out[i] = elem
+					out[i] = distinct(elem, uniq, i)
 				}
 				return out
 			}
@@ -58,4 +62,44 @@ func init() {
 			return b, label
 		},
 	})
+}
+
+var reUniqueKey = regexp.MustCompile(`x\.([a-z_][a-z0-9_]*)`)
+
+// uniqueKeys: 列表的元素要唯一的字段(消息契约的 唯一: CEL "this.map(x, …x.key…).unique()",R4)。
+func uniqueKeys(f *ir.Field) []string {
+	if f == nil || f.Rules == nil || !strings.Contains(string(f.Rules.Raw), ".unique()") {
+		return nil
+	}
+	var out []string
+	for _, m := range reUniqueKey.FindAllStringSubmatch(string(f.Rules.Raw), -1) {
+		out = append(out, m[1])
+	}
+	return out
+}
+
+// distinct: 第 i 个元素(唯一键的字段换成不同的值,长度不变;i = 0 = 原样)。
+func distinct(elem any, keys []string, i int) any {
+	m, ok := elem.(map[string]any)
+	if !ok || len(keys) == 0 || i == 0 {
+		return elem
+	}
+	cp := make(map[string]any, len(m))
+	for k, v := range m {
+		cp[k] = v
+	}
+	for _, k := range keys {
+		switch v := cp[k].(type) {
+		case string:
+			suffix := "Z" + strconv.Itoa(i)
+			if len(v) > len(suffix) {
+				cp[k] = v[:len(v)-len(suffix)] + suffix
+			} else {
+				cp[k] = v + suffix
+			}
+		case int, int32, int64, float64:
+			cp[k] = fmt.Sprint(v) + strconv.Itoa(i)
+		}
+	}
+	return cp
 }

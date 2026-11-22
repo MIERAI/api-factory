@@ -41,3 +41,5 @@ tool (
 	connectrpc.com/connect/cmd/protoc-gen-connect-go
 	google.golang.org/protobuf/cmd/protoc-gen-go
 )
+
+replace github.com/MIERAI/api-factory-runtime => ../rt-r4

@@ -96,6 +96,9 @@ func Run(plan *ir.Plan) error {
 		if err := writeCommandErrors(svc); err != nil {
 			return err
 		}
+		if err := writeMessaging(svc); err != nil {
+			return err
+		}
 		var ms []*enumMapping
 		for _, m := range enumsBySvc[svc.HandlerPath] {
 			ms = append(ms, m)
@@ -171,6 +174,17 @@ type service struct {
 	HandlerPath  string // apifactory/internal/handler/jobs
 	Commands     bool   // 有命令(写入)的 API: Handler 带事务执行器,commands_gen.go
 	Unmets       bool   // 有条件更新(组合命令的 条件): writeError 多一种原因(业务原因码)
+	// R4: 有消息(发出 / 消息处理器)= Handler 带 outbox 的 Writer,messages_gen.go;Handlers = 这个领域的消息处理器;
+	// HandlerOnly = 领域里只有消息处理器(没有 HTTP 的服务)
+	Messages    bool
+	Handlers    []handlerInfo
+	HandlerOnly bool
+}
+
+// handlerInfo: 一个消息处理器(wiring 的消费循环 + 拓扑)。
+type handlerInfo struct {
+	Method, Queue, Type, Kind string
+	Version                   int
 }
 
 func serviceFor(services []service, pkg, name string) service {
@@ -179,21 +193,53 @@ func serviceFor(services []service, pkg, name string) service {
 			return s
 		}
 	}
+	for _, s := range services { // 消息处理器(MessageHandlerService 不挂载): 同一个领域的 Handler
+		if s.ProtoPackage == pkg && len(s.Handlers) > 0 {
+			return s
+		}
+	}
 	return service{}
 }
 
 func servicesFrom(plan *ir.Plan) []service {
 	commands, unmets := map[string]bool{}, map[string]bool{}
+	messages, handlerSvc := map[string]bool{}, map[string]bool{} // 按 proto 包: 有消息;处理器的服务(不挂载)
+	handlers := map[string][]handlerInfo{}
 	for _, a := range plan.APIs {
 		if a.Command != nil {
 			commands[a.ProtoPackage+"."+a.Service] = true
 			if len(a.Command.Unmets()) > 0 {
 				unmets[a.ProtoPackage+"."+a.Service] = true
 			}
+			if len(a.Command.Emits) > 0 || a.Command.IsHandler() {
+				messages[a.ProtoPackage] = true
+			}
+			if a.Command.IsHandler() {
+				handlerSvc[a.ProtoPackage+"."+a.Service] = true
+				r := a.Command.Receive
+				kind := "message.Event"
+				if r.Kind == "command" {
+					kind = "message.Command"
+				}
+				src := strings.Split(a.ProtoPackage, ".")[0]
+				handlers[a.ProtoPackage] = append(handlers[a.ProtoPackage], handlerInfo{Method: a.Method, Queue: src + "." + r.Type, Type: r.Type, Kind: kind, Version: r.Version})
+				commands[a.ProtoPackage+"."+a.Service] = false
+			}
 		}
 	}
 	var out []service
+	hasMain := map[string]bool{}
 	for _, s := range plan.Services {
+		if !handlerSvc[s.ProtoPackage+"."+s.Name] {
+			hasMain[s.ProtoPackage] = true
+		}
+	}
+	for _, s := range plan.Services {
+		if handlerSvc[s.ProtoPackage+"."+s.Name] { // 消息处理器的服务: 不挂载;处理器挂在同一个领域的 Handler 上
+			if hasMain[s.ProtoPackage] {
+				continue
+			}
+		}
 		segs := strings.Split(s.ProtoPackage, ".")
 		connectPkg := s.Domain + segs[len(segs)-1] + "connect"
 		out = append(out, service{
@@ -203,8 +249,11 @@ func servicesFrom(plan *ir.Plan) []service {
 			ConnectPkg:   connectPkg,
 			ConnectPath:  modulePath + "/gen/" + strings.Join(segs, "/") + "/" + connectPkg,
 			HandlerPath:  modulePath + "/internal/handler/" + s.Domain,
-			Commands:     commands[s.ProtoPackage+"."+s.Name],
+			Commands:     commands[s.ProtoPackage+"."+s.Name] || messages[s.ProtoPackage],
 			Unmets:       unmets[s.ProtoPackage+"."+s.Name],
+			Messages:     messages[s.ProtoPackage],
+			Handlers:     handlers[s.ProtoPackage],
+			HandlerOnly:  handlerSvc[s.ProtoPackage+"."+s.Name],
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ConnectPath < out[j].ConnectPath })
@@ -222,6 +271,9 @@ import (
 	"{{module}}/gen/db"
 	"github.com/MIERAI/api-factory-runtime/paging"
 	"github.com/MIERAI/api-factory-runtime/shard"
+{{- if .Messages}}
+	"github.com/MIERAI/api-factory-runtime/outbox"
+{{- end}}
 {{- if .Commands}}
 	"github.com/MIERAI/api-factory-runtime/txn"
 {{- end}}
@@ -237,10 +289,13 @@ type Handler struct {
 {{- if .Commands}}
 	tx     *txn.Executor // 命令(写入)的事务执行器
 {{- end}}
+{{- if .Messages}}
+	out    *outbox.Writer // 发出的消息(R4: 写进 outbox,和写操作同一个事务)
+{{- end}}
 }
 
-func New(q *db.Queries, pager *paging.Pager, shards *shard.Router{{if .Commands}}, tx *txn.Executor{{end}}) *Handler {
-	return &Handler{q: q, pager: pager, shards: shards{{if .Commands}}, tx: tx{{end}}}
+func New(q *db.Queries, pager *paging.Pager, shards *shard.Router{{if .Commands}}, tx *txn.Executor{{end}}{{if .Messages}}, out *outbox.Writer{{end}}) *Handler {
+	return &Handler{q: q, pager: pager, shards: shards{{if .Commands}}, tx: tx{{end}}{{if .Messages}}, out: out{{end}}}
 }
 
 // at: 分库的表 —— 按分库键(店铺代码等)选连接。没有配置分库时就是主库
@@ -263,10 +318,23 @@ var wiringTmpl = template.Must(template.New("").Funcs(tmplFuncs).Parse(`// Code 
 package main
 
 import (
+{{- if .Messages}}
+	"context"
+{{ end}}
 	"connectrpc.com/connect"
 
 	"{{module}}/gen/db"
+{{- if .Messages}}
+	"github.com/MIERAI/api-factory-runtime/consume"
+{{- if .HasHandlers}}
+	"github.com/MIERAI/api-factory-runtime/message"
+{{- end}}
+	"github.com/MIERAI/api-factory-runtime/outbox"
+{{- end}}
 	"github.com/MIERAI/api-factory-runtime/server"
+{{- if .Messages}}
+	"github.com/MIERAI/api-factory-runtime/topology"
+{{- end}}
 {{- if .Commands}}
 	"github.com/MIERAI/api-factory-runtime/txn"
 {{- end}}
@@ -282,23 +350,78 @@ func services(deps server.Deps, opts ...connect.HandlerOption) []server.Service 
 {{- if .Commands}}
 	tx := txn.New(deps.Pool) // 命令(写入)的事务执行器
 {{- end}}
+{{- if .Messages}}
+	ob := outbox.NewWriter({{printf "%q" .Source}}) // 发出的消息(envelope.source = 服务名)
+	var consumers []*consume.Consumer             // 消息处理器的消费循环
+{{- end}}
 {{- range .Services}}
 	{
+{{- if .Messages}}
+		h := {{.Domain}}handler.New(q, deps.Pager, deps.Shards{{if .Commands}}, tx{{end}}, ob)
+{{- if not .HandlerOnly}}
+		path, hh := {{.ConnectPkg}}.New{{.Service}}Handler(h, opts...)
+		out = append(out, server.Service{Path: path, Handler: hh})
+{{- end}}
+{{- range .Handlers}}
+		consumers = append(consumers, &consume.Consumer{Queue: {{printf "%q" .Queue}}, Handler: h.{{.Method}}, Exec: tx, Broker: deps.AMQP,
+			Accept: []consume.Accept{ {Type: {{printf "%q" .Type}}, Versions: []int{ {{.Version}} } } }})
+{{- end}}
+{{- else}}
 		path, h := {{.ConnectPkg}}.New{{.Service}}Handler({{.Domain}}handler.New(q, deps.Pager, deps.Shards{{if .Commands}}, tx{{end}}), opts...)
 		out = append(out, server.Service{Path: path, Handler: h})
+{{- end}}
 	}
 {{- end}}
+{{- if .Messages}}
+	return append(out, messaging(deps, consumers)...)
+{{- else}}
 	return out
+{{- end}}
 }
+{{- if .Messages}}
+
+// messaging: 消息(R4)。进程内投递的测试入口(只在 FACTORY_TEST_FAULTS=1 时响应)+ 有 AMQP_URL 时:
+// 拓扑(交换机 / 队列 / 重试 / DLQ,参数不一致 = 启动失败)、outbox 的中继(每个数据库一个在工作)、每个处理器的消费循环。
+func messaging(deps server.Deps, consumers []*consume.Consumer) []server.Service {
+	test := server.Service{Path: consume.TestPath, Handler: consume.TestHandler(consumers...)}
+	if deps.AMQP == nil { // 没有 AMQP_URL: outbox 只写不发(本地开发 / 进程内的验收)
+		return []server.Service{test}
+	}
+	spec := topology.Spec{Queues: []topology.Queue{
+{{- range .Services}}{{range .Handlers}}
+		{Name: {{printf "%q" .Queue}}, Subscriptions: []topology.Subscription{ {Kind: {{.Kind}}, Type: {{printf "%q" .Type}}} }},
+{{- end}}{{end}}
+	}}
+	deps.Workers.Go("topology", func(ctx context.Context) error {
+		if err := topology.Ensure(ctx, deps.AMQP, spec); err != nil {
+			return err
+		}
+		<-ctx.Done()
+		return nil
+	})
+	relay := &outbox.Relay{DB: deps.Pool, Broker: deps.AMQP}
+	deps.Workers.Go("outbox relay", relay.Run)
+	for _, c := range consumers {
+		deps.Workers.Go("consume "+c.Queue, c.Run)
+	}
+	return []server.Service{test}
+}
+{{- end}}
 `))
 
 func writeWiring(services []service) error {
 	data := struct {
-		Services []service
-		Commands bool
+		Services    []service
+		Commands    bool
+		Messages    bool
+		HasHandlers bool
+		Source      string // 服务名(proto 包名的前缀): envelope.source、队列名的前缀
 	}{Services: services}
 	for _, s := range services {
 		data.Commands = data.Commands || s.Commands
+		data.Messages = data.Messages || s.Messages
+		data.HasHandlers = data.HasHandlers || len(s.Handlers) > 0
+		data.Source = strings.Split(s.ProtoPackage, ".")[0]
 	}
 	return render(wiringTmpl, data, "cmd/server/wiring_gen.go")
 }

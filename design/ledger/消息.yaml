@@ -1,0 +1,96 @@
+# ledger 拥有的消息契约(事件 = ledger 发出;命令 = ledger 执行)。工厂生成 contracts/<type>.v<N>.json
+消息:
+  account.opened:
+    种类: 事件
+    版本: 1
+    主体: account_id
+    说明: 开了一个账户
+    字段:
+      account_id: { 类型: 文本,   必填: 是, 长度: 3~32, 格式: 代码, 说明: 账户 id }
+      balance:    { 类型: 整数64, 必填: 是, 范围: 0~1000000000, 说明: 开户金额 }
+      opened_at:  { 类型: 时间,   必填: 是, 说明: 开户时间 }
+  account.debit:
+    种类: 命令
+    版本: 1
+    主体: transfer_id
+    说明: "一笔转账: 从多个账户扣款(全部或全不)"
+    字段:
+      transfer_id: { 类型: 整数64, 必填: 是, 范围: 1~999999999, 说明: 转账号 }
+      lines:
+        类型: 列表
+        必填: 是
+        个数: 1~10
+        唯一: [account_id]
+        说明: 每个账户扣多少
+        元素:
+          account_id: { 类型: 文本,   长度: 3~32, 格式: 代码 }
+          amount:     { 类型: 整数64, 范围: 1~1000000 }
+  account.reverse:
+    种类: 命令
+    版本: 1
+    主体: transfer_id
+    说明: 撤销一笔转账的扣款(补偿)
+    字段:
+      transfer_id: { 类型: 整数64, 必填: 是, 范围: 1~999999999, 说明: 转账号 }
+      lines:
+        类型: 列表
+        必填: 是
+        个数: 1~10
+        唯一: [account_id]
+        说明: 要撤销的账户和金额(和扣款时相同)
+        元素:
+          account_id: { 类型: 文本,   长度: 3~32, 格式: 代码 }
+          amount:     { 类型: 整数64, 范围: 1~1000000 }
+  account.settle:
+    种类: 命令
+    版本: 1
+    主体: transfer_id
+    说明: 结算一笔转账的扣款
+    字段:
+      transfer_id: { 类型: 整数64, 必填: 是, 范围: 1~999999999, 说明: 转账号 }
+      lines:
+        类型: 列表
+        必填: 是
+        个数: 1~10
+        唯一: [account_id]
+        说明: 要结算的账户
+        元素:
+          account_id: { 类型: 文本,   长度: 3~32, 格式: 代码 }
+          amount:     { 类型: 整数64, 范围: 1~1000000 }
+  account.debited:
+    种类: 事件
+    版本: 1
+    主体: transfer_id
+    说明: 扣款成功(全部账户)
+    字段:
+      transfer_id: { 类型: 整数64, 必填: 是, 说明: 转账号 }
+      lines:
+        类型: 列表
+        必填: 是
+        个数: 1~10
+        唯一: [account_id]
+        元素:
+          account_id: { 类型: 文本,   长度: 3~32, 格式: 代码 }
+          amount:     { 类型: 整数64, 范围: 1~1000000 }
+  account.debit_failed:
+    种类: 事件
+    版本: 1
+    主体: transfer_id
+    说明: 扣款失败(一个账户都没扣)
+    字段:
+      transfer_id: { 类型: 整数64, 必填: 是, 说明: 转账号 }
+      reason:      { 类型: 文本,   必填: 是, 长度: 1~32, 说明: "原因: INSUFFICIENT_FUNDS / REVERSED" }
+  account.reversed:
+    种类: 事件
+    版本: 1
+    主体: transfer_id
+    说明: 撤销完成
+    字段:
+      transfer_id: { 类型: 整数64, 必填: 是, 说明: 转账号 }
+  account.settled:
+    种类: 事件
+    版本: 1
+    主体: transfer_id
+    说明: 结算完成
+    字段:
+      transfer_id: { 类型: 整数64, 必填: 是, 说明: 转账号 }

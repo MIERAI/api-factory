@@ -1,0 +1,55 @@
+# ============================================================================
+# OpenAccount: 开户(组合命令 + 发出事件 account.opened: 和写入同一个事务进 outbox)
+# ============================================================================
+API: OpenAccount
+说明: 开一个账户,同时发出 account.opened 事件
+背景: 别的服务(通知、风控)要知道开了账户。账户写进去了事件就一定会发出,没写进去(重复的账户 id、数据库失败)就一定不发
+负责人: platform-team
+风险: 中
+
+种类: 组合命令
+
+输入:
+  account_id: { 类型: 文本,   必填: 是, 长度: 3~32, 格式: 代码, 说明: 账户 id }
+  owner:      { 类型: 文本,   必填: 是, 长度: 1~64, 说明: 户主 }
+  balance:    { 类型: 整数64, 必填: 是, 范围: 0~1000000000, 说明: 开户金额 }
+
+操作:
+  - 开户:
+      新建: accounts
+      值: { account_id: 输入.account_id, owner: 输入.owner, balance: 输入.balance, opened_at: 现在 }
+
+发出:
+  - account.opened: { account_id: 开户.account_id, balance: 开户.balance, opened_at: 开户.opened_at }
+
+输出:
+  account_id: { 说明: 账户 id, 来自: 开户.account_id }
+  balance:    { 说明: 可用余额, 来自: 开户.balance }
+  opened_at:  { 说明: 开户时间(= 请求的时刻), 来自: 开户.opened_at }
+
+业务规则:
+  - 情况: 开户成功
+    结果: 写账户,发出 account.opened(账户 id、开户金额、开户时间)
+  - 情况: 账户 id 已经有了
+    结果: 已存在(ALREADY_EXISTS),不写、不发事件
+
+例子:
+  现在: "2026-11-22 10:00"
+  准备数据:
+    accounts:
+      - { account_id: "ACC-001", owner: alice, balance: 500, held: 0, opened_at: "2026-11-01 09:00" }
+  用例:
+    - 说明: 开户 → 写账户、发出 account.opened
+      输入: { account_id: "ACC-002", owner: bob, balance: 1200 }
+      结果: { account_id: "ACC-002", balance: 1200, opened_at: "2026-11-22 10:00" }
+      发出:
+        - account.opened: { account_id: "ACC-002", balance: 1200, opened_at: "2026-11-22T01:00:00Z" }
+      之后:
+        accounts:
+          - { account_id: "ACC-001", balance: 500 }
+          - { account_id: "ACC-002", owner: bob, balance: 1200, held: 0, opened_at: "2026-11-22 10:00" }
+    - 说明: 账户 id 已经有了 → 已存在,不发事件
+      输入: { account_id: "ACC-001", owner: carol, balance: 1 }
+      错误: 已存在
+      发出: []
+      之后: 不变
