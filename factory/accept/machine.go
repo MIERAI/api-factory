@@ -29,8 +29,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	amqp "github.com/rabbitmq/amqp091-go"
 
 	"github.com/MIERAI/api-factory-runtime/message"
+	"github.com/MIERAI/api-factory-runtime/topology"
 
 	"apifactory/factory/command"
 	"apifactory/factory/constraints"
@@ -96,7 +98,7 @@ func runMachine(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.
 	for _, suite := range []func() []Result{e.coverage, e.timeouts, e.walk, e.faults, e.concurrency} {
 		results = append(results, suite()...)
 	}
-	return results, nil
+	return append(results, runMachineMQ(ctx, d, url, plan, api, s)...), nil // 真实 RabbitMQ(FACTORY_TEST_AMQP)
 }
 
 // ---------------------------------------------------------------------------
@@ -1379,4 +1381,103 @@ func (e *msgEnv) checkRowsSet(want []command.Msg, got []outRow) []string {
 		return []string{fmt.Sprintf("发出的消息(不看顺序): 模型 %v,outbox %v", w, g)}
 	}
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// 真实 RabbitMQ(FACTORY_TEST_AMQP,make accept-mq)
+// ---------------------------------------------------------------------------
+
+// runMachineMQ: 状态机经过真实的 RabbitMQ: 人写的转移用例的消息发到交换机 → 消费循环 → 转移 → 提交 → 确认;
+// 转移发出的命令 / 事件经 outbox 的中继发出(旁听队列收到事件);同一个 id 再发 → 只处理一次。语义在进程内的差分里验证。
+func runMachineMQ(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API, s *spec.Spec) []Result {
+	amqpURL := os.Getenv(MQEnv)
+	if amqpURL == "" {
+		return nil
+	}
+	fail := func(f string, a ...any) []Result {
+		return []Result{{Spec: api.ID, Suite: "diff", Case: "RabbitMQ: 准备", Passed: false, Detail: fmt.Sprintf(f, a...)}}
+	}
+	conn, err := amqp.Dial(amqpURL)
+	if err != nil {
+		return fail("%v", err)
+	}
+	defer conn.Close()
+	ch, err := conn.Channel()
+	if err != nil {
+		return fail("%v", err)
+	}
+	if err := topology.DeclareExchanges(ch, topology.DefaultExchanges); err != nil {
+		return fail("%v", err)
+	}
+	q, err := ch.QueueDeclare("", false, true, true, false, nil)
+	if err == nil {
+		err = ch.QueueBind(q.Name, "#", topology.DefaultExchanges.Events, false, nil)
+	}
+	if err == nil {
+		err = bindCommands(ch, q.Name, api.Command.Contracts)
+	}
+	if err != nil {
+		return fail("旁听队列: %v", err)
+	}
+	tap, err := ch.Consume(q.Name, "", true, true, false, false, nil)
+	if err != nil {
+		return fail("%v", err)
+	}
+	e := &mqEnv{msgEnv: newMsgEnv(ctx, d, url, api), url: amqpURL, conn: conn, ch: ch, tap: tap, seen: map[string][]byte{}}
+	m := api.Command.Machine
+	var out []Result
+	n := 0
+	for _, c := range s.Acceptance.Cases {
+		st, ok := strings.CutPrefix(c.Expect.Code, "STATE:")
+		if c.Message == nil || !ok || n >= 2 {
+			continue
+		}
+		n++
+		if err := loadFixtures(ctx, d, plan, s.Acceptance.Fixtures); err != nil {
+			return append(out, fail("%v", err)...)
+		}
+		if err := e.reset(); err != nil {
+			return append(out, fail("%v", err)...)
+		}
+		ct := m.Contract(c.Message.Type)
+		e.queue = e.source + "." + c.Message.Type
+		id := message.NewID()
+		body, _ := json.Marshal(map[string]any{"id": id, "type": ct.Type, "version": ct.Version, "occurred_at": time.Now().UTC().Format(time.RFC3339),
+			"source": "factory-accept", "subject": fmt.Sprint(c.Message.Data[ct.Subject]), "data": c.Message.Data})
+		ex := topology.DefaultExchanges.Events
+		if ct.Kind == "command" {
+			ex = topology.DefaultExchanges.Commands
+		}
+		publish := func() []string {
+			err := ch.PublishWithContext(ctx, ex, ct.Type, false, false, amqp.Publishing{ContentType: message.ContentType,
+				DeliveryMode: amqp.Persistent, MessageId: id, Type: ct.Type, Body: body})
+			if err != nil {
+				return []string{"publish: " + err.Error()}
+			}
+			return nil
+		}
+		problems := publish()
+		problems = append(problems, e.waitProcessed(id, 10*time.Second)...)
+		problems = append(problems, e.waitRelayed(10*time.Second)...)
+		var cur int64
+		_ = d.main.QueryRow(ctx, fmt.Sprintf("SELECT %s FROM %s WHERE %s = $1", pgxIdent(m.State.Name), pgxIdent(m.Table), pgxIdent(m.Key.Name)),
+			c.Message.Data[ct.Subject]).Scan(&cur)
+		if x := m.StateByDB(cur); x == nil || x.Name != st {
+			problems = append(problems, fmt.Sprintf("状态: 期待 %s,数据库 %d", st, cur))
+		}
+		n0, _ := e.outboxCount()
+		out = append(out, Result{Spec: api.ID, Suite: "diff", Case: fmt.Sprintf("RabbitMQ: %s → 转移到 %s → 发出的消息经中继发出", c.Message.Type, st),
+			Passed: len(problems) == 0, Detail: strings.Join(append([]string{"✓"}, problems...), " | ")})
+		problems = publish() // 同一个 id 再发
+		time.Sleep(1500 * time.Millisecond)
+		if k, _ := e.outboxCount(); k != n0 {
+			problems = append(problems, fmt.Sprintf("重投之后 outbox %d → %d 行(应该不变)", n0, k))
+		}
+		if p, _ := e.processed(); len(p) != 1 {
+			problems = append(problems, fmt.Sprintf("去重表 %d 行(应该 1)", len(p)))
+		}
+		out = append(out, Result{Spec: api.ID, Suite: "diff", Case: fmt.Sprintf("RabbitMQ: %s 同一个 id 再发 → 只处理一次", c.Message.Type),
+			Passed: len(problems) == 0, Detail: strings.Join(append([]string{"duplicate ✓"}, problems...), " | ")})
+	}
+	return out
 }

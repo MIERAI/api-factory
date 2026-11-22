@@ -74,6 +74,9 @@ func runMQ(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API, 
 	if err == nil {
 		err = ch.QueueBind(q.Name, "#", topology.DefaultExchanges.Events, false, nil)
 	}
+	if err == nil {
+		err = bindCommands(ch, q.Name, api.Command.Contracts)
+	}
 	if err != nil {
 		return fail("准备", "旁听队列: %v", err)
 	}
@@ -170,6 +173,19 @@ func runMQ(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API, 
 	}
 	add("暂时性错误 → 重试队列 → 成功(只生效一次)", problems, "✓")
 	return out
+}
+
+// bindCommands: 发出的命令(别的服务执行的,例: review.request)也绑到旁听队列: 中继按 mandatory 发命令,
+// 没有队列收的命令留在 outbox 里(没有执行方的服务在这里扮演执行方)。
+func bindCommands(ch *amqp.Channel, q string, cts []ir.Contract) error {
+	for _, ct := range cts {
+		if ct.Kind == "command" {
+			if err := ch.QueueBind(q, ct.Type, topology.DefaultExchanges.Commands, false, nil); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (e *mqEnv) publish(body []byte, id string, h amqp.Table) []string {
