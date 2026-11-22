@@ -17,7 +17,7 @@ FROM (
     WHERE (t1.shipped_on = $1::date)
       AND (($2::text IS NULL) OR (t2.region_code = $2::text))
 ) AS t4
-ORDER BY t4.region_name COLLATE "C", t4.id
+ORDER BY t4.region_name COLLATE "C", t4.region_code COLLATE "C", t4.id
 LIMIT 51
 `
 

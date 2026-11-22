@@ -5,12 +5,13 @@ api:
     rpc: factory.logistics.v1.LogisticService/ListShipmentsByRegion
     owner: logistics-team
     risk_level: low
-    description: 地域別の配車計画。地域は倉庫マスタ経由で引く(出荷 → 倉庫 → 地域)。地域が未設定・地域マスタに無い出荷は地域名が空で末尾に並ぶ
+    description: 地域別の配車計画。地域は倉庫マスタ経由で引く(出荷 → 倉庫 → 地域)。地域名順、同じ地域名なら地域コード順。地域が未設定・地域マスタに無い出荷は地域名が空で末尾に並ぶ
 pattern:
     kind: list_all
     not_found_message: ""
     order_by:
         - region_name
+        - region_code
         - id
     direction: asc
     page_size:
@@ -106,7 +107,7 @@ acceptance:
               region_code: R9
               warehouse_code: W4
     cases:
-        - name: 地域名順(文字コード順)。地域が空(W3)・地域マスタに無い(W4)・倉庫マスタに無い(W9)出荷は地域名が空で末尾
+        - name: 地域名順(文字コード順)。地域名が空の出荷は末尾で、その中は地域コード順(地域マスタに無い R9 → 地域が空の W3・倉庫マスタに無い W9)
           request:
             shipped_on: "2026-11-20"
           expect:
@@ -121,14 +122,14 @@ acceptance:
                       region_code: R1
                       region_name: 関東
                       warehouse_name: 東倉庫
-                    - id: 3
-                      region_code: $absent
-                      region_name: $absent
-                      warehouse_name: 新倉庫
                     - id: 4
                       region_code: R9
                       region_name: $absent
                       warehouse_name: 旧倉庫
+                    - id: 3
+                      region_code: $absent
+                      region_name: $absent
+                      warehouse_name: 新倉庫
                     - id: 5
                       region_code: $absent
                       region_name: $absent
@@ -156,5 +157,17 @@ acceptance:
                     - id: 4
                       region_name: $absent
           steps: []
+        - name: 地域コードの空文字は参数错误
+          request:
+            region_code: ""
+            shipped_on: "2026-11-20"
+          expect:
+            code: INVALID_ARGUMENT
+            response: {}
+          steps: []
 logic_examples: []
-review_decisions: []
+review_decisions:
+    - question: region_code 传了空字符串("")时,应该怎么处理?
+      decision: 已经直接修改了设计书
+    - question: 地域マスタ里有两个不同的地域コード用了同一个地域名时(例如 R1 和 R5 都叫「関東」),它们的出荷要不要按地域分开排列?
+      decision: 已经直接修改了设计书

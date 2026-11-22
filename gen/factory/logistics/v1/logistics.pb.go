@@ -34,9 +34,9 @@ type DayShipment struct {
 	WarehouseCode string `protobuf:"bytes,2,opt,name=warehouse_code,json=warehouseCode,proto3" json:"warehouse_code,omitempty"`
 	// 倉庫名(倉庫マスタに無いときは不设置)
 	WarehouseName *string `protobuf:"bytes,3,opt,name=warehouse_name,json=warehouseName,proto3,oneof" json:"warehouse_name,omitempty"`
-	// 配送業者の取引先コード
+	// 配送業者の取引先コード(届いたまま。空(NULL)のときは不设置、空文字 "" は "" のまま返す)
 	PartnerCode *string `protobuf:"bytes,4,opt,name=partner_code,json=partnerCode,proto3,oneof" json:"partner_code,omitempty"`
-	// 配送業者名(取引先コードが空 / 業者マスタに無いときは不设置)
+	// 配送業者名(取引先コードが空(NULL)/ 業者マスタに無いときは不设置)
 	CarrierName *string `protobuf:"bytes,5,opt,name=carrier_name,json=carrierName,proto3,oneof" json:"carrier_name,omitempty"`
 	// 重量 kg
 	Weight        string `protobuf:"bytes,6,opt,name=weight,proto3" json:"weight,omitempty"`
@@ -304,7 +304,7 @@ type ListShipmentsByRegionRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 出荷日
 	ShippedOn string `protobuf:"bytes,1,opt,name=shipped_on,json=shippedOn,proto3" json:"shipped_on,omitempty"`
-	// 地域コード(倉庫マスタの地域)
+	// 地域コード(倉庫マスタの地域。不指定 = 全地域。空文字は参数错误)
 	RegionCode    *string `protobuf:"bytes,2,opt,name=region_code,json=regionCode,proto3,oneof" json:"region_code,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -480,9 +480,9 @@ type ListZonedShipmentsRequest struct {
 	PageSize int32 `protobuf:"varint,1,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
 	// 上一页返回的 next_page_token(不透明的字符串)
 	PageToken string `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
-	// 倉庫コード
+	// 倉庫コード(空文字は参数错误)
 	WarehouseCode string `protobuf:"bytes,3,opt,name=warehouse_code,json=warehouseCode,proto3" json:"warehouse_code,omitempty"`
-	// 区画の表示名
+	// 区画の表示名(不指定 = 絞り込まない。空文字は参数错误)
 	ZoneLabel     *string `protobuf:"bytes,4,opt,name=zone_label,json=zoneLabel,proto3,oneof" json:"zone_label,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -614,11 +614,12 @@ const file_factory_logistics_v1_logistics_proto_rawDesc = "" +
 	"\x06weight\x18\x06 \x01(\tR\x06weightB\x11\n" +
 	"\x0f_warehouse_nameB\x0f\n" +
 	"\r_partner_codeB\x0f\n" +
-	"\r_carrier_name\"\x7f\n" +
+	"\r_carrier_name\"\x91\x01\n" +
 	"\x19ListShipmentsByDayRequest\x129\n" +
 	"\n" +
-	"shipped_on\x18\x01 \x01(\tB\x1a\xbaH\x17r\x152\x13^\\d{4}-\\d{2}-\\d{2}$R\tshippedOn\x12'\n" +
-	"\x0fwarehouse_codes\x18\x02 \x03(\tR\x0ewarehouseCodes\"]\n" +
+	"shipped_on\x18\x01 \x01(\tB\x1a\xbaH\x17r\x152\x13^\\d{4}-\\d{2}-\\d{2}$R\tshippedOn\x129\n" +
+	"\x0fwarehouse_codes\x18\x02 \x03(\tB\x10\xbaH\r\x92\x01\n" +
+	"\x10\x14\"\x06r\x04\x10\x01\x18\bR\x0ewarehouseCodes\"]\n" +
 	"\x1aListShipmentsByDayResponse\x12?\n" +
 	"\tshipments\x18\x01 \x03(\v2!.factory.logistics.v1.DayShipmentR\tshipments\"\xf2\x01\n" +
 	"\x0eRegionShipment\x12\x0e\n" +
@@ -631,11 +632,11 @@ const file_factory_logistics_v1_logistics_proto_rawDesc = "" +
 	"regionName\x88\x01\x01B\x11\n" +
 	"\x0f_warehouse_nameB\x0e\n" +
 	"\f_region_codeB\x0e\n" +
-	"\f_region_name\"\x8f\x01\n" +
+	"\f_region_name\"\x9a\x01\n" +
 	"\x1cListShipmentsByRegionRequest\x129\n" +
 	"\n" +
-	"shipped_on\x18\x01 \x01(\tB\x1a\xbaH\x17r\x152\x13^\\d{4}-\\d{2}-\\d{2}$R\tshippedOn\x12$\n" +
-	"\vregion_code\x18\x02 \x01(\tH\x00R\n" +
+	"shipped_on\x18\x01 \x01(\tB\x1a\xbaH\x17r\x152\x13^\\d{4}-\\d{2}-\\d{2}$R\tshippedOn\x12/\n" +
+	"\vregion_code\x18\x02 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18\bH\x00R\n" +
 	"regionCode\x88\x01\x01B\x0e\n" +
 	"\f_region_code\"c\n" +
 	"\x1dListShipmentsByRegionResponse\x12B\n" +
@@ -648,14 +649,14 @@ const file_factory_logistics_v1_logistics_proto_rawDesc = "" +
 	"\n" +
 	"shipped_on\x18\x04 \x01(\tR\tshippedOnB\n" +
 	"\n" +
-	"\b_zone_no\"\xbc\x01\n" +
+	"\b_zone_no\"\xd2\x01\n" +
 	"\x19ListZonedShipmentsRequest\x12&\n" +
 	"\tpage_size\x18\x01 \x01(\x05B\t\xbaH\x06\x1a\x04\x18d(\x00R\bpageSize\x12\x1d\n" +
 	"\n" +
-	"page_token\x18\x02 \x01(\tR\tpageToken\x12%\n" +
-	"\x0ewarehouse_code\x18\x03 \x01(\tR\rwarehouseCode\x12\"\n" +
+	"page_token\x18\x02 \x01(\tR\tpageToken\x120\n" +
+	"\x0ewarehouse_code\x18\x03 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18\bR\rwarehouseCode\x12-\n" +
 	"\n" +
-	"zone_label\x18\x04 \x01(\tH\x00R\tzoneLabel\x88\x01\x01B\r\n" +
+	"zone_label\x18\x04 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18(H\x00R\tzoneLabel\x88\x01\x01B\r\n" +
 	"\v_zone_label\"\x82\x01\n" +
 	"\x1aListZonedShipmentsResponse\x12<\n" +
 	"\tshipments\x18\x01 \x03(\v2\x1e.factory.logistics.v1.ShipmentR\tshipments\x12&\n" +

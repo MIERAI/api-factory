@@ -813,7 +813,7 @@
     "pattern": "list_all",
     "cases": [
       {
-        "name": "地域名順(文字コード順)。地域が空(W3)・地域マスタに無い(W4)・倉庫マスタに無い(W9)出荷は地域名が空で末尾",
+        "name": "地域名順(文字コード順)。地域名が空の出荷は末尾で、その中は地域コード順(地域マスタに無い R9 → 地域が空の W3・倉庫マスタに無い W9)",
         "request": {
           "shipped_on": "2026-11-20"
         },
@@ -832,16 +832,16 @@
               "warehouse_name": "東倉庫"
             },
             {
-              "id": 3,
-              "region_code": "$absent",
-              "region_name": "$absent",
-              "warehouse_name": "新倉庫"
-            },
-            {
               "id": 4,
               "region_code": "R9",
               "region_name": "$absent",
               "warehouse_name": "旧倉庫"
+            },
+            {
+              "id": 3,
+              "region_code": "$absent",
+              "region_name": "$absent",
+              "warehouse_name": "新倉庫"
             },
             {
               "id": 5,

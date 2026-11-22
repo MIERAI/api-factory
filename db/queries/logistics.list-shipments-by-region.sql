@@ -10,5 +10,5 @@ FROM (
     WHERE (t1.shipped_on = sqlc.arg(shipped_on)::date)
       AND ((sqlc.narg(region_code)::text IS NULL) OR (t2.region_code = sqlc.narg(region_code)::text))
 ) AS t4
-ORDER BY t4.region_name COLLATE "C", t4.id
+ORDER BY t4.region_name COLLATE "C", t4.region_code COLLATE "C", t4.id
 LIMIT 51;

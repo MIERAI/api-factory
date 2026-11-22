@@ -5,7 +5,7 @@ api:
     rpc: factory.logistics.v1.LogisticService/ListShipmentsByDay
     owner: logistics-team
     risk_level: low
-    description: 出荷場の当日一覧。マスタに無いコード(取り込み前の新しい倉庫・業者)でも出荷は表示し、名前は空にする
+    description: 出荷場の当日一覧。マスタに無いコード(取り込み前の新しい倉庫・業者)でも出荷は表示し、名前は空にする。1 日の出荷は全倉庫で 30 件程度の前提。50 件を超えたら黙って切り捨てずエラー(FAILED_PRECONDITION)にし、倉庫を指定して絞り込んでもらう(件数が恒常的に増えたら一覧(分页)に変える)
 pattern:
     kind: list_all
     not_found_message: ""
@@ -44,7 +44,11 @@ datasource:
               from: name
           missing: keep
     sql: ""
-behavior: []
+behavior:
+    - when: 取引先コードが空文字 "" で届いた出荷
+      then: 空(NULL)とは区別し、"" という一つのコードとして扱う(業者マスタに取引先コード "" の業者があればその業者名が付く)。EDI の値をそのまま見せ、データの補正はしない
+    - when: 当日の出荷が 50 件を超える
+      then: エラー(FAILED_PRECONDITION)。一部だけ返すことはしない
 acceptance:
     fixtures:
         carriers:
@@ -145,4 +149,8 @@ acceptance:
                 shipments: []
           steps: []
 logic_examples: []
-review_decisions: []
+review_decisions:
+    - question: 'ある出荷日の出荷が 50 件を超えたとき(例: 2026-11-20 に 51 件、倉庫を指定しない場合)、一覧はエラーになりますが、それでよいですか?'
+      decision: 已经直接修改了设计书
+    - question: EDI から取引先コードが空文字("")のまま届いた出荷は「取引先コードが空」として扱いますか?
+      decision: 已经直接修改了设计书

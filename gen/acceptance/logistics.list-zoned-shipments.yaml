@@ -3,6 +3,8 @@
 spec: specs/logistics/list-zoned-shipments/spec.yaml
 coverage:
     - 'validation: page_size(int32 范围/in)'
+    - 'validation: warehouse_code(string 长度)'
+    - 'validation: zone_label(string 长度)'
     - '差分测试(运行时): 随机数据 + 核心代数的参考求值器,覆盖筛选 / 排序 / 字段映射 / 一览的出口'
     - '差分测试(运行时): 不合法的随机请求(protovalidate)→ INVALID_ARGUMENT'
     - '差分测试(运行时): 一览出口自己的用例'
@@ -37,6 +39,66 @@ suites:
           request:
             page_size: 100
             warehouse_code: W1
+          expect:
+            code: '!INVALID_ARGUMENT'
+            response: {}
+          steps: []
+        - name: warehouse_code 长度 0(min_len 1 的边界,违反)
+          request:
+            warehouse_code: ""
+          expect:
+            code: INVALID_ARGUMENT
+            response: {}
+          steps: []
+        - name: warehouse_code 长度 1(min_len 1 的边界,合法)
+          request:
+            warehouse_code: a
+          expect:
+            code: '!INVALID_ARGUMENT'
+            response: {}
+          steps: []
+        - name: warehouse_code 长度 9(max_len 8 的边界,违反)
+          request:
+            warehouse_code: aaaaaaaaa
+          expect:
+            code: INVALID_ARGUMENT
+            response: {}
+          steps: []
+        - name: warehouse_code 长度 8(max_len 8 的边界,合法)
+          request:
+            warehouse_code: aaaaaaaa
+          expect:
+            code: '!INVALID_ARGUMENT'
+            response: {}
+          steps: []
+        - name: zone_label 长度 0(min_len 1 的边界,违反)
+          request:
+            warehouse_code: W1
+            zone_label: ""
+          expect:
+            code: INVALID_ARGUMENT
+            response: {}
+          steps: []
+        - name: zone_label 长度 1(min_len 1 的边界,合法)
+          request:
+            warehouse_code: W1
+            zone_label: a
+          expect:
+            code: '!INVALID_ARGUMENT'
+            response: {}
+          steps: []
+        - name: zone_label 长度 41(max_len 40 的边界,违反)
+          request:
+            warehouse_code: W1
+            zone_label: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          expect:
+            code: INVALID_ARGUMENT
+            response: {}
+          steps: []
+        - name: zone_label 长度 40(max_len 40 的边界,合法)
+          request:
+            warehouse_code: W1
+            zone_label: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
           expect:
             code: '!INVALID_ARGUMENT'
             response: {}

@@ -14,8 +14,8 @@ API: ListZonedShipments
   zone: { 表: zones, 条件: [warehouse_code = warehouse_code, zone_no = zone_no], 列: { zone_label: label }, 找不到时: 丢弃 }
 
 输入:
-  warehouse_code: { 类型: 文本, 必填: 是, 说明: 倉庫コード, 筛选: warehouse_code 等于 }
-  zone_label:     { 类型: 文本, 必填: 否, 说明: 区画の表示名, 筛选: zone_label 等于 }
+  warehouse_code: { 类型: 文本, 必填: 是, 长度: 1~8, 说明: 倉庫コード(空文字は参数错误), 筛选: warehouse_code 等于 }
+  zone_label:     { 类型: 文本, 必填: 否, 长度: 1~40, 说明: 区画の表示名(不指定 = 絞り込まない。空文字は参数错误), 筛选: zone_label 等于 }
 
 输出:
   id:         出荷 ID
@@ -52,3 +52,9 @@ API: ListZonedShipments
     - 说明: 該当なし
       输入: { warehouse_code: W9 }
       结果: { shipments: [] }
+    - 说明: 倉庫コードの空文字は参数错误
+      输入: { warehouse_code: "" }
+      结果: 参数错误
+    - 说明: 区画の表示名の空文字は参数错误(絞り込まないときは指定しない)
+      输入: { warehouse_code: W1, zone_label: "" }
+      结果: 参数错误

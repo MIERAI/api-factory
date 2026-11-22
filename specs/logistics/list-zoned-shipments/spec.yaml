@@ -132,5 +132,24 @@ acceptance:
             response:
                 shipments: []
           steps: []
+        - name: 倉庫コードの空文字は参数错误
+          request:
+            warehouse_code: ""
+          expect:
+            code: INVALID_ARGUMENT
+            response: {}
+          steps: []
+        - name: 区画の表示名の空文字は参数错误(絞り込まないときは指定しない)
+          request:
+            warehouse_code: W1
+            zone_label: ""
+          expect:
+            code: INVALID_ARGUMENT
+            response: {}
+          steps: []
 logic_examples: []
-review_decisions: []
+review_decisions:
+    - question: 倉庫コード(warehouse_code)传空字符串 "" 时,是返回错误,还是照常查询?
+      decision: 已经直接修改了设计书
+    - question: 区画の表示名(zone_label)传空字符串 "" 时,应该怎么处理?
+      decision: 已经直接修改了设计书
