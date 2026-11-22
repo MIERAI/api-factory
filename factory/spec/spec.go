@@ -241,7 +241,10 @@ type Nest struct {
 	Where   []string  `yaml:"where,omitempty"` // 子表上的固定条件(factory/where 的写法,子表的列名)
 	OrderBy []string  `yaml:"order_by"`        // "line_no asc"
 	Max     int       `yaml:"max"`
-	Columns []TakeCol `yaml:"columns"` // 子行的列(列名 ← 子表的列)
+	Columns []TakeCol `yaml:"columns"` // 子行的列(列名 ← 子表的列,或 Lookups 加的列)
+	// Lookups: 子行上的关联(多对一查找): 条件的左边 = 子表的列(或前面的关联加的列);加的列之后和子表的列一样
+	// (Where / OrderBy / Columns 都可以用)
+	Lookups []Lookup `yaml:"lookups,omitempty"`
 }
 
 // ChildAgg: 关联的子行(经过 Where)的一个聚合,加一列 Name。Func: count / sum / min / max(count 没有 Column)。
@@ -583,6 +586,9 @@ func (s *Spec) Check() []string {
 		}
 		for _, n := range ds.Nests { // 嵌套 / 子聚合的子表也是
 			allowed[n.Table] = true
+			for _, l := range n.Lookups { // 嵌套里的关联的表
+				allowed[l.Table] = true
+			}
 		}
 		for _, a := range ds.ChildAggs {
 			allowed[a.Table] = true

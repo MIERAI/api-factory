@@ -53,6 +53,7 @@ func (e *diffEnv) initOthers() error {
 	// 列 → 物理的出处(来源的表的列;关联加的列 = 对方的表的列)。JSON版本 的逻辑列没有物理的出处
 	from := map[string]origin{}
 	var src []core.Step
+	var childOwners []string // 嵌套里的关联的外键的主人(子表)
 	for _, st := range e.api.Pipeline.Steps {
 		switch {
 		case st.Kind == "scan":
@@ -102,6 +103,45 @@ func (e *diffEnv) initOthers() error {
 		if st.Kind == "scan" || st.Kind == "lookup" || st.From == "datasource.table" || strings.HasPrefix(st.From, "来源 ") {
 			src = append(src, st)
 		}
+		if (st.Kind == "nest" || st.Kind == "child_agg") && e.plan.Storage(st.Table) == nil {
+			// 嵌套里的关联: 子表的来源 = scan(子表) + lookup …;外键的主人 = 子表(子行造好之后由 loadChildren 套用)
+			sub := map[string]origin{}
+			for _, s := range st.Source {
+				switch s.Kind {
+				case "scan":
+					for _, c := range s.Columns {
+						sub[c.Name] = origin{s.Table, c.Name}
+					}
+				case "lookup":
+					ot, ok := byName[s.Table]
+					if !ok {
+						ot = &otherTable{table: s.Table, cols: s.Columns, shard: e.plan.Shard(s.Table)}
+						byName[s.Table] = ot
+						e.others = append(e.others, ot)
+					}
+					var fk fkRef
+					owner := ""
+					for _, k := range s.On {
+						o, ok := sub[k.Col]
+						if !ok || (owner != "" && o.table != owner) {
+							owner = "\x00"
+							break
+						}
+						owner = o.table
+						fk.cols = append(fk.cols, o.col)
+						fk.keys = append(fk.keys, k.Key)
+					}
+					if owner != "\x00" && owner != "" {
+						fk.ref = ot
+						e.fks[owner] = append(e.fks[owner], fk)
+						childOwners = append(childOwners, owner)
+					}
+					for _, t := range s.Take {
+						sub[t.Name] = origin{s.Table, t.Col}
+					}
+				}
+			}
+		}
 	}
 	// 造数据的顺序: 被引用的表在前(深度优先,引用的表的外键先处理)
 	var order []*otherTable
@@ -126,6 +166,11 @@ func (e *diffEnv) initOthers() error {
 	}
 	if err := visit(e.table, 0); err != nil {
 		return err
+	}
+	for _, t := range childOwners { // 子表引用的表(嵌套里的关联)也要在子表之前造(loadOthers 在 loadChildren 之前)
+		if err := visit(t, 0); err != nil {
+			return err
+		}
 	}
 	if e.api.Table != e.table { // 数据来源是逻辑表: 外键的主人是逻辑表名
 		if err := visit(e.api.Table, 0); err != nil {

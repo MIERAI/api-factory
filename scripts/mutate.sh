@@ -184,6 +184,13 @@ run "子聚合の固定条件: 明日以降 > 写成 >="           $CC 's/\(t7\.
 SRG=gen/db/sales.list-store-sales-range.sql.go
 run "参数名 to: <= 写成 <"                          $SRG 's/\(t1\.sales_date <= \$3::date\)/(t1.sales_date < \$3::date)/'
 run "参数名 from: 被忽略"                           $SRG 's/\(t1\.sales_date >= \$2::date\)/(TRUE)/'
+# R2.6 G1: 嵌套里的关联(子行上的多对一查找)
+CW=gen/db/logistics.list-carrier-warehouses.sql.go
+run "嵌套里的关联: 保留写成丢弃(LEFT JOIN → JOIN)"   $CW 's/LEFT JOIN warehouses AS t3/JOIN warehouses AS t3/'
+run "嵌套里的关联: 链式第二级写成 JOIN"             $CW 's/LEFT JOIN regions AS t4/JOIN regions AS t4/'
+run "嵌套里的关联: 链式第二级从子表的列关联"         $CW 's/ON t3\.region_code = t4\.region_code/ON t2.warehouse_code = t4.region_code/'
+run "嵌套里的关联: 按加的列排序的方向反了"           $CW 's/(t[56])\.region_name COLLATE "C"/$1.region_name COLLATE "C" DESC/g'
+run "嵌套里的关联: 加的列取错(倉庫名 ← 地域コード)"  $CW 's/t3\.name AS warehouse_name/t3.region_code AS warehouse_name/'
 # 命令工厂(R3-1): 生成的写代码。每个变异都要被 ≥3 个状态差分的请求抓到(factory/accept/command_diff.go)
 UJ=internal/handler/schedules/update_job_schedule_gen.go
 SE=internal/handler/schedules/commands_gen.go

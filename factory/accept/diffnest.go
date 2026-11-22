@@ -44,6 +44,8 @@ type childTable struct {
 	pkCols []string      // 父行的列(逐个对应)
 	lt     *logicalTable // 子表是逻辑表(diffsource.go)
 	pred   *core.Expr    // 嵌套的固定条件(子表的列): 正好上限 / 上限 + 1 的父行按通过条件的子行数造
+	nest   bool          // 有嵌套用这张表(不只是子聚合): 子行数超过上限的父行要少
+	source []core.Step   // 嵌套里的关联: 子表的来源(scan + lookup …),固定条件作用在它的输出上
 }
 
 // initChildren: 从流水线的 nest / child_agg 推出子表(initOthers 之后调用: from = 列 → 物理的出处)。
@@ -57,11 +59,14 @@ func (e *diffEnv) initChildren(from map[string]origin) {
 		ct, ok := byName[st.Table]
 		if !ok {
 			ct = &childTable{table: st.Table, cols: st.Columns, shard: e.plan.Shard(st.Table), max: 4, lt: e.newLogical(st)}
+			if ct.lt == nil && len(st.Source) > 0 && st.Source[0].Kind == "scan" { // 嵌套里的关联: 子表 = scan 的列(物理的列)
+				ct.cols, ct.source = st.Source[0].Columns, st.Source
+			}
 			byName[st.Table] = ct
 			e.children = append(e.children, ct)
 		}
 		if st.Kind == "nest" {
-			ct.max = st.N
+			ct.max, ct.nest = st.N, true
 			if ct.pred == nil {
 				ct.pred = st.Pred
 			}
@@ -230,6 +235,7 @@ func (e *diffEnv) loadChildren() error {
 				}
 			}
 			seq++
+			e.applyFKs(ct.table, ct.cols, physical, global, seq) // 嵌套里的关联: 子行的外键(difflookup.go)
 			for i, c := range ct.fkCols {
 				if parent == nil { // 孤立的子行: 关联不到任何父行
 					t, _ := core.Schema(ct.cols).Col(c)
@@ -270,11 +276,10 @@ func (e *diffEnv) loadChildren() error {
 					continue
 				}
 				n := e.childCount(ct.max)
-				if pred != nil && n > ct.max {
-					// 通过条件的子行超过上限 → 整页的请求报错: 这样的父行多了,一览 / 分页几乎每页都报错。
-					// 平均造 3 个左右,只放在后一半的父行里(父行大多按键的顺序造: 第一页的请求不报错,分页出口才测得到)
-					// (上限 + 1 的父行约 1/5: 后一半里每个以 30/父行数 的概率保留)
-					if pi < len(parents)/2 || e.rnd.Intn(len(parents)) >= 30 {
+				if ct.nest && n > ct.max {
+					// 子行(通过条件的)超过上限 → 整页的请求报错: 这样的父行多了,一览 / 分页几乎每页都报错。
+					// 只放在后一半的父行里(父行大多按键的顺序造: 第一页的请求不报错,分页出口才测得到)
+					if pi < len(parents)/2 {
 						n = ct.max
 					}
 				}
@@ -612,13 +617,8 @@ func (e *diffEnv) pinProbe() core.Params {
 
 // childPasses: 子行 row 在探针 probe 下通过嵌套的固定条件(参考求值器算)。算不了 → 当作通过。
 func (e *diffEnv) childPasses(ct *childTable, row map[string]any, probe core.Params) bool {
-	pl := &core.Pipeline{Params: e.api.Pipeline.Params, Steps: []core.Step{core.Scan(ct.table, ct.cols...), core.Filter(ct.pred)}}
-	r := core.Row{}
-	for _, c := range ct.cols {
-		r[c.Name] = row[c.Name]
-	}
-	res, err := core.Eval(pl, map[string][]core.Row{ct.table: {r}}, probe)
-	return err != nil || len(res.Rows) == 1
+	ok, err := e.childPred(ct, row, probe)
+	return err != nil || ok
 }
 
 // childFailsAll: 子行 row 在所有的探针下都不通过嵌套的固定条件(没有探针 = 不依赖请求: 算一次)。
@@ -627,18 +627,35 @@ func (e *diffEnv) childFailsAll(ct *childTable, row map[string]any) bool {
 	if len(probes) == 0 {
 		probes = []core.Params{nil}
 	}
-	pl := &core.Pipeline{Params: e.api.Pipeline.Params, Steps: []core.Step{core.Scan(ct.table, ct.cols...), core.Filter(ct.pred)}}
-	r := core.Row{}
-	for _, c := range ct.cols {
-		r[c.Name] = row[c.Name]
-	}
 	for _, probe := range probes {
-		res, err := core.Eval(pl, map[string][]core.Row{ct.table: {r}}, probe)
-		if err != nil || len(res.Rows) > 0 {
+		if ok, err := e.childPred(ct, row, probe); err != nil || ok {
 			return false
 		}
 	}
 	return true
+}
+
+// childPred: 子行 row 通过嵌套的固定条件(嵌套里的关联: 先按子表的来源加上关联的列,关联的表 = 已经造好的行)。
+func (e *diffEnv) childPred(ct *childTable, row map[string]any, probe core.Params) (bool, error) {
+	steps := []core.Step{core.Scan(ct.table, ct.cols...)}
+	tables := map[string][]core.Row{}
+	if len(ct.source) > 0 {
+		steps = append([]core.Step(nil), ct.source...)
+		for _, ot := range e.others {
+			tables[ot.table] = ot.rows
+		}
+	}
+	r := core.Row{}
+	for _, c := range ct.cols {
+		r[c.Name] = row[c.Name]
+	}
+	tables[ct.table] = []core.Row{r}
+	pl := &core.Pipeline{Params: e.api.Pipeline.Params, Steps: append(steps, core.Filter(ct.pred))}
+	res, err := core.Eval(pl, tables, probe)
+	if err != nil {
+		return false, err
+	}
+	return len(res.Rows) > 0, nil
 }
 
 // childTablesIn: 子表在库 conn 里的行(conn = nil: 全部)。
@@ -699,6 +716,48 @@ func childItems(c core.Children, t core.Type, msg *ir.Message) []any {
 	return list
 }
 
+// nestedLookupTargets: 嵌套 / 子聚合的子表的来源里的关联(嵌套里的关联)的覆盖条件:
+// 找不到时 保留 ↔ 丢弃、总是找不到、多列的键少比较一列(和数据来源的关联一样,difflookup.go)。
+func nestedLookupTargets(i int, st core.Step, name string) []sensTarget {
+	with := func(j int, f func(l *core.Step)) func(p *core.Pipeline) *core.Pipeline {
+		return func(p *core.Pipeline) *core.Pipeline {
+			mut := *p
+			mut.Steps = append([]core.Step(nil), p.Steps...)
+			s := mut.Steps[i]
+			s.Source = append([]core.Step(nil), s.Source...)
+			l := s.Source[j]
+			l.On = append([]core.JoinKey(nil), l.On...)
+			f(&l)
+			s.Source[j] = l
+			mut.Steps[i] = s
+			return &mut
+		}
+	}
+	var out []sensTarget
+	for j, l := range st.Source {
+		if l.Kind != "lookup" {
+			continue
+		}
+		j, l := j, l
+		at := name + " / " + l.From
+		keep := l.Missing != "drop"
+		flip := map[bool]string{true: "保留 → 丢弃", false: "丢弃 → 保留"}[keep]
+		out = append(out, sensTarget{desc: fmt.Sprintf("%s 的找不到时(%s)", at, flip), mutate: with(j, func(s *core.Step) {
+			s.Missing = map[bool]string{true: "drop", false: "keep"}[keep]
+		})})
+		out = append(out, sensTarget{desc: at + " 找到的行(总是找不到的实现)", mutate: with(j, func(s *core.Step) { s.Table = "\x00none" })})
+		if len(l.On) > 1 {
+			for k, key := range l.On {
+				k := k
+				out = append(out, sensTarget{desc: fmt.Sprintf("%s 的键少比较 %s", at, key.Col), mutate: with(j, func(s *core.Step) {
+					s.On = append(append([]core.JoinKey(nil), s.On[:k]...), s.On[k+1:]...)
+				})})
+			}
+		}
+	}
+	return out
+}
+
 // nestTargets: 嵌套 / 子聚合的覆盖条件(错误实现 → ≥3 个请求能区分)。
 func (e *diffEnv) nestTargets() []sensTarget {
 	p := e.api.Pipeline
@@ -726,6 +785,7 @@ func (e *diffEnv) nestTargets() []sensTarget {
 			out = append(out, sensTarget{desc: name + " 的子表的条件(去掉)", mutate: with(i, func(s *core.Step) { s.Pred = nil })})
 		}
 		out = append(out, sourceTargets(i, st, name)...) // 子表是逻辑表: 版本 / 删除
+		out = append(out, nestedLookupTargets(i, st, name)...) // 嵌套里的关联
 
 		// 关联列换成当前行的另一列(类型相同的第一列)
 		// 候选 = 来源的表的列(不用前面的聚合加的列: 和"关联错了列"的 bug 不像)

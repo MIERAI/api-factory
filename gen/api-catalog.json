@@ -1125,6 +1125,86 @@
     ]
   },
   {
+    "id": "logistics.list-carrier-warehouses",
+    "method": "ListCarrierWarehouses",
+    "summary": "配送業者を、契約している倉庫(倉庫名・地域名つき、地域名順)と一緒に返す",
+    "path": "/factory.logistics.v1.LogisticService/ListCarrierWarehouses",
+    "pattern": "list_keyset",
+    "cases": [
+      {
+        "name": "地域名順(九州 → 関東)、同じ倉庫は開始日順。地域名が空の契約(地域未設定・倉庫マスタに無い)は末尾に倉庫コード順",
+        "request": {},
+        "response": {
+          "carriers": [
+            {
+              "carrier_id": 1,
+              "contracts": [
+                {
+                  "region_name": "九州",
+                  "valid_from": "2024-01-01",
+                  "warehouse_code": "W2",
+                  "warehouse_name": "福岡倉庫"
+                },
+                {
+                  "region_name": "関東",
+                  "valid_from": "2025-04-01",
+                  "valid_to": "2026-03-31",
+                  "warehouse_code": "W1",
+                  "warehouse_name": "東京倉庫"
+                },
+                {
+                  "region_name": "関東",
+                  "valid_from": "2026-04-01",
+                  "valid_to": "$absent",
+                  "warehouse_code": "W1",
+                  "warehouse_name": "東京倉庫"
+                },
+                {
+                  "region_name": "$absent",
+                  "warehouse_code": "W3",
+                  "warehouse_name": "未設定倉庫"
+                },
+                {
+                  "region_name": "$absent",
+                  "warehouse_code": "W9",
+                  "warehouse_name": "$absent"
+                }
+              ]
+            },
+            {
+              "carrier_id": 2,
+              "contracts": [
+                {
+                  "region_name": "$absent",
+                  "warehouse_code": "W4",
+                  "warehouse_name": "旧地域倉庫"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "name": "取引先コードで絞り込む",
+        "request": {
+          "partner_code": "P2"
+        },
+        "response": {
+          "carriers": [
+            {
+              "carrier_id": 2,
+              "contracts": [
+                {
+                  "warehouse_code": "W4"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
     "id": "logistics.list-shipment-packages",
     "method": "ListShipmentPackages",
     "summary": "出荷日の出荷を、封緘済みの梱包(重い順)と梱包の集計つきで返す",

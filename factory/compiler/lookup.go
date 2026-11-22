@@ -49,101 +49,11 @@ func lookupView(s *spec.Spec, cat *catalog, keys map[string][][]string, lib *cel
 	}
 	var steps []core.Step
 	for _, l := range ls {
-		at := fmt.Sprintf("关联 %s", l.Name)
-		other, ok := cat.tables[l.Table]
-		if !ok {
-			return nil, nil, fmt.Errorf("%s: 表 %q 不在 db/schema 里", at, l.Table)
+		st, next, err := lookupStep(s, cat, keys, lib, l, fmt.Sprintf("关联 %s", l.Name), table, cols, shardCols)
+		if err != nil {
+			return nil, nil, err
 		}
-		st := core.Step{Kind: "lookup", Table: l.Table, From: at, Unique: keys[l.Table]}
-		if err := relatedSource(s, &st, cat, lib); err != nil { // 逻辑表: 来源的展开 + 唯一键 = 自然键
-			return nil, nil, fmt.Errorf("%s: %w", at, err)
-		}
-		switch l.Missing {
-		case "", "keep":
-			st.Missing = "keep"
-		case "drop":
-			st.Missing = "drop"
-		default:
-			return nil, nil, fmt.Errorf("%s: missing 只能是 keep / drop,实际是 %q", at, l.Missing)
-		}
-		for _, c := range other {
-			t, err := coreType(l.Table, c)
-			if err != nil {
-				return nil, nil, fmt.Errorf("%s: %w", at, err)
-			}
-			st.Columns = append(st.Columns, core.NamedType{Name: c.Name, Type: t})
-		}
-		has := func(cs []catColumn, n string) bool {
-			for _, c := range cs {
-				if c.Name == n {
-					return true
-				}
-			}
-			return false
-		}
-		shardOK := false
-		for _, on := range l.On {
-			a, b, ok := strings.Cut(on, "=")
-			a, b = strings.TrimSpace(a), strings.TrimSpace(b)
-			if !ok || a == "" || b == "" || strings.Contains(b, "=") {
-				return nil, nil, fmt.Errorf("%s: 条件 %q 写成 \"当前行的列 = %s 的列\"", at, on, l.Table)
-			}
-			if !has(cols, a) {
-				return nil, nil, fmt.Errorf("%s: 条件 %q: %s 不是 %s 的列(也不是前面的关联加的列)", at, on, a, table)
-			}
-			if !has(other, b) {
-				return nil, nil, fmt.Errorf("%s: 条件 %q: %s 不是 %s 的列", at, on, b, l.Table)
-			}
-			if sb := entity(l.Table).ShardBy; sb != "" && b == sb && shardCols[a] {
-				shardOK = true
-			}
-			st.On = append(st.On, core.JoinKey{Col: a, Key: b})
-		}
-		onKeys := map[string]bool{}
-		var keyList []string
-		for _, k := range st.On {
-			onKeys[k.Key] = true
-			keyList = append(keyList, k.Key)
-		}
-		unique := false
-		for _, u := range st.Unique {
-			all := true
-			for _, c := range u {
-				all = all && onKeys[c]
-			}
-			unique = unique || all
-		}
-		if !unique {
-			return nil, nil, fmt.Errorf("%s: 条件里 %s 的列 %v 不是主键或唯一约束(%s 的唯一键: %v)。"+
-				"关联是多对一: 对方最多一行匹配;一对多请用嵌套", at, l.Table, keyList, l.Table, st.Unique)
-		}
-		switch src, dst := entity(table).ShardBy, entity(l.Table).ShardBy; {
-		case src == "" && dst != "":
-			return nil, nil, fmt.Errorf("%s: %s 按 %s 分库,%s 不分库: 不分库的表不能关联分库的表(一个请求只访问一个库)", at, l.Table, dst, table)
-		case src != "" && dst == "":
-			return nil, nil, fmt.Errorf("%s: %s 按 %s 分库,%s 不分库: 分库的表只能关联同一个分库里的表", at, table, src, l.Table)
-		case src != "" && !shardOK:
-			return nil, nil, fmt.Errorf("%s: 分库的表之间的关联,条件里要有「%s = %s」(两边的分库键相等 → 对方的行在同一个库里)", at, src, dst)
-		}
-		for _, t := range l.Columns {
-			var oc *catColumn
-			for i := range other {
-				if other[i].Name == t.From {
-					oc = &other[i]
-				}
-			}
-			if oc == nil {
-				return nil, nil, fmt.Errorf("%s: 列 %s: %s 没有列 %s", at, t.Name, l.Table, t.From)
-			}
-			if has(cols, t.Name) {
-				return nil, nil, fmt.Errorf("%s: 加的列 %s 和 %s 的列(或前面的关联加的列)重名", at, t.Name, table)
-			}
-			cols = append(cols, catColumn{Name: t.Name, Type: oc.Type, NotNull: oc.NotNull && st.Missing == "drop"})
-			st.Take = append(st.Take, core.TakeCol{Name: t.Name, Col: t.From})
-			if sb := entity(l.Table).ShardBy; sb != "" && t.From == sb {
-				shardCols[t.Name] = true
-			}
-		}
+		cols = next
 		steps = append(steps, st)
 	}
 	cols, children, err := childSteps(s, cat, keys, cols, shardCols, lib)
@@ -152,6 +62,113 @@ func lookupView(s *spec.Spec, cat *catalog, keys map[string][][]string, lib *cel
 	}
 	view.tables[table] = cols
 	return view, append(steps, children...), nil
+}
+
+// lookupStep: 一个关联 → 核心的 lookup 和加了列之后的当前行的列。table = 当前行的表(报错 / 分库用:
+// 数据来源的表,或嵌套的子表);cols = 当前行的列(条件的左边);shardCols: 当前行里来自分库键的列(加的列也会登记)。
+func lookupStep(s *spec.Spec, cat *catalog, keys map[string][][]string, lib *cells.Library, l spec.Lookup, at, table string, cols []catColumn, shardCols map[string]bool) (core.Step, []catColumn, error) {
+	cols = append([]catColumn(nil), cols...)
+	entity := func(t string) spec.Entity {
+		if s.Domain == nil {
+			return spec.Entity{}
+		}
+		return s.Domain.Entities[t]
+	}
+	st := core.Step{Kind: "lookup", Table: l.Table, From: at, Unique: keys[l.Table]}
+	other, ok := cat.tables[l.Table]
+	if !ok {
+		return st, nil, fmt.Errorf("%s: 表 %q 不在 db/schema 里", at, l.Table)
+	}
+	if err := relatedSource(s, &st, cat, lib); err != nil { // 逻辑表: 来源的展开 + 唯一键 = 自然键
+		return st, nil, fmt.Errorf("%s: %w", at, err)
+	}
+	switch l.Missing {
+	case "", "keep":
+		st.Missing = "keep"
+	case "drop":
+		st.Missing = "drop"
+	default:
+		return st, nil, fmt.Errorf("%s: missing 只能是 keep / drop,实际是 %q", at, l.Missing)
+	}
+	for _, c := range other {
+		t, err := coreType(l.Table, c)
+		if err != nil {
+			return st, nil, fmt.Errorf("%s: %w", at, err)
+		}
+		st.Columns = append(st.Columns, core.NamedType{Name: c.Name, Type: t})
+	}
+	has := func(cs []catColumn, n string) bool {
+		for _, c := range cs {
+			if c.Name == n {
+				return true
+			}
+		}
+		return false
+	}
+	shardOK := false
+	for _, on := range l.On {
+		a, b, ok := strings.Cut(on, "=")
+		a, b = strings.TrimSpace(a), strings.TrimSpace(b)
+		if !ok || a == "" || b == "" || strings.Contains(b, "=") {
+			return st, nil, fmt.Errorf("%s: 条件 %q 写成 \"当前行的列 = %s 的列\"", at, on, l.Table)
+		}
+		if !has(cols, a) {
+			return st, nil, fmt.Errorf("%s: 条件 %q: %s 不是 %s 的列(也不是前面的关联加的列)", at, on, a, table)
+		}
+		if !has(other, b) {
+			return st, nil, fmt.Errorf("%s: 条件 %q: %s 不是 %s 的列", at, on, b, l.Table)
+		}
+		if sb := entity(l.Table).ShardBy; sb != "" && b == sb && shardCols[a] {
+			shardOK = true
+		}
+		st.On = append(st.On, core.JoinKey{Col: a, Key: b})
+	}
+	onKeys := map[string]bool{}
+	var keyList []string
+	for _, k := range st.On {
+		onKeys[k.Key] = true
+		keyList = append(keyList, k.Key)
+	}
+	unique := false
+	for _, u := range st.Unique {
+		all := true
+		for _, c := range u {
+			all = all && onKeys[c]
+		}
+		unique = unique || all
+	}
+	if !unique {
+		return st, nil, fmt.Errorf("%s: 条件里 %s 的列 %v 不是主键或唯一约束(%s 的唯一键: %v)。"+
+			"关联是多对一: 对方最多一行匹配;一对多请用嵌套", at, l.Table, keyList, l.Table, st.Unique)
+	}
+	switch src, dst := entity(table).ShardBy, entity(l.Table).ShardBy; {
+	case src == "" && dst != "":
+		return st, nil, fmt.Errorf("%s: %s 按 %s 分库,%s 不分库: 不分库的表不能关联分库的表(一个请求只访问一个库)", at, l.Table, dst, table)
+	case src != "" && dst == "":
+		return st, nil, fmt.Errorf("%s: %s 按 %s 分库,%s 不分库: 分库的表只能关联同一个分库里的表", at, table, src, l.Table)
+	case src != "" && !shardOK:
+		return st, nil, fmt.Errorf("%s: 分库的表之间的关联,条件里要有「%s = %s」(两边的分库键相等 → 对方的行在同一个库里)", at, src, dst)
+	}
+	for _, t := range l.Columns {
+		var oc *catColumn
+		for i := range other {
+			if other[i].Name == t.From {
+				oc = &other[i]
+			}
+		}
+		if oc == nil {
+			return st, nil, fmt.Errorf("%s: 列 %s: %s 没有列 %s", at, t.Name, l.Table, t.From)
+		}
+		if has(cols, t.Name) {
+			return st, nil, fmt.Errorf("%s: 加的列 %s 和 %s 的列(或前面的关联加的列)重名", at, t.Name, table)
+		}
+		cols = append(cols, catColumn{Name: t.Name, Type: oc.Type, NotNull: oc.NotNull && st.Missing == "drop"})
+		st.Take = append(st.Take, core.TakeCol{Name: t.Name, Col: t.From})
+		if sb := entity(l.Table).ShardBy; sb != "" && t.From == sb {
+			shardCols[t.Name] = true
+		}
+	}
+	return st, cols, nil
 }
 
 // LookupColumns: 设计编译器用: 加了关联列之后的来源的列(检查筛选 / 输出 / 固定条件用)。

@@ -38,7 +38,8 @@ func childSteps(s *spec.Spec, cat *catalog, keys map[string][][]string, cols []c
 		return false
 	}
 	// common: 子表、条件、子表上的固定条件、分库
-	common := func(at, child string, on, wh []string) (core.Step, []catColumn, error) {
+	// lookups: 嵌套里的关联(子行上的多对一查找): 子表的来源 = scan(子表) + lookup …,加的列之后和子表的列一样
+	common := func(at, child string, on, wh []string, lookups []spec.Lookup) (core.Step, []catColumn, error) {
 		st := core.Step{Table: child, From: at, Unique: keys[child]}
 		other, ok := cat.tables[child]
 		if !ok {
@@ -80,6 +81,43 @@ func childSteps(s *spec.Spec, cat *catalog, keys map[string][][]string, cols []c
 		case src != "" && !shardOK:
 			return st, nil, fmt.Errorf("%s: 分库的表和子表,条件里要有「%s = %s」(两边的分库键相等 → 子行在同一个库里)", at, src, dst)
 		}
+		if len(lookups) > 0 {
+			if len(st.Source) > 0 {
+				return st, nil, fmt.Errorf("%s: 子表 %s 是逻辑表(存储: …),嵌套里的关联还不支持逻辑表的子表", at, child)
+			}
+			scan, err := scanStep(child, cat)
+			if err != nil {
+				return st, nil, fmt.Errorf("%s: %w", at, err)
+			}
+			scan.From = at + " 的子表"
+			src := []core.Step{scan}
+			childShard := map[string]bool{}
+			if sb := entity(child).ShardBy; sb != "" {
+				childShard[sb] = true
+			}
+			ext := other
+			for _, l := range lookups {
+				lst, next, err := lookupStep(s, cat, keys, lib, l, fmt.Sprintf("%s 的关联 %s", at, l.Name), child, ext, childShard)
+				if err != nil {
+					return st, nil, err
+				}
+				if len(lst.Source) > 0 {
+					return st, nil, fmt.Errorf("%s 的关联 %s: 对方 %s 是逻辑表(存储: …),嵌套里的关联还不支持逻辑表", at, l.Name, l.Table)
+				}
+				ext = next
+				src = append(src, lst)
+			}
+			st.Source = src
+			st.Columns = nil
+			for _, c := range ext {
+				t, err := coreType(child, c)
+				if err != nil {
+					return st, nil, fmt.Errorf("%s: %w", at, err)
+				}
+				st.Columns = append(st.Columns, core.NamedType{Name: c.Name, Type: t})
+			}
+			other = ext
+		}
 		var preds []*core.Expr
 		for _, w := range wh {
 			e, err := where.ParseOpt(w, WhereTypes(other), whereOpt(s, child))
@@ -100,7 +138,7 @@ func childSteps(s *spec.Spec, cat *catalog, keys map[string][][]string, cols []c
 	var steps []core.Step
 	for _, n := range s.Datasource.Nests {
 		at := fmt.Sprintf("嵌套 %s", n.Name)
-		st, other, err := common(at, n.Table, n.On, n.Where)
+		st, other, err := common(at, n.Table, n.On, n.Where, n.Lookups)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -113,14 +151,14 @@ func childSteps(s *spec.Spec, cat *catalog, keys map[string][][]string, cols []c
 			if len(f) != 2 || (f[1] != "asc" && f[1] != "desc") {
 				return nil, nil, fmt.Errorf("%s: 排序 %q 写成 \"列 asc|desc\"", at, o)
 			}
-			if _, ok := cat.column(n.Table, f[0]); !ok {
-				return nil, nil, fmt.Errorf("%s: 排序的列 %s 不是 %s 的列", at, f[0], n.Table)
+			if !hasCat(other, f[0]) {
+				return nil, nil, fmt.Errorf("%s: 排序的列 %s 不是 %s 的列(也不是嵌套里的关联加的列)", at, f[0], n.Table)
 			}
 			st.Order = append(st.Order, core.SortKey{Col: f[0], Desc: f[1] == "desc"})
 		}
 		for _, t := range n.Columns {
-			if _, ok := cat.column(n.Table, t.From); !ok {
-				return nil, nil, fmt.Errorf("%s: 列 %s: %s 没有列 %s", at, t.Name, n.Table, t.From)
+			if !hasCat(other, t.From) {
+				return nil, nil, fmt.Errorf("%s: 列 %s: %s 没有列 %s(嵌套里的关联加的列也没有)", at, t.Name, n.Table, t.From)
 			}
 			st.Take = append(st.Take, core.TakeCol{Name: t.Name, Col: t.From})
 		}
@@ -136,7 +174,7 @@ func childSteps(s *spec.Spec, cat *catalog, keys map[string][][]string, cols []c
 	}
 	for _, a := range s.Datasource.ChildAggs {
 		at := fmt.Sprintf("子聚合 %s", a.Name)
-		st, other, err := common(at, a.Table, a.On, a.Where)
+		st, other, err := common(at, a.Table, a.On, a.Where, nil)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -173,6 +211,15 @@ func childSteps(s *spec.Spec, cat *catalog, keys map[string][][]string, cols []c
 		steps = append(steps, st)
 	}
 	return cols, steps, nil
+}
+
+func hasCat(cs []catColumn, n string) bool {
+	for _, c := range cs {
+		if c.Name == n {
+			return true
+		}
+	}
+	return false
 }
 
 // checkChildOrder: 嵌套的顺序是全序(和核心的 DRC 同一条规则,这里用设计稿的说法报错)。

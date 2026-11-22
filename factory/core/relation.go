@@ -53,7 +53,7 @@ func (p *Pipeline) checkChild(cur Schema, st Step, at string, add func(string, .
 	return child, true
 }
 
-// checkSource: lookup / nest / child_agg 的对方是逻辑表(Source)时: 子流水线本身合法、只用来源的元件、
+// checkSource: lookup / nest / child_agg 的对方是逻辑表(Source)或子表 + 关联(嵌套里的关联)时: 子流水线本身合法、只用来源的元件、
 // 不引用请求参数,输出的列和 Columns 一致(名字、类型;Columns 说不为空的列子流水线里也不为空)。
 func (p *Pipeline) checkSource(st Step, at string, add func(string, ...any)) {
 	if len(st.Source) == 0 {
@@ -62,8 +62,9 @@ func (p *Pipeline) checkSource(st Step, at string, add func(string, ...any)) {
 	for _, s := range st.Source {
 		switch s.Kind {
 		case "scan", "project", "filter", "pick_per_key":
+		case "lookup": // 子表的行上的多对一查找(嵌套里的关联): 每个子行最多匹配一行,行数不变(丢弃时变少)
 		default:
-			add("%s: 对方的来源里不能有 %s(只能是 scan / project / filter / pick_per_key)", at, s.Kind)
+			add("%s: 对方的来源里不能有 %s(只能是 scan / project / filter / pick_per_key / lookup)", at, s.Kind)
 			return
 		}
 		for _, x := range s.Project {

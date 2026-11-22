@@ -149,6 +149,41 @@ func certNest(env *certEnv, all func(steps ...Step) []Step) {
 	}
 	env.check("nest 上限 1", &Pipeline{Steps: all(head, Nest("ch", ch, unique, on, nil, line, 1, "items", takeAll), Sort(byK))}, nil)
 
+	// 4b. 嵌套里的关联: 子表的来源 = scan(ch) + lookup(o1 / 链式 ot);加的列用在条件 / 顺序 / 子行的列 / 聚合里。
+	// 关联列 n 是 int4 可空(o1.k 是 int8);找不到时 保留(加的列为空)/ 丢弃(子行不要)
+	o1 := env.otherCols("o1")
+	ot := env.otherCols("ot")
+	for _, m := range []string{"keep", "drop"} {
+		look := Lookup("o1", o1, [][]string{{"k"}}, []JoinKey{{"n", "k"}}, []TakeCol{{"o_name", "name"}, {"o_amt", "amt"}, {"o_ref", "ref"}}, m)
+		src := []Step{Scan("ch", ch...), look}
+		cols, err := Check(&Pipeline{Steps: src})
+		if err != nil {
+			t.Fatal(err)
+		}
+		withLookup := func(pred *Expr, order []SortKey, take []TakeCol) Step {
+			st := Nest("ch", cols, unique, on, pred, order, certNestMax, "items", take)
+			st.Source = src
+			return st
+		}
+		take := []TakeCol{{"line", "line"}, {"name", "o_name"}, {"amt", "o_amt"}, {"n", "n"}}
+		env.check("nest 里的关联("+m+")", &Pipeline{Steps: all(head, withLookup(nil, line, take), Sort(byK))}, nil)
+		env.check("nest 里的关联("+m+"): 按加的列排序", &Pipeline{Steps: all(head,
+			withLookup(nil, []SortKey{{Col: "o_name", Desc: true}, {Col: "line"}}, take), Sort(byK))}, nil)
+		env.check("nest 里的关联("+m+"): 条件用加的列", &Pipeline{Steps: all(head,
+			withLookup(Or(IsNull(Col("o_amt")), Cmp(">", Col("o_amt"), Const(rat("0"), Type{Kind: Decimal}))), line, take), Sort(byK))}, nil)
+		chain := []Step{Scan("ch", ch...), look,
+			Lookup("ot", ot, [][]string{{"u"}}, []JoinKey{{"o_ref", "u"}}, []TakeCol{{"u_name", "name"}}, "keep")}
+		ccols, err := Check(&Pipeline{Steps: chain})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cn := Nest("ch", ccols, unique, on, nil, line, certNestMax, "items", []TakeCol{{"line", "line"}, {"u", "u_name"}})
+		cn.Source = chain
+		ca := ChildAgg("ch", cols, on, nil, Count("cnt"), Sum("sum_amt", "o_amt"), Max("max_name", "o_name"))
+		ca.Source = src
+		env.check("nest 里的关联("+m+"): 链式 + 子聚合", &Pipeline{Steps: all(head, cn, ca, Sort(byK))}, nil)
+	}
+
 	// 5. child_agg: 空集合 / NULL 值 / 十进制精度 / 文本按字节;带条件;可空的关联列
 	env.check("child_agg 全部的聚合", &Pipeline{Steps: all(head, ChildAgg("ch", ch, on, nil, aggs...), Sort(byK))}, nil)
 	env.check("child_agg 带条件(ok)", &Pipeline{Steps: all(head, ChildAgg("ch", ch, on, Cmp("=", Col("ok"), Const(true, Type{Kind: Bool})), aggs...), Sort(byK))}, nil)
@@ -229,6 +264,8 @@ func (e *certEnv) otherCols(table string) []NamedType {
 	switch table {
 	case "o1":
 		return []NamedType{{"k", Type{Kind: Int64}}, {"name", Type{Kind: Text}}, {"ref", Type{Kind: Text, Nullable: true}}, {"amt", Type{Kind: Decimal, Nullable: true}}}
+	case "ot":
+		return []NamedType{{"id", Type{Kind: Int64}}, {"u", Type{Kind: Text, Nullable: true}}, {"name", Type{Kind: Text}}}
 	}
 	panic(table)
 }
