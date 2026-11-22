@@ -1,6 +1,6 @@
 # 工厂就绪度：以 storefront v2 为验收标准
 
-> 版本 v0.2（2026-11-22）· 状态：**已批准**
+> 版本 v0.3（2026-11-22）· 状态：**已批准** · 进度：**R1 完成（6 / 28）**
 > 决定（2026-11-22，用户）：**先利其器**。工厂能生成 storefront v2 所需 API 的 **95% 以上**之后，再开始开发 storefront v2。
 > storefront v2 的设计书：MIERAI/storefront `docs/design/v2-microservices.md`（PR #8）
 
@@ -34,15 +34,15 @@
 
 | # | 服务 | API | 形状 | 现状 |
 |---|---|---|---|---|
-| Q1 | catalog | 商品一览（按分类筛选、分页） | 单表 · 一览 | 🟡 |
-| Q2 | catalog | 商品详情（按 SKU） | 单表 · 按键取一条 | 🟡 |
-| Q3 | inventory | 某个 SKU 的库存 | 单表 · 按键取一条 | 🟡 |
-| Q4 | inventory | 多个 SKU 的库存（给 web 批量查） | 单表 · 多条 + 属于 | 🟡 |
+| Q1 | catalog | 商品一览（按分类筛选、分页） | 单表 · 一览 | ✅ R1 |
+| Q2 | catalog | 商品详情（按 SKU） | 单表 · 按键取一条 | ✅ R1 |
+| Q3 | inventory | 某个 SKU 的库存 | 单表 · 按键取一条 | ✅ R1 |
+| Q4 | inventory | 多个 SKU 的库存（给 web 批量查） | 单表 · 多条 + 属于 | ✅ R1 |
 | Q5 | order | 订单详情（订单 + 明细行） | **一对多 JOIN，嵌套输出** | ❌（Q-J） |
 | Q6 | order | 某顾客的订单历史（每单附带件数、金额合计） | **JOIN + 按订单聚合** | ❌（Q-J、Q-A） |
 | Q7 | order | 卡住的订单（等待状态且停留超过 N 分钟） | 单表 · 筛选 **"早于当前时间 − N"** | ❌（Q-T） |
-| Q8 | payment | 某订单的支付记录 | 单表 · 按自然键取一条 | 🟡 |
-| Q9 | notification | 某订单的通知记录 | 单表 · 多条 | 🟡 |
+| Q8 | payment | 某订单的支付记录 | 单表 · 按自然键取一条 | ✅ R1 |
+| Q9 | notification | 某订单的通知记录 | 单表 · 多条 | ✅ R1 |
 
 ### 2.2 写接口（HTTP，5 个）
 
@@ -77,6 +77,16 @@
 
 | | 个数 | 占比 |
 |---|---|---|
+| ✅ 能生成并通过验证 | 6 | 21%（R1 完成，2026-11-22） |
+| ❌ 需要新能力 | 22 | 79% |
+
+（v0.1 写的"只差 F0 的 7 个"实际是 6 个：Q7 需要相对时间筛选，属于 R2。）
+
+**R1 的产出**：`factory --project` / `factory init`；运行时公开为 `MIERAI/api-factory-runtime` v0.1.0；样例项目
+`examples/storefront-v2/{catalog,inventory,payment,notification}`（表结构 + 设计书 + 生成物；`make projects` 验收
+165 个用例：人写 13 / 自动 28 / 差分 124）；缺口记录 `examples/storefront-v2/GAPS.md`（G1：枚举不支持 SMALLINT）。
+
+---|---|---|
 | ✅ 现在就能生成 | 0 | 0% |
 | 🟡 只差 F0（第二个项目） | 7 | 25% |
 | ❌ 需要新能力 | 21 | 75% |
