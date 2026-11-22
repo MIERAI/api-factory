@@ -40,6 +40,8 @@ t0 = time.time()
 raw = subprocess.run(["bash", "scripts/mutate.sh"], env={**os.environ, "PLAN": "1"}, capture_output=True).stdout.decode()
 parts = raw.split("\0")[:-1]
 muts = [tuple(parts[i:i + 3]) for i in range(0, len(parts), 3)]
+if os.environ.get("MUTANTS"):  # 只跑名字匹配的变异(迭代时用;margin 的门槛要全部)
+    muts = [m for m in muts if re.search(os.environ["MUTANTS"], m[0])]
 
 # ---- 工厂本身(不变异)
 parlib.build_factory()

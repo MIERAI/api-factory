@@ -93,7 +93,7 @@ func Compile(specs []*spec.Spec) (*ir.Plan, error) {
 			return nil, fmt.Errorf("%s: %w", s.Path, err)
 		}
 		if api.Command != nil { // 命令: 没有 SQL 文件 / 流水线(写操作作为数据,运行时执行)
-			if err := commandIR(s, &api, cat); err != nil {
+			if err := commandIR(s, &api, cat, md); err != nil {
 				return nil, fmt.Errorf("%s: %w", s.Path, err)
 			}
 			apis[i] = api

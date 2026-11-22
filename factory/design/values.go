@@ -323,7 +323,11 @@ func (c *ctx) examples(a *API, s *spec.Spec, req, resp *message, itemKey string,
 	}
 	for _, n := range a.Cases {
 		r := map[string]any{}
-		if in := get(n, "输入"); in != nil {
+		in := get(n, "输入")
+		if m := get(n, "消息"); m != nil { // 消息处理器: 消息 = 收到的 data(和 输入 同一种写法)
+			in = m
+		}
+		if in != nil {
 			var err error
 			if r, err = c.request(req, in); err != nil {
 				return wrap(err)
@@ -332,7 +336,9 @@ func (c *ctx) examples(a *API, s *spec.Spec, req, resp *message, itemKey string,
 		var ex spec.Expect
 		var after *spec.After
 		var err error
-		if a.Exit.Command { // 命令: 结果 或 错误 + 之后(必填)
+		if a.Kind == "message" { // 消息处理器: 结果 = 成功 / 业务结果 / 死信 / 毒消息 + 发出 + 之后(message.go)
+			ex, after, err = c.handlerCase(a, n)
+		} else if a.Exit.Command { // 命令: 结果 或 错误 + 之后(必填)
 			ex, after, err = c.commandCase(a, resp, n)
 		} else {
 			if get(n, "错误") != nil || get(n, "之后") != nil {
@@ -344,6 +350,9 @@ func (c *ctx) examples(a *API, s *spec.Spec, req, resp *message, itemKey string,
 			return wrap(err)
 		}
 		cs := spec.Case{Name: str(n, "说明"), Request: r, Expect: ex, After: after}
+		if cs.Emitted, err = c.emittedCase(a, n); err != nil { // R4: 发出的消息(有 发出 的命令 / 消息处理器必须写)
+			return wrap(err)
+		}
 		// 现在: 用到 现在 的 API 的用例必须固定请求开始的时刻(用例的 现在 > 例子的 现在),否则结果随时间变
 		now := str(n, "现在")
 		if now == "" {

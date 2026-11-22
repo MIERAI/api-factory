@@ -26,6 +26,9 @@ const _ = connect.IsAtLeastVersion1_13_0
 const (
 	// PaymentServiceName is the fully-qualified name of the PaymentService service.
 	PaymentServiceName = "payment.payment.v1.PaymentService"
+	// PaymentMessageHandlerServiceName is the fully-qualified name of the PaymentMessageHandlerService
+	// service.
+	PaymentMessageHandlerServiceName = "payment.payment.v1.PaymentMessageHandlerService"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -42,6 +45,9 @@ const (
 	// PaymentServiceRecordChargeProcedure is the fully-qualified name of the PaymentService's
 	// RecordCharge RPC.
 	PaymentServiceRecordChargeProcedure = "/payment.payment.v1.PaymentService/RecordCharge"
+	// PaymentMessageHandlerServiceChargePaymentProcedure is the fully-qualified name of the
+	// PaymentMessageHandlerService's ChargePayment RPC.
+	PaymentMessageHandlerServiceChargePaymentProcedure = "/payment.payment.v1.PaymentMessageHandlerService/ChargePayment"
 )
 
 // PaymentServiceClient is a client for the payment.payment.v1.PaymentService service.
@@ -142,4 +148,79 @@ func (UnimplementedPaymentServiceHandler) GetPaymentByOrder(context.Context, *co
 
 func (UnimplementedPaymentServiceHandler) RecordCharge(context.Context, *connect.Request[v1.RecordChargeRequest]) (*connect.Response[v1.RecordChargeResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("payment.payment.v1.PaymentService.RecordCharge is not implemented"))
+}
+
+// PaymentMessageHandlerServiceClient is a client for the
+// payment.payment.v1.PaymentMessageHandlerService service.
+type PaymentMessageHandlerServiceClient interface {
+	// 给一个订单扣款(模拟的支付网关,超过 10 万就拒绝),回答 payment.succeeded 或 payment.failed。同一个订单再来时按第一次的结果回答(收到 payment.charge v1;入口 = RabbitMQ 的队列,不是 HTTP)
+	ChargePayment(context.Context, *connect.Request[v1.ChargePaymentRequest]) (*connect.Response[v1.ChargePaymentResponse], error)
+}
+
+// NewPaymentMessageHandlerServiceClient constructs a client for the
+// payment.payment.v1.PaymentMessageHandlerService service. By default, it uses the Connect protocol
+// with the binary Protobuf Codec, asks for gzipped responses, and sends uncompressed requests. To
+// use the gRPC or gRPC-Web protocols, supply the connect.WithGRPC() or connect.WithGRPCWeb()
+// options.
+//
+// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
+// http://api.acme.com or https://acme.com/grpc).
+func NewPaymentMessageHandlerServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) PaymentMessageHandlerServiceClient {
+	baseURL = strings.TrimRight(baseURL, "/")
+	paymentMessageHandlerServiceMethods := v1.File_payment_payment_v1_payment_proto.Services().ByName("PaymentMessageHandlerService").Methods()
+	return &paymentMessageHandlerServiceClient{
+		chargePayment: connect.NewClient[v1.ChargePaymentRequest, v1.ChargePaymentResponse](
+			httpClient,
+			baseURL+PaymentMessageHandlerServiceChargePaymentProcedure,
+			connect.WithSchema(paymentMessageHandlerServiceMethods.ByName("ChargePayment")),
+			connect.WithClientOptions(opts...),
+		),
+	}
+}
+
+// paymentMessageHandlerServiceClient implements PaymentMessageHandlerServiceClient.
+type paymentMessageHandlerServiceClient struct {
+	chargePayment *connect.Client[v1.ChargePaymentRequest, v1.ChargePaymentResponse]
+}
+
+// ChargePayment calls payment.payment.v1.PaymentMessageHandlerService.ChargePayment.
+func (c *paymentMessageHandlerServiceClient) ChargePayment(ctx context.Context, req *connect.Request[v1.ChargePaymentRequest]) (*connect.Response[v1.ChargePaymentResponse], error) {
+	return c.chargePayment.CallUnary(ctx, req)
+}
+
+// PaymentMessageHandlerServiceHandler is an implementation of the
+// payment.payment.v1.PaymentMessageHandlerService service.
+type PaymentMessageHandlerServiceHandler interface {
+	// 给一个订单扣款(模拟的支付网关,超过 10 万就拒绝),回答 payment.succeeded 或 payment.failed。同一个订单再来时按第一次的结果回答(收到 payment.charge v1;入口 = RabbitMQ 的队列,不是 HTTP)
+	ChargePayment(context.Context, *connect.Request[v1.ChargePaymentRequest]) (*connect.Response[v1.ChargePaymentResponse], error)
+}
+
+// NewPaymentMessageHandlerServiceHandler builds an HTTP handler from the service implementation. It
+// returns the path on which to mount the handler and the handler itself.
+//
+// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
+// and JSON codecs. They also support gzip compression.
+func NewPaymentMessageHandlerServiceHandler(svc PaymentMessageHandlerServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	paymentMessageHandlerServiceMethods := v1.File_payment_payment_v1_payment_proto.Services().ByName("PaymentMessageHandlerService").Methods()
+	paymentMessageHandlerServiceChargePaymentHandler := connect.NewUnaryHandler(
+		PaymentMessageHandlerServiceChargePaymentProcedure,
+		svc.ChargePayment,
+		connect.WithSchema(paymentMessageHandlerServiceMethods.ByName("ChargePayment")),
+		connect.WithHandlerOptions(opts...),
+	)
+	return "/payment.payment.v1.PaymentMessageHandlerService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case PaymentMessageHandlerServiceChargePaymentProcedure:
+			paymentMessageHandlerServiceChargePaymentHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+
+// UnimplementedPaymentMessageHandlerServiceHandler returns CodeUnimplemented from all methods.
+type UnimplementedPaymentMessageHandlerServiceHandler struct{}
+
+func (UnimplementedPaymentMessageHandlerServiceHandler) ChargePayment(context.Context, *connect.Request[v1.ChargePaymentRequest]) (*connect.Response[v1.ChargePaymentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("payment.payment.v1.PaymentMessageHandlerService.ChargePayment is not implemented"))
 }

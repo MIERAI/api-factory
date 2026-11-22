@@ -3,9 +3,15 @@
 package main
 
 import (
+	"context"
+
 	"connectrpc.com/connect"
 
+	"github.com/MIERAI/api-factory-runtime/consume"
+	"github.com/MIERAI/api-factory-runtime/message"
+	"github.com/MIERAI/api-factory-runtime/outbox"
 	"github.com/MIERAI/api-factory-runtime/server"
+	"github.com/MIERAI/api-factory-runtime/topology"
 	"github.com/MIERAI/api-factory-runtime/txn"
 	"github.com/MIERAI/storefront/services/payment/gen/db"
 	"github.com/MIERAI/storefront/services/payment/gen/payment/payment/v1/paymentv1connect"
@@ -15,10 +21,40 @@ import (
 func services(deps server.Deps, opts ...connect.HandlerOption) []server.Service {
 	q := db.New(deps.Pool)
 	var out []server.Service
-	tx := txn.New(deps.Pool) // 命令(写入)的事务执行器
+	tx := txn.New(deps.Pool)          // 命令(写入)的事务执行器
+	ob := outbox.NewWriter("payment") // 发出的消息(envelope.source = 服务名)
+	var consumers []*consume.Consumer // 消息处理器的消费循环
 	{
-		path, h := paymentv1connect.NewPaymentServiceHandler(paymenthandler.New(q, deps.Pager, deps.Shards, tx), opts...)
-		out = append(out, server.Service{Path: path, Handler: h})
+		h := paymenthandler.New(q, deps.Pager, deps.Shards, tx, ob)
+		path, hh := paymentv1connect.NewPaymentServiceHandler(h, opts...)
+		out = append(out, server.Service{Path: path, Handler: hh})
+		consumers = append(consumers, &consume.Consumer{Queue: "payment.payment.charge", Handler: h.ChargePayment, Exec: tx, Broker: deps.AMQP,
+			Accept: []consume.Accept{{Type: "payment.charge", Versions: []int{1}}}})
 	}
-	return out
+	return append(out, messaging(deps, consumers)...)
+}
+
+// messaging: 消息(R4)。进程内投递的测试入口(只在 FACTORY_TEST_FAULTS=1 时响应)+ 有 AMQP_URL 时:
+// 拓扑(交换机 / 队列 / 重试 / DLQ,参数不一致 = 启动失败)、outbox 的中继(每个数据库一个在工作)、每个处理器的消费循环。
+func messaging(deps server.Deps, consumers []*consume.Consumer) []server.Service {
+	test := server.Service{Path: consume.TestPath, Handler: consume.TestHandler(consumers...)}
+	if deps.AMQP == nil { // 没有 AMQP_URL: outbox 只写不发(本地开发 / 进程内的验收)
+		return []server.Service{test}
+	}
+	spec := topology.Spec{Retry: topology.DefaultRetry, Queues: []topology.Queue{
+		{Name: "payment.payment.charge", Subscriptions: []topology.Subscription{{Kind: message.Command, Type: "payment.charge"}}},
+	}}
+	deps.Workers.Go("topology", func(ctx context.Context) error {
+		if err := topology.Ensure(ctx, deps.AMQP, spec); err != nil {
+			return err
+		}
+		<-ctx.Done()
+		return nil
+	})
+	relay := &outbox.Relay{DB: deps.Pool, Broker: deps.AMQP}
+	deps.Workers.Go("outbox relay", relay.Run)
+	for _, c := range consumers {
+		deps.Workers.Go("consume "+c.Queue, c.Run)
+	}
+	return []server.Service{test}
 }

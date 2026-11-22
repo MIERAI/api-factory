@@ -6,6 +6,9 @@ package compiler
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
+
+	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"apifactory/factory/command"
 	"apifactory/factory/ir"
@@ -14,9 +17,12 @@ import (
 )
 
 // commandIR: spec 的 command → IR(列的类型来自 schema;响应的字段 = 写之后的行的列)。
-func commandIR(s *spec.Spec, api *ir.API, cat *catalog) error {
-	if api.Command.Op == "command" { // 组合命令(R3-2)
-		return compositeIR(s, api, cat)
+func commandIR(s *spec.Spec, api *ir.API, cat *catalog, md protoreflect.MethodDescriptor) error {
+	if api.Command.Op == "command" || api.Command.Op == "message" { // 组合命令(R3-2)/ 消息处理器(R4)
+		if err := compositeIR(s, api, cat); err != nil {
+			return err
+		}
+		return messagingIR(s, api, cat, md)
 	}
 	cmd, c := api.Command, s.Pattern.Command
 	table := s.Datasource.Table
@@ -127,8 +133,11 @@ func compositeIR(s *spec.Spec, api *ir.API, cat *catalog) error {
 				}
 				return x.Type, nil
 			},
-			Input:  input,
-			EnumOf: enumOf,
+			Input:   input,
+			EnumOf:  enumOf,
+			Item:    itemScope(api, c.Each),
+			RefEnum: refEnumScope(s, tables),
+			Env:     api.Command.Op == "message",
 		}
 		val := func(x spec.ColExpr, rowCols bool) (ir.CommandVal, error) {
 			col, ok := cat.column(table, x.Column)
@@ -152,7 +161,10 @@ func compositeIR(s *spec.Spec, api *ir.API, cat *catalog) error {
 			}
 			return ir.CommandVal{Column: x.Column, Type: col.Type, NotNull: col.NotNull, Expr: tree}, nil
 		}
-		o := ir.CommandOp{Name: op.Name, Kind: op.Kind, Table: table, Conflict: op.Conflict, Unmet: op.Unmet, NotFound: op.NotFound}
+		o := ir.CommandOp{Name: op.Name, Kind: op.Kind, Table: table, Conflict: op.Conflict, Unmet: op.Unmet, NotFound: op.NotFound, Skip: op.Skip}
+		if op.Only != "" {
+			o.Only, o.OnlyFlag, _ = strings.Cut(op.Only, ".")
+		}
 		for _, k := range op.Key {
 			v, err := val(k, false)
 			if err != nil {
@@ -210,6 +222,14 @@ func compositeIR(s *spec.Spec, api *ir.API, cat *catalog) error {
 			for _, r := range command.Refs(x) {
 				mark(r[0], r[1])
 			}
+		}
+	}
+	for _, x := range append(messagingExprs(c, api), nil) { // 结果的 当 / 发出 引用的列(messagingIR 再解析一遍,这里只要列名)
+		if x == nil {
+			continue
+		}
+		for _, r := range command.Refs(x) {
+			mark(r[0], r[1])
 		}
 	}
 	if len(c.Output) != len(api.Response.Fields) {

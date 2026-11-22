@@ -28,6 +28,40 @@ service PaymentService {
   rpc RecordCharge(RecordChargeRequest) returns (RecordChargeResponse);
 }
 
+// 订单的支付(一个订单最多一笔) 的消息处理器(R4)。不是 HTTP 的服务(不挂载): 入口是 RabbitMQ 的队列,请求 = 收到的消息的 data
+service PaymentMessageHandlerService {
+  // 给一个订单扣款(模拟的支付网关,超过 10 万就拒绝),回答 payment.succeeded 或 payment.failed。同一个订单再来时按第一次的结果回答(收到 payment.charge v1;入口 = RabbitMQ 的队列,不是 HTTP)
+  rpc ChargePayment(ChargePaymentRequest) returns (ChargePaymentResponse);
+}
+
+// 消息 payment.succeeded v1 的 data(扣款成功)
+message PaymentSucceededV1 {
+  // 订单号
+  int64 order_id = 1;
+  // 金额
+  string amount = 2 [(buf.validate.field).string.pattern = "^\\d+(\\.\\d+)?$"];
+}
+
+// 消息 payment.failed v1 的 data(扣款失败)
+message PaymentFailedV1 {
+  // 订单号
+  int64 order_id = 1;
+  // 失败的原因
+  optional string reason = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 200];
+}
+
+// 给一个订单扣款(模拟的支付网关,超过 10 万就拒绝),回答 payment.succeeded 或 payment.failed。同一个订单再来时按第一次的结果回答
+message ChargePaymentRequest {
+  // 订单号
+  int64 order_id = 1 [(buf.validate.field).int64.gt = 0];
+  // 金额
+  string amount = 2 [(buf.validate.field).string.pattern = "^\\d+(\\.\\d+)?$"];
+}
+
+// 给一个订单扣款(模拟的支付网关,超过 10 万就拒绝),回答 payment.succeeded 或 payment.failed。同一个订单再来时按第一次的结果回答
+message ChargePaymentResponse {
+}
+
 // 返回某个订单的支付结果
 message GetPaymentByOrderRequest {
   // 订单号

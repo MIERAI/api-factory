@@ -11,6 +11,8 @@ package command
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -46,7 +48,17 @@ type Table struct {
 	Uniques [][]string // 主键 + 唯一约束 / 唯一索引(没有条件的)
 	FKs     []FK       // 本表引用别的表
 	RefBy   []FK       // 别的表引用本表(Name = 引用方的表 + 列,RefTable = 引用方的表)
+	// Bounds: CHECK 约束里 "列 比较 整数" 的形状(held >= 0 …)。别的 CHECK 模型不重现(输入的约束覆盖,G4)
+	Bounds []Bound
 }
+
+// Bound: CHECK (列 Op N)。
+type Bound struct {
+	Name, Col, Op string
+	N             int64
+}
+
+var reBound = regexp.MustCompile(`^CHECK \(\(([a-z_][a-z0-9_]*) (>=|>|<=|<) \(?(-?[0-9]+)\)?\)\)$`)
 
 func (t *Table) Col(name string) *Column {
 	for i := range t.Cols {
@@ -139,6 +151,25 @@ func LoadTable(ctx context.Context, conn *pgx.Conn, name string) (*Table, error)
 		}
 		if to == name {
 			t.RefBy = append(t.RefBy, FK{Name: fk.Name, Cols: refCols, RefTable: from, RefCols: fk.Cols})
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows, err = conn.Query(ctx, `SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint WHERE contype = 'c' AND conrelid = $1::regclass ORDER BY conname`, pgx.Identifier{name}.Sanitize())
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var cn, def string
+		if err := rows.Scan(&cn, &def); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if m := reBound.FindStringSubmatch(def); m != nil {
+			n, _ := strconv.ParseInt(m[3], 10, 64)
+			t.Bounds = append(t.Bounds, Bound{Name: cn, Col: m[1], Op: m[2], N: n})
 		}
 	}
 	rows.Close()

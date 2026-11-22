@@ -70,7 +70,7 @@ func (o Outcome) Code() string {
 		return exits.ConflictCode
 	case Unique:
 		return "ALREADY_EXISTS"
-	case NotNull, Invalid:
+	case NotNull, Invalid, Check:
 		return "INVALID_ARGUMENT"
 	case ForeignKey:
 		return "FAILED_PRECONDITION"
@@ -175,6 +175,15 @@ func (s *State) violates(ts *TableState, row Row, self int) (Result, bool) {
 	for _, c := range ts.T.Cols {
 		if c.NotNull && row[c.Name] == nil {
 			return Result{Outcome: NotNull, Detail: c.Name}, true
+		}
+	}
+	for _, b := range ts.T.Bounds { // CHECK (列 比较 整数): 空 = 通过(SQL 的 CHECK)
+		v, err := strconv.ParseInt(fmt.Sprint(row[b.Col]), 10, 64)
+		if row[b.Col] == nil || isGen(row[b.Col]) || err != nil {
+			continue
+		}
+		if ok := map[string]bool{">=": v >= b.N, ">": v > b.N, "<=": v <= b.N, "<": v < b.N}[b.Op]; !ok {
+			return Result{Outcome: Check, Detail: b.Name}, true
 		}
 	}
 	for _, u := range ts.T.Uniques {

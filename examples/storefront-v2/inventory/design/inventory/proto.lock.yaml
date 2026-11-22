@@ -15,20 +15,51 @@
         ADJUSTMENT_REASON_DAMAGED: 3
         ADJUSTMENT_REASON_RECEIVED: 1
         ADJUSTMENT_REASON_STOCKTAKE: 2
+    CommitStockItem:
+        qty: 2
+        sku: 1
+    CommitStockRequest:
+        items: 2
+        order_id: 1
     GetStockRequest:
         sku: 1
     GetStockResponse:
         available: 1
         found: 3
         reserved: 2
+    InventoryCommittedV1:
+        order_id: 1
+    InventoryReleasedV1:
+        order_id: 1
+    InventoryReservationFailedV1:
+        order_id: 1
+        reason: 2
+    InventoryReservedV1:
+        items: 2
+        order_id: 1
+    InventoryReservedV1Item:
+        qty: 2
+        sku: 1
     ListStockBySkusRequest:
         skus: 1
     ListStockBySkusResponse:
         stock: 1
+    ReleaseStockItem:
+        qty: 2
+        sku: 1
+    ReleaseStockRequest:
+        items: 2
+        order_id: 1
     ReservationStatus:
         RESERVATION_STATUS_COMMITTED: 2
         RESERVATION_STATUS_HELD: 1
         RESERVATION_STATUS_RELEASED: 3
+    ReserveStockItem:
+        qty: 2
+        sku: 1
+    ReserveStockRequest:
+        items: 2
+        order_id: 1
     Stock:
         available: 2
         reserved: 3

@@ -1,0 +1,82 @@
+# ============================================================================
+# 审查记录: 这个文件由工厂写入,不用自己写(factory answer)。
+# ============================================================================
+问答:
+
+  - 问题: "一条扣款命令里,只有一部分账户有 REVERSED 的墓碑时,其他账户还扣不扣?例: transfer 9 的命令是 [ACC-001 30(有墓碑), ACC-002 20(没有墓碑)]"
+    选项: ["全部不扣(回滚)", "有墓碑的不扣,其他照扣", "当作毒消息"]
+    回答: "全部不扣(回滚)"
+    补充规则: { 情况: "任一账户有 REVERSED 的墓碑", 结果: "一个账户都不扣、不记(其他账户已经做的扣款也回滚);发出 account.debit_failed(REVERSED)" }
+    来自: "DebitAccounts 的审查 2026-11-22 20261122-214805-claude-ledger.debit-accounts"
+
+  - 问题: "同一个转账号、同一个账户再来一条命令,但金额不一样时(例: 已经记过 transfer 7 / ACC-001 扣 50,新命令写 transfer 7 / ACC-001 扣 80),怎么处理?"
+    选项: ["保持现在的行为", "当作毒消息", "回答扣款失败"]
+    回答: "已经直接修改了设计书"
+    改了设计: "同一笔转账、同一个账户、金额不同 → 结果 AMOUNT_MISMATCH(当: 任一项 记账.amount <> 项.amount,处理: 死信)+ 例子"
+    来自: "DebitAccounts 的审查 2026-11-22 20261122-214805-claude-ledger.debit-accounts"
+
+  - 问题: "同一条命令里既有余额不够的账户、又有不存在的账户时,结果取决于 lines 的顺序,这样可以吗?例: [NONE-1 1, ACC-002 101] 是毒消息,[ACC-002 101, NONE-1 1] 是 account.debit_failed(INSUFFICIENT_FUNDS)"
+    选项: ["保持现在的行为", "不存在的账户优先"]
+    回答: "保持现在的行为"
+    补充规则: { 情况: "命令里同时有余额不够的账户和不存在的账户", 结果: "按账户 id 的顺序(处理时元素按账户 id 排序),先遇到哪个就按哪个处理(毒消息 或 account.debit_failed(INSUFFICIENT_FUNDS));什么都不写" }
+    来自: "DebitAccounts 的审查 2026-11-22 20261122-214805-claude-ledger.debit-accounts"
+
+  - 问题: "余额不够和账户不存在同时出现时,按哪个顺序决定结果?业务规则里原来写的是「按账户 id 的顺序」,上一轮回答加的规则写的是「按 lines 的顺序」。例: [NONE-1 扣 1, ACC-002 扣 101],按 lines 的顺序是毒消息,按账户 id 的顺序(ACC-002 在 NONE-1 前面)是 account.debit_failed(INSUFFICIENT_FUNDS)"
+    选项: ["统一成按 lines 的顺序(保持现在的行为)", "改成按账户 id 的顺序(改设计)"]
+    回答: "已经直接修改了设计书"
+    改了设计: "统一成现在的行为: 按账户 id 的顺序(处理时元素按账户 id 排序,lines 的顺序不影响);上一轮补充规则里的 lines 顺序是描述错误,已改"
+    来自: "DebitAccounts 的审查 2026-11-22 20261122-215825-claude-ledger.debit-accounts"
+
+  - 问题: "一条命令里有墓碑的账户,同时另一个账户余额不够(或不存在)时,回答什么?例: transfer 9 的命令是 [ACC-001 扣 30(有墓碑), ACC-002 扣 101(余额只有 100)]"
+    选项: ["余额不够 / 不存在优先(保持现在的行为)", "墓碑优先(改设计)"]
+    回答: "余额不够 / 不存在优先(保持现在的行为)"
+    补充规则: { 情况: "命令里有墓碑的账户,同时有余额不够或不存在的账户", 结果: "按余额不够(account.debit_failed(INSUFFICIENT_FUNDS))或不存在(毒消息)处理;只有其他账户都能扣时,墓碑才回答 account.debit_failed(REVERSED);两种都什么都不写" }
+    来自: "DebitAccounts 的审查 2026-11-22 20261122-215825-claude-ledger.debit-accounts"
+
+  - 问题: "金额和记过的不同的账户,和余额不够(或不存在)的账户在同一条命令里时,是进 DLQ(AMOUNT_MISMATCH)还是回答扣款失败?例: transfer 6 的命令是 [ACC-001 扣 41(记过的是 40), ACC-002 扣 101(余额只有 100)]"
+    选项: ["余额不够 / 不存在优先(保持现在的行为)", "金额不一致优先(改设计)"]
+    回答: "已经直接修改了设计书"
+    改了设计: "最接近的可表达的行为: 同一个账户上金额不一致优先;不同的账户按账户 id 的顺序先遇到余额不够 / 不存在就立刻回滚,否则全部做完后金额不一致 → 死信。跨账户的金额不一致优先现在做不到(GAPS G17)"
+    来自: "DebitAccounts 的审查 2026-11-22 20261122-215825-claude-ledger.debit-accounts"
+
+  - 问题: "墓碑上的金额和扣款命令的金额不同时,是进 DLQ(AMOUNT_MISMATCH)还是回答 account.debit_failed(REVERSED)?例: transfer 9 / ACC-001 的墓碑金额是 30,迟到的扣款命令写 transfer 9 / ACC-001 扣 35"
+    选项: ["进 DLQ(保持现在的行为)", "墓碑不比较金额,回答 REVERSED(改设计)"]
+    回答: "进 DLQ(保持现在的行为)"
+    补充规则: { 情况: "有墓碑的账户,墓碑上的金额和命令的金额不同", 结果: "数据不一致,不提交,进 DLQ(AMOUNT_MISMATCH),不回答 account.debit_failed(REVERSED)" }
+    来自: "DebitAccounts 的审查 2026-11-22 20261122-215825-claude-ledger.debit-accounts"
+
+  - 问题: "同一笔转账再来一条命令,但账户和记过的不一样(多了一个账户)时,新的账户照扣吗?例: 已经记过 transfer 6 / ACC-001 扣 40,新命令写 transfer 6 [ACC-001 扣 40, ACC-002 扣 10]"
+    选项: ["新的账户照扣(保持现在的行为)", "当作数据不一致进 DLQ(改设计)"]
+    回答: "新的账户照扣(保持现在的行为)"
+    补充规则: { 情况: "同一笔转账再来,命令里有还没记过的账户", 结果: "已经记过的账户不再扣,没记过的账户照常检查余额并扣款;都成功时发出 account.debited(lines = 这条命令的 lines)" }
+    来自: "DebitAccounts 的审查 2026-11-22 20261122-215825-claude-ledger.debit-accounts"
+
+  - 问题: "同一笔转账再来、多出来的新账户余额不够时,会发出 account.debit_failed(INSUFFICIENT_FUNDS),但之前已经记过的账户仍然是扣下的状态。这和 account.debit_failed 的说明「一个账户都没扣」矛盾,该怎么定?例: 已经记过 transfer 6 / ACC-001 扣 40(HELD),新命令写 transfer 6 [ACC-001 扣 40, ACC-002 扣 101(余额只有 100)]"
+    选项: ["保持现在的行为,改 account.debit_failed 的说明", "当作数据不一致进 DLQ(改成 AI 实现)"]
+    回答: "保持现在的行为,改 account.debit_failed 的说明"
+    补充规则: { 情况: "同一笔转账再来,新的账户余额不够(INSUFFICIENT_FUNDS)", 结果: "这条命令写的东西全部回滚,发出 account.debit_failed(INSUFFICIENT_FUNDS);之前的命令已经记过的账户不受影响,仍然是 HELD。转账的流程收到 debit_failed 后,需要对这笔转账发撤销(account.reverse),把之前扣下的退回" }
+    来自: "DebitAccounts 的审查 2026-11-22 20261122-220455-claude-ledger.debit-accounts"
+
+  - 问题: "同一条命令里,一个账户有墓碑(金额一致),另一个账户记过但金额不同时,回答 account.debit_failed(REVERSED) 还是进 DLQ(AMOUNT_MISMATCH)?例: transfer 9 在 ACC-001 有墓碑 30,在 ACC-002 已记 HELD 20,新命令写 transfer 9 [ACC-001 扣 30, ACC-002 扣 25]"
+    选项: ["金额不一致优先,进 DLQ(保持现在的行为)", "墓碑优先,回答 REVERSED(改设计)"]
+    回答: "金额不一致优先,进 DLQ(保持现在的行为)"
+    补充规则: { 情况: "同一条命令里,一个账户有墓碑,另一个账户记过的金额和命令不同", 结果: "死信 AMOUNT_MISMATCH(进 DLQ),不回答 account.debit_failed(REVERSED)。AMOUNT_MISMATCH 的检查排在 REVERSED 之前" }
+    来自: "DebitAccounts 的审查 2026-11-22 20261122-223347-claude-ledger.debit-accounts"
+
+  - 问题: "一笔转账里只有部分账户有 REVERSED 的墓碑时,没有墓碑的账户还扣不扣?例: 转账 9 的消息是 [ACC-002 扣 50, ACC-001 扣 30],只有 ACC-001 有墓碑。"
+    选项: ["保持现在的行为", "有墓碑就整笔不扣", "当作毒消息"]
+    回答: "这条命令里有墓碑的账户 → 整条命令不扣(现在的行为)"
+    补充规则: { 情况: "这条命令里列出的某个账户有 REVERSED 的墓碑", 结果: "整条命令回滚: 一个账户都不扣、不记,回答 account.debit_failed(REVERSED)。只看命令里列出的账户。同一条命令里还有余额不够 / 不存在的账户时,余额不够 / 不存在优先(不回答 REVERSED)" }
+    来自: "DebitAccounts 的审查 2026-11-22 20261122-223347-claude-ledger.debit-accounts"
+
+  - 问题: "同一个转账号、同一个账户已经记过扣款,但新命令里的金额不一样时,怎么办?例: 转账 7 在 ACC-001 已记 HELD 50,又来一条转账 7、ACC-001 扣 80 的命令。"
+    选项: ["保持现在的行为", "当作毒消息", "回答实际记录的金额"]
+    回答: "死信 AMOUNT_MISMATCH(现在的行为)"
+    补充规则: { 情况: "同一转账号、同一账户已有扣款记录,新命令的金额和记录的金额不同", 结果: "死信 AMOUNT_MISMATCH(进 DLQ,人来处理),什么都不写" }
+    来自: "DebitAccounts 的审查 2026-11-22 20261122-223347-claude-ledger.debit-accounts"
+
+  - 问题: "一条命令里同时有余额不够的账户和不存在的账户时,应该回答 INSUFFICIENT_FUNDS,还是当作毒消息?例: [ACC-002 扣 101, NONE-1 扣 1] 和 [NONE-1 扣 1, ACC-002 扣 101]。"
+    选项: ["保持现在的行为", "账户不存在优先"]
+    回答: "按账户 id 的顺序决定(现在的行为)"
+    补充规则: { 情况: "命令里同时有余额不够的账户和不存在的账户", 结果: "按账户 id 的顺序(处理器按账户 id 排序加锁,防死锁),第一个出问题的账户决定结果: 余额不够的账户 id 在前 → account.debit_failed(INSUFFICIENT_FUNDS);不存在的账户 id 在前 → 毒消息" }
+    来自: "DebitAccounts 的审查 2026-11-22 20261122-223347-claude-ledger.debit-accounts"

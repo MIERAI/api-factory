@@ -29,6 +29,7 @@ import (
 type Config struct {
 	PackagePrefix string // factory
 	Version       string // v1
+	Contracts     string // 消息契约的共享目录(R4)
 }
 
 func LoadConfig() (Config, error) {
@@ -41,6 +42,7 @@ func LoadConfig() (Config, error) {
 			PackagePrefix string `yaml:"package_prefix"`
 			Version       string `yaml:"version"`
 		} `yaml:"proto"`
+		Contracts string `yaml:"contracts"`
 	}
 	if err := yaml.Unmarshal(b, &f); err != nil {
 		return Config{}, err
@@ -48,7 +50,10 @@ func LoadConfig() (Config, error) {
 	if f.Proto.PackagePrefix == "" || f.Proto.Version == "" {
 		return Config{}, fmt.Errorf("factory.yaml: proto.package_prefix / proto.version are required")
 	}
-	return Config{PackagePrefix: f.Proto.PackagePrefix, Version: f.Proto.Version}, nil
+	if f.Contracts == "" { // 消息契约的共享目录(R4;相对项目的目录)
+		f.Contracts = "contracts"
+	}
+	return Config{PackagePrefix: f.Proto.PackagePrefix, Version: f.Proto.Version, Contracts: f.Contracts}, nil
 }
 
 // 编译一个领域需要的上下文
@@ -63,6 +68,9 @@ type ctx struct {
 	service string // JobService
 	msgs    []*message
 	msgByNm map[string]*message
+	// R4: 消息契约、消息处理器的 RPC(MessageHandlerService: 只是类型的说明,不挂载)
+	contracts   *contractSet
+	handlerRPCs []string
 }
 
 type message struct {
@@ -136,8 +144,12 @@ func CompileDir(dir string, m *adapter.Manifest) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	contracts, err := loadContracts(dir, cfg)
+	if err != nil {
+		return nil, err
+	}
 	c := &ctx{lib: lib, cfg: cfg, d: d, cat: cat, tz: tz, lock: lock, msgByNm: map[string]*message{},
-		pkg: cfg.PackagePrefix + "." + d.Name + "." + cfg.Version, service: pascal(singular(d.Name)) + "Service"}
+		pkg: cfg.PackagePrefix + "." + d.Name + "." + cfg.Version, service: pascal(singular(d.Name)) + "Service", contracts: contracts}
 
 	var specs []*spec.Spec
 	var rpcs []string
@@ -188,6 +200,21 @@ func CompileDir(dir string, m *adapter.Manifest) ([]string, error) {
 	written = append(written, dpath)
 	if err := lock.save(); err != nil {
 		return nil, err
+	}
+	cw, err := contracts.write() // R4: 拥有的消息契约 → 共享目录的 JSON Schema + 锁文件
+	if err != nil {
+		return nil, err
+	}
+	written = append(written, cw...)
+	for _, a := range apis { // R4: 发出 / 消息处理 → 平台表(outbox、去重)进项目的 db/schema(⚖️ E1: 走项目的迁移流程)
+		if cmd := a.Pattern.Command; a.Kind == "message" || (cmd != nil && len(cmd.Emit) > 0) {
+			p, err := writePlatformSQL()
+			if err != nil {
+				return nil, err
+			}
+			written = append(written, p)
+			break
+		}
 	}
 	return written, nil
 }
@@ -365,6 +392,9 @@ func (c *ctx) inputField(a *API, in *Input, e *errs) *field {
 
 func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 	e := &errs{file: a.Path}
+	if a.Kind == "message" { // 消息处理器: 输入 = 收到的契约的字段(message.go)
+		c.handlerInputs(a, e)
+	}
 	table := a.Source
 	if table != "" {
 		if _, ok := c.cat[table]; !ok {
@@ -440,9 +470,12 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 	filters := map[string]spec.Filter{}
 	for _, in := range a.Inputs {
 		if f := c.inputField(a, in, e); f != nil {
+			if a.Kind == "message" {
+				c.uniqueRule(c.contracts.byTyp[a.Pattern.Command.Receive.Type].Fields, f)
+			}
 			req.Fields = append(req.Fields, f)
 		}
-		if in.Type == GroupListType {
+		if in.Type == GroupListType && a.Kind != "message" {
 			op, ok := c.lib.FilterID(strings.TrimSpace(in.Filter))
 			if !ok || op != "in_tuples" {
 				e.add(in.Line, "输入 %s: 组列表 的筛选写成 \"组属于\"(组的字段名 = 列名)", in.Name)
@@ -643,6 +676,7 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 	switch {
 	case a.Kind == "command": // 组合命令: 响应字段 ← 操作的返回值(composite.go)
 		resp.Fields = c.compositeFields(a, e)
+	case a.Kind == "message": // 消息处理器: 没有响应(空的 Response)
 	case a.Exit.Rows: // 响应 = 行的列表(+ 出口另外的字段)
 		itemName := a.ItemName
 		if itemName == "" {
@@ -697,6 +731,9 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 	// ---- 机器用的式样书
 	s := &spec.Spec{SpecVersion: spec.Version}
 	s.API = spec.API{RPC: c.pkg + "." + c.service + "/" + a.Name, Owner: a.Owner, RiskLevel: a.Risk, Description: a.Background}
+	if a.Kind == "message" {
+		s.API.RPC = c.pkg + "." + c.handlerService() + "/" + a.Name
+	}
 	s.Pattern = a.Pattern
 	s.Pattern.Kind = a.Kind
 	s.Datasource = spec.Datasource{Table: table, Filters: filters, Where: a.Where, Lookups: lookups, Nests: nests, ChildAggs: childAggs}
@@ -759,7 +796,7 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 	}
 	var related []string // 准备数据里没写的关联 / 嵌套 / 子聚合的表 = 空表(不能留着别的用例的数据)
 	switch {
-	case a.Kind == "command": // 组合命令写的表: 准备数据里没写 = 空表
+	case a.Kind == "command" || a.Kind == "message": // 组合命令 / 消息处理器写的表: 准备数据里没写 = 空表
 		related = append(related, compositeTables(a.Pattern.Command)...)
 	case a.Exit.Command: // 命令写的表: 准备数据里没写 = 空表
 		related = append(related, table)
@@ -781,8 +818,15 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 			s.Acceptance.Fixtures[t] = []map[string]any{}
 		}
 	}
+	if a.Kind == "message" {
+		c.handlerRPCs = append(c.handlerRPCs, c.handlerRPC(a, req, resp))
+		return s, "", nil
+	}
 	return s, fmt.Sprintf("  // %s\n  rpc %s(%s) returns (%s);", oneLine(a.Desc), a.Name, req.Name, resp.Name), nil
 }
+
+// handlerService: 消息处理器的 proto 服务名(不挂载,只是类型的说明)。
+func (c *ctx) handlerService() string { return pascal(singular(c.d.Name)) + "MessageHandlerService" }
 
 func (c *ctx) addMessage(m *message) {
 	c.msgs = append(c.msgs, m)
@@ -881,7 +925,19 @@ func (c *ctx) renderProto(rpcs []string, options []string) string {
 		}
 		b.WriteString("}\n")
 	}
-	fmt.Fprintf(&b, "\n// %s\nservice %s {\n%s\n}\n", oneLine(c.d.Desc), c.service, strings.Join(rpcs, "\n\n"))
+	var served []string
+	for _, r := range rpcs {
+		if r != "" { // 消息处理器: 另外的服务
+			served = append(served, r)
+		}
+	}
+	if len(served) > 0 || len(c.handlerRPCs) == 0 {
+		fmt.Fprintf(&b, "\n// %s\nservice %s {\n%s\n}\n", oneLine(c.d.Desc), c.service, strings.Join(served, "\n\n"))
+	}
+	if len(c.handlerRPCs) > 0 {
+		fmt.Fprintf(&b, "\n// %s 的消息处理器(R4)。不是 HTTP 的服务(不挂载): 入口是 RabbitMQ 的队列,请求 = 收到的消息的 data\nservice %s {\n%s\n}\n",
+			oneLine(c.d.Desc), c.handlerService(), strings.Join(c.handlerRPCs, "\n\n"))
+	}
 	for _, m := range c.msgs {
 		fmt.Fprintf(&b, "\n// %s\nmessage %s {\n", oneLine(m.Desc), m.Name)
 		for _, x := range m.CEL {

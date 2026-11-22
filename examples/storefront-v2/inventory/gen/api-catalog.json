@@ -52,6 +52,28 @@
     ]
   },
   {
+    "id": "inventory.commit-stock",
+    "method": "CommitStock",
+    "summary": "确认一个订单的预留(支付成功之后): HELD → COMMITTED,已预留数量减少(出库)。预留已经释放了 → 进 DLQ(收到 inventory.commit v1;入口 = RabbitMQ 的队列,不是 HTTP)",
+    "path": "/inventory.inventory.v1.InventoryMessageHandlerService/CommitStock",
+    "pattern": "message",
+    "cases": [
+      {
+        "name": "HELD → COMMITTED,已预留减少",
+        "request": {
+          "items": [
+            {
+              "qty": 3,
+              "sku": "BEAN-001"
+            }
+          ],
+          "order_id": 7
+        },
+        "response": {}
+      }
+    ]
+  },
+  {
     "id": "inventory.get-stock",
     "method": "GetStock",
     "summary": "返回一个 SKU 的可售数量和已预留数量",
@@ -110,6 +132,58 @@
             }
           ]
         }
+      }
+    ]
+  },
+  {
+    "id": "inventory.release-stock",
+    "method": "ReleaseStock",
+    "summary": "释放一个订单的预留(补偿): HELD 的加回可售;预留还没到的留下墓碑(之后迟到的预留不再扣)(收到 inventory.release v1;入口 = RabbitMQ 的队列,不是 HTTP)",
+    "path": "/inventory.inventory.v1.InventoryMessageHandlerService/ReleaseStock",
+    "pattern": "message",
+    "cases": [
+      {
+        "name": "HELD → 加回;没到的 SKU → 墓碑",
+        "request": {
+          "items": [
+            {
+              "qty": 3,
+              "sku": "BEAN-001"
+            },
+            {
+              "qty": 1,
+              "sku": "BAG-002"
+            }
+          ],
+          "order_id": 7
+        },
+        "response": {}
+      }
+    ]
+  },
+  {
+    "id": "inventory.reserve-stock",
+    "method": "ReserveStock",
+    "summary": "为一个订单预留库存。每个 SKU 的可售数量都够才预留(全部或全不),回答 inventory.reserved 或 inventory.reservation_failed(收到 inventory.reserve v1;入口 = RabbitMQ 的队列,不是 HTTP)",
+    "path": "/inventory.inventory.v1.InventoryMessageHandlerService/ReserveStock",
+    "pattern": "message",
+    "cases": [
+      {
+        "name": "两个 SKU 都够 → 都预留,发出 inventory.reserved",
+        "request": {
+          "items": [
+            {
+              "qty": 3,
+              "sku": "BEAN-001"
+            },
+            {
+              "qty": 1,
+              "sku": "BAG-002"
+            }
+          ],
+          "order_id": 7
+        },
+        "response": {}
       }
     ]
   }

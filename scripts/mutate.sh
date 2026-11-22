@@ -215,5 +215,26 @@ run "组合命令: 输出取错操作的值"                 $SR 's/LogId:(\s+)r
 run "幂等新建: 冲突改成报错(去掉 ON CONFLICT)"    $SQ 's/\n\s+Conflict:\s+\[\]string\{"request_id"\},//'
 run "幂等新建: 新建的标志反了"                   $SQ 's/Created:(\s+)created1,/Created:${1}!created1,/'
 run "幂等新建: 命中时返回请求的值(不是已有的行)"   $SQ 's/JobType:(\s+)r1\.JobType,/JobType:${1}m.GetJobType(),/'
+# R4: 消息(发出 / 消息处理器 / 每项 / 仅当 / 跳过 / 墓碑 / 死信)
+OA=internal/handler/ledger/open_account_gen.go
+DA=internal/handler/ledger/debit_accounts_gen.go
+RA=internal/handler/ledger/record_account_opened_gen.go
+RV=internal/handler/ledger/reverse_debits_gen.go
+SD=internal/handler/ledger/settle_debits_gen.go
+run "发出: outbox 在提交之后另开事务写"             $OA 's/\n(\t\td1 := &ledgerv1\.AccountOpenedV1)/\n\t\treturn nil\n\t}); err != nil {\n\t\treturn nil, writeError(err)\n\t}\n\tif err := h.tx.InTx(ctx, func(ctx context.Context, tx pgx.Tx) error {\n${1}/'
+run "发出: data 的字段取错(余额写成 0)"            $OA 's/(AccountOpenedV1\{[^}]*?Balance:\s+)r1\.Balance,/${1}0,/s'
+run "发出: 主体取错字段"                           $OA 's/fmt\.Sprint\(d1\.GetAccountId\(\)\)/fmt.Sprint(d1.GetBalance())/'
+run "消息处理: 去掉 仅当(重发会再扣)"              $DA 's/if created1 \{ \/\/ 仅当/if true { \/\/ 仅当/'
+run "消息处理: 缺保存点(业务失败时部分扣减残留)"     $DA 's/err := txn\.Savepoint\(ctx, tx, func\(/err := (func(/; s/\n\t\}\)\n\tresult, err := handlerResult/\n\t})(ctx, tx)\n\tresult, err := handlerResult/'
+run "消息处理: 业务失败发出了成功的事件类型"         $DA 's/(case "INSUFFICIENT_FUNDS":.*?)"account\.debit_failed"/${1}"account.debited"/s'
+run "消息处理: 业务结果的 data 取错(原因码)"        $DA 's/Reason:(\s+)"INSUFFICIENT_FUNDS",/Reason:${1}"REVERSED",/'
+run "消息处理: 任一项 的判定反了(墓碑没挡住)"        $DA 's/int64\(r1\.Status\) == int64\(3\)/int64(r1.Status) != int64(3)/'
+run "每项: 只处理第一项"                           $DA 's/for _, it := range items \{/for _, it := range items[:1] {/'
+run "消息处理: 事件 id 的主键取了消息的字段"         $RA 's/\{Name: "event_id", Value: env\.ID\}/{Name: "event_id", Value: m.GetAccountId()}/'
+run "消息处理: 如果 的边界 >= 写成 >"              $RA 's/int64\(m\.GetBalance\(\)\) >= int64\(1000000\)/int64(m.GetBalance()) > int64(1000000)/'
+run "跳过: 条件不成立当成错误"                     $RV 's/\} else if txn\.ReasonOf\(err\) != txn\.Unmet \{ \/\/ 条件不成立: 跳过/} else { \/\/ 条件不成立: 跳过/'
+run "仅当 已更新: 跳过时也退回"                     $RV 's/if updated3 \{ \/\/ 仅当 检查/if updated3 || true { \/\/ 仅当 检查/'
+run "墓碑写成 HELD(迟到的扣款照样扣)"              $RV 's/\{Name: "status", Value: int32\(3\)\},/{Name: "status", Value: int32(1)},/'
+run "死信的结果提交了(不进 DLQ)"                   $SD 's/return consume\.Poison\(errors\.New\("ALREADY_REVERSED: [^"]*"\)\)/_ = errors.New; return nil/'
 [[ -n ${PLAN:-} ]] && exit 0
 go build -o bin/server ./cmd/server; git status --short
