@@ -3,8 +3,11 @@
 // 设计稿: docs/design/core-algebra.md
 //
 // 只有这里定义的元件有实现,而且只有两份:
-//   - SQL 后端(sql.go): 给服务器
-//   - 参考求值器(eval.go): 给测试,在内存里逐行计算,独立于 SQL
+//   - SQL 后端(sql.go 的驱动 + 每个元件的 sql 钩子): 给服务器
+//   - 参考求值器(eval.go 的驱动 + 每个元件的 eval 钩子): 给测试,在内存里逐行计算,独立于 SQL
+//
+// 每个元件一个文件(prim_<kind>.go / expr_<op>.go),三份实现(检查 / 参考求值 / SQL)放在一起,
+// 由 registry.go 的登记表接到共享的驱动上。加元件: docs/adding-a-primitive.md
 //
 // 单元库(属于、有效期包含、多条……)只是这些元件的组合,不带实现。
 // 新增元件要单独评审,并且必须通过元件认证(cert_test.go)。
@@ -75,34 +78,18 @@ func comparable(a, b Kind) bool {
 // 表达式元件
 // ---------------------------------------------------------------------------
 
-// Expr 的 Op:
+// Expr: 表达式元件。Op = 元件名;每个元件的语义(NULL 规则)、类型规则、参考实现、SQL 写在 expr_<op>.go
+// (登记表: registry.go):
 //
-//	col          Name = 列名
-//	const        Value(Type 决定种类;nil = NULL)
-//	param        Name = 参数名
-//	cmp          Name ∈ = <> < <= > >=;Args[0], Args[1]。任一边 NULL → UNKNOWN
-//	and / or     Args(≥ 2),Kleene 三值逻辑
-//	not          Args[0]
-//	is_null      Args[0];永远 TRUE / FALSE
-//	absent       Name = 参数名: 标量没有指定 / 列表为空或没有指定。"不传"只在这里定义
-//	in_list      Args[0] 属于参数 Name 的列表。Args[0] 为 NULL → UNKNOWN;空列表 → FALSE
-//	starts_with  Args[0] 以参数 Name 开头(按字面,% _ \ 不是通配符);任一边 NULL → UNKNOWN
-//	contains     Args[0] 包含参数 Name(任何位置;按字面,% _ \ 不是通配符;空字符串 → TRUE);任一边 NULL → UNKNOWN。
-//	             按字节比较(和 starts_with 一样)。btree 索引用不上(前面有通配符),大表要配 pg_trgm 的 GIN 索引
-//	json_field   Args[0](json)里键 Name 的值转换成 Type。键不存在 / JSON null → NULL;格式错 → 查询失败
-//	tuple_after  Args(列)按 Desc 方向严格在参数 Params 之后(keyset 游标)。参数 Params[0] 没有指定 → TRUE
-//	in_tuples    组的列表: Params 是同样长的列表参数(第 i 个组 = 每个参数的第 i 个值)。
-//	             有一个组和 Args(列)逐个相等 → TRUE,否则 FALSE(两值,和 EXISTS 一样: 列为 NULL 时不相等,不是 UNKNOWN);空列表 → FALSE
-//	now          请求开始时的时刻(timestamp,不为 NULL)。值不来自请求: 服务器的时钟(测试时固定,见 NowParam)
-//	add          Args[0](日期 / 时间)加 Args[1](整数)个单位,Name = 单位 ∈ minute hour day month;Neg = 减。
-//	             月按 Postgres: 1 月 31 日 + 1 个月 = 2 月 28 日(29 日);日期只能加 day / month(结果还是日期)。
-//	             时间的 day / month 按领域的时区(Zone)的日历加(minute / hour 是绝对时长)。任一边 NULL → NULL
-//	trunc        Args[0] 截到 Name ∈ day month 的开始。时间先换算到领域的时区(Zone)再截,结果是那个时刻;
-//	             日期的结果还是日期。NULL → NULL
-//	ymd          Args[0](整数)按 YYYYMMDD 编码读成日期(旧的表结构常见: 20260131 = 2026-01-31)。
-//	             不是合法的日期(20260230、20261301、0、负数、1000 年之前)→ NULL(比较是 UNKNOWN: 永远不命中)。NULL → NULL。
-//	             SQL 后端: 在条件的肯定位置(filter 里,不在 not 之下)的 cmp(op, ymd(x), v) 写成 x op <v 的 YYYYMMDD 整数>
-//	             AND <x 是合法的日期>(按列本来的编码比较: 整数列上的索引能用);其他位置按 CASE 换算
+//	col / const / param / sql_ref   expr_ref.go
+//	cmp                             expr_cmp.go
+//	and / or / not / is_null        expr_logic.go
+//	absent                          expr_absent.go
+//	in_list                         expr_in_list.go
+//	starts_with / contains          expr_starts_with.go / expr_contains.go
+//	json_field                      expr_json_field.go
+//	tuple_after / in_tuples         expr_tuple_after.go / expr_in_tuples.go
+//	now / add / trunc / ymd         expr_now.go / expr_time.go / expr_ymd.go
 type Expr struct {
 	Op     string   `json:"op"`
 	Name   string   `json:"name,omitempty"`
@@ -116,33 +103,6 @@ type Expr struct {
 	// Loose: 只给差分测试的"错误实现"用(参考求值器认,SQL 后端和 IR 里没有)。ymd: 不合法的日期按日历进位
 	// (20260230 → 2026-03-02、20260100 → 2025-12-31、20261301 → 2027-01-01;不检查就 make_date / time.Date 的实现)
 	Loose bool `json:"-"`
-}
-
-// NowParam: now() 的值在参考求值器的 Params 里的键,也是 SQL 里的参数名(sqlc.arg(factory_now))。
-// 适配器把它接到运行时的时钟(请求开始的时刻);请求(proto)里没有这个字段。
-const NowParam = "factory_now"
-
-// 时间的单位。
-const (
-	Minute = "minute"
-	Hour   = "hour"
-	Day    = "day"
-	Month  = "month"
-)
-
-func Now() *Expr { return &Expr{Op: "now"} }
-
-// YMD: 整数(YYYYMMDD)→ 日期(不合法 → NULL)。
-func YMD(x *Expr) *Expr { return &Expr{Op: "ymd", Args: []*Expr{x}} }
-
-// Add: x + n 个单位(neg: 减)。zone: 时间的 day / month 按哪个时区的日历。
-func Add(x, n *Expr, unit string, neg bool, zone string) *Expr {
-	return &Expr{Op: "add", Name: unit, Args: []*Expr{x, n}, Neg: neg, Zone: zone}
-}
-
-// Trunc: x 截到 unit 的开始(时间按 zone 的日历)。
-func Trunc(x *Expr, unit, zone string) *Expr {
-	return &Expr{Op: "trunc", Name: unit, Args: []*Expr{x}, Zone: zone}
 }
 
 // UsesNow: 表达式里有没有 now()。
@@ -176,77 +136,18 @@ func (p *Pipeline) UsesNow() bool {
 	return false
 }
 
-func Col(name string) *Expr              { return &Expr{Op: "col", Name: name} }
-func Param(name string) *Expr            { return &Expr{Op: "param", Name: name} }
-func Const(v any, t Type) *Expr          { return &Expr{Op: "const", Value: v, Type: &t} }
-func Cmp(op string, a, b *Expr) *Expr    { return &Expr{Op: "cmp", Name: op, Args: []*Expr{a, b}} }
-func And(xs ...*Expr) *Expr              { return &Expr{Op: "and", Args: xs} }
-func Or(xs ...*Expr) *Expr               { return &Expr{Op: "or", Args: xs} }
-func Not(x *Expr) *Expr                  { return &Expr{Op: "not", Args: []*Expr{x}} }
-func IsNull(x *Expr) *Expr               { return &Expr{Op: "is_null", Args: []*Expr{x}} }
-func Absent(param string) *Expr          { return &Expr{Op: "absent", Name: param} }
-func InList(x *Expr, param string) *Expr { return &Expr{Op: "in_list", Name: param, Args: []*Expr{x}} }
-func StartsWith(x *Expr, param string) *Expr {
-	return &Expr{Op: "starts_with", Name: param, Args: []*Expr{x}}
-}
-func Contains(x *Expr, param string) *Expr {
-	return &Expr{Op: "contains", Name: param, Args: []*Expr{x}}
-}
-func JSONField(x *Expr, key string, t Type) *Expr {
-	return &Expr{Op: "json_field", Name: key, Type: &t, Args: []*Expr{x}}
-}
-func TupleAfter(cols []string, params []string, desc bool) *Expr {
-	e := &Expr{Op: "tuple_after", Params: params, Desc: desc}
-	for _, c := range cols {
-		e.Args = append(e.Args, Col(c))
-	}
-	return e
-}
-
-func InTuples(cols []string, params []string) *Expr {
-	e := &Expr{Op: "in_tuples", Params: params}
-	for _, c := range cols {
-		e.Args = append(e.Args, Col(c))
-	}
-	return e
-}
-
-var cmpOps = map[string]bool{"=": true, "<>": true, "<": true, "<=": true, ">": true, ">=": true}
-
 // ---------------------------------------------------------------------------
 // 关系元件(流水线的一步)
 // ---------------------------------------------------------------------------
 
-// Step 的 Kind:
+// Step: 关系元件(流水线的一步)。Kind = 元件名;每个元件的语义、检查(DRC)、参考实现、SQL 写在 prim_<kind>.go
+// (登记表: registry.go):
 //
-//	scan          Table;Columns = 物理表的列(名字 → 类型)
-//	filter        Pred: 只保留 TRUE 的行(UNKNOWN 丢弃)
-//	project       Project: 新的列(名字 → 表达式),只保留这些列
-//	pick_per_key  Keys: 每个键(NULL 视为相等)按 Order 取第一行
-//	sort          Order: 文本按字节;NULL 在 ASC 时最后、DESC 时最前
-//	limit         N;或者 Param = 参数名(必填的整数参数,例如分页的 row_limit)
-//	lookup        多对一查找: 对每一行,在 Table(列 = Columns)里找 On 的键列逐个等于当前行的列的那一行,
-//	              把 Take 的列加到当前行上。On 的键列必须覆盖 Table 的一个唯一键(Unique)→ 最多一行匹配。
-//	              任一边为 NULL → 不匹配(和 SQL 的 = 一致)。找不到: Missing = keep(默认)→ 加的列为 NULL(类型可空);
-//	              drop → 丢弃这一行(内连接)。后面的 lookup 可以用前面 lookup 加的列做关联(链式)
-//	nest          一对多嵌套: 对每一行,取 Table(列 = Columns)里 On 的列逐个相等的行(任一边 NULL → 不相等),
-//	              经过 Pred(子表的列上的条件,UNKNOWN 丢弃)、按 Order 排序,取 Take 的列,作为子行的列表加一列 As
-//	              (类型 rows,值 Children)。没有子行 → 空列表(不是 NULL)。子行多于 N → 整个请求 FAILED_PRECONDITION
-//	              (不截断;两个后端都最多取 N+1 行,超过由出口判定: 只看响应里的行)。
-//	              DRC: Order + On 的子表的列覆盖子表的一个唯一键(不为空的列)→ 子行的顺序是全序。只有一层
-//	child_agg     按父行聚合: 对每一行,对关联的子行(同 nest 的 On / Pred)计算 Aggs(agg.go,集合可能为空:
-//	              count 0、sum 0、min / max NULL),作为标量列加到当前行上
-//	group         Keys + Aggs: 按 Keys 分组(NULL 视为同一组),每组输出一行 = 键的值 + 聚合值(agg.go)。
-//	              没有输入行 → 没有输出行。输出的列 = Keys(原来的类型)+ Aggs(AggType)。一条流水线只能有一个
-//	rank          Order + As: 按 Order 的名次(SQL 的 RANK(): 并列同名次,下一个名次跳过),加一列 As(int64)。
-//	              只能在 group 之后。文本按字节;NULL 的位置和 sort 一样
+//	scan / filter / project / pick_per_key / sort / limit   prim_<kind>.go
+//	lookup / nest / child_agg                               prim_<kind>.go;对方是逻辑表(Source)、子表: relation.go
+//	group / rank                                            prim_group.go / prim_rank.go(聚合: agg.go)
 //
-// lookup / nest / child_agg 的对方可以是逻辑表(Source 不为空): 对方的行 = Source 这条子流水线的结果
-// (来源单元的展开: scan 物理表 → project → filter → pick_per_key → …;只能用这几种元件,不能引用请求参数)。
-// Columns = 子流水线的输出的列,Table = 逻辑表名(报错用)。逻辑表的唯一键 = 子流水线的 pick_per_key 的键(自然键)。
-// 其他规则(NULL 不相等、找不到、上限、全序)和普通的表一样。nest 的全序: 唯一键就是取最新的键时,
-// 可以为空的列也算(NULL 自己是一组,一个父行里最多一行)。
-// SQL 后端: LATERAL 子查询,关联条件里对方的列是取最新的键时,下推到取最新之前(索引能用;等式见 pushdown.go)
+// 跨步骤的规则(scan 在第一步、sort 之后只能接 limit、limit 之前必须有 sort)在 check.go 的 Check。
 type Step struct {
 	Kind    string      `json:"kind"`
 	Table   string      `json:"table,omitempty"`
@@ -303,37 +204,6 @@ type NamedExpr struct {
 type SortKey struct {
 	Col  string `json:"col"`
 	Desc bool   `json:"desc,omitempty"`
-}
-
-func Scan(table string, cols ...NamedType) Step {
-	return Step{Kind: "scan", Table: table, Columns: cols}
-}
-func Filter(p *Expr) Step          { return Step{Kind: "filter", Pred: p} }
-func Project(xs ...NamedExpr) Step { return Step{Kind: "project", Project: xs} }
-func PickPerKey(keys []string, order ...SortKey) Step {
-	return Step{Kind: "pick_per_key", Keys: keys, Order: order}
-}
-func Sort(order ...SortKey) Step { return Step{Kind: "sort", Order: order} }
-func Limit(n int) Step           { return Step{Kind: "limit", N: n} }
-func LimitParam(p string) Step   { return Step{Kind: "limit", Param: p} }
-func Group(keys []string, aggs ...Agg) Step {
-	return Step{Kind: "group", Keys: keys, Aggs: aggs}
-}
-func Rank(as string, order ...SortKey) Step { return Step{Kind: "rank", As: as, Order: order} }
-
-// Lookup: 多对一查找(missing: keep / drop)。
-func Lookup(table string, cols []NamedType, unique [][]string, on []JoinKey, take []TakeCol, missing string) Step {
-	return Step{Kind: "lookup", Table: table, Columns: cols, Unique: unique, On: on, Take: take, Missing: missing}
-}
-
-// Nest: 一对多嵌套(子行的列表加一列 as)。
-func Nest(table string, cols []NamedType, unique [][]string, on []JoinKey, pred *Expr, order []SortKey, max int, as string, take []TakeCol) Step {
-	return Step{Kind: "nest", Table: table, Columns: cols, Unique: unique, On: on, Pred: pred, Order: order, N: max, As: as, Take: take}
-}
-
-// ChildAgg: 按父行聚合(每个聚合加一列)。
-func ChildAgg(table string, cols []NamedType, on []JoinKey, pred *Expr, aggs ...Agg) Step {
-	return Step{Kind: "child_agg", Table: table, Columns: cols, On: on, Pred: pred, Aggs: aggs}
 }
 
 // Children: rows 类型的值(nest 的子行的列表)。Rows 最多 Max+1 行(两个后端都多取一行);Max < 0 = 不知道上限
