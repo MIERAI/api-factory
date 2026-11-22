@@ -74,7 +74,7 @@ datasource:
     sql: ""
 behavior:
     - when: ある出荷の封緘済みの梱包が 3 個を超える(運用上の上限。超えるのはデータの誤り)
-      then: その出荷が入るページの要求だけが FAILED_PRECONDITION になる(梱包を切り捨てて返さない。積み込み確認で梱包を見落とさないため)。それより前のページは通常どおり返る。倉庫を指定しても同じ出荷が含まれれば同じくエラー。運用は梱包データを直してから再取得する
+      then: その出荷が入るページの要求だけが FAILED_PRECONDITION になる(梱包を切り捨てて返さない。積み込み確認で梱包を見落とさないため)。それより前のページは通常どおり返る(「次のページあり」も通常どおり)。倉庫を指定しても同じ出荷が含まれれば同じくエラー。運用は梱包データを直してから再取得する
     - when: 封緘前の梱包
       then: packages には出さない(積み込み対象外)。package_count には含める
 acceptance:
@@ -196,7 +196,7 @@ acceptance:
                           package_no: 2
                           sealed_at: "2026-11-20T00:05:00Z"
                           weight: "2.5"
-                      sealed_weight: "15"
+                      sealed_weight: "15.0"
                     - first_sealed_at: $absent
                       id: 2
                       last_sealed_at: $absent

@@ -5,7 +5,7 @@ api:
     rpc: factory.logistics.v1.LogisticService/ListShipmentsByRegion
     owner: logistics-team
     risk_level: low
-    description: 地域別の配車計画。1 日の出荷は全社で 30 件程度の前提。50 件を超えたら黙って切り捨てずエラー(FAILED_PRECONDITION)にし、地域を指定して絞り込んでもらう。地域は倉庫マスタ経由で引く(出荷 → 倉庫 → 地域)。地域名順、同じ地域名なら地域コード順。地域が未設定・地域マスタに無い出荷は地域名が空で末尾に並ぶ
+    description: 地域別の配車計画。1 日の出荷は全社で 30 件程度の前提。50 件を超えたら黙って切り捨てずエラー(FAILED_PRECONDITION)にし、地域を指定して絞り込んでもらう。地域は倉庫マスタ経由で引く(出荷 → 倉庫 → 地域)。地域名順、同じ地域名なら地域コード順。地域が未設定・地域マスタに無い出荷は地域名が空で末尾に並ぶ。50 件を超える日は、地域が未設定の倉庫・倉庫マスタに無い倉庫の出荷は地域では絞れないため、この API では取れない(その日は倉庫を指定できる ListShipmentsByDay で取る)
 pattern:
     kind: list_all
     not_found_message: ""

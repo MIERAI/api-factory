@@ -9,7 +9,9 @@ BASE=${BASE:-origin/main}
 md "## 式样书检查" "" "| 步骤 | 时间 |" "|---|---|"
 stage "① 式样书闸门(机械检查)" make --no-print-directory check
 stage "② 确定性生成(只检查能不能生成)" make --no-print-directory prepare
-specs=$(changed_specs "$BASE")
+# 要审查的 API = 审查的输入(设计书 + 审查记录 + 领域里它引用的部分)和 BASE 不同的。
+# 领域.yaml 里加了一张无关的表 → 不审查(以前领域.yaml 一变,这个领域的全部 API 都重审;审查不确定,已经通过的设计书又被挡)
+specs=$(go run ./factory/cmd/factory review-changed -v --base "$BASE")
 md "" "改动的 API: $(echo $specs | wc -w | tr -d ' ') 个" ""
 blocked=0
 for s in $specs; do

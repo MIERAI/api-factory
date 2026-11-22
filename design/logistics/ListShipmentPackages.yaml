@@ -45,7 +45,7 @@ API: ListShipmentPackages
 
 业务规则:
   - 情况: ある出荷の封緘済みの梱包が 3 個を超える(運用上の上限。超えるのはデータの誤り)
-    结果: その出荷が入るページの要求だけが FAILED_PRECONDITION になる(梱包を切り捨てて返さない。積み込み確認で梱包を見落とさないため)。それより前のページは通常どおり返る。倉庫を指定しても同じ出荷が含まれれば同じくエラー。運用は梱包データを直してから再取得する
+    结果: その出荷が入るページの要求だけが FAILED_PRECONDITION になる(梱包を切り捨てて返さない。積み込み確認で梱包を見落とさないため)。それより前のページは通常どおり返る(「次のページあり」も通常どおり)。倉庫を指定しても同じ出荷が含まれれば同じくエラー。運用は梱包データを直してから再取得する
   - 情况: 封緘前の梱包
     结果: packages には出さない(積み込み対象外)。package_count には含める
 
@@ -85,7 +85,7 @@ API: ListShipmentPackages
               - { package_no: 1, label: YT000001, weight: "2.5", sealed_at: "2026-11-20 09:10" }
               - { package_no: 2, label: YT000002, weight: "2.5", sealed_at: "2026-11-20 09:05" }
             package_count: 4
-            sealed_weight: "15"
+            sealed_weight: "15.0"           # 数値の合計(2.5 + 2.5 + 10)。桁数はデータベースの numeric の結果のまま
             first_sealed_at: "2026-11-20 09:05"
             last_sealed_at: "2026-11-20 09:30"
           - { id: 2, packages: [], package_count: 0, sealed_weight: "0", first_sealed_at: 不设置, last_sealed_at: 不设置 }
