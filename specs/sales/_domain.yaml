@@ -17,12 +17,6 @@ entities:
         policy: mutable
         columns: {}
         invariants: []
-    sales_lines:
-        natural_key:
-            - line_id
-        policy: mutable
-        columns: {}
-        invariants: []
     store_prices:
         natural_key:
             - store_code

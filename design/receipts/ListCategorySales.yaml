@@ -1,0 +1,76 @@
+# ============================================================================
+# ListCategorySales: 店別・部門別の売上(分组: 空になりうる键 + 最小 / 最大)
+# ============================================================================
+API: ListCategorySales
+说明: 指定した店舗の明細を、店舗・部門ごとに集計する(合計・件数・値引き額の最小と最大)。部門が空(未分類)の明細は店ごとに 1 行にまとめる
+背景: 部門別の売上分析。部門名は大文字・小文字を区別する(Food と food は別の部門)。部門は未分類を含めて 1 店あたり 100 行以下の前提
+负责人: receipts-team
+风险: 低
+
+种类: 多条
+数据来源: sales_lines
+
+输入:
+  store_codes: { 类型: 整数32列表, 必填: 是, 个数: "1~10", 范围: "> 0", 说明: 店舗コード(1~10 店), 筛选: store_code 属于 }
+
+分组:
+  键: [store_code, category]
+  计算:
+    total:        合计(amount)
+    lines:        件数
+    min_discount: 最小(discount)
+    max_discount: 最大(discount)
+
+输出:
+  store_code:   店舗コード
+  category:     部門(未分類の行では設定しない)
+  total:        売上金額の合計
+  lines:        明細の件数
+  min_discount: 値引き額の最小(値引きのある明細だけで求める。値引きのある明細が 1 件もなければ設定しない)
+  max_discount: 値引き額の最大(同上)
+
+排序: [store_code 小到大, category 小到大]
+上限: 1000
+输出行名: CategorySale
+输出列表名: categories
+
+业务规则:
+  - 情况: 未分類
+    结果: 部門が空(NULL)の明細は、店ごとに 1 つの「未分類」の行にまとめる(空ごとに別の行にしない)。未分類の行は category を設定せず、その店の最後に並べる。部門の空文字は DB が受け付けない(領域の規則)
+  - 情况: 値引きのない明細
+    结果: 値引き額が空の明細(値引きなし)は最小・最大の計算に入れない。値引き額 0 は DB が受け付けない(値引きなしは空で表す)
+  - 情况: 部門の並び
+    结果: 部門名のバイト順(大文字が小文字より先。Food → food の順)
+  - 情况: 行数が 1000 を超える
+    结果: エラー(FAILED_PRECONDITION)。切り捨てない。10 店 × 100 行(未分類の行を含む)= 1000 行が前提の上限
+  - 情况: 明細のない店
+    结果: 行を返さない(合計 0 の行は作らない)
+
+例子:
+  准备数据:
+    sales_lines:
+      - { line_id: 1, sales_date: 2026-11-01, store_code: 1, category: food,  quantity: 1, amount: 100, discount: 1 }
+      - { line_id: 2, sales_date: 2026-11-02, store_code: 1, category: food,  quantity: 1, amount: 50,  discount: null }
+      - { line_id: 3, sales_date: 2026-11-01, store_code: 1, category: null,  quantity: 1, amount: 30,  discount: null }
+      - { line_id: 4, sales_date: 2026-11-02, store_code: 1, category: null,  quantity: 2, amount: 20,  discount: 2.5 }
+      - { line_id: 5, sales_date: 2026-11-01, store_code: 1, category: Food,  quantity: 1, amount: 5,   discount: null }
+      - { line_id: 6, sales_date: 2026-11-01, store_code: 2, category: drink, quantity: 1, amount: 8,   discount: 0.5 }
+      - { line_id: 7, sales_date: 2026-11-02, store_code: 2, category: drink, quantity: 1, amount: 2,   discount: 1.5 }
+  用例:
+    - 说明: "未分類は 1 行(店の最後)。Food と food は別(バイト順で Food が先)。値引きの空は最小・最大に入れない"
+      输入: { store_codes: [1, 2] }
+      结果:
+        categories:
+          - { store_code: 1, category: Food,   total: "5",   lines: 1, min_discount: 不设置, max_discount: 不设置 }
+          - { store_code: 1, category: food,   total: "150", lines: 2, min_discount: "1",   max_discount: "1" }
+          - { store_code: 1, category: 不设置, total: "50",  lines: 2, min_discount: "2.5", max_discount: "2.5" }
+          - { store_code: 2, category: drink,  total: "10",  lines: 2, min_discount: "0.5", max_discount: "1.5" }
+    - 说明: 1 店だけ
+      输入: { store_codes: [2] }
+      结果: { categories: [{ store_code: 2, category: drink, total: "10", lines: 2 }] }
+    - 说明: 明細のない店は空
+      输入: { store_codes: [9] }
+      结果: { categories: [] }
+    - 说明: 店舗の指定なしは入力エラー
+      输入: {}
+      结果: 参数错误

@@ -1,0 +1,58 @@
+# ============================================================================
+# ListStoreLineRanking: 店別の明細件数の順位(分组 + 排名: 並んだら同じ順位、次の順位は飛ぶ)
+# ============================================================================
+API: ListStoreLineRanking
+说明: 明細の件数で店舗に順位をつけて、全店を返す(件数が同じ店は同じ順位。次の順位は飛ばす。例 1, 2, 2, 4)
+背景: 店舗の稼働ランキング。順位は SQL の RANK() と同じ決め方。店舗数は 1000 店以下の前提
+负责人: receipts-team
+风险: 低
+
+种类: 多条
+数据来源: sales_lines
+
+输入:
+  date_from: { 类型: 日期, 必填: 否, 说明: 売上日の下限(含;不指定 = 全期間), 筛选: sales_date 大于等于 }
+
+分组: { 键: [store_code], 计算: { lines: 件数, quantity: 合计(quantity) } }
+排名: { 排序: [lines 大到小], 输出: rank }
+
+输出:
+  store_code: 店舗コード
+  lines:      明細の件数
+  quantity:   数量の合計
+  rank:       順位(件数の多い順。同じ件数は同じ順位)
+
+排序: [rank 小到大, store_code 小到大]
+上限: 1000
+输出行名: StoreLineRank
+输出列表名: stores
+
+业务规则:
+  - 情况: 対象の店
+    结果: 期間内に明細が 1 件以上ある店だけ(明細のない店は順位をつけない)
+  - 情况: 同じ順位の並び
+    结果: 同じ順位の店は店舗コードの小さい順
+  - 情况: 店舗が 1000 店を超える
+    结果: エラー(FAILED_PRECONDITION)。途中で切り捨てない(順位の途中で切れた一覧は全店のランキングと誤解されるため)。店舗数が増えたら上限を見直す
+
+例子:
+  准备数据:
+    sales_lines:
+      - { line_id: 1, sales_date: 2026-11-01, store_code: 1, category: food,  quantity: 2, amount: 10, discount: null }
+      - { line_id: 2, sales_date: 2026-11-01, store_code: 1, category: food,  quantity: 1, amount: 10, discount: null }
+      - { line_id: 3, sales_date: 2026-11-02, store_code: 1, category: drink, quantity: 1, amount: 5,  discount: null }
+      - { line_id: 4, sales_date: 2026-11-01, store_code: 2, category: food,  quantity: 3, amount: 7,  discount: null }
+      - { line_id: 5, sales_date: 2026-11-02, store_code: 2, category: null,  quantity: 2, amount: 7,  discount: null }
+      - { line_id: 6, sales_date: 2026-11-01, store_code: 3, category: food,  quantity: 1, amount: 1,  discount: null }
+      - { line_id: 7, sales_date: 2026-11-02, store_code: 3, category: food,  quantity: 4, amount: 1,  discount: null }
+      - { line_id: 8, sales_date: 2026-11-01, store_code: 4, category: drink, quantity: 1, amount: 3,  discount: null }
+  用例:
+    - 说明: 件数 3, 2, 2, 1 → 順位 1, 2, 2, 4(同じ件数は同じ順位、次は 3 を飛ばして 4)
+      输入: {}
+      结果: { stores: [{ store_code: 1, lines: 3, quantity: 4, rank: 1 }, { store_code: 2, lines: 2, quantity: 5, rank: 2 }, { store_code: 3, lines: 2, quantity: 5, rank: 2 }, { store_code: 4, lines: 1, quantity: 1, rank: 4 }] }
+    - 说明: 全店 1 件ずつ → 全店 1 位(店舗 4 は期間内に明細がないので出ない)
+      输入: { date_from: 2026-11-02 }
+      结果: { stores: [{ store_code: 1, lines: 1, quantity: 1, rank: 1 }, { store_code: 2, lines: 1, quantity: 2, rank: 1 }, { store_code: 3, lines: 1, quantity: 4, rank: 1 }] }
+    - 说明: 明細がなければ空
+      输入: { date_from: 2026-11-03 }
+      结果: { stores: [] }

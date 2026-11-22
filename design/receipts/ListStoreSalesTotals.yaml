@@ -1,0 +1,57 @@
+# ============================================================================
+# ListStoreSalesTotals: 店別の明細の合計(分组 + 分页: 分组したあとの行をページ送り)
+# ============================================================================
+API: ListStoreSalesTotals
+说明: 明細を店別に集計して、店舗コード順にページ単位で返す(売上日の下限で絞り込める)
+背景: 全店の集計一覧。店舗数が多いのでページ送りする(ページの位置は店舗コード)
+负责人: receipts-team
+风险: 低
+
+种类: 一览
+数据来源: sales_lines
+
+输入:
+  date_from: { 类型: 日期, 必填: 否, 说明: 売上日の下限(含;不指定 = 全期間), 筛选: sales_date 大于等于 }
+
+分组: { 键: [store_code], 计算: { total: 合计(amount), lines: 件数, first_date: 最小(sales_date), max_discount: 最大(discount) } }
+
+输出:
+  store_code:   店舗コード
+  total:        売上金額の合計
+  lines:        明細の件数
+  first_date:   対象の明細の中で最も早い売上日
+  max_discount: 値引き額の最大(値引きのある明細が 1 件もなければ設定しない)
+
+排序: [store_code 小到大]
+分页: { 默认每页: 20, 每页最多: 100 }
+输出行名: StoreSalesTotal
+输出列表名: stores
+
+业务规则:
+  - 情况: 売上日の下限
+    结果: 下限以降の明細だけを集計する(合計・件数・最初の売上日・最大の値引き額すべて、絞り込んだ明細で求める)。部門は問わない(未分類の明細も含む)
+  - 情况: 値引きのない明細
+    结果: 値引き額が空の明細は最大の計算に入れない。値引き額 0 は DB が受け付けない(値引きなしは空で表す)
+  - 情况: 対象の店
+    结果: 対象の明細が 1 件以上ある店だけ。売上金額がすべて 0 の明細しかない店も 合計 "0" として出す(明細のない店の行は作らない)
+
+例子:
+  准备数据:
+    sales_lines:
+      - { line_id: 1, sales_date: 2026-11-01, store_code: 1, category: food,  quantity: 1, amount: 10,   discount: null }
+      - { line_id: 2, sales_date: 2026-10-30, store_code: 1, category: drink, quantity: 1, amount: 2.5,  discount: 0.5 }
+      - { line_id: 3, sales_date: 2026-11-02, store_code: 2, category: food,  quantity: 2, amount: 7,    discount: null }
+      - { line_id: 5, sales_date: 2026-10-31, store_code: 2, category: null,  quantity: 1, amount: 3,    discount: null }
+      - { line_id: 4, sales_date: 2026-11-01, store_code: 3, category: food,  quantity: 1, amount: 1.25, discount: 1 }
+      - { line_id: 6, sales_date: 2026-11-02, store_code: 4, category: drink, quantity: 1, amount: 0,    discount: null }
+      - { line_id: 7, sales_date: 2026-11-03, store_code: 4, category: drink, quantity: 1, amount: 0,    discount: null }
+  用例:
+    - 说明: 店別に合計(店舗コード順)。未分類の明細も含む。金額 0 の明細だけの店も合計 0 で出す
+      输入: {}
+      结果: { stores: [{ store_code: 1, total: "12.5", lines: 2, first_date: 2026-10-30, max_discount: "0.5" }, { store_code: 2, total: "10", lines: 2, first_date: 2026-10-31, max_discount: 不设置 }, { store_code: 3, total: "1.25", lines: 1, first_date: 2026-11-01, max_discount: "1" }, { store_code: 4, total: "0", lines: 2, first_date: 2026-11-02, max_discount: 不设置 }] }
+    - 说明: 下限以降の明細だけで合計する(最初の売上日も絞り込んだ明細の中で求める)
+      输入: { date_from: 2026-11-01 }
+      结果: { stores: [{ store_code: 1, total: "10", lines: 1, first_date: 2026-11-01, max_discount: 不设置 }, { store_code: 2, total: "7", lines: 1, first_date: 2026-11-02 }, { store_code: 3, total: "1.25", lines: 1, first_date: 2026-11-01 }, { store_code: 4, total: "0", lines: 2, first_date: 2026-11-02 }] }
+    - 说明: 該当なし
+      输入: { date_from: 2026-12-01 }
+      结果: { stores: [] }

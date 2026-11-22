@@ -8,7 +8,7 @@ package accept
 //   - sum ↔ count(合计写成件数)
 //   - NULL 的键分成多组(每个 NULL 一组)
 //   - rank → dense_rank(不跳号)/ row_number(并列也不同名次)
-// 另外两个条件: 有多行的组、只有一行的组(分组的输入里)。
+// 另外的条件: 有多行的组、只有一行的组(分组的输入里);min / max 的列可以为空时,结果出现空值。
 //
 // 错误的实现不一定能写成核心的流水线(核心没有"每个 NULL 一组"): 先用参考求值器算到 group / rank 之前,
 // 在这里按错误的方式算这一步,再把结果当作一张表(scan)接着跑后面的步骤。
@@ -166,6 +166,28 @@ func (e *diffEnv) groupTargets() []sensTarget {
 		}
 		return false
 	}})
+	// min / max 的结果出现 NULL(列可以为空时: 组里全部为空 → 不设置;写成 coalesce(…, 0) 的实现要看得出来)。
+	// 看最后的输出(出口截断 / 分页之后仍然看得到)
+	if schema, err := core.Check(&core.Pipeline{Steps: p.Steps[:gi], Params: p.Params}); err == nil {
+		for _, a := range st.Aggs {
+			if t, ok := schema.Col(a.Col); !ok || !t.Nullable || (a.Func != "min" && a.Func != "max") {
+				continue
+			}
+			name := a.Name
+			out = append(out, sensTarget{desc: "分组: " + name + " 的结果为空(组里全部为空)", cond: func(ps core.Params) bool {
+				rows, err := e.Eval(ps)
+				if err != nil {
+					return false
+				}
+				for _, r := range rows {
+					if v, has := r[name]; has && v == nil {
+						return true
+					}
+				}
+				return false
+			}})
+		}
+	}
 	for ki, k := range st.Keys { // 少一个分组键
 		if e.fixedCols()[k] { // 请求固定了这一列(必填的等于): 少了它分组也一样
 			continue

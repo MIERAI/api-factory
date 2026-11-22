@@ -97,19 +97,19 @@ run "分库: 选错库(店铺代码 +1)"          $SH 's/h\.at\(int64\(m\.GetSto
 T=gen/db/sales.list-top-stores.sql.go
 run "前N条: 取的条数不对(LIMIT 4)"        $T 's/LIMIT 3/LIMIT 4/'
 run "前N条: 排序方向反了"                $T 's/ORDER BY t2\.amount DESC, t2\.store_code DESC/ORDER BY t2.amount, t2.store_code/'
-GT=gen/db/sales.list-top-line-stores.sql.go
+GT=gen/db/receipts.list-top-line-stores.sql.go
 run "分组: 合计写成件数"                  $GT 's/coalesce\(sum\(t1\.amount\), 0\) AS total/count(*)::numeric AS total/'
 run "分组+前N条: 排序方向反了"            $GT 's/ORDER BY t3\.total DESC, t3\.store_code/ORDER BY t3.total, t3.store_code/'
-GR=gen/db/sales.list-store-line-ranking.sql.go
+GR=gen/db/receipts.list-store-line-ranking.sql.go
 run "分组: 件数写成合计"                  $GR 's/count\(\*\) AS lines/coalesce(sum(t1.quantity), 0)::int8 AS lines/'
 run "名次: RANK 写成 DENSE_RANK(不跳号)"  $GR 's/rank\(\) OVER/dense_rank() OVER/'
 run "名次: RANK 写成 ROW_NUMBER(并列不同名次)" $GR 's/rank\(\) OVER \(ORDER BY t2\.lines DESC\)/row_number() OVER (ORDER BY t2.lines DESC, t2.store_code)/'
-GC=gen/db/sales.list-category-sales.sql.go
+GC=gen/db/receipts.list-category-sales.sql.go
 run "分组: 少了分组键 category"           $GC 's/t1\.category COLLATE "C" AS category/min(t1.category COLLATE "C") AS category/; s/GROUP BY t1\.store_code, t1\.category COLLATE "C"/GROUP BY t1.store_code/'
 run "分组: 少了分组键 store_code"         $GC 's/SELECT t1\.store_code AS store_code, t1\.category/SELECT min(t1.store_code) AS store_code, t1.category/; s/GROUP BY t1\.store_code, t1\.category/GROUP BY t1.category/'
 run "分组: NULL 的键分成多组"             $GC 's/GROUP BY t1\.store_code, t1\.category COLLATE "C"/GROUP BY t1.store_code, t1.category COLLATE "C", CASE WHEN t1.category IS NULL THEN t1.line_id END/'
 run "分组: 最小 ↔ 最大"                   $GC 's/min\(t1\.discount\) AS min_discount/max(t1.discount) AS min_discount/'
-GP=gen/db/sales.list-store-sales-totals.sql.go
+GP=gen/db/receipts.list-store-sales-totals.sql.go
 run "分组+分页: 全部为空的最大值变成 0"     $GP 's/max\(t1\.discount\) AS max_discount/coalesce(max(t1.discount), 0) AS max_discount/'
 run "分组+分页: 游标 > 写成 >="           $GP 's/\(t3\.store_code\) > \(\$2::int4\)/(t3.store_code) >= (\$2::int4)/'
 [[ -n ${PLAN:-} ]] && exit 0
