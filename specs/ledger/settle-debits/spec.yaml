@@ -152,6 +152,8 @@ behavior:
       then: 只结算列出的账户,照样发出 account.settled;没列出的扣款保持原样(由发消息的一方保证列全)
     - when: 消息里有任一账户找不到这笔转账的扣款(不管其他账户是否已撤销、金额是否不同、held 是否不够)
       then: 整条消息按毒消息处理(DLQ),什么都不写,不发出 account.settled;不再判定 ALREADY_REVERSED / AMOUNT_MISMATCH / HELD_SHORT
+    - when: 这笔转账在消息里没有列出的账户上有已撤销的扣款,而列出的账户都是 HELD
+      then: 只按列出的账户判定:照样结算列出的账户,发出 account.settled。「有的 HELD、有的已撤销 → 整条不提交」只适用于消息里列出的账户(由发消息的一方保证列全)
 acceptance:
     fixtures:
         accounts:
@@ -417,3 +419,5 @@ review_decisions:
       decision: 保持现在的行为(只结算列出的账户)
     - question: '一条消息里有的账户已撤销、有的账户根本没有这笔扣款时,应该记成毒消息,还是 ALREADY_REVERSED?例: transfer 8 的结算消息写了 ACC-001(扣款已撤销)和 ACC-003(没有 transfer 8 的扣款)。'
       decision: 保持现在的行为(找不到扣款最优先 → 毒消息)
+    - question: '消息里只列出了 HELD 的账户、而这笔转账在没列出的账户上已经撤销时,是照样结算成功,还是进 DLQ(ALREADY_REVERSED)?例: transfer 8 的 ACC-001 已撤销、ACC-002 是 HELD,消息只写了 { ACC-002, 5 }。'
+      decision: 保持现在的行为(只看消息里列出的账户)

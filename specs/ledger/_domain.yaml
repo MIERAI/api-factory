@@ -38,4 +38,6 @@ entities:
                         3: DEBIT_STATUS_REVERSED
                 on_unknown: unspecified
         invariants: []
-review_decisions: []
+review_decisions:
+    - question: '扣款是 HELD、但 accounts 里没有这个账户时(例: debits 里有 transfer 7 / ACC-009 的 HELD 扣款,而 ACC-009 不在 accounts 里),要怎么处理?'
+      decision: 保持现在的行为(和找不到扣款一样 → 毒消息)

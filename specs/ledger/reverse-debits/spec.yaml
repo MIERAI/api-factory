@@ -47,6 +47,19 @@ pattern:
               cond: status = 1
               not_found: debit not found (transfer {transfer_id})
               skip: true
+            - name: 检查
+              kind: update
+              table: accounts
+              key:
+                - column: account_id
+                  expr: 项.account_id
+              values:
+                - column: held
+                  expr: held
+              cond: held >= 撤销.amount
+              not_found: account not found (transfer {transfer_id})
+              only: 撤销.已更新
+              skip: true
             - name: 退回
               kind: update
               table: accounts
@@ -59,7 +72,7 @@ pattern:
                 - column: held
                   expr: held - 撤销.amount
               not_found: account not found (transfer {transfer_id})
-              only: 撤销.已更新
+              only: 检查.已更新
         receive:
             type: account.reverse
             version: 1
@@ -67,6 +80,10 @@ pattern:
         results:
             - name: ALREADY_SETTLED
               when: 撤销.status = 2
+              any: true
+              dlq: true
+            - name: HELD_SHORT
+              when: 检查.held < 撤销.amount
               any: true
               dlq: true
             - name: 成功
@@ -136,6 +153,10 @@ behavior:
       then: 整条消息不提交,进 DLQ(ALREADY_SETTLED,需要人处理。钱已经结算,不能自动退)
     - when: 消息里的金额和扣款记录的金额不同
       then: 按扣款记录的金额退回(消息里的金额只用于墓碑)
+    - when: 扣款是 HELD,但账户的 held 比扣款金额少
+      then: 整条消息不提交,进 DLQ(HELD_SHORT,数据不一致,需要人处理)
+    - when: 一个账户的扣款已经结算、另一个是 HELD 或者还没到
+      then: 整条消息都不提交(HELD 的不退回,没到的也不留墓碑),进 DLQ(ALREADY_SETTLED)
     - when: 撤销完成
       then: 发出 account.reversed
     - when: 消息里的金额和扣款记录的金额不同
@@ -148,6 +169,11 @@ acceptance:
               held: 50
               opened_at: "2026-11-01T00:00:00Z"
               owner: alice
+            - account_id: ACC-002
+              balance: 10
+              held: 3
+              opened_at: "2026-11-01T00:00:00Z"
+              owner: bob
         debits:
             - account_id: ACC-001
               amount: 50
@@ -164,6 +190,16 @@ acceptance:
               debited_at: "2026-11-21T00:00:00Z"
               status: DEBIT_STATUS_SETTLED
               transfer_id: 5
+            - account_id: ACC-002
+              amount: 2
+              debited_at: "2026-11-21T00:00:00Z"
+              status: DEBIT_STATUS_HELD
+              transfer_id: 5
+            - account_id: ACC-002
+              amount: 6
+              debited_at: "2026-11-21T00:00:00Z"
+              status: DEBIT_STATUS_HELD
+              transfer_id: 4
     cases:
         - name: HELD → 退回;没到的账户 → 墓碑
           request:
@@ -184,6 +220,8 @@ acceptance:
                     - account_id: ACC-001
                       balance: 500
                       held: 0
+                    - account_id: ACC-002
+                      held: 3
                 debits:
                     - account_id: ACC-001
                       amount: 50
@@ -201,6 +239,12 @@ acceptance:
                     - account_id: ACC-001
                       status: DEBIT_STATUS_SETTLED
                       transfer_id: 5
+                    - account_id: ACC-002
+                      status: DEBIT_STATUS_HELD
+                      transfer_id: 5
+                    - account_id: ACC-002
+                      status: DEBIT_STATUS_HELD
+                      transfer_id: 4
           emitted:
             - type: account.reversed
               data:
@@ -236,9 +280,82 @@ acceptance:
           after:
             unchanged: true
           emitted: []
+        - name: 消息里的金额和扣款记录不同(记录 50、消息 30)→ 按扣款记录的 50 退回
+          request:
+            lines:
+                - account_id: ACC-001
+                  amount: 30
+            transfer_id: 7
+          expect:
+            code: OK
+            response: {}
+          steps: []
+          now: "2026-11-22T01:00:00Z"
+          after:
+            tables:
+                accounts:
+                    - account_id: ACC-001
+                      balance: 500
+                      held: 0
+                    - account_id: ACC-002
+                      balance: 10
+                      held: 3
+                debits:
+                    - account_id: ACC-001
+                      amount: 50
+                      status: DEBIT_STATUS_REVERSED
+                      transfer_id: 7
+                    - account_id: ACC-001
+                      status: DEBIT_STATUS_REVERSED
+                      transfer_id: 8
+                    - account_id: ACC-001
+                      status: DEBIT_STATUS_SETTLED
+                      transfer_id: 5
+                    - account_id: ACC-002
+                      status: DEBIT_STATUS_HELD
+                      transfer_id: 5
+                    - account_id: ACC-002
+                      status: DEBIT_STATUS_HELD
+                      transfer_id: 4
+          emitted:
+            - type: account.reversed
+              data:
+                transfer_id: 7
+        - name: 一个账户已结算、另一个是 HELD → 整条消息不提交(死信)
+          request:
+            lines:
+                - account_id: ACC-001
+                  amount: 10
+                - account_id: ACC-002
+                  amount: 2
+            transfer_id: 5
+          expect:
+            code: DLQ:ALREADY_SETTLED
+            response: {}
+          steps: []
+          now: "2026-11-22T01:00:00Z"
+          after:
+            unchanged: true
+          emitted: []
+        - name: 扣款 HELD 但 held 比金额少 → 死信(HELD_SHORT)
+          request:
+            lines:
+                - account_id: ACC-002
+                  amount: 6
+            transfer_id: 4
+          expect:
+            code: DLQ:HELD_SHORT
+            response: {}
+          steps: []
+          now: "2026-11-22T01:00:00Z"
+          after:
+            unchanged: true
+          emitted: []
 logic_examples: []
 review_decisions:
     - question: 收到撤销时,某个账户的扣款已经是 SETTLED(已结算),现在的行为是跳过这个账户、钱不退,但整条消息仍然发出 account.reversed(撤销完成)。这是想要的吗?
       decision: 已经直接修改了设计书
     - question: '撤销消息里的金额和扣款记录的金额不一样时(例: 扣款记录 50,消息里写 30),现在的行为是按扣款记录的 50 退回,消息里的 30 被忽略。这是想要的吗?'
       decision: 保持现在的行为:按扣款记录的金额退
+    - question: '扣款是 HELD,但账户的 held 比扣款金额少时(例: transfer 7 / ACC-001 的扣款 50 是 HELD,而 accounts 里 ACC-001 的 held 只有 30),撤销要怎么处理?'
+      decision: 已经直接修改了设计书

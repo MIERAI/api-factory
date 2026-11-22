@@ -1177,6 +1177,19 @@
           "transfer_id": 8
         },
         "response": {}
+      },
+      {
+        "name": "消息里的金额和扣款记录不同(记录 50、消息 30)→ 按扣款记录的 50 退回",
+        "request": {
+          "lines": [
+            {
+              "account_id": "ACC-001",
+              "amount": 30
+            }
+          ],
+          "transfer_id": 7
+        },
+        "response": {}
       }
     ]
   },

@@ -27,6 +27,7 @@ func (h *Handler) ReverseDebits(ctx context.Context, tx pgx.Tx, env message.Enve
 		return consume.Poison(err)
 	}
 	var any1 bool // 结果 ALREADY_SETTLED: 任一项 撤销.status = 2
+	var any2 bool // 结果 HELD_SHORT: 任一项 检查.held < 撤销.amount
 	items := slices.Clone(m.GetLines())
 	slices.SortStableFunc(items, func(a, b *ledgerv1.ReverseDebitsLine) int { return cmp.Compare(a.GetAccountId(), b.GetAccountId()) }) // 按元素的键排序: 并发的处理按同一个顺序加行锁
 	err := txn.Savepoint(ctx, tx, func(ctx context.Context, tx pgx.Tx) error {                                                          // 业务结果: 回滚到这里(去重记录和结果的消息照样提交)
@@ -72,7 +73,35 @@ func (h *Handler) ReverseDebits(ctx context.Context, tx pgx.Tx, env message.Enve
 			} else if txn.ReasonOf(err) != txn.Unmet { // 条件不成立: 跳过
 				return err
 			}
-			if updated2 { // 仅当 撤销.已更新
+			var r3 struct { // 检查(accounts)的返回值
+				Held int64
+			}
+			var ran3 bool     // 检查: 执行了(仅当)
+			var updated3 bool // 检查: 真的更新了
+			if updated2 {     // 仅当 撤销.已更新
+				ran3 = true
+				if err := txn.RunIn(ctx, tx, txn.Op{ // 检查
+					Kind:  txn.Update,
+					Table: "accounts",
+					Values: []txn.Col{
+						{Name: "held", Expr: txn.C("held")},
+					},
+					Key: []txn.Col{
+						{Name: "account_id", Value: it.GetAccountId()},
+					},
+					Cond:      txn.Cmp(">=", txn.C("held"), txn.V(txn.Later(func() any { return r2.Amount }))),
+					Unmet:     "SKIP",
+					Returning: []string{"held"},
+					Into:      []any{&r3.Held},
+					NotFound:  fmt.Sprintf("account not found (transfer %v)", m.GetTransferId()),
+				},
+				); err == nil {
+					updated3 = true
+				} else if txn.ReasonOf(err) != txn.Unmet { // 条件不成立: 跳过
+					return err
+				}
+			}
+			if updated3 { // 仅当 检查.已更新
 				if err := txn.RunIn(ctx, tx, txn.Op{ // 退回
 					Kind:  txn.Update,
 					Table: "accounts",
@@ -92,9 +121,15 @@ func (h *Handler) ReverseDebits(ctx context.Context, tx pgx.Tx, env message.Enve
 			if int64(r2.Status) == int64(2) {
 				any1 = true
 			}
+			if ran3 && int64(r3.Held) < int64(r2.Amount) {
+				any2 = true
+			}
 		}
 		if any1 { // 结果 ALREADY_SETTLED
 			return resultError("ALREADY_SETTLED")
+		}
+		if any2 { // 结果 HELD_SHORT
+			return resultError("HELD_SHORT")
 		}
 		return nil
 	})
@@ -105,6 +140,8 @@ func (h *Handler) ReverseDebits(ctx context.Context, tx pgx.Tx, env message.Enve
 	switch result {
 	case "ALREADY_SETTLED":
 		return consume.Poison(errors.New("ALREADY_SETTLED: 撤销.status = 2")) // 处理: 死信(不提交,需要人处理)
+	case "HELD_SHORT":
+		return consume.Poison(errors.New("HELD_SHORT: 检查.held < 撤销.amount")) // 处理: 死信(不提交,需要人处理)
 	}
 	d1 := &ledgerv1.AccountReversedV1{ // account.reversed v1 的 data
 		TransferId: m.GetTransferId(),
