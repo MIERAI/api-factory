@@ -105,8 +105,8 @@ func (e *diffEnv) versionsFor(lt *logicalTable, key core.Row, fill func(core.Row
 		}
 	}
 	switch r := e.rnd.Intn(24); { // 约 1/4 删除、约 1/6 逻辑删除(链的末端的表只有经过前面的关联才看得到,删除要多一些)
-	case r < 6:
-		out = append(out, version{row: key, action: spec.ActionDelete})
+	case r < 6: // 删除的版本也带着最后的值(只看操作列才知道是删除: 不处理删除的实现会把这些值读出来)
+		out = append(out, version{row: out[len(out)-1].row, action: spec.ActionDelete})
 	case r < 10 && lt.st != nil && lt.st.LogicalDeleteKey != "":
 		last := out[len(out)-1].row
 		out = append(out, version{row: last, action: spec.ActionLogicalDelete})
@@ -377,6 +377,32 @@ func sourceTargets(i int, st core.Step, name string) []sensTarget {
 		out = append(out, sensTarget{desc: name + " 的逻辑表: 不处理删除 / 逻辑删除", mutate: with(func(src []core.Step) []core.Step {
 			return append(src[:valid], src[valid+1:]...)
 		})})
+		// 有效条件的每一项单独去掉(只漏了删除 / 只漏了逻辑删除的实现)。不引用列的项(没有逻辑删除时的恒真项)不要求
+		if pred := st.Source[valid].Pred; pred != nil && pred.Op == "and" {
+			for j := range pred.Args {
+				j := j
+				if !refersColumn(pred.Args[j]) {
+					continue
+				}
+				what := []string{"删除", "逻辑删除"}[min(j, 1)]
+				out = append(out, sensTarget{desc: fmt.Sprintf("%s 的逻辑表: 不处理%s", name, what), mutate: with(func(src []core.Step) []core.Step {
+					s := src[valid]
+					var rest []*core.Expr
+					for k, a := range s.Pred.Args {
+						if k != j {
+							rest = append(rest, a)
+						}
+					}
+					if len(rest) == 1 {
+						s.Pred = rest[0]
+					} else {
+						s.Pred = core.And(rest...)
+					}
+					src[valid] = s
+					return src
+				})})
+			}
+		}
 	}
 	if pick >= 0 && valid >= 0 {
 		out = append(out, sensTarget{desc: name + " 的逻辑表: 按物理表的行关联(不取最新)", mutate: with(func(src []core.Step) []core.Step {
