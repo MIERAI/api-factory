@@ -11,3 +11,11 @@
     NotificationKind:
         NOTIFICATION_KIND_ORDER_CANCELLED: 2
         NOTIFICATION_KIND_ORDER_CONFIRMED: 1
+    RecordOrderCancelledRequest:
+        customer_id: 2
+        order_id: 1
+        reason: 3
+    RecordOrderConfirmedRequest:
+        customer_id: 2
+        order_id: 1
+        total: 3

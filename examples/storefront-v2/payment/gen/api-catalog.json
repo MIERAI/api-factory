@@ -1,5 +1,38 @@
 [
   {
+    "id": "payment.charge-payment",
+    "method": "ChargePayment",
+    "summary": "给一个订单扣款(模拟的支付网关,超过 10 万就拒绝),回答 payment.succeeded 或 payment.failed。同一个订单再来时按第一次的结果回答(收到 payment.charge v1;入口 = RabbitMQ 的队列,不是 HTTP)",
+    "path": "/payment.payment.v1.PaymentMessageHandlerService/ChargePayment",
+    "pattern": "message",
+    "cases": [
+      {
+        "name": "10 万以下 → 成功",
+        "request": {
+          "amount": "4500.50",
+          "order_id": 7
+        },
+        "response": {}
+      },
+      {
+        "name": "超过 10 万 → 拒绝",
+        "request": {
+          "amount": "100000.01",
+          "order_id": 8
+        },
+        "response": {}
+      },
+      {
+        "name": "同一个订单再来(这次金额小)→ 按第一次的结果(失败)回答",
+        "request": {
+          "amount": "1",
+          "order_id": 5
+        },
+        "response": {}
+      }
+    ]
+  },
+  {
     "id": "payment.get-payment-by-order",
     "method": "GetPaymentByOrder",
     "summary": "返回某个订单的支付结果",

@@ -26,6 +26,9 @@ const _ = connect.IsAtLeastVersion1_13_0
 const (
 	// InventoryServiceName is the fully-qualified name of the InventoryService service.
 	InventoryServiceName = "inventory.inventory.v1.InventoryService"
+	// InventoryMessageHandlerServiceName is the fully-qualified name of the
+	// InventoryMessageHandlerService service.
+	InventoryMessageHandlerServiceName = "inventory.inventory.v1.InventoryMessageHandlerService"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -45,6 +48,15 @@ const (
 	// InventoryServiceListStockBySkusProcedure is the fully-qualified name of the InventoryService's
 	// ListStockBySkus RPC.
 	InventoryServiceListStockBySkusProcedure = "/inventory.inventory.v1.InventoryService/ListStockBySkus"
+	// InventoryMessageHandlerServiceCommitStockProcedure is the fully-qualified name of the
+	// InventoryMessageHandlerService's CommitStock RPC.
+	InventoryMessageHandlerServiceCommitStockProcedure = "/inventory.inventory.v1.InventoryMessageHandlerService/CommitStock"
+	// InventoryMessageHandlerServiceReleaseStockProcedure is the fully-qualified name of the
+	// InventoryMessageHandlerService's ReleaseStock RPC.
+	InventoryMessageHandlerServiceReleaseStockProcedure = "/inventory.inventory.v1.InventoryMessageHandlerService/ReleaseStock"
+	// InventoryMessageHandlerServiceReserveStockProcedure is the fully-qualified name of the
+	// InventoryMessageHandlerService's ReserveStock RPC.
+	InventoryMessageHandlerServiceReserveStockProcedure = "/inventory.inventory.v1.InventoryMessageHandlerService/ReserveStock"
 )
 
 // InventoryServiceClient is a client for the inventory.inventory.v1.InventoryService service.
@@ -174,4 +186,135 @@ func (UnimplementedInventoryServiceHandler) GetStock(context.Context, *connect.R
 
 func (UnimplementedInventoryServiceHandler) ListStockBySkus(context.Context, *connect.Request[v1.ListStockBySkusRequest]) (*connect.Response[v1.ListStockBySkusResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("inventory.inventory.v1.InventoryService.ListStockBySkus is not implemented"))
+}
+
+// InventoryMessageHandlerServiceClient is a client for the
+// inventory.inventory.v1.InventoryMessageHandlerService service.
+type InventoryMessageHandlerServiceClient interface {
+	// 确认一个订单的预留(支付成功之后): HELD → COMMITTED,已预留数量减少(出库)。预留已经释放了 → 进 DLQ(收到 inventory.commit v1;入口 = RabbitMQ 的队列,不是 HTTP)
+	CommitStock(context.Context, *connect.Request[v1.CommitStockRequest]) (*connect.Response[v1.CommitStockResponse], error)
+	// 释放一个订单的预留(补偿): HELD 的加回可售;预留还没到的留下墓碑(之后迟到的预留不再扣)(收到 inventory.release v1;入口 = RabbitMQ 的队列,不是 HTTP)
+	ReleaseStock(context.Context, *connect.Request[v1.ReleaseStockRequest]) (*connect.Response[v1.ReleaseStockResponse], error)
+	// 为一个订单预留库存。每个 SKU 的可售数量都够才预留(全部或全不),回答 inventory.reserved 或 inventory.reservation_failed(收到 inventory.reserve v1;入口 = RabbitMQ 的队列,不是 HTTP)
+	ReserveStock(context.Context, *connect.Request[v1.ReserveStockRequest]) (*connect.Response[v1.ReserveStockResponse], error)
+}
+
+// NewInventoryMessageHandlerServiceClient constructs a client for the
+// inventory.inventory.v1.InventoryMessageHandlerService service. By default, it uses the Connect
+// protocol with the binary Protobuf Codec, asks for gzipped responses, and sends uncompressed
+// requests. To use the gRPC or gRPC-Web protocols, supply the connect.WithGRPC() or
+// connect.WithGRPCWeb() options.
+//
+// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
+// http://api.acme.com or https://acme.com/grpc).
+func NewInventoryMessageHandlerServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) InventoryMessageHandlerServiceClient {
+	baseURL = strings.TrimRight(baseURL, "/")
+	inventoryMessageHandlerServiceMethods := v1.File_inventory_inventory_v1_inventory_proto.Services().ByName("InventoryMessageHandlerService").Methods()
+	return &inventoryMessageHandlerServiceClient{
+		commitStock: connect.NewClient[v1.CommitStockRequest, v1.CommitStockResponse](
+			httpClient,
+			baseURL+InventoryMessageHandlerServiceCommitStockProcedure,
+			connect.WithSchema(inventoryMessageHandlerServiceMethods.ByName("CommitStock")),
+			connect.WithClientOptions(opts...),
+		),
+		releaseStock: connect.NewClient[v1.ReleaseStockRequest, v1.ReleaseStockResponse](
+			httpClient,
+			baseURL+InventoryMessageHandlerServiceReleaseStockProcedure,
+			connect.WithSchema(inventoryMessageHandlerServiceMethods.ByName("ReleaseStock")),
+			connect.WithClientOptions(opts...),
+		),
+		reserveStock: connect.NewClient[v1.ReserveStockRequest, v1.ReserveStockResponse](
+			httpClient,
+			baseURL+InventoryMessageHandlerServiceReserveStockProcedure,
+			connect.WithSchema(inventoryMessageHandlerServiceMethods.ByName("ReserveStock")),
+			connect.WithClientOptions(opts...),
+		),
+	}
+}
+
+// inventoryMessageHandlerServiceClient implements InventoryMessageHandlerServiceClient.
+type inventoryMessageHandlerServiceClient struct {
+	commitStock  *connect.Client[v1.CommitStockRequest, v1.CommitStockResponse]
+	releaseStock *connect.Client[v1.ReleaseStockRequest, v1.ReleaseStockResponse]
+	reserveStock *connect.Client[v1.ReserveStockRequest, v1.ReserveStockResponse]
+}
+
+// CommitStock calls inventory.inventory.v1.InventoryMessageHandlerService.CommitStock.
+func (c *inventoryMessageHandlerServiceClient) CommitStock(ctx context.Context, req *connect.Request[v1.CommitStockRequest]) (*connect.Response[v1.CommitStockResponse], error) {
+	return c.commitStock.CallUnary(ctx, req)
+}
+
+// ReleaseStock calls inventory.inventory.v1.InventoryMessageHandlerService.ReleaseStock.
+func (c *inventoryMessageHandlerServiceClient) ReleaseStock(ctx context.Context, req *connect.Request[v1.ReleaseStockRequest]) (*connect.Response[v1.ReleaseStockResponse], error) {
+	return c.releaseStock.CallUnary(ctx, req)
+}
+
+// ReserveStock calls inventory.inventory.v1.InventoryMessageHandlerService.ReserveStock.
+func (c *inventoryMessageHandlerServiceClient) ReserveStock(ctx context.Context, req *connect.Request[v1.ReserveStockRequest]) (*connect.Response[v1.ReserveStockResponse], error) {
+	return c.reserveStock.CallUnary(ctx, req)
+}
+
+// InventoryMessageHandlerServiceHandler is an implementation of the
+// inventory.inventory.v1.InventoryMessageHandlerService service.
+type InventoryMessageHandlerServiceHandler interface {
+	// 确认一个订单的预留(支付成功之后): HELD → COMMITTED,已预留数量减少(出库)。预留已经释放了 → 进 DLQ(收到 inventory.commit v1;入口 = RabbitMQ 的队列,不是 HTTP)
+	CommitStock(context.Context, *connect.Request[v1.CommitStockRequest]) (*connect.Response[v1.CommitStockResponse], error)
+	// 释放一个订单的预留(补偿): HELD 的加回可售;预留还没到的留下墓碑(之后迟到的预留不再扣)(收到 inventory.release v1;入口 = RabbitMQ 的队列,不是 HTTP)
+	ReleaseStock(context.Context, *connect.Request[v1.ReleaseStockRequest]) (*connect.Response[v1.ReleaseStockResponse], error)
+	// 为一个订单预留库存。每个 SKU 的可售数量都够才预留(全部或全不),回答 inventory.reserved 或 inventory.reservation_failed(收到 inventory.reserve v1;入口 = RabbitMQ 的队列,不是 HTTP)
+	ReserveStock(context.Context, *connect.Request[v1.ReserveStockRequest]) (*connect.Response[v1.ReserveStockResponse], error)
+}
+
+// NewInventoryMessageHandlerServiceHandler builds an HTTP handler from the service implementation.
+// It returns the path on which to mount the handler and the handler itself.
+//
+// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
+// and JSON codecs. They also support gzip compression.
+func NewInventoryMessageHandlerServiceHandler(svc InventoryMessageHandlerServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	inventoryMessageHandlerServiceMethods := v1.File_inventory_inventory_v1_inventory_proto.Services().ByName("InventoryMessageHandlerService").Methods()
+	inventoryMessageHandlerServiceCommitStockHandler := connect.NewUnaryHandler(
+		InventoryMessageHandlerServiceCommitStockProcedure,
+		svc.CommitStock,
+		connect.WithSchema(inventoryMessageHandlerServiceMethods.ByName("CommitStock")),
+		connect.WithHandlerOptions(opts...),
+	)
+	inventoryMessageHandlerServiceReleaseStockHandler := connect.NewUnaryHandler(
+		InventoryMessageHandlerServiceReleaseStockProcedure,
+		svc.ReleaseStock,
+		connect.WithSchema(inventoryMessageHandlerServiceMethods.ByName("ReleaseStock")),
+		connect.WithHandlerOptions(opts...),
+	)
+	inventoryMessageHandlerServiceReserveStockHandler := connect.NewUnaryHandler(
+		InventoryMessageHandlerServiceReserveStockProcedure,
+		svc.ReserveStock,
+		connect.WithSchema(inventoryMessageHandlerServiceMethods.ByName("ReserveStock")),
+		connect.WithHandlerOptions(opts...),
+	)
+	return "/inventory.inventory.v1.InventoryMessageHandlerService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case InventoryMessageHandlerServiceCommitStockProcedure:
+			inventoryMessageHandlerServiceCommitStockHandler.ServeHTTP(w, r)
+		case InventoryMessageHandlerServiceReleaseStockProcedure:
+			inventoryMessageHandlerServiceReleaseStockHandler.ServeHTTP(w, r)
+		case InventoryMessageHandlerServiceReserveStockProcedure:
+			inventoryMessageHandlerServiceReserveStockHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+
+// UnimplementedInventoryMessageHandlerServiceHandler returns CodeUnimplemented from all methods.
+type UnimplementedInventoryMessageHandlerServiceHandler struct{}
+
+func (UnimplementedInventoryMessageHandlerServiceHandler) CommitStock(context.Context, *connect.Request[v1.CommitStockRequest]) (*connect.Response[v1.CommitStockResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("inventory.inventory.v1.InventoryMessageHandlerService.CommitStock is not implemented"))
+}
+
+func (UnimplementedInventoryMessageHandlerServiceHandler) ReleaseStock(context.Context, *connect.Request[v1.ReleaseStockRequest]) (*connect.Response[v1.ReleaseStockResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("inventory.inventory.v1.InventoryMessageHandlerService.ReleaseStock is not implemented"))
+}
+
+func (UnimplementedInventoryMessageHandlerServiceHandler) ReserveStock(context.Context, *connect.Request[v1.ReserveStockRequest]) (*connect.Response[v1.ReserveStockResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("inventory.inventory.v1.InventoryMessageHandlerService.ReserveStock is not implemented"))
 }

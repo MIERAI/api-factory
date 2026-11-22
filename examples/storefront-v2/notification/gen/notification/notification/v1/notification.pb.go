@@ -234,6 +234,208 @@ func (x *ListNotificationsByOrderResponse) GetNotifications() []*Notification {
 	return nil
 }
 
+// 收到订单取消的事件,记一条通知(同一个事件只记一次)
+type RecordOrderCancelledRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 订单号
+	OrderId int64 `protobuf:"varint,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
+	// 客户
+	CustomerId int64 `protobuf:"varint,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`
+	// 取消的原因
+	Reason        *string `protobuf:"bytes,3,opt,name=reason,proto3,oneof" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecordOrderCancelledRequest) Reset() {
+	*x = RecordOrderCancelledRequest{}
+	mi := &file_notification_notification_v1_notification_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecordOrderCancelledRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecordOrderCancelledRequest) ProtoMessage() {}
+
+func (x *RecordOrderCancelledRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_notification_notification_v1_notification_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecordOrderCancelledRequest.ProtoReflect.Descriptor instead.
+func (*RecordOrderCancelledRequest) Descriptor() ([]byte, []int) {
+	return file_notification_notification_v1_notification_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *RecordOrderCancelledRequest) GetOrderId() int64 {
+	if x != nil {
+		return x.OrderId
+	}
+	return 0
+}
+
+func (x *RecordOrderCancelledRequest) GetCustomerId() int64 {
+	if x != nil {
+		return x.CustomerId
+	}
+	return 0
+}
+
+func (x *RecordOrderCancelledRequest) GetReason() string {
+	if x != nil && x.Reason != nil {
+		return *x.Reason
+	}
+	return ""
+}
+
+// 收到订单取消的事件,记一条通知(同一个事件只记一次)
+type RecordOrderCancelledResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecordOrderCancelledResponse) Reset() {
+	*x = RecordOrderCancelledResponse{}
+	mi := &file_notification_notification_v1_notification_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecordOrderCancelledResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecordOrderCancelledResponse) ProtoMessage() {}
+
+func (x *RecordOrderCancelledResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_notification_notification_v1_notification_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecordOrderCancelledResponse.ProtoReflect.Descriptor instead.
+func (*RecordOrderCancelledResponse) Descriptor() ([]byte, []int) {
+	return file_notification_notification_v1_notification_proto_rawDescGZIP(), []int{4}
+}
+
+// 收到订单完成的事件,记一条通知(同一个事件只记一次)
+type RecordOrderConfirmedRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 订单号
+	OrderId int64 `protobuf:"varint,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
+	// 客户
+	CustomerId int64 `protobuf:"varint,2,opt,name=customer_id,json=customerId,proto3" json:"customer_id,omitempty"`
+	// 订单金额
+	Total         string `protobuf:"bytes,3,opt,name=total,proto3" json:"total,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecordOrderConfirmedRequest) Reset() {
+	*x = RecordOrderConfirmedRequest{}
+	mi := &file_notification_notification_v1_notification_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecordOrderConfirmedRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecordOrderConfirmedRequest) ProtoMessage() {}
+
+func (x *RecordOrderConfirmedRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_notification_notification_v1_notification_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecordOrderConfirmedRequest.ProtoReflect.Descriptor instead.
+func (*RecordOrderConfirmedRequest) Descriptor() ([]byte, []int) {
+	return file_notification_notification_v1_notification_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *RecordOrderConfirmedRequest) GetOrderId() int64 {
+	if x != nil {
+		return x.OrderId
+	}
+	return 0
+}
+
+func (x *RecordOrderConfirmedRequest) GetCustomerId() int64 {
+	if x != nil {
+		return x.CustomerId
+	}
+	return 0
+}
+
+func (x *RecordOrderConfirmedRequest) GetTotal() string {
+	if x != nil {
+		return x.Total
+	}
+	return ""
+}
+
+// 收到订单完成的事件,记一条通知(同一个事件只记一次)
+type RecordOrderConfirmedResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecordOrderConfirmedResponse) Reset() {
+	*x = RecordOrderConfirmedResponse{}
+	mi := &file_notification_notification_v1_notification_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecordOrderConfirmedResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecordOrderConfirmedResponse) ProtoMessage() {}
+
+func (x *RecordOrderConfirmedResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_notification_notification_v1_notification_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecordOrderConfirmedResponse.ProtoReflect.Descriptor instead.
+func (*RecordOrderConfirmedResponse) Descriptor() ([]byte, []int) {
+	return file_notification_notification_v1_notification_proto_rawDescGZIP(), []int{6}
+}
+
 var File_notification_notification_v1_notification_proto protoreflect.FileDescriptor
 
 const file_notification_notification_v1_notification_proto_rawDesc = "" +
@@ -246,13 +448,29 @@ const file_notification_notification_v1_notification_proto_rawDesc = "" +
 	"\x1fListNotificationsByOrderRequest\x12\"\n" +
 	"\border_id\x18\x01 \x01(\x03B\a\xbaH\x04\"\x02 \x00R\aorderId\"t\n" +
 	" ListNotificationsByOrderResponse\x12P\n" +
-	"\rnotifications\x18\x01 \x03(\v2*.notification.notification.v1.NotificationR\rnotifications*\x83\x01\n" +
+	"\rnotifications\x18\x01 \x03(\v2*.notification.notification.v1.NotificationR\rnotifications\"\x9e\x01\n" +
+	"\x1bRecordOrderCancelledRequest\x12\"\n" +
+	"\border_id\x18\x01 \x01(\x03B\a\xbaH\x04\"\x02 \x00R\aorderId\x12(\n" +
+	"\vcustomer_id\x18\x02 \x01(\x03B\a\xbaH\x04\"\x02 \x00R\n" +
+	"customerId\x12&\n" +
+	"\x06reason\x18\x03 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18@H\x00R\x06reason\x88\x01\x01B\t\n" +
+	"\a_reason\"\x1e\n" +
+	"\x1cRecordOrderCancelledResponse\"\x97\x01\n" +
+	"\x1bRecordOrderConfirmedRequest\x12\"\n" +
+	"\border_id\x18\x01 \x01(\x03B\a\xbaH\x04\"\x02 \x00R\aorderId\x12(\n" +
+	"\vcustomer_id\x18\x02 \x01(\x03B\a\xbaH\x04\"\x02 \x00R\n" +
+	"customerId\x12*\n" +
+	"\x05total\x18\x03 \x01(\tB\x14\xbaH\x11r\x0f2\r^\\d+(\\.\\d+)?$R\x05total\"\x1e\n" +
+	"\x1cRecordOrderConfirmedResponse*\x83\x01\n" +
 	"\x10NotificationKind\x12!\n" +
 	"\x1dNOTIFICATION_KIND_UNSPECIFIED\x10\x00\x12%\n" +
 	"!NOTIFICATION_KIND_ORDER_CONFIRMED\x10\x01\x12%\n" +
 	"!NOTIFICATION_KIND_ORDER_CANCELLED\x10\x022\xb1\x01\n" +
 	"\x13NotificationService\x12\x99\x01\n" +
-	"\x18ListNotificationsByOrder\x12=.notification.notification.v1.ListNotificationsByOrderRequest\x1a>.notification.notification.v1.ListNotificationsByOrderResponseBdZbgithub.com/MIERAI/storefront/services/notification/gen/notification/notification/v1;notificationv1b\x06proto3"
+	"\x18ListNotificationsByOrder\x12=.notification.notification.v1.ListNotificationsByOrderRequest\x1a>.notification.notification.v1.ListNotificationsByOrderResponse2\xc3\x02\n" +
+	"!NotificationMessageHandlerService\x12\x8d\x01\n" +
+	"\x14RecordOrderCancelled\x129.notification.notification.v1.RecordOrderCancelledRequest\x1a:.notification.notification.v1.RecordOrderCancelledResponse\x12\x8d\x01\n" +
+	"\x14RecordOrderConfirmed\x129.notification.notification.v1.RecordOrderConfirmedRequest\x1a:.notification.notification.v1.RecordOrderConfirmedResponseBdZbgithub.com/MIERAI/storefront/services/notification/gen/notification/notification/v1;notificationv1b\x06proto3"
 
 var (
 	file_notification_notification_v1_notification_proto_rawDescOnce sync.Once
@@ -267,22 +485,30 @@ func file_notification_notification_v1_notification_proto_rawDescGZIP() []byte {
 }
 
 var file_notification_notification_v1_notification_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_notification_notification_v1_notification_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_notification_notification_v1_notification_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_notification_notification_v1_notification_proto_goTypes = []any{
 	(NotificationKind)(0),                    // 0: notification.notification.v1.NotificationKind
 	(*Notification)(nil),                     // 1: notification.notification.v1.Notification
 	(*ListNotificationsByOrderRequest)(nil),  // 2: notification.notification.v1.ListNotificationsByOrderRequest
 	(*ListNotificationsByOrderResponse)(nil), // 3: notification.notification.v1.ListNotificationsByOrderResponse
-	(*timestamppb.Timestamp)(nil),            // 4: google.protobuf.Timestamp
+	(*RecordOrderCancelledRequest)(nil),      // 4: notification.notification.v1.RecordOrderCancelledRequest
+	(*RecordOrderCancelledResponse)(nil),     // 5: notification.notification.v1.RecordOrderCancelledResponse
+	(*RecordOrderConfirmedRequest)(nil),      // 6: notification.notification.v1.RecordOrderConfirmedRequest
+	(*RecordOrderConfirmedResponse)(nil),     // 7: notification.notification.v1.RecordOrderConfirmedResponse
+	(*timestamppb.Timestamp)(nil),            // 8: google.protobuf.Timestamp
 }
 var file_notification_notification_v1_notification_proto_depIdxs = []int32{
 	0, // 0: notification.notification.v1.Notification.kind:type_name -> notification.notification.v1.NotificationKind
-	4, // 1: notification.notification.v1.Notification.sent_at:type_name -> google.protobuf.Timestamp
+	8, // 1: notification.notification.v1.Notification.sent_at:type_name -> google.protobuf.Timestamp
 	1, // 2: notification.notification.v1.ListNotificationsByOrderResponse.notifications:type_name -> notification.notification.v1.Notification
 	2, // 3: notification.notification.v1.NotificationService.ListNotificationsByOrder:input_type -> notification.notification.v1.ListNotificationsByOrderRequest
-	3, // 4: notification.notification.v1.NotificationService.ListNotificationsByOrder:output_type -> notification.notification.v1.ListNotificationsByOrderResponse
-	4, // [4:5] is the sub-list for method output_type
-	3, // [3:4] is the sub-list for method input_type
+	4, // 4: notification.notification.v1.NotificationMessageHandlerService.RecordOrderCancelled:input_type -> notification.notification.v1.RecordOrderCancelledRequest
+	6, // 5: notification.notification.v1.NotificationMessageHandlerService.RecordOrderConfirmed:input_type -> notification.notification.v1.RecordOrderConfirmedRequest
+	3, // 6: notification.notification.v1.NotificationService.ListNotificationsByOrder:output_type -> notification.notification.v1.ListNotificationsByOrderResponse
+	5, // 7: notification.notification.v1.NotificationMessageHandlerService.RecordOrderCancelled:output_type -> notification.notification.v1.RecordOrderCancelledResponse
+	7, // 8: notification.notification.v1.NotificationMessageHandlerService.RecordOrderConfirmed:output_type -> notification.notification.v1.RecordOrderConfirmedResponse
+	6, // [6:9] is the sub-list for method output_type
+	3, // [3:6] is the sub-list for method input_type
 	3, // [3:3] is the sub-list for extension type_name
 	3, // [3:3] is the sub-list for extension extendee
 	0, // [0:3] is the sub-list for field type_name
@@ -293,15 +519,16 @@ func file_notification_notification_v1_notification_proto_init() {
 	if File_notification_notification_v1_notification_proto != nil {
 		return
 	}
+	file_notification_notification_v1_notification_proto_msgTypes[3].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_notification_notification_v1_notification_proto_rawDesc), len(file_notification_notification_v1_notification_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   3,
+			NumMessages:   7,
 			NumExtensions: 0,
-			NumServices:   1,
+			NumServices:   2,
 		},
 		GoTypes:           file_notification_notification_v1_notification_proto_goTypes,
 		DependencyIndexes: file_notification_notification_v1_notification_proto_depIdxs,

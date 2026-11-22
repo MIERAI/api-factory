@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS reservations (
     sku         TEXT        NOT NULL,
     qty         INTEGER     NOT NULL CHECK (qty > 0),
     status      INTEGER     NOT NULL DEFAULT 1 CHECK (status IN (1, 2, 3)),   -- 1 held, 2 committed, 3 released
-    expires_at  TIMESTAMPTZ NOT NULL,
+    expires_at  TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '24 hours'),   -- a safety net only (R5 drives the saga)
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (order_id, sku)
 );

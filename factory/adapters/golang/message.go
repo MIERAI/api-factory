@@ -47,6 +47,8 @@ func (cg *cmdGen) cmpOperand(x *ir.CmdExpr, ran map[string]bool) (expr, kind, gu
 			return fmt.Sprintf("%q", x.Value), "text", "", nil
 		case x.Type == "bool":
 			return x.Value, "bool", "", nil
+		case x.Type == "numeric":
+			return fmt.Sprintf("%q", x.Value), "dec", "", nil
 		}
 	case "input", "item", "env":
 		v, err := cg.value(x)
@@ -104,12 +106,15 @@ func (cg *cmdGen) condRan(x *ir.CmdExpr, ran map[string]bool) (string, error) {
 	if op == "" {
 		op = x.Op
 	}
-	if ka != "int" && op != "==" && op != "!=" {
+	if ka != "int" && ka != "dec" && op != "==" && op != "!=" {
 		return "", fmt.Errorf("condition: %s only = / <>", ka)
 	}
 	e := fmt.Sprintf("%s %s %s", a, op, b)
-	if ka == "int" {
+	switch ka {
+	case "int":
 		e = fmt.Sprintf("int64(%s) %s int64(%s)", a, op, b)
+	case "dec": // 十进制: 按数值比较(文本是 protojson / 数据库的写法)
+		e = fmt.Sprintf("decCmp(%s, %s) %s 0", a, b, op)
 	}
 	var guards []string
 	for _, gd := range []string{ga, gb} {
@@ -133,6 +138,8 @@ func kindOfSQL(t string) string {
 		return "text"
 	case t == "bool":
 		return "bool"
+	case t == "numeric":
+		return "dec"
 	}
 	return ""
 }
@@ -457,6 +464,7 @@ package %s
 import (
 	"context"
 	"errors"
+	"math/big"
 
 	"github.com/jackc/pgx/v5"
 	"google.golang.org/protobuf/proto"
@@ -482,6 +490,16 @@ func emitMsg(kind message.Kind, typ string, version int, subject string, data pr
 type protoData struct{ m proto.Message }
 
 func (d protoData) MarshalJSON() ([]byte, error) { return message.EncodeData(d.m) }
+
+// decCmp: 两个十进制的文本按数值比较(-1 / 0 / 1)。解不开的当成 0(契约的校验已经拒绝了不合法的写法)。
+func decCmp(a, b string) int {
+	x, ok1 := new(big.Rat).SetString(a)
+	y, ok2 := new(big.Rat).SetString(b)
+	if !ok1 || !ok2 {
+		return 0
+	}
+	return x.Cmp(y)
+}
 
 // resultError: 结果的 当 成立(保存点回滚,走那个结果的分支)。
 type resultError string

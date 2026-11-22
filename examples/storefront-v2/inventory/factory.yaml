@@ -1,3 +1,4 @@
 # This project's settings; everything else (AI models, the adapter) comes from the factory's factory.yaml.
 proto:
   package_prefix: inventory
+contracts: ../contracts   # 消息契约的共享目录(R4: 生产者写、消费者读,锁文件检查版本规则)

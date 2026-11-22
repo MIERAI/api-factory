@@ -25,6 +25,15 @@ service NotificationService {
   rpc ListNotificationsByOrder(ListNotificationsByOrderRequest) returns (ListNotificationsByOrderResponse);
 }
 
+// 订单完成或取消时发出的通知 的消息处理器(R4)。不是 HTTP 的服务(不挂载): 入口是 RabbitMQ 的队列,请求 = 收到的消息的 data
+service NotificationMessageHandlerService {
+  // 收到订单取消的事件,记一条通知(同一个事件只记一次)(收到 order.cancelled v1;入口 = RabbitMQ 的队列,不是 HTTP)
+  rpc RecordOrderCancelled(RecordOrderCancelledRequest) returns (RecordOrderCancelledResponse);
+
+  // 收到订单完成的事件,记一条通知(同一个事件只记一次)(收到 order.confirmed v1;入口 = RabbitMQ 的队列,不是 HTTP)
+  rpc RecordOrderConfirmed(RecordOrderConfirmedRequest) returns (RecordOrderConfirmedResponse);
+}
+
 // 发出的通知(一个事件一条:同一个事件投递两次只记一次)
 message Notification {
   // 事件 ID
@@ -45,4 +54,32 @@ message ListNotificationsByOrderRequest {
 message ListNotificationsByOrderResponse {
   // 最多 20 件;超过时返回错误(不会截断)
   repeated Notification notifications = 1;
+}
+
+// 收到订单取消的事件,记一条通知(同一个事件只记一次)
+message RecordOrderCancelledRequest {
+  // 订单号
+  int64 order_id = 1 [(buf.validate.field).int64.gt = 0];
+  // 客户
+  int64 customer_id = 2 [(buf.validate.field).int64.gt = 0];
+  // 取消的原因
+  optional string reason = 3 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 64];
+}
+
+// 收到订单取消的事件,记一条通知(同一个事件只记一次)
+message RecordOrderCancelledResponse {
+}
+
+// 收到订单完成的事件,记一条通知(同一个事件只记一次)
+message RecordOrderConfirmedRequest {
+  // 订单号
+  int64 order_id = 1 [(buf.validate.field).int64.gt = 0];
+  // 客户
+  int64 customer_id = 2 [(buf.validate.field).int64.gt = 0];
+  // 订单金额
+  string total = 3 [(buf.validate.field).string.pattern = "^\\d+(\\.\\d+)?$"];
+}
+
+// 收到订单完成的事件,记一条通知(同一个事件只记一次)
+message RecordOrderConfirmedResponse {
 }

@@ -34,5 +34,40 @@
         }
       }
     ]
+  },
+  {
+    "id": "notification.record-order-cancelled",
+    "method": "RecordOrderCancelled",
+    "summary": "收到订单取消的事件,记一条通知(同一个事件只记一次)(收到 order.cancelled v1;入口 = RabbitMQ 的队列,不是 HTTP)",
+    "path": "/notification.notification.v1.NotificationMessageHandlerService/RecordOrderCancelled",
+    "pattern": "message",
+    "cases": [
+      {
+        "name": "记一条通知",
+        "request": {
+          "customer_id": 42,
+          "order_id": 7
+        },
+        "response": {}
+      }
+    ]
+  },
+  {
+    "id": "notification.record-order-confirmed",
+    "method": "RecordOrderConfirmed",
+    "summary": "收到订单完成的事件,记一条通知(同一个事件只记一次)(收到 order.confirmed v1;入口 = RabbitMQ 的队列,不是 HTTP)",
+    "path": "/notification.notification.v1.NotificationMessageHandlerService/RecordOrderConfirmed",
+    "pattern": "message",
+    "cases": [
+      {
+        "name": "记一条通知",
+        "request": {
+          "customer_id": 42,
+          "order_id": 7,
+          "total": "4500.50"
+        },
+        "response": {}
+      }
+    ]
   }
 ]

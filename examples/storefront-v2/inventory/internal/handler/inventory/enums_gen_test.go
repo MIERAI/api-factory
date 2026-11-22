@@ -10,6 +10,36 @@ import (
 	inventoryv1 "github.com/MIERAI/storefront/services/inventory/gen/inventory/inventory/v1"
 )
 
+func Test_reservationsStatus_RoundTrip(t *testing.T) {
+	cases := []struct {
+		db int32
+		pb inventoryv1.ReservationStatus
+	}{
+		{1, inventoryv1.ReservationStatus_RESERVATION_STATUS_HELD},
+		{2, inventoryv1.ReservationStatus_RESERVATION_STATUS_COMMITTED},
+		{3, inventoryv1.ReservationStatus_RESERVATION_STATUS_RELEASED},
+	}
+	for _, c := range cases {
+		if got := reservationsStatusToProto(c.db); got != c.pb {
+			t.Errorf("ToProto(%d) = %v, want %v", c.db, got, c.pb)
+		}
+		if got := reservationsStatusToDB(c.pb); got != c.db {
+			t.Errorf("ToDB(%v) = %d, want %d", c.pb, got, c.db)
+		}
+	}
+}
+
+func Test_reservationsStatus_Unknown(t *testing.T) {
+	if got := reservationsStatusToProto(103); got != inventoryv1.ReservationStatus_RESERVATION_STATUS_UNSPECIFIED {
+		t.Fatalf("unknown DB value: got %v, want UNSPECIFIED", got)
+	}
+	var w strings.Builder
+	anomaly.WriteMetrics(&w)
+	if !strings.Contains(w.String(), `data_anomaly_total{table="reservations",column="status"}`) {
+		t.Fatalf("anomaly not reported:\n%s", w.String())
+	}
+}
+
 func Test_stockAdjustmentsReason_RoundTrip(t *testing.T) {
 	cases := []struct {
 		db int32
