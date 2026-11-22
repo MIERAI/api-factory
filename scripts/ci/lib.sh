@@ -24,7 +24,7 @@ stage() {
 }
 
 # 这次改动的式样书(design/ 的变化 → 生成的 specs/<领域>/<api>/spec.yaml)。
-# 领域.yaml 变了 = 这个领域的全部 API。BASE 之后改过的。
+# 领域.yaml 变了 = 这个领域的全部 API。BASE 之后改过的。(生成用;审查用更窄的 factory review-changed)
 changed_specs() {
   local base=$1 f dom
   local files; files=$(git -c core.quotePath=false diff --name-only "$base" -- design/ 2>/dev/null || true)
