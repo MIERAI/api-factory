@@ -61,6 +61,7 @@ type API struct {
 	// ExitParams: 出口自己的参数(新出口不用改 IR;例如 前N条 的 n)
 	ExitParams map[string]any `json:"exit_params,omitempty"`
 	Compute    *Compute       `json:"compute,omitempty"`
+	Command    *Command       `json:"command,omitempty"` // 命令工厂(写入): 没有 Query / Pipeline
 
 	// BaseRequest: 第一个 code: OK 的人写用例的请求(自动生成校验边界用例时作为"其他字段都合法"的基础)
 	BaseRequest map[string]any `json:"base_request,omitempty"`
@@ -156,6 +157,52 @@ type Keyset struct {
 	DefaultSize int32    `json:"default_size"`
 	MaxSize     int32    `json:"max_size"`
 	ItemsField  string   `json:"items_field"` // 响应里的 repeated message 字段
+}
+
+// Command: 命令工厂的一个写操作(R3-1)。语义(factory/command 的模型状态和运行时 txn 一致):
+//   - insert: INSERT 写入的列 + 固定值 RETURNING 响应的列
+//   - update: UPDATE SET 写入的列 + 固定值 [+ 版本 + 1] WHERE 主键 [AND 版本 = 请求的值] RETURNING …
+//   - delete: DELETE WHERE 主键 [AND 版本 = 请求的值] RETURNING …
+//
+// 没有碰到行 → 同一个事务里再读: 不存在 → NOT_FOUND,存在 → 版本冲突(ABORTED,⚖️ D1)。
+type Command struct {
+	Op        string       `json:"op"` // insert / update / delete
+	Table     string       `json:"table"`
+	Key       []CommandCol `json:"key,omitempty"`   // 主键 ← 请求字段(update / delete)
+	Write     []CommandCol `json:"write,omitempty"` // 列 ← 请求字段
+	Lock      *CommandCol  `json:"lock,omitempty"`  // 乐观锁的版本列 ← 请求字段
+	Set       []CommandSet `json:"set,omitempty"`   // 列 ← 固定值 / 请求开始的时刻
+	Returning []Column     `json:"returning"`       // 响应的字段 = 这些列(写之后的行)
+	NotFound  string       `json:"not_found,omitempty"`
+}
+
+// CommandCol: 请求字段 → 列(Type = 列的 SQL 类型)。
+type CommandCol struct {
+	Field   string `json:"field"`
+	Column  string `json:"column"`
+	Type    string `json:"type"`
+	NotNull bool   `json:"not_null,omitempty"`
+}
+
+// CommandSet: 列 = 固定值。Now = 请求开始的时刻;否则 Value 是字面值(枚举列 = 数据库值)。
+type CommandSet struct {
+	Column string `json:"column"`
+	Type   string `json:"type"`
+	Value  string `json:"value,omitempty"`
+	Now    bool   `json:"now,omitempty"`
+}
+
+// UsesNow: 命令用到请求开始的时刻。
+func (c *Command) UsesNow() bool {
+	if c == nil {
+		return false
+	}
+	for _, s := range c.Set {
+		if s.Now {
+			return true
+		}
+	}
+	return false
 }
 
 type Compute struct {

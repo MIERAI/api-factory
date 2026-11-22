@@ -36,20 +36,35 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// CatalogServiceCreateProductProcedure is the fully-qualified name of the CatalogService's
+	// CreateProduct RPC.
+	CatalogServiceCreateProductProcedure = "/catalog.catalog.v1.CatalogService/CreateProduct"
+	// CatalogServiceDiscontinueProductProcedure is the fully-qualified name of the CatalogService's
+	// DiscontinueProduct RPC.
+	CatalogServiceDiscontinueProductProcedure = "/catalog.catalog.v1.CatalogService/DiscontinueProduct"
 	// CatalogServiceGetProductProcedure is the fully-qualified name of the CatalogService's GetProduct
 	// RPC.
 	CatalogServiceGetProductProcedure = "/catalog.catalog.v1.CatalogService/GetProduct"
 	// CatalogServiceListProductsProcedure is the fully-qualified name of the CatalogService's
 	// ListProducts RPC.
 	CatalogServiceListProductsProcedure = "/catalog.catalog.v1.CatalogService/ListProducts"
+	// CatalogServiceUpdatePriceProcedure is the fully-qualified name of the CatalogService's
+	// UpdatePrice RPC.
+	CatalogServiceUpdatePriceProcedure = "/catalog.catalog.v1.CatalogService/UpdatePrice"
 )
 
 // CatalogServiceClient is a client for the catalog.catalog.v1.CatalogService service.
 type CatalogServiceClient interface {
+	// 新建一个商品,返回新建的商品(状态 = 在售,版本号 = 1,由数据库的默认值决定)
+	CreateProduct(context.Context, *connect.Request[v1.CreateProductRequest]) (*connect.Response[v1.CreateProductResponse], error)
+	// 下架一个商品(状态 → 已下架)。请求带读到的版本号,版本号不一致(别人先改过)时不改
+	DiscontinueProduct(context.Context, *connect.Request[v1.DiscontinueProductRequest]) (*connect.Response[v1.DiscontinueProductResponse], error)
 	// 按 SKU 返回商品详情,包括状态(下架的商品也返回)
 	GetProduct(context.Context, *connect.Request[v1.GetProductRequest]) (*connect.Response[v1.GetProductResponse], error)
 	// 返回某个分类下在售的商品,按 SKU 排序,分页
 	ListProducts(context.Context, *connect.Request[v1.ListProductsRequest]) (*connect.Response[v1.ListProductsResponse], error)
+	// 调整一个商品的售价。请求带读到的版本号,版本号不一致(别人先改过)时不改
+	UpdatePrice(context.Context, *connect.Request[v1.UpdatePriceRequest]) (*connect.Response[v1.UpdatePriceResponse], error)
 }
 
 // NewCatalogServiceClient constructs a client for the catalog.catalog.v1.CatalogService service. By
@@ -63,6 +78,18 @@ func NewCatalogServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 	baseURL = strings.TrimRight(baseURL, "/")
 	catalogServiceMethods := v1.File_catalog_catalog_v1_catalog_proto.Services().ByName("CatalogService").Methods()
 	return &catalogServiceClient{
+		createProduct: connect.NewClient[v1.CreateProductRequest, v1.CreateProductResponse](
+			httpClient,
+			baseURL+CatalogServiceCreateProductProcedure,
+			connect.WithSchema(catalogServiceMethods.ByName("CreateProduct")),
+			connect.WithClientOptions(opts...),
+		),
+		discontinueProduct: connect.NewClient[v1.DiscontinueProductRequest, v1.DiscontinueProductResponse](
+			httpClient,
+			baseURL+CatalogServiceDiscontinueProductProcedure,
+			connect.WithSchema(catalogServiceMethods.ByName("DiscontinueProduct")),
+			connect.WithClientOptions(opts...),
+		),
 		getProduct: connect.NewClient[v1.GetProductRequest, v1.GetProductResponse](
 			httpClient,
 			baseURL+CatalogServiceGetProductProcedure,
@@ -75,13 +102,32 @@ func NewCatalogServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(catalogServiceMethods.ByName("ListProducts")),
 			connect.WithClientOptions(opts...),
 		),
+		updatePrice: connect.NewClient[v1.UpdatePriceRequest, v1.UpdatePriceResponse](
+			httpClient,
+			baseURL+CatalogServiceUpdatePriceProcedure,
+			connect.WithSchema(catalogServiceMethods.ByName("UpdatePrice")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // catalogServiceClient implements CatalogServiceClient.
 type catalogServiceClient struct {
-	getProduct   *connect.Client[v1.GetProductRequest, v1.GetProductResponse]
-	listProducts *connect.Client[v1.ListProductsRequest, v1.ListProductsResponse]
+	createProduct      *connect.Client[v1.CreateProductRequest, v1.CreateProductResponse]
+	discontinueProduct *connect.Client[v1.DiscontinueProductRequest, v1.DiscontinueProductResponse]
+	getProduct         *connect.Client[v1.GetProductRequest, v1.GetProductResponse]
+	listProducts       *connect.Client[v1.ListProductsRequest, v1.ListProductsResponse]
+	updatePrice        *connect.Client[v1.UpdatePriceRequest, v1.UpdatePriceResponse]
+}
+
+// CreateProduct calls catalog.catalog.v1.CatalogService.CreateProduct.
+func (c *catalogServiceClient) CreateProduct(ctx context.Context, req *connect.Request[v1.CreateProductRequest]) (*connect.Response[v1.CreateProductResponse], error) {
+	return c.createProduct.CallUnary(ctx, req)
+}
+
+// DiscontinueProduct calls catalog.catalog.v1.CatalogService.DiscontinueProduct.
+func (c *catalogServiceClient) DiscontinueProduct(ctx context.Context, req *connect.Request[v1.DiscontinueProductRequest]) (*connect.Response[v1.DiscontinueProductResponse], error) {
+	return c.discontinueProduct.CallUnary(ctx, req)
 }
 
 // GetProduct calls catalog.catalog.v1.CatalogService.GetProduct.
@@ -94,12 +140,23 @@ func (c *catalogServiceClient) ListProducts(ctx context.Context, req *connect.Re
 	return c.listProducts.CallUnary(ctx, req)
 }
 
+// UpdatePrice calls catalog.catalog.v1.CatalogService.UpdatePrice.
+func (c *catalogServiceClient) UpdatePrice(ctx context.Context, req *connect.Request[v1.UpdatePriceRequest]) (*connect.Response[v1.UpdatePriceResponse], error) {
+	return c.updatePrice.CallUnary(ctx, req)
+}
+
 // CatalogServiceHandler is an implementation of the catalog.catalog.v1.CatalogService service.
 type CatalogServiceHandler interface {
+	// 新建一个商品,返回新建的商品(状态 = 在售,版本号 = 1,由数据库的默认值决定)
+	CreateProduct(context.Context, *connect.Request[v1.CreateProductRequest]) (*connect.Response[v1.CreateProductResponse], error)
+	// 下架一个商品(状态 → 已下架)。请求带读到的版本号,版本号不一致(别人先改过)时不改
+	DiscontinueProduct(context.Context, *connect.Request[v1.DiscontinueProductRequest]) (*connect.Response[v1.DiscontinueProductResponse], error)
 	// 按 SKU 返回商品详情,包括状态(下架的商品也返回)
 	GetProduct(context.Context, *connect.Request[v1.GetProductRequest]) (*connect.Response[v1.GetProductResponse], error)
 	// 返回某个分类下在售的商品,按 SKU 排序,分页
 	ListProducts(context.Context, *connect.Request[v1.ListProductsRequest]) (*connect.Response[v1.ListProductsResponse], error)
+	// 调整一个商品的售价。请求带读到的版本号,版本号不一致(别人先改过)时不改
+	UpdatePrice(context.Context, *connect.Request[v1.UpdatePriceRequest]) (*connect.Response[v1.UpdatePriceResponse], error)
 }
 
 // NewCatalogServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -109,6 +166,18 @@ type CatalogServiceHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewCatalogServiceHandler(svc CatalogServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
 	catalogServiceMethods := v1.File_catalog_catalog_v1_catalog_proto.Services().ByName("CatalogService").Methods()
+	catalogServiceCreateProductHandler := connect.NewUnaryHandler(
+		CatalogServiceCreateProductProcedure,
+		svc.CreateProduct,
+		connect.WithSchema(catalogServiceMethods.ByName("CreateProduct")),
+		connect.WithHandlerOptions(opts...),
+	)
+	catalogServiceDiscontinueProductHandler := connect.NewUnaryHandler(
+		CatalogServiceDiscontinueProductProcedure,
+		svc.DiscontinueProduct,
+		connect.WithSchema(catalogServiceMethods.ByName("DiscontinueProduct")),
+		connect.WithHandlerOptions(opts...),
+	)
 	catalogServiceGetProductHandler := connect.NewUnaryHandler(
 		CatalogServiceGetProductProcedure,
 		svc.GetProduct,
@@ -121,12 +190,24 @@ func NewCatalogServiceHandler(svc CatalogServiceHandler, opts ...connect.Handler
 		connect.WithSchema(catalogServiceMethods.ByName("ListProducts")),
 		connect.WithHandlerOptions(opts...),
 	)
+	catalogServiceUpdatePriceHandler := connect.NewUnaryHandler(
+		CatalogServiceUpdatePriceProcedure,
+		svc.UpdatePrice,
+		connect.WithSchema(catalogServiceMethods.ByName("UpdatePrice")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/catalog.catalog.v1.CatalogService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case CatalogServiceCreateProductProcedure:
+			catalogServiceCreateProductHandler.ServeHTTP(w, r)
+		case CatalogServiceDiscontinueProductProcedure:
+			catalogServiceDiscontinueProductHandler.ServeHTTP(w, r)
 		case CatalogServiceGetProductProcedure:
 			catalogServiceGetProductHandler.ServeHTTP(w, r)
 		case CatalogServiceListProductsProcedure:
 			catalogServiceListProductsHandler.ServeHTTP(w, r)
+		case CatalogServiceUpdatePriceProcedure:
+			catalogServiceUpdatePriceHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -136,10 +217,22 @@ func NewCatalogServiceHandler(svc CatalogServiceHandler, opts ...connect.Handler
 // UnimplementedCatalogServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedCatalogServiceHandler struct{}
 
+func (UnimplementedCatalogServiceHandler) CreateProduct(context.Context, *connect.Request[v1.CreateProductRequest]) (*connect.Response[v1.CreateProductResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("catalog.catalog.v1.CatalogService.CreateProduct is not implemented"))
+}
+
+func (UnimplementedCatalogServiceHandler) DiscontinueProduct(context.Context, *connect.Request[v1.DiscontinueProductRequest]) (*connect.Response[v1.DiscontinueProductResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("catalog.catalog.v1.CatalogService.DiscontinueProduct is not implemented"))
+}
+
 func (UnimplementedCatalogServiceHandler) GetProduct(context.Context, *connect.Request[v1.GetProductRequest]) (*connect.Response[v1.GetProductResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("catalog.catalog.v1.CatalogService.GetProduct is not implemented"))
 }
 
 func (UnimplementedCatalogServiceHandler) ListProducts(context.Context, *connect.Request[v1.ListProductsRequest]) (*connect.Response[v1.ListProductsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("catalog.catalog.v1.CatalogService.ListProducts is not implemented"))
+}
+
+func (UnimplementedCatalogServiceHandler) UpdatePrice(context.Context, *connect.Request[v1.UpdatePriceRequest]) (*connect.Response[v1.UpdatePriceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("catalog.catalog.v1.CatalogService.UpdatePrice is not implemented"))
 }

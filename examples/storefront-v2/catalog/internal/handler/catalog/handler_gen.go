@@ -7,6 +7,7 @@ package catalog
 import (
 	"github.com/MIERAI/api-factory-runtime/paging"
 	"github.com/MIERAI/api-factory-runtime/shard"
+	"github.com/MIERAI/api-factory-runtime/txn"
 	"github.com/MIERAI/storefront/services/catalog/gen/catalog/catalog/v1/catalogv1connect"
 	"github.com/MIERAI/storefront/services/catalog/gen/db"
 )
@@ -18,10 +19,11 @@ type Handler struct {
 	q      *db.Queries
 	pager  *paging.Pager
 	shards *shard.Router
+	tx     *txn.Executor // 命令(写入)的事务执行器
 }
 
-func New(q *db.Queries, pager *paging.Pager, shards *shard.Router) *Handler {
-	return &Handler{q: q, pager: pager, shards: shards}
+func New(q *db.Queries, pager *paging.Pager, shards *shard.Router, tx *txn.Executor) *Handler {
+	return &Handler{q: q, pager: pager, shards: shards, tx: tx}
 }
 
 // at: 分库的表 —— 按分库键(店铺代码等)选连接。没有配置分库时就是主库

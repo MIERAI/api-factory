@@ -21,11 +21,70 @@ enum ProductStatus {
 
 // 商品和价格
 service CatalogService {
+  // 新建一个商品,返回新建的商品(状态 = 在售,版本号 = 1,由数据库的默认值决定)
+  rpc CreateProduct(CreateProductRequest) returns (CreateProductResponse);
+
+  // 下架一个商品(状态 → 已下架)。请求带读到的版本号,版本号不一致(别人先改过)时不改
+  rpc DiscontinueProduct(DiscontinueProductRequest) returns (DiscontinueProductResponse);
+
   // 按 SKU 返回商品详情,包括状态(下架的商品也返回)
   rpc GetProduct(GetProductRequest) returns (GetProductResponse);
 
   // 返回某个分类下在售的商品,按 SKU 排序,分页
   rpc ListProducts(ListProductsRequest) returns (ListProductsResponse);
+
+  // 调整一个商品的售价。请求带读到的版本号,版本号不一致(别人先改过)时不改
+  rpc UpdatePrice(UpdatePriceRequest) returns (UpdatePriceResponse);
+}
+
+// 新建一个商品,返回新建的商品(状态 = 在售,版本号 = 1,由数据库的默认值决定)
+message CreateProductRequest {
+  // SKU(大写英文字母、数字和 -)
+  string sku = 1 [(buf.validate.field).string.pattern = "^[A-Z0-9-]+$", (buf.validate.field).string.min_len = 3, (buf.validate.field).string.max_len = 32];
+  // 商品名
+  string name = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 200];
+  // 分类
+  string category = 3 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 50];
+  // 售价
+  string price = 4 [(buf.validate.field).string.pattern = "^\\d+(\\.\\d+)?$"];
+}
+
+// 新建一个商品,返回新建的商品(状态 = 在售,版本号 = 1,由数据库的默认值决定)
+message CreateProductResponse {
+  // SKU
+  string sku = 1;
+  // 商品名
+  string name = 2;
+  // 分类
+  string category = 3;
+  // 售价
+  string price = 4;
+  // 状态(新建 = 在售)
+  ProductStatus status = 5;
+  // 版本号(新建 = 1)
+  int32 version = 6;
+  // 最后更新时间(= 请求的时刻)
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+// 下架一个商品(状态 → 已下架)。请求带读到的版本号,版本号不一致(别人先改过)时不改
+message DiscontinueProductRequest {
+  // SKU
+  string sku = 1 [(buf.validate.field).string.pattern = "^[A-Z0-9-]+$", (buf.validate.field).string.min_len = 3, (buf.validate.field).string.max_len = 32];
+  // 读到的版本号
+  int32 version = 2 [(buf.validate.field).int32.gt = 0];
+}
+
+// 下架一个商品(状态 → 已下架)。请求带读到的版本号,版本号不一致(别人先改过)时不改
+message DiscontinueProductResponse {
+  // SKU
+  string sku = 1;
+  // 状态(= 已下架)
+  ProductStatus status = 2;
+  // 版本号(更新之后 = 请求的版本号 + 1)
+  int32 version = 3;
+  // 最后更新时间(= 请求的时刻)
+  google.protobuf.Timestamp updated_at = 4;
 }
 
 // 按 SKU 返回商品详情,包括状态(下架的商品也返回)
@@ -79,4 +138,26 @@ message ListProductsResponse {
   repeated Product products = 1;
   // 还有下一页时不为空
   string next_page_token = 2;
+}
+
+// 调整一个商品的售价。请求带读到的版本号,版本号不一致(别人先改过)时不改
+message UpdatePriceRequest {
+  // SKU
+  string sku = 1 [(buf.validate.field).string.pattern = "^[A-Z0-9-]+$", (buf.validate.field).string.min_len = 3, (buf.validate.field).string.max_len = 32];
+  // 新的售价
+  string price = 2 [(buf.validate.field).string.pattern = "^\\d+(\\.\\d+)?$"];
+  // 读到的版本号
+  int32 version = 3 [(buf.validate.field).int32.gt = 0];
+}
+
+// 调整一个商品的售价。请求带读到的版本号,版本号不一致(别人先改过)时不改
+message UpdatePriceResponse {
+  // SKU
+  string sku = 1;
+  // 售价
+  string price = 2;
+  // 版本号(更新之后 = 请求的版本号 + 1)
+  int32 version = 3;
+  // 最后更新时间(= 请求的时刻)
+  google.protobuf.Timestamp updated_at = 4;
 }

@@ -69,6 +69,7 @@ type Exit struct {
 	Cardinality string // one / many(查询函数返回一行还是多行)
 	Cell        string // 单元库里的模式(套装)。空 = 没有声明式的查询(自定义)
 	AI          bool   // AI 写的部分(计算 / 自定义)
+	Command     bool   // 命令工厂(写入): 没有查询,写操作作为数据交给运行时的事务执行器(command.go)
 
 	DesignKeys []string                        // 这个种类在设计稿里可以写的键
 	ScalarKeys []string                        // 其中单值的键(数字 / 一句话): 审查的回答可以直接改(factory answer 的 set)

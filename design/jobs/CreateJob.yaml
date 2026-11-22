@@ -1,0 +1,56 @@
+# ============================================================================
+# CreateJob: 登记一个任务(命令: 新建)
+# ============================================================================
+API: CreateJob
+说明: 登记一个新的任务,返回登记的任务(含数据库生成的创建时间)
+背景: 提交异步任务的一方先登记任务,再把 id 交给执行方。id 由调用方决定(上游的任务编号)
+负责人: platform-team
+风险: 中                         # 写入: 重复登记要报错,不能覆盖已有的任务
+
+种类: 新建
+数据来源: jobs
+
+输入:
+  id:       { 类型: 整数64, 必填: 是, 范围: "> 0", 说明: 任务 id(上游的任务编号), 写入: id }
+  job_type: { 类型: 文本,   必填: 否, 长度: 1~64, 说明: 任务类型。不传 = default, 写入: job_type }
+
+设置:
+  status: PENDING                 # 登记时总是未完成(结束时间要等执行方报告结果时才有)
+
+输出:                             # 登记之后的行
+  id:         任务 id
+  job_type:   任务类型
+  status:     处理状态(登记时 = PENDING)
+  created_at: 创建时间(数据库的时钟)
+
+业务规则:
+  - 情况: 登记
+    结果: 状态总是 PENDING、结束时间为空(不能登记已经结束的任务)
+  - 情况: 同一个 id 已经登记过
+    结果: 已存在(ALREADY_EXISTS),什么都不写(不覆盖已有的任务)
+  - 情况: 同一个 id 的任务已经被删除(DeleteJob)
+    结果: 可以再次登记,作为新的任务(上游的任务编号是否重复使用由上游保证)
+
+例子:
+  准备数据:
+    jobs:
+      - { id: 7, job_type: export, status: SUCCEEDED, created_at: "2026-11-01 09:00", finished_at: "2026-11-01 09:05" }
+  用例:
+    - 说明: 新的 id → 登记
+      输入: { id: 8, job_type: import }
+      结果: { id: 8, job_type: import, status: PENDING }
+      之后:
+        jobs:
+          - { id: 7, job_type: export, status: SUCCEEDED }
+          - { id: 8, job_type: import, status: PENDING, finished_at: 不设置 }
+    - 说明: 不传任务类型 → 数据库的默认值 default
+      输入: { id: 9 }
+      结果: { id: 9, job_type: default, status: PENDING }
+      之后:
+        jobs:
+          - { id: 7, status: SUCCEEDED }
+          - { id: 9, job_type: default, status: PENDING }
+    - 说明: 已经登记过的 id → 已存在,已有的任务不变
+      输入: { id: 7, job_type: import }
+      错误: 已存在
+      之后: 不变

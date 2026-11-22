@@ -389,6 +389,9 @@ type Input struct {
 	Constraints map[string]string // 约束(factory/constraints): 范围 / 长度 / 个数 …
 	Desc        string
 	Filter      string // "created_at 大于等于"
+	Write       string // 命令: 写入的列
+	Key         string // 命令: 主键的列(按键更新 / 按键删除)
+	Lock        string // 命令: 乐观锁的版本列
 	Line        int
 	Group       []*Input // 类型 组列表: 一个组的字段(名字 = 列名;组里的字段都要指定)
 }
@@ -523,7 +526,8 @@ func loadAPI(path string) (*API, error) {
 	for _, p := range pairs(get(root, "输入")) {
 		checkKeys(e, p.Val, "输入 "+p.Key, append(InputKeys(), constraints.Keys()...)...)
 		in := &Input{Name: p.Key, Type: str(p.Val, "类型"), Required: str(p.Val, "必填") == "是",
-			Desc: str(p.Val, "说明"), Filter: str(p.Val, "筛选"), Line: p.Line, Constraints: map[string]string{}}
+			Desc: str(p.Val, "说明"), Filter: str(p.Val, "筛选"), Line: p.Line, Constraints: map[string]string{},
+			Write: str(p.Val, "写入"), Key: str(p.Val, "键"), Lock: str(p.Val, "乐观锁")}
 		for _, k := range constraints.Keys() {
 			if v := str(p.Val, k); v != "" {
 				in.Constraints[k] = v
@@ -598,7 +602,7 @@ func loadAPI(path string) (*API, error) {
 	if c := get(get(root, "例子"), "用例"); c != nil {
 		a.Cases = c.Content
 		for _, x := range c.Content {
-			checkKeys(e, x, "用例", "说明", "输入", "结果", "现在")
+			checkKeys(e, x, "用例", "说明", "输入", "结果", "现在", "错误", "之后")
 		}
 	}
 	if c := get(root, "计算例子"); c != nil {
@@ -756,7 +760,7 @@ func strOrList(n *yaml.Node) []string {
 func LookupKeys() []string { return []string{"表", "条件", "列", "找不到时"} }
 
 // InputKeys: 输入可以写的键(约束的键另外由 factory/constraints 决定)。
-func InputKeys() []string { return []string{"类型", "必填", "说明", "筛选", "组"} }
+func InputKeys() []string { return []string{"类型", "必填", "说明", "筛选", "组", "写入", "键", "乐观锁"} }
 
 // GroupListType: 组的列表(每个组几个字段,和 筛选: 组属于 一起用: 有一个组逐列相等就留下)。
 const GroupListType = "组列表"

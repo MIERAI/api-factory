@@ -36,6 +36,10 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// JobServiceCreateJobProcedure is the fully-qualified name of the JobService's CreateJob RPC.
+	JobServiceCreateJobProcedure = "/factory.jobs.v1.JobService/CreateJob"
+	// JobServiceDeleteJobProcedure is the fully-qualified name of the JobService's DeleteJob RPC.
+	JobServiceDeleteJobProcedure = "/factory.jobs.v1.JobService/DeleteJob"
 	// JobServiceGetJobStatusProcedure is the fully-qualified name of the JobService's GetJobStatus RPC.
 	JobServiceGetJobStatusProcedure = "/factory.jobs.v1.JobService/GetJobStatus"
 	// JobServiceGetJobSummaryProcedure is the fully-qualified name of the JobService's GetJobSummary
@@ -65,6 +69,10 @@ const (
 
 // JobServiceClient is a client for the factory.jobs.v1.JobService service.
 type JobServiceClient interface {
+	// 登记一个新的任务,返回登记的任务(含数据库生成的创建时间)
+	CreateJob(context.Context, *connect.Request[v1.CreateJobRequest]) (*connect.Response[v1.CreateJobResponse], error)
+	// 删除一个任务(物理删除),返回删除的任务
+	DeleteJob(context.Context, *connect.Request[v1.DeleteJobRequest]) (*connect.Response[v1.DeleteJobResponse], error)
 	// 按 id 返回一个任务的处理状态
 	GetJobStatus(context.Context, *connect.Request[v1.GetJobStatusRequest]) (*connect.Response[v1.GetJobStatusResponse], error)
 	// 按任务类型和期间,汇总任务的处理情况
@@ -96,6 +104,18 @@ func NewJobServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 	baseURL = strings.TrimRight(baseURL, "/")
 	jobServiceMethods := v1.File_factory_jobs_v1_jobs_proto.Services().ByName("JobService").Methods()
 	return &jobServiceClient{
+		createJob: connect.NewClient[v1.CreateJobRequest, v1.CreateJobResponse](
+			httpClient,
+			baseURL+JobServiceCreateJobProcedure,
+			connect.WithSchema(jobServiceMethods.ByName("CreateJob")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteJob: connect.NewClient[v1.DeleteJobRequest, v1.DeleteJobResponse](
+			httpClient,
+			baseURL+JobServiceDeleteJobProcedure,
+			connect.WithSchema(jobServiceMethods.ByName("DeleteJob")),
+			connect.WithClientOptions(opts...),
+		),
 		getJobStatus: connect.NewClient[v1.GetJobStatusRequest, v1.GetJobStatusResponse](
 			httpClient,
 			baseURL+JobServiceGetJobStatusProcedure,
@@ -155,6 +175,8 @@ func NewJobServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 
 // jobServiceClient implements JobServiceClient.
 type jobServiceClient struct {
+	createJob              *connect.Client[v1.CreateJobRequest, v1.CreateJobResponse]
+	deleteJob              *connect.Client[v1.DeleteJobRequest, v1.DeleteJobResponse]
 	getJobStatus           *connect.Client[v1.GetJobStatusRequest, v1.GetJobStatusResponse]
 	getJobSummary          *connect.Client[v1.GetJobSummaryRequest, v1.GetJobSummaryResponse]
 	listFailedJobs         *connect.Client[v1.ListFailedJobsRequest, v1.ListFailedJobsResponse]
@@ -164,6 +186,16 @@ type jobServiceClient struct {
 	listLatestJobPerType   *connect.Client[v1.ListLatestJobPerTypeRequest, v1.ListLatestJobPerTypeResponse]
 	listPendingJobs        *connect.Client[v1.ListPendingJobsRequest, v1.ListPendingJobsResponse]
 	listStalePendingJobs   *connect.Client[v1.ListStalePendingJobsRequest, v1.ListStalePendingJobsResponse]
+}
+
+// CreateJob calls factory.jobs.v1.JobService.CreateJob.
+func (c *jobServiceClient) CreateJob(ctx context.Context, req *connect.Request[v1.CreateJobRequest]) (*connect.Response[v1.CreateJobResponse], error) {
+	return c.createJob.CallUnary(ctx, req)
+}
+
+// DeleteJob calls factory.jobs.v1.JobService.DeleteJob.
+func (c *jobServiceClient) DeleteJob(ctx context.Context, req *connect.Request[v1.DeleteJobRequest]) (*connect.Response[v1.DeleteJobResponse], error) {
+	return c.deleteJob.CallUnary(ctx, req)
 }
 
 // GetJobStatus calls factory.jobs.v1.JobService.GetJobStatus.
@@ -213,6 +245,10 @@ func (c *jobServiceClient) ListStalePendingJobs(ctx context.Context, req *connec
 
 // JobServiceHandler is an implementation of the factory.jobs.v1.JobService service.
 type JobServiceHandler interface {
+	// 登记一个新的任务,返回登记的任务(含数据库生成的创建时间)
+	CreateJob(context.Context, *connect.Request[v1.CreateJobRequest]) (*connect.Response[v1.CreateJobResponse], error)
+	// 删除一个任务(物理删除),返回删除的任务
+	DeleteJob(context.Context, *connect.Request[v1.DeleteJobRequest]) (*connect.Response[v1.DeleteJobResponse], error)
 	// 按 id 返回一个任务的处理状态
 	GetJobStatus(context.Context, *connect.Request[v1.GetJobStatusRequest]) (*connect.Response[v1.GetJobStatusResponse], error)
 	// 按任务类型和期间,汇总任务的处理情况
@@ -240,6 +276,18 @@ type JobServiceHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewJobServiceHandler(svc JobServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
 	jobServiceMethods := v1.File_factory_jobs_v1_jobs_proto.Services().ByName("JobService").Methods()
+	jobServiceCreateJobHandler := connect.NewUnaryHandler(
+		JobServiceCreateJobProcedure,
+		svc.CreateJob,
+		connect.WithSchema(jobServiceMethods.ByName("CreateJob")),
+		connect.WithHandlerOptions(opts...),
+	)
+	jobServiceDeleteJobHandler := connect.NewUnaryHandler(
+		JobServiceDeleteJobProcedure,
+		svc.DeleteJob,
+		connect.WithSchema(jobServiceMethods.ByName("DeleteJob")),
+		connect.WithHandlerOptions(opts...),
+	)
 	jobServiceGetJobStatusHandler := connect.NewUnaryHandler(
 		JobServiceGetJobStatusProcedure,
 		svc.GetJobStatus,
@@ -296,6 +344,10 @@ func NewJobServiceHandler(svc JobServiceHandler, opts ...connect.HandlerOption) 
 	)
 	return "/factory.jobs.v1.JobService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case JobServiceCreateJobProcedure:
+			jobServiceCreateJobHandler.ServeHTTP(w, r)
+		case JobServiceDeleteJobProcedure:
+			jobServiceDeleteJobHandler.ServeHTTP(w, r)
 		case JobServiceGetJobStatusProcedure:
 			jobServiceGetJobStatusHandler.ServeHTTP(w, r)
 		case JobServiceGetJobSummaryProcedure:
@@ -322,6 +374,14 @@ func NewJobServiceHandler(svc JobServiceHandler, opts ...connect.HandlerOption) 
 
 // UnimplementedJobServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedJobServiceHandler struct{}
+
+func (UnimplementedJobServiceHandler) CreateJob(context.Context, *connect.Request[v1.CreateJobRequest]) (*connect.Response[v1.CreateJobResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.jobs.v1.JobService.CreateJob is not implemented"))
+}
+
+func (UnimplementedJobServiceHandler) DeleteJob(context.Context, *connect.Request[v1.DeleteJobRequest]) (*connect.Response[v1.DeleteJobResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.jobs.v1.JobService.DeleteJob is not implemented"))
+}
 
 func (UnimplementedJobServiceHandler) GetJobStatus(context.Context, *connect.Request[v1.GetJobStatusRequest]) (*connect.Response[v1.GetJobStatusResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("factory.jobs.v1.JobService.GetJobStatus is not implemented"))

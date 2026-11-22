@@ -51,7 +51,7 @@ def scope(path):
     m = re.match(r"gen/db/(\w+)\.([\w-]+)\.sql\.go$", path)
     if m:
         d = f"specs/{m.group(1)}/{m.group(2)}"
-    elif (m := re.match(r"internal/handler/(\w+)/enums_gen\.go$", path)):
+    elif (m := re.match(r"internal/handler/(\w+)/(?:enums|commands)_gen\.go$", path)):  # 每个服务一个: 整个领域
         d = f"specs/{m.group(1)}"
     elif (m := re.match(r"internal/handler/(\w+)/(\w+)_gen\.go$", path)):
         d = f"specs/{m.group(1)}/{m.group(2).replace('_', '-')}"
