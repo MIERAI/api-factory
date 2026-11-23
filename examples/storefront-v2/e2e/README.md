@@ -21,7 +21,9 @@ make e2e          # from the repository root (or here): clean stack → driver �
 | `make clean` | `down -v` and also removes the six images built here. The shared `rabbitmq` / `postgres` images stay |
 
 Needs docker compose and Go. The images used are `rabbitmq:3.13.7-management`, `postgres:16-alpine`,
-`golang:1.27.4-alpine` and `gcr.io/distroless/static-debian12:nonroot`. Compose project `sf2-e2e`. Host ports
+`golang:1.27.4-alpine` (all three Docker Hub official images, pulled through `mirror.gcr.io/library`, which has no
+anonymous pull limit; `IMAGE_MIRROR=…` changes the prefix, see docs/design/boundaries.md §8.3) and
+`gcr.io/distroless/static-debian12:nonroot`. Compose project `sf2-e2e`. Host ports
 are chosen so nothing collides with the factory's own containers:
 
 | | host port |

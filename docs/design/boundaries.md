@@ -234,3 +234,26 @@
 | storefront-v2/payment | 793(245 / 548) | 5 | 0.6% | 2.0% |
 
 storefront-v2 现在只有工厂能做的 API(就绪度 13/28),所以手写几乎为 0;剩下的 API 进来(钩子、逃生口)时这个数才有意义。
+
+### 8.3 镜像从哪里拉(2026-11-23)
+
+Docker Hub 对匿名拉取有次数限制(每个 IP 6 小时约 100 次)。CI 的每个 job、compose 的端到端、集群的节点都会拉 Postgres /
+RabbitMQ / golang,storefront v2 开始开发之后很快就会碰到(碰到时是 `toomanyrequests`,和代码无关的红)。所以**本仓库不直接从
+Docker Hub 拉镜像**: Docker Hub 的官方镜像一律经 **`mirror.gcr.io/library/<镜像>:<标签>`**(Google 对 Docker Hub 的缓存:
+同样的镜像和标签,不用登录,没有匿名次数限制)拉。distroless 本来就在 `gcr.io`,不变。标签和以前完全一样。
+
+| 镜像 | 谁用 |
+|---|---|
+| `mirror.gcr.io/library/postgres:16-alpine` | `make db-up`(CI 的 `.github/actions/setup` 也走它)、`scripts/ci/deploy.sh` 的模拟库、e2e 的 compose |
+| `mirror.gcr.io/library/postgres:18` | `scripts/ci/migrations-check.sh` |
+| `mirror.gcr.io/library/rabbitmq:3.13.7-management` | `make mq-up` / `make accept-mq`、e2e 的 compose |
+| `mirror.gcr.io/library/golang:1.27.4-alpine` | 根目录的 `Dockerfile` / `Dockerfile.schema`、e2e 的 `topology.Dockerfile`、**生成的 Dockerfile**(版本取 go.mod) |
+| `gcr.io/distroless/static-debian12:nonroot` | 所有 Dockerfile 的最终镜像 |
+
+**换来源只改一个变量 `IMAGE_MIRROR`**(默认 `mirror.gcr.io/library`): Makefile 里 `export IMAGE_MIRROR ?=`(`PG_IMAGE` /
+`MQ_IMAGE` 由它拼出来),`scripts/ci/*.sh` 和 e2e 的 compose 读同名环境变量(默认值相同),Dockerfile 是 `ARG IMAGE_MIRROR`
+(compose 把它作为 build arg 传进去;`docker build --build-arg IMAGE_MIRROR=…` 可改)。生成的 Dockerfile 的默认值是
+`factory/proj/packaging.go` 的 `ImageMirror` 常量,改它 = 重新生成所有项目。镜像缓存缺某个标签时,用这个镜像官方的其他来源
+(例: `public.ecr.aws/docker/library`)—— 改变量即可,不改调用的地方。
+
+平台(集群的清单)不在本仓库: 部署 storefront v2 时 RabbitMQ / Postgres 等也应该用同一个缓存,理由相同。
