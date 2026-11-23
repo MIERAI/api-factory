@@ -1,5 +1,7 @@
 # API 服务器的镜像(Cloud Run / GKE 共用)。生成的代码已经在仓库里(factory prepare 的产物),这里只编译。
-FROM golang:1.27.4-alpine AS build
+# 基础镜像经 mirror.gcr.io(Docker Hub 官方镜像的缓存,无匿名拉取次数限制);--build-arg IMAGE_MIRROR=… 换来源
+ARG IMAGE_MIRROR=mirror.gcr.io/library
+FROM ${IMAGE_MIRROR}/golang:1.27.4-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download

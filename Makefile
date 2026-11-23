@@ -6,6 +6,11 @@ DB_URL  ?= postgres://factory:factory@127.0.0.1:$(FACTORY_DB_PORT)/factory?sslmo
 SHARD_URL = postgres://factory:factory@127.0.0.1:$(FACTORY_DB_PORT)
 export FACTORY_SHARDS ?= 1-2=$(SHARD_URL)/shard_a?sslmode=disable;*=$(SHARD_URL)/shard_b?sslmode=disable
 FACTORY := go run ./factory/cmd/factory
+# 镜像的来源: Docker Hub 的官方镜像经 Google 的缓存 mirror.gcr.io 拉(不受 Docker Hub 匿名拉取的次数限制,
+# 不需要登录)。换来源只改这一处(scripts/ci、e2e 的 compose、Dockerfile 的 ARG 都读同名变量)。boundaries.md §8
+export IMAGE_MIRROR ?= mirror.gcr.io/library
+PG_IMAGE ?= $(IMAGE_MIRROR)/postgres:16-alpine
+MQ_IMAGE ?= $(IMAGE_MIRROR)/rabbitmq:3.13.7-management
 SPEC    ?= specs/jobs/get-job-status/spec.yaml
 MODEL   ?= claude
 ACCEPT_SPECS ?= specs
@@ -29,8 +34,10 @@ margin:           ## 差分测试的余量: 换种子跑变异,每个变异 ≥3
 MQ_NAME ?= api-factory-mq
 MQ_PORT ?= 55672
 mq-up:            ## RabbitMQ(消息的真实投递场景;数据目录 tmpfs,不写持久卷)
-	@docker inspect $(MQ_NAME) >/dev/null 2>&1 || docker run -d --name $(MQ_NAME) --tmpfs /var/lib/rabbitmq -p $(MQ_PORT):5672 rabbitmq:3.13.7-management >/dev/null
-	@until docker exec $(MQ_NAME) rabbitmq-diagnostics -q ping >/dev/null 2>&1; do sleep 1; done
+	@docker inspect $(MQ_NAME) >/dev/null 2>&1 || docker run -d --name $(MQ_NAME) --tmpfs /var/lib/rabbitmq -p $(MQ_PORT):5672 $(MQ_IMAGE) >/dev/null
+	@# 探活用 rabbitmq 用户: root 的 rabbitmq-diagnostics 会抢在服务器之前建 .erlang.cookie(属主 root)→ 服务器 eacces 退出
+	@until docker exec -u rabbitmq $(MQ_NAME) rabbitmq-diagnostics -q ping >/dev/null 2>&1; do \
+		[ "$$(docker inspect -f '{{.State.Running}}' $(MQ_NAME))" = true ] || { docker logs --tail 20 $(MQ_NAME); exit 1; }; sleep 1; done
 	@echo "✓ RabbitMQ amqp://guest:guest@127.0.0.1:$(MQ_PORT)/"
 mq-down:          ## 删除 RabbitMQ 的容器
 	@docker rm -f -v $(MQ_NAME) >/dev/null 2>&1 || true
@@ -44,7 +51,7 @@ db-up:            ## 启动本地 Postgres 并应用 schema
 	@docker start $(PG_NAME) >/dev/null 2>&1 || docker run -d --name $(PG_NAME) \
 		-e POSTGRES_USER=factory -e POSTGRES_PASSWORD=factory -e POSTGRES_DB=factory \
 		-e POSTGRES_INITDB_ARGS="--locale-provider=icu --icu-locale=en-US" \
-		-p $(FACTORY_DB_PORT):5432 postgres:16-alpine -c max_connections=1000 >/dev/null
+		-p $(FACTORY_DB_PORT):5432 $(PG_IMAGE) -c max_connections=1000 >/dev/null
 	@until docker exec $(PG_NAME) psql -U factory -d factory -c "select 1" >/dev/null 2>&1; do sleep 0.5; done
 	@$(MAKE) --no-print-directory db-schema
 

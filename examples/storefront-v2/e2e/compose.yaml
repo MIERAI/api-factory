@@ -17,7 +17,7 @@ x-pg-env: &pg-env
 # One-shot schema loader: create the service's database, apply its db/schema/*.sql (incl. zz_factory_platform.sql).
 # The generated projects ship no migration image (the platform runs db/schema before a deploy), so this is psql.
 x-schema: &schema
-  image: postgres:16-alpine
+  image: ${IMAGE_MIRROR:-mirror.gcr.io/library}/postgres:16-alpine
   depends_on:
     postgres: { condition: service_healthy }
   restart: "no"
@@ -31,6 +31,10 @@ x-schema: &schema
 # What every generated server needs (api-factory-runtime/server; the full list is in each project's README.md,
 # "Environment"): DATABASE_URL, AUTH_MODE; AMQP_URL turns on the topology / outbox relay / consumers. PAGE_TOKEN_KEY:
 # stable page tokens (only a warning without it).
+# Base images of the builds: the same mirror as the images above (the Dockerfiles' ARG IMAGE_MIRROR)
+x-build-args: &build-args
+  IMAGE_MIRROR: ${IMAGE_MIRROR:-mirror.gcr.io/library}
+
 x-service-env: &service-env
   AMQP_URL: amqp://e2e:e2e@rabbitmq:5672/e2e
   AUTH_MODE: none
@@ -38,7 +42,7 @@ x-service-env: &service-env
 
 services:
   rabbitmq:
-    image: rabbitmq:3.13.7-management
+    image: ${IMAGE_MIRROR:-mirror.gcr.io/library}/rabbitmq:3.13.7-management
     environment:
       RABBITMQ_DEFAULT_USER: e2e        # guest only works from localhost inside the container
       RABBITMQ_DEFAULT_PASS: e2e
@@ -53,7 +57,7 @@ services:
       start_period: 5s
 
   postgres:
-    image: postgres:16-alpine
+    image: ${IMAGE_MIRROR:-mirror.gcr.io/library}/postgres:16-alpine
     environment:
       POSTGRES_USER: e2e
       POSTGRES_PASSWORD: e2e
@@ -73,7 +77,7 @@ services:
     build:
       context: .
       dockerfile: topology.Dockerfile
-      args: { RUNTIME_VERSION: "${RUNTIME_VERSION:?run through the Makefile (it reads the runtime version from driver/go.mod)}" }
+      args: { <<: *build-args, RUNTIME_VERSION: "${RUNTIME_VERSION:?run through the Makefile (it reads the runtime version from driver/go.mod)}" }
     image: sf2-e2e/topology:local
     restart: "no"
     environment: { AMQP_URL: "amqp://e2e:e2e@rabbitmq:5672/e2e" }
@@ -105,7 +109,7 @@ services:
 
   # catalog: W1–W3; CreateProduct emits catalog.product_created → inventory's InitStock creates the stock row (M13)
   catalog:
-    build: { context: ../catalog }
+    build: { context: ../catalog, args: *build-args }
     image: sf2-e2e/catalog:local
     environment: { <<: *service-env, DATABASE_URL: "postgres://e2e:e2e@postgres:5432/catalog?sslmode=disable" }
     ports: ["58085:8080", "59095:9090"]
@@ -113,7 +117,7 @@ services:
       schema-catalog: { condition: service_completed_successfully }
       topology: { condition: service_completed_successfully }
   inventory:
-    build: { context: ../inventory }
+    build: { context: ../inventory, args: *build-args }
     image: sf2-e2e/inventory:local
     environment: { <<: *service-env, DATABASE_URL: "postgres://e2e:e2e@postgres:5432/inventory?sslmode=disable" }
     ports: ["58081:8080", "59091:9090"]
@@ -121,7 +125,7 @@ services:
       schema-inventory: { condition: service_completed_successfully }
       topology: { condition: service_completed_successfully }
   payment:
-    build: { context: ../payment }
+    build: { context: ../payment, args: *build-args }
     image: sf2-e2e/payment:local
     environment: { <<: *service-env, DATABASE_URL: "postgres://e2e:e2e@postgres:5432/payment?sslmode=disable" }
     ports: ["58082:8080", "59092:9090"]
@@ -129,7 +133,7 @@ services:
       schema-payment: { condition: service_completed_successfully }
       topology: { condition: service_completed_successfully }
   notification:
-    build: { context: ../notification }
+    build: { context: ../notification, args: *build-args }
     image: sf2-e2e/notification:local
     environment: { <<: *service-env, DATABASE_URL: "postgres://e2e:e2e@postgres:5432/notification?sslmode=disable" }
     ports: ["58083:8080", "59093:9090"]
@@ -139,7 +143,7 @@ services:
   # order: W5 PlaceOrder + the order saga (R5). With AMQP_URL its timeout scanner runs too (real clock: resends
   # after 30 s; nothing in the driver waits that long)
   order:
-    build: { context: ../order }
+    build: { context: ../order, args: *build-args }
     image: sf2-e2e/order:local
     environment: { <<: *service-env, DATABASE_URL: "postgres://e2e:e2e@postgres:5432/order?sslmode=disable" }
     ports: ["58084:8080", "59094:9090"]
