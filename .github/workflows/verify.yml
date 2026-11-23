@@ -46,7 +46,7 @@ jobs:
       - if: steps.scope.outputs.code == '1'
         run: scripts/ci/margin.sh
         env: { MARGIN_SHARD: "${{ matrix.shard }}/4" }
-  perf:            # 性能闸门(scripts/perf.sh = make perf): 本仓库 + examples/ 的项目,每表 20 万行 + EXPLAIN,新的 Postgres 容器
+  api-perf:        # 性能闸门(scripts/perf.sh = make perf): 本仓库 + examples/ 的项目,每表 20 万行 + EXPLAIN,新的 Postgres 容器
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
