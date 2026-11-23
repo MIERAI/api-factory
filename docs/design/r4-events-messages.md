@@ -124,7 +124,7 @@ CREATE TABLE factory_processed_messages (       -- 消费端去重(§4.2)
 
 ### 3.2 写入：和 R3 的操作同一个事务
 
-R3 的事务执行器在执行完全部操作、**提交之前**，按设计稿的顺序 `INSERT INTO factory_outbox`。任何一步失败都回滚，outbox 里不会有"没有发生的事"的消息。提交后通知中继（`NOTIFY factory_outbox`，只是唤醒，丢了也没关系：中继另有 1 秒的轮询兜底）。
+R3 的事务执行器在执行完全部操作、**提交之前**，按设计稿的顺序 `INSERT INTO factory_outbox`。任何一步失败都回滚，outbox 里不会有"没有发生的事"的消息。提交后通知中继（`NOTIFY factory_outbox`，只是唤醒，丢了也没关系：中继另有 1 秒的轮询兜底）。运行时 v0.5.2 起这条 NOTIFY 在**提交之后、事务外**发（`txn.AfterCommit`，按连接池合并）：v0.5.1 之前它在写事务里，发过 NOTIFY 的事务提交时持有整个实例的一把锁直到 WAL 落盘，所有写 outbox 的提交在每个 Postgres 实例上串行（storefront v2 的扩容测试：拐点约 45 单/秒，和副本数无关）。
 
 ### 3.3 中继：发布确认之后才标记
 
@@ -296,7 +296,7 @@ R3 的组合命令只有固定个数的操作；M1–M3（以及 R5 的 W5：订
 
 | 部件 | 内容 |
 |---|---|
-| outbox 写入 | R3 事务执行器的扩展：提交前写 outbox、`NOTIFY` |
+| outbox 写入 | R3 事务执行器的扩展：提交前写 outbox；提交后（事务外）`NOTIFY`（v0.5.2） |
 | 中继 | advisory lock 选主、批量发布 + confirm、退避、保留期清理、`mandatory` 的处理 |
 | 拓扑 | 启动时按生成的清单声明交换机 / 队列 / 重试 / DLQ（幂等；参数不一致 → 启动失败，不悄悄改） |
 | 消费循环 | 连接与重连、prefetch、解码 + 契约校验、去重事务、SAVEPOINT、ack、重试 / DLQ 的分类 |
