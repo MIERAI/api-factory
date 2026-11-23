@@ -1,6 +1,6 @@
 # 工厂就绪度：以 storefront v2 为验收标准
 
-> 版本 v0.6（2026-11-22）· 状态：**已批准** · 进度：**R5 完成（27 / 28,过关线）**
+> 版本 v0.7（2026-11-23）· 状态：**已批准** · 进度：**R5 + R4.1 完成（28 / 29,过关线）**
 > 决定（2026-11-22，用户）：**先利其器**。工厂能生成 storefront v2 所需 API 的 **95% 以上**之后，再开始开发 storefront v2。
 > storefront v2 的设计书：MIERAI/storefront `docs/design/v2-microservices.md`（PR #8）
 
@@ -24,9 +24,11 @@
 
 ---
 
-## 2. 分母：storefront v2 的全部 API（28 个）
+## 2. 分母：storefront v2 的全部 API（29 个）
 
 范围是 5 个后端服务的全部接口、消息处理器和定时任务。web（BFF）的组合逻辑、outbox 中继这类平台功能不计入（后者会成为工厂平台的一部分）。
+
+（v0.7：28 → 29。端到端的骨架（GAPS G18）发现清单里少了一步：没有任何 API 新建库存记录。补上 M13，同时 W1 多了一个事件。）
 
 **图例**：✅ 现在就能生成　🟡 只差"第二个项目"（F0）　❌ 需要新能力（括号里是能力编号，见第 3 节）
 
@@ -48,13 +50,13 @@
 
 | # | 服务 | API | 形状 | 现状 |
 |---|---|---|---|---|
-| W1 | catalog | 新建商品 | 单表插入 + 校验 | ✅ R3-1（`新建`：CreateProduct） |
+| W1 | catalog | 新建商品 | 单表插入 + 校验 + **事件**（`catalog.product_created`） | ✅ R3-1（`新建`：CreateProduct）→ R4.1 改成 `组合命令` + `发出 catalog.product_created`（M13 的来源） |
 | W2 | catalog | 调整价格 | 按键更新（乐观锁：带版本号） | ✅ R3-1（`按键更新` + `乐观锁`：UpdatePrice） |
 | W3 | catalog | 下架商品 | 按键更新状态 | ✅ R3-1（`按键更新` + `设置: { status: DISCONTINUED }` + 乐观锁：DiscontinueProduct） |
 | W4 | inventory | 调整库存数量（入库、盘点） | 按键更新 + 写审计记录 | ✅ R3-2（`组合命令`：条件更新 `available + delta >= 0` / INSUFFICIENT_STOCK + 审计记录：AdjustStock） |
 | W5 | order | 下单 | 多表插入（订单 + 明细）+ **事件**（`order.created`）+ 启动 saga | ✅ R5（`组合命令` + 操作的 `每项` + `项.qty * 项.price` 累加金额 + `发出 inventory.reserve` = 状态机的 `开始`：PlaceOrder;`order.created` 没有消费方,不发） |
 
-### 2.3 消息处理器（RabbitMQ，12 个）
+### 2.3 消息处理器（RabbitMQ，13 个）
 
 | # | 服务 | 收到 | 做什么 | 现状 |
 |---|---|---|---|---|
@@ -65,6 +67,7 @@
 | M10 | payment | `payment.charge` | **幂等插入**（订单号唯一）+ 模拟支付 + 发 succeeded 或 failed | ✅ R4（幂等新建 + `如果 消息.amount > 100000 则 FAILED 否则 SUCCEEDED` + 按存下来的结果分支：ChargePayment） |
 | M11 | notification | `order.confirmed` | 去重后写通知记录 | ✅ R4（以 `信封.id` 为主键的幂等新建：RecordOrderConfirmed;契约归 order） |
 | M12 | notification | `order.cancelled` | 同上 | ✅ R4（RecordOrderCancelled） |
+| M13 | inventory | `catalog.product_created` | 为新商品建库存记录（可用 0）；已经有了不改 | ✅ R4.1（幂等新建：InitStock;契约归 catalog） |
 
 ### 2.4 定时任务（2 个）
 
@@ -77,8 +80,12 @@
 
 | | 个数 | 占比 |
 |---|---|---|
-| ✅ 能生成并通过验证 | 27 | 96%（R1 + R2 + R3 + R4 + R5 完成，2026-11-23）—— **过关线** |
-| ❌ 需要新能力 | 1 | 4%（任务 J1：R6，或者手写的 5%） |
+| ✅ 能生成并通过验证 | 28 | 97%（R1 + R2 + R3 + R4 + R5 + R4.1 完成，2026-11-23）—— **过关线** |
+| ❌ 需要新能力 | 1 | 3%（任务 J1：R6，或者手写的 5%） |
+
+（分母变大时数字照实写：M13 是 R4 已有的能力就能生成的，所以 27 / 28 → 28 / 29，不是"多做了一个新能力"。）
+
+**R4.1 的产出**（端到端骨架发现的缺口 G18–G23，GAPS.md）：运行时 `api-factory-runtime` v0.5.1：`/readyz` 等到拓扑声明好、每个消费循环订阅了（`Workers.Ready`，消费循环先等拓扑：冷启动没有 NOT_FOUND）、`/server probe` 子命令（distroless 的 HEALTHCHECK）、日志全部 JSON（`slog.SetDefault`）、事件也开 `mandatory`（退回的事件可见：`last_error` + `factory_outbox_unroutable_total` + ERROR 日志）、系统级拓扑清单 `topology.Manifest` + `factory-runtime topology apply`、环境变量清单 `server.Env`。工厂：`factory system <目录>`（跨项目的消息契约检查 + 生成 `contracts/topology.json`，`scripts/projects.sh` 检查最新）、契约的 `外部: 是`、Dockerfile 模板的 `HEALTHCHECK`、项目 README 的环境变量表（`factory --project . prepare`）、wiring 的准备好了的信号。storefront：W1 发出 `catalog.product_created`，M13 InitStock。端到端：catalog 进了 compose，一次性的 topology 容器在服务之前声明清单，驱动经 catalog 的 API 建商品、读各服务的 outbox（不再绑 `#`、不再被动声明队列），21 步全部通过。
 
 （v0.1 写的"只差 F0 的 7 个"实际是 6 个：Q7 需要相对时间筛选，属于 R2。）
 
@@ -193,9 +200,10 @@ R2.5 之后,上面 6 个形状都能用元件表达(已知差异: 名次相同�
 | **R3** | 命令工厂设计书 + C1、C2、C3 + 写操作的验证体系 | W1–W4（R3-1：W1–W3；R3-2：W4 ✅ 13 / 28） | 13 / 28（46%） |
 | **R4** | C4（事件、outbox、RabbitMQ）+ C5（消息处理器） | M1–M3、M10–M12 ✅ | 19 / 28（68%） |
 | **R5** | C6（状态机，含超时） | W5、M4–M9、J2 ✅ | 27 / 28（96%） |
-| **R6** | C7（批量任务） | J1 | 28 / 28（100%） |
+| **R4.1** | 端到端骨架的加固（G18–G23） | M13 ✅（分母 28 → 29） | 28 / 29（97%） |
+| **R6** | C7（批量任务） | J1 | 29 / 29（100%） |
 
-- **过关线（95%）= R5 完成**：28 个里至少 27 个能生成，并通过工厂的验证（差分、并发、幂等、变异余量）。
+- **过关线（95%）= R5 完成**：28 个里至少 27 个能生成，并通过工厂的验证（差分、并发、幂等、变异余量）。R4.1 之后 29 个里 28 个。
 - R6 是加分项。如果 C7 的投入产出比不高，J1 可以作为"手写的 5%"。
 
 每一期都按工厂既有的流程走：设计稿 → 评审 → 实现 → 认证或验证 → 记录逃生率。

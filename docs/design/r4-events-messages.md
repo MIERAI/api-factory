@@ -147,6 +147,13 @@ R3 的事务执行器在执行完全部操作、**提交之前**，按设计稿�
 
 **路由不到**：命令发布时开 `mandatory`：没有队列接收 = 配置错误 → 当作发布失败留在 outbox 里并告警（命令绝不能静默消失）。事件不开 `mandatory`：没有订阅者是正常的（例如 `order.created` 暂时没人订阅）。
 
+> **R4.1 的修改（2026-11-23，GAPS G23）**：事件也开 `mandatory`。退回的事件（没有任何订阅队列）仍然标成已发送（不堵 outbox：
+> 系统外的订阅者、`外部: 是` 的事件可能永远没有队列），但不再静默：`last_error = 'unroutable: …'`、
+> `factory_outbox_unroutable_total{kind="event",type}`、ERROR 日志。防止丢事件的手段是**系统级的拓扑清单**
+> （`factory system` 生成 `contracts/topology.json`，平台在部署服务之前 `factory-runtime topology apply`）：
+> 跨项目检查保证系统里每个事件都有订阅方（或者写明 `外部: 是`），清单声明了它们的队列，所以生产环境里退回的事件 =
+> 清单没有声明 = 告警。见 boundaries.md §8.1。
+
 ### 3.4 顺序：不承诺 ⚖️ E4
 
 如实写出来：**平台不保证任何两条消息的先后**，包括同一个 subject 的。原因：

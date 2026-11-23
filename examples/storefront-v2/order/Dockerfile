@@ -22,4 +22,7 @@ ENV SERVICE_NAME=order
 ENV PORT=8080 METRICS_PORT=9090
 EXPOSE 8080 9090
 USER nonroot:nonroot
+# docker / compose (k8s probes /readyz itself): healthy = /readyz 200 = the topology is declared and every consumer
+# subscribed. distroless has no shell / curl: the server's own probe subcommand asks its /readyz
+HEALTHCHECK --interval=10s --timeout=3s --start-period=60s --start-interval=1s --retries=3 CMD ["/server", "probe"]
 ENTRYPOINT ["/server"]

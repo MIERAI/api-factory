@@ -99,13 +99,14 @@ factory init ../shop/services/catalog --module github.com/you/shop/services/cata
 # 写 design/<领域>/ 和 db/schema/*.sql
 factory --project ../shop/services/catalog design
 factory --project ../shop/services/catalog check
-factory --project ../shop/services/catalog prepare        # → proto、gen/、internal/handler、cmd/server/wiring_gen.go
+factory --project ../shop/services/catalog prepare        # → proto、gen/、internal/handler、cmd/server/wiring_gen.go、README 的环境变量表
+factory system ../shop/services                           # 系统: 跨项目的消息契约检查 + contracts/topology.json(平台在部署前声明)
 ```
 
 - `--project DIR`: 工厂切换到项目根目录;工厂自己的资源(factory.yaml 的默认值、适配器)仍从工厂目录读(`factory/proj`)
 - 项目的 `factory.yaml` 只写项目的键(proto 的包名前缀),按键覆盖工厂的;生成代码的模块名 = 项目 go.mod 的 module
 - `examples/` 下的项目(现在: storefront v2 的样例 catalog / inventory / order / payment / notification,见 `docs/design/storefront-v2-readiness.md`)由 `make projects` /
-  CI 的 verify ⑤ 检查: 设计 → 生成物是最新的 → 编译 → 用项目自己的数据库验收。工厂遇到做不到的,记在 `examples/storefront-v2/GAPS.md`
+  CI 的 verify ⑤ 检查: 设计 → 生成物是最新的 → 编译 → 用项目自己的数据库验收 → 系统(`factory system --check`)。工厂遇到做不到的,记在 `examples/storefront-v2/GAPS.md`
 
 ## 架构: 各环节通过文件契约串起来
 
@@ -201,3 +202,7 @@ scripts/trial.sh claude specs/jobs/get-job-summary/spec.yaml 3   # 开发用(快
 scripts/trial.sh local  specs/jobs/get-job-summary/spec.yaml 3   # 最终验证: 本地模型(factory.yaml 的 ai.models.local)
 ```
 结果追加到 `.factory/trials/results.jsonl`,每次的 prompt/diff/闸门/验收输出在 `.factory/trials/<run>/`。
+
+## 许可证
+
+MIT License — 见 [LICENSE](LICENSE)。使用、修改、再发布都可以,请保留版权声明(Copyright (c) 2026 Zaiqi Yang)。

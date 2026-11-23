@@ -8,8 +8,9 @@ permissions:
   pull-requests: write
 jobs:
   review:
-    if: ${{ !startsWith(github.head_ref, 'factory/gen-') && vars.FACTORY_GENERATE == 'on' }}
-    # 笔记本上的 self-hosted runner(私有仓库专用): 只有它能连到 tailnet 里 winpc 的模型
+    # 公开仓库: fork 来的 PR 不在自建 runner 上跑(另外仓库设置了外部贡献者的 PR 一律要批准才运行)
+    if: ${{ !startsWith(github.head_ref, 'factory/gen-') && vars.FACTORY_GENERATE == 'on' && github.event.pull_request.head.repo.full_name == github.repository }}
+    # 笔记本上的 self-hosted runner: 只有它能连到 tailnet 里 winpc 的模型
     runs-on: [self-hosted, laptop]
     timeout-minutes: 20
     steps:

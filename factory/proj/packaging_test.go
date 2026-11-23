@@ -34,6 +34,7 @@ func TestPackagingFromGoMod(t *testing.T) {
 		"ENV SERVICE_NAME=catalog", // the module's last segment
 		"ENV PORT=8080 METRICS_PORT=9090",
 		"EXPOSE 8080 9090",
+		`HEALTHCHECK --interval=10s --timeout=3s --start-period=60s --start-interval=1s --retries=3 CMD ["/server", "probe"]`,
 	} {
 		if !strings.Contains(d, want) {
 			t.Fatalf("Dockerfile lacks %q:\n%s", want, d)

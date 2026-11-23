@@ -178,6 +178,8 @@ type Contract struct {
 	Desc    string          `yaml:"desc,omitempty" json:"desc,omitempty"`
 	Proto   string          `yaml:"proto,omitempty" json:"-"` // data 的 proto 消息名(同一个包里)
 	Fields  []ContractField `yaml:"fields" json:"fields"`
+	// External: 系统外也有发送方 / 接收方(消息.yaml 的 外部: 是)。跨项目检查(factory system)不要求系统里有对方
+	External bool `yaml:"external,omitempty" json:"external,omitempty"`
 }
 
 // ContractField: 契约的一个字段。Type 列表 = 列表(Elem = 元素的字段,Unique = 元素的唯一键,Rules 的 个数 = 上限)。
