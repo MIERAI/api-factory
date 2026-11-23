@@ -14,7 +14,14 @@ package outbox_test
 //	③ 锁       N 路运行期间 pg_locks 采样: 等待全实例锁(database = 0 的共享对象)的样本占比 ≤ w
 //	④ 中继延迟 提交 → published_at 的 p90 ≤ Poll / 10(唤醒有效: 不唤醒的话平均要等半个轮询间隔)
 //
-// 证明它能抓到回归: 把 v0.5.2 的修复(提交后唤醒)换回事务里 NOTIFY,①③ 失败(PR 说明里有数字)。
+// 证明它能抓到回归(把 v0.5.2 的修复换回事务里 NOTIFY,api-factory #52):
+//
+//	                 本地 docker(fsync 贵)          GitHub runner(fsync 便宜)
+//	修复后           ① 7.5×  ② 0.97  ③ 0%          ① 3.4–6.8×  ② 0.69–0.74  ③ 0%
+//	事务里 NOTIFY    ① 1.5×✗ ② 0.16✗ ③ 100%✗       ① 3.1×      ② 0.47✗      ③ 99.9%✗
+//
+// ③ 是决定性的(锁的等待和磁盘快慢无关: 有就是有);① 只在 fsync 贵的机器上分得开(runner 上分不开),保留它是为了
+// 别的原因造成的串行;② 是开销的下限(0.5: runner 上修复后最低 0.69,不让它变成偶发失败)。
 
 import (
 	"context"
@@ -42,7 +49,7 @@ var (
 	perfDur       = time.Duration(envFloat("RUNTIME_PERF_SECONDS", 2) * float64(time.Second))
 	perfRounds    = envInt("RUNTIME_PERF_ROUNDS", 3)
 	minScaling    = envFloat("RUNTIME_PERF_MIN_SCALING", 2.0)     // ① k
-	minVsBaseline = envFloat("RUNTIME_PERF_MIN_VS_BASELINE", 0.6) // ② r
+	minVsBaseline = envFloat("RUNTIME_PERF_MIN_VS_BASELINE", 0.5) // ② r
 	maxLockWaits  = envFloat("RUNTIME_PERF_MAX_LOCK_WAITS", 0.02) // ③ w
 )
 

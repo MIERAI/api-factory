@@ -13,7 +13,7 @@ that module path still resolves to v0.5.2 and older, and `factory upgrade` rewri
 
 **Verification.** Besides the unit and integration tests, every change passes the runtime's performance gate
 (`outbox/perf_gate_test.go`, CI `runtime.yml` perf): outbox commit throughput with 16 concurrent writers ≥ 2× one
-writer, the outbox writer ≥ 0.6× a plain insert, no waits on a cluster-wide lock in pg_locks, relay latency p90 ≤ a
+writer, the outbox writer ≥ 0.5× a plain insert, no waits on a cluster-wide lock in pg_locks, relay latency p90 ≤ a
 tenth of the poll interval. All ratios within one run. It fails on v0.5.1's NOTIFY inside the write transaction.
 
 ```sh
