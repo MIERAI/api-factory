@@ -1,0 +1,67 @@
+# ============================================================================
+# ListStorePriceLocalNames: 店舗の売価 + 商品名(分库: 随父 の逻辑表への关联)
+#   store_product_names は店舗の DB にある追加型の表(JSON版本)。店舗コードの列がなく、売価の行と同じ店舗の DB にある
+# ============================================================================
+API: ListStorePriceLocalNames
+说明: 店舗を指定して、売価(有効期間つき)を店舗の商品名(現在の値)つきで商品コード順に返す
+背景: 店舗の売価確認画面(新しい商品名の表を使う版)。商品名は店舗の DB にある追加型の表で、変更のたびに版が増える。現在の値(最新の版)を使い、
+  削除・論理削除された商品名は使わない(商品名が空)。商品名の表に無い商品も売価は表示する。300 件を超えるときはエラーにして、
+  商品コードの先頭で絞ってもらう
+负责人: sales-team
+风险: 低
+
+种类: 多条
+数据来源: store_prices
+
+关联:
+  product: { 表: store_product_names, 条件: [product_code = product_code], 列: { product_name: name } }
+
+输入:
+  store_code:     { 类型: 整数32, 必填: 是, 范围: "> 0", 说明: 店舗コード, 筛选: store_code 等于 }
+  product_prefix: { 类型: 文本, 必填: 否, 长度: 1~20, 说明: 商品コードの先頭(省略 = 全商品), 筛选: product_code 前缀匹配 }
+
+输出:
+  product_code: 商品コード
+  product_name: 商品名(店舗の商品名の現在の版。無い・削除済み = 不设置)
+  valid_from:   適用開始日
+  valid_to:     適用終了日
+  price:        売価
+
+排序: [product_code 小到大, valid_from 新到旧]
+上限: 300
+输出行名: StorePriceWithLocalName
+
+业务规则:
+  - 情况: 店舗の商品名の表に無い商品、または商品名が削除・論理削除されている
+    结果: 売価は返す。商品名は空(古い版の商品名に戻らない)
+  - 情况: 商品名が変わった
+    结果: 最新の版の商品名
+  - 情况: 絞った後の売価が 300 件を超える
+    结果: エラー(FAILED_PRECONDITION)。途中で切り捨てない
+
+例子:
+  准备数据:
+    store_prices:
+      - { store_code: 1, product_code: "4901", valid_from: 2026-11-01, valid_to: null, price: 98 }
+      - { store_code: 1, product_code: "5001", valid_from: 2026-11-01, valid_to: null, price: 200 }
+      - { store_code: 1, product_code: "6001", valid_from: 2026-11-01, valid_to: null, price: 300 }
+      - { store_code: 3, product_code: "4901", valid_from: 2026-11-01, valid_to: null, price: 99 }
+    store_product_names:   # 上から順に登録された(後の行が新しい)
+      - { product_code: "4901", name: お茶 }
+      - { product_code: "4901", name: お茶 500ml }    # 新しい版
+      - { product_code: "6001", name: 旧商品 }
+      - { product_code: "6001", 操作: 删除 }
+  用例:
+    - 说明: 4901 は新しい版の商品名。5001 は商品名の表に無い、6001 は削除済み → 商品名は空
+      输入: { store_code: 1 }
+      结果:
+        store_prices:
+          - { product_code: "4901", product_name: お茶 500ml }
+          - { product_code: "5001", product_name: 不设置 }
+          - { product_code: "6001", product_name: 不设置 }
+    - 说明: 商品コードの先頭で絞る
+      输入: { store_code: 1, product_prefix: "49" }
+      结果: { store_prices: [{ product_code: "4901", product_name: お茶 500ml, price: "98" }] }
+    - 说明: 別の店舗(別の DB)
+      输入: { store_code: 3 }
+      结果: { store_prices: [{ product_code: "4901", product_name: お茶 500ml, price: "99" }] }

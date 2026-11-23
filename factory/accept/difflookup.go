@@ -42,6 +42,10 @@ type otherTable struct {
 	// asofCols: 按日期的关联的开始 / 结束列(参照是当前行的列): 约一半的行取和来源的唯一的日期一样分布的值
 	// (来源的日期列是唯一列时取序号: 中间 ± n/2 天;对方只取小值域就几乎碰不到参照)
 	asofCols map[string]bool
+	ymdCols  map[string]bool   // 按日期的开始 / 结束列是整数编码的日期(YYYYMMDD)
+	endCols  map[string]bool   // 按日期的结束列(可以为空 = 无期限)
+	startOf  map[string]string // 按日期的结束列 → 开始列
+	boundary map[string]bool   // 按日期(参照 = 今天 / 现在)的开始 / 结束列(探针的边界)
 }
 
 // fkRef: 表里的 cols 引用 ref 的 keys(逐列对应)。
@@ -51,6 +55,7 @@ type fkRef struct {
 	keys []string
 	// 按日期的关联(参照 = 主人的列 refCol): 取存在的键时,参照的值多半落在那一行的开始 / 结束的前后
 	refCol, start, end string
+	ymd                bool // 开始 / 结束是整数编码的日期(参照是日期)
 }
 
 // origin: 列的物理的出处(表的列)。
@@ -108,7 +113,7 @@ func (e *diffEnv) initOthers() error {
 				fk.ref = ot
 				if a := st.AsOf; a != nil && a.Ref != nil && a.Ref.Op == "col" {
 					if o, ok := from[a.Ref.Name]; ok && o.table == owner {
-						fk.refCol, fk.start, fk.end = o.col, a.Start, a.End
+						fk.refCol, fk.start, fk.end, fk.ymd = o.col, a.Start, a.End, a.YMD
 					}
 				}
 				e.fks[owner] = append(e.fks[owner], fk)
@@ -120,19 +125,28 @@ func (e *diffEnv) initOthers() error {
 		if st.Kind == "scan" || st.Kind == "lookup" || st.From == "datasource.table" || strings.HasPrefix(st.From, "来源 ") {
 			src = append(src, st)
 		}
-		if (st.Kind == "nest" || st.Kind == "child_agg") && e.plan.Storage(st.Table) == nil {
-			// 嵌套里的关联: 子表的来源 = scan(子表) + lookup …;外键的主人 = 子表(子行造好之后由 loadChildren 套用)
+		if st.Kind == "nest" || st.Kind == "child_agg" {
+			// 嵌套里的关联: 子表的来源 = scan(子表)/ 逻辑表的来源的展开 + lookup …;外键的主人 = 子表(逻辑表: 逻辑表名;
+			// 子行造好之后由 loadChildren / loadChildLogical 套用)
 			sub := map[string]origin{}
+			if lt := e.newLogical(st); lt != nil {
+				for _, c := range lt.cols {
+					sub[c.Name] = origin{st.Table, c.Name}
+				}
+			}
 			for _, s := range st.Source {
 				switch s.Kind {
 				case "scan":
+					if e.plan.Storage(st.Table) != nil {
+						continue
+					}
 					for _, c := range s.Columns {
 						sub[c.Name] = origin{s.Table, c.Name}
 					}
 				case "lookup":
 					ot, ok := byName[s.Table]
 					if !ok {
-						ot = &otherTable{table: s.Table, cols: s.Columns, shard: e.plan.Shard(s.Table), withParent: e.plan.WithParent(s.Table)}
+						ot = &otherTable{table: s.Table, cols: s.Columns, shard: e.plan.Shard(s.Table), lt: e.newLogical(s), withParent: e.plan.WithParent(s.Table)}
 						byName[s.Table] = ot
 						e.others = append(e.others, ot)
 					}
@@ -154,7 +168,7 @@ func (e *diffEnv) initOthers() error {
 						fk.ref = ot
 						if a := s.AsOf; a != nil && a.Ref != nil && a.Ref.Op == "col" {
 							if o, ok := sub[a.Ref.Name]; ok && o.table == owner {
-								fk.refCol, fk.start, fk.end = o.col, a.Start, a.End
+								fk.refCol, fk.start, fk.end, fk.ymd = o.col, a.Start, a.End, a.YMD
 							}
 						}
 						e.fks[owner] = append(e.fks[owner], fk)
@@ -497,8 +511,8 @@ func (e *diffEnv) tablesIn(conn *pgx.Conn, main []core.Row) map[string][]core.Ro
 	m := map[string][]core.Row{e.table: main}
 	e.childTablesIn(conn, m)
 	for _, ot := range e.others {
-		if ot.lt != nil { // 逻辑表: 参考求值器的输入是物理表的行(来源的子流水线自己算)
-			m[ot.lt.st.Table] = ot.lt.phys
+		if ot.lt != nil { // 逻辑表: 参考求值器的输入是物理表的行(来源的子流水线自己算;随父: 请求的库里的行)
+			m[ot.lt.st.Table] = ot.lt.physIn(conn)
 			continue
 		}
 		if conn == nil || (ot.shard == nil && !ot.withParent) {
@@ -592,6 +606,17 @@ func nearAsOf(ref core.Row, fk fkRef, which, off int) any {
 	if which == 1 && fk.end != "" && ref[fk.end] != nil {
 		base = ref[fk.end]
 	}
+	if fk.ymd { // 整数编码的日期 → 日期(参照是日期);不合法的整数: 没有前后
+		n, ok := base.(int64)
+		if !ok {
+			return nil
+		}
+		d, ok := core.YMDDate(n, false).(time.Time)
+		if !ok {
+			return nil
+		}
+		base = d
+	}
 	switch v := base.(type) {
 	case time.Time:
 		if v.Hour() == 0 && v.Minute() == 0 && v.Second() == 0 && v.Nanosecond() == 0 {
@@ -630,6 +655,12 @@ func asOfMutations(st core.Step) []asOfMutation {
 	}
 	mut("的按日期: 开始 ≤ 参照 写成 <", func(x *core.AsOf) { x.Mutant = "start_lt" })
 	mut("的按日期: 取了开始最小的行", func(x *core.AsOf) { x.Mutant = "min" })
+	if a.YMD { // 整数编码的日期: 不检查合法性(整数直接比较)
+		mut("的按日期: 不检查开始的 YYYYMMDD 的合法性", func(x *core.AsOf) { x.Mutant = "ymd_start" })
+		if a.End != "" {
+			mut("的按日期: 不检查结束的 YYYYMMDD 的合法性", func(x *core.AsOf) { x.Mutant = "ymd_end" })
+		}
+	}
 	if a.End != "" {
 		mut("的按日期: 结束的当天(含 ↔ 不含)", func(x *core.AsOf) { x.Mutant = "end_flip" })
 		mut("的按日期: 不看结束", func(x *core.AsOf) { x.Mutant = "no_end" })
@@ -694,7 +725,26 @@ func (ot *otherTable) pin(pred *core.Expr) {
 // asOf: 按日期的关联(参照是当前行的列)的开始 / 结束列。
 func (ot *otherTable) asOf(st core.Step) {
 	a := st.AsOf
-	if a == nil || a.Ref == nil || a.Ref.Op != "col" {
+	if a == nil || a.Ref == nil {
+		return
+	}
+	if ot.ymdCols == nil {
+		ot.ymdCols, ot.endCols, ot.boundary, ot.startOf = map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]string{}
+	}
+	if a.End != "" {
+		ot.startOf[a.End] = a.Start
+	}
+	if a.YMD { // 整数编码的日期: 参照是什么都要造日期的整数(逻辑表的对方: diffsource.go 的 special)
+		ot.ymdCols[a.Start] = true
+		if a.End != "" {
+			ot.ymdCols[a.End], ot.endCols[a.End] = true, true
+		}
+	}
+	if a.Ref.Op != "col" {
+		ot.boundary[a.Start] = true
+		if a.End != "" {
+			ot.boundary[a.End] = true
+		}
 		return
 	}
 	if ot.asofCols == nil {

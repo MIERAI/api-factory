@@ -154,6 +154,48 @@
     ]
   },
   {
+    "id": "catalog.list-category-shelf-labels",
+    "method": "ListCategoryShelfLabels",
+    "summary": "カテゴリ(現在の値)をカテゴリコード順に、所属する商品(最大 5 件、商品コード順)と各商品の棚札の文言つきで返す",
+    "path": "/factory.catalog.v1.CatalogService/ListCategoryShelfLabels",
+    "pattern": "list_keyset",
+    "cases": [
+      {
+        "name": "果物は 100(棚札の新しい版)と 200(棚札は削除 → 空)。300 は今は野菜、400 は削除",
+        "request": {},
+        "response": {
+          "categories": [
+            {
+              "category": "fruit",
+              "products": [
+                {
+                  "name": "りんご",
+                  "product_code": "100",
+                  "shelf_text": "りんご 1 個"
+                },
+                {
+                  "name": "バナナ",
+                  "product_code": "200",
+                  "shelf_text": "$absent"
+                }
+              ]
+            },
+            {
+              "category": "veg",
+              "products": [
+                {
+                  "name": "トマト",
+                  "product_code": "300",
+                  "shelf_text": "トマト"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
     "id": "catalog.list-labels-by-label-codes",
     "method": "ListLabelsByLabelCodes",
     "summary": "ラベルコード(複数)を指定して、全商品のそのラベルの現在の文言を返す。商品コードの前方一致で絞れる",
@@ -342,6 +384,73 @@
         },
         "response": {
           "labels": []
+        }
+      }
+    ]
+  },
+  {
+    "id": "catalog.list-product-costs",
+    "method": "ListProductCosts",
+    "summary": "カテゴリを指定して、商品(現在の値)を、発売日に適用されていた通常原価と今日の通常原価つきで商品コード順に返す",
+    "path": "/factory.catalog.v1.CatalogService/ListProductCosts",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "100 の発売日(4/1)は 61(新しい版)。今日(日本の 11/5)は期間限定(〜11/4)が終わったので 61。200 は発売日なし、今日は 31(今日からの改定は削除、最終日が不正な改定は使わない)",
+        "request": {
+          "category": "fruit"
+        },
+        "response": {
+          "products": [
+            {
+              "current_cost": "61",
+              "current_from": 20260101,
+              "launch_cost": "61",
+              "product_code": "100"
+            },
+            {
+              "current_cost": "31",
+              "current_from": 20251201,
+              "launch_cost": "$absent",
+              "launched_on": "$absent",
+              "product_code": "200"
+            }
+          ]
+        }
+      },
+      {
+        "name": "日本の 11/4 23:59 では今日 = 11/4 → 期間限定の 55",
+        "request": {
+          "category": "fruit"
+        },
+        "response": {
+          "products": [
+            {
+              "current_cost": "55",
+              "current_from": 20261101,
+              "product_code": "100"
+            },
+            {
+              "current_cost": "31",
+              "product_code": "200"
+            }
+          ]
+        }
+      },
+      {
+        "name": "原価の履歴がない商品は原価なし",
+        "request": {
+          "category": "veg"
+        },
+        "response": {
+          "products": [
+            {
+              "current_cost": "$absent",
+              "current_from": "$absent",
+              "launch_cost": "$absent",
+              "product_code": "300"
+            }
+          ]
         }
       }
     ]
@@ -2330,6 +2439,53 @@
     ]
   },
   {
+    "id": "sales.get-latest-store-notice",
+    "method": "GetLatestStoreNotice",
+    "summary": "店舗を指定して、掲載日が今日以前の現在のお知らせのうち掲載日が一番新しいもの(同じ日はお知らせ番号が大きいもの)を 1 件返す",
+    "path": "/factory.sales.v1.SaleService/GetLatestStoreNotice",
+    "pattern": "top_n",
+    "cases": [
+      {
+        "name": "一番新しい 4 は削除、5 は掲載予約、6 は存在しない日付。11/10 の 2 と 3 のうち番号が大きい 3(新しい版の件名)",
+        "request": {
+          "store_code": 1
+        },
+        "response": {
+          "notices": [
+            {
+              "notice_no": 3,
+              "posted_ymd": 20261110,
+              "title": "臨時休業"
+            }
+          ]
+        }
+      },
+      {
+        "name": "別の店舗(別の DB)",
+        "request": {
+          "store_code": 3
+        },
+        "response": {
+          "notices": [
+            {
+              "notice_no": 1,
+              "title": "改装"
+            }
+          ]
+        }
+      },
+      {
+        "name": "お知らせのない店舗は空",
+        "request": {
+          "store_code": 2
+        },
+        "response": {
+          "notices": []
+        }
+      }
+    ]
+  },
+  {
     "id": "sales.get-price-change-summary",
     "method": "GetPriceChangeSummary",
     "summary": "店舗と指示日を指定して、売価変更の指示を分類して件数を数え、変化率の平均・最大の値上げ率・警告を返す",
@@ -2957,6 +3113,68 @@
               "price": "104",
               "product_code": "A",
               "snap_ymd": 20260302
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "sales.list-store-price-local-names",
+    "method": "ListStorePriceLocalNames",
+    "summary": "店舗を指定して、売価(有効期間つき)を店舗の商品名(現在の値)つきで商品コード順に返す",
+    "path": "/factory.sales.v1.SaleService/ListStorePriceLocalNames",
+    "pattern": "list_all",
+    "cases": [
+      {
+        "name": "4901 は新しい版の商品名。5001 は商品名の表に無い、6001 は削除済み → 商品名は空",
+        "request": {
+          "store_code": 1
+        },
+        "response": {
+          "store_prices": [
+            {
+              "product_code": "4901",
+              "product_name": "お茶 500ml"
+            },
+            {
+              "product_code": "5001",
+              "product_name": "$absent"
+            },
+            {
+              "product_code": "6001",
+              "product_name": "$absent"
+            }
+          ]
+        }
+      },
+      {
+        "name": "商品コードの先頭で絞る",
+        "request": {
+          "product_prefix": "49",
+          "store_code": 1
+        },
+        "response": {
+          "store_prices": [
+            {
+              "price": "98",
+              "product_code": "4901",
+              "product_name": "お茶 500ml"
+            }
+          ]
+        }
+      },
+      {
+        "name": "別の店舗(別の DB)",
+        "request": {
+          "store_code": 3
+        },
+        "response": {
+          "store_prices": [
+            {
+              "price": "99",
+              "product_code": "4901",
+              "product_name": "お茶 500ml"
             }
           ]
         }

@@ -18,6 +18,9 @@ service CatalogService {
   // カテゴリを指定して、そのカテゴリの商品(現在の値)を、カテゴリ名・ラベル(最大 3 件)・ラベル数つきで返す
   rpc ListCategoryProducts(ListCategoryProductsRequest) returns (ListCategoryProductsResponse);
 
+  // カテゴリ(現在の値)をカテゴリコード順に、所属する商品(最大 5 件、商品コード順)と各商品の棚札の文言つきで返す
+  rpc ListCategoryShelfLabels(ListCategoryShelfLabelsRequest) returns (ListCategoryShelfLabelsResponse);
+
   // ラベルコード(複数)を指定して、全商品のそのラベルの現在の文言を返す。商品コードの前方一致で絞れる
   rpc ListLabelsByLabelCodes(ListLabelsByLabelCodesRequest) returns (ListLabelsByLabelCodesResponse);
 
@@ -26,6 +29,9 @@ service CatalogService {
 
   // 商品コード(複数)を指定して、ラベルの現在の文言を、商品名とカテゴリ名つきで返す
   rpc ListLabelsWithProduct(ListLabelsWithProductRequest) returns (ListLabelsWithProductResponse);
+
+  // カテゴリを指定して、商品(現在の値)を、発売日に適用されていた通常原価と今日の通常原価つきで商品コード順に返す
+  rpc ListProductCosts(ListProductCostsRequest) returns (ListProductCostsResponse);
 
   // 商品コードを指定して、その商品のラベル(既定のラベルを含む)の現在の値を返す
   rpc ListProductLabels(ListProductLabelsRequest) returns (ListProductLabelsResponse);
@@ -91,6 +97,41 @@ message ListCategoryProductsRequest {
 message ListCategoryProductsResponse {
   // 最多 200 件;超过时返回错误(不会截断)
   repeated CategoryProductRow products = 1;
+}
+
+// 商品マスタの現在の値(商品コードごとに最新に登録された行)
+message ShelfProduct {
+  // 商品コード
+  string product_code = 1;
+  // 商品名
+  optional string name = 2;
+  // 表示文言
+  optional string shelf_text = 3;
+}
+
+// カテゴリマスタの現在の値(カテゴリごとに最新に登録された行)。商品マスタの category から引く
+message CategoryWithShelfLabels {
+  // カテゴリ
+  string category = 1;
+  // カテゴリ名
+  optional string title = 2;
+  // 商品(商品コード順。最大 5 件。超えるカテゴリが入るページはエラー)
+  repeated ShelfProduct products = 3;
+}
+
+// カテゴリ(現在の値)をカテゴリコード順に、所属する商品(最大 5 件、商品コード順)と各商品の棚札の文言つきで返す
+message ListCategoryShelfLabelsRequest {
+  // 每页件数。0 = 默认 20,最多 100
+  int32 page_size = 1 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
+  // 上一页返回的 next_page_token(不透明的字符串)
+  string page_token = 2;
+}
+
+// カテゴリ(現在の値)をカテゴリコード順に、所属する商品(最大 5 件、商品コード順)と各商品の棚札の文言つきで返す
+message ListCategoryShelfLabelsResponse {
+  repeated CategoryWithShelfLabels categories = 1;
+  // 还有下一页时不为空
+  string next_page_token = 2;
 }
 
 // 商品の表示ラベル(商品 × ラベルコードごとに最新の版)。ラベルコードが空 = 既定のラベル
@@ -171,6 +212,34 @@ message ListLabelsWithProductRequest {
 message ListLabelsWithProductResponse {
   // 最多 500 件;超过时返回错误(不会截断)
   repeated LabelWithProduct labels = 1;
+}
+
+// 商品マスタの現在の値(商品コードごとに最新に登録された行)
+message ProductCostRow {
+  // 商品コード
+  string product_code = 1;
+  // 商品名
+  optional string name = 2;
+  // 発売日(未設定 = 不设置)
+  optional string launched_on = 3;
+  // 発売日に適用されていた通常原価(発売日が未設定・有効な改定なし = 不设置)
+  optional string launch_cost = 4;
+  // 今日の通常原価(有効な改定なし = 不设置)
+  optional string current_cost = 5;
+  // 今日の通常原価の適用開始日(YYYYMMDD の整数。なし = 不设置)
+  optional int32 current_from = 6;
+}
+
+// カテゴリを指定して、商品(現在の値)を、発売日に適用されていた通常原価と今日の通常原価つきで商品コード順に返す
+message ListProductCostsRequest {
+  // カテゴリ
+  string category = 1 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 20];
+}
+
+// カテゴリを指定して、商品(現在の値)を、発売日に適用されていた通常原価と今日の通常原価つきで商品コード順に返す
+message ListProductCostsResponse {
+  // 最多 200 件;超过时返回错误(不会截断)
+  repeated ProductCostRow products = 1;
 }
 
 // 商品の表示ラベル(商品 × ラベルコードごとに最新の版)。ラベルコードが空 = 既定のラベル

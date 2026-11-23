@@ -354,6 +354,7 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 	seed0 := int64(h.Sum64())
 	var inserted, rejected, attempts int
 	var reqs []core.Params
+	planned := false
 	for attempt := 0; attempt < 5; attempt++ {
 		attempts = attempt + 1
 		env.rnd = rand.New(rand.NewSource(seed0 + int64(attempt)*7919))
@@ -373,16 +374,24 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 		}
 		reqs = env.requests()
 		if env.planned(reqs) {
+			planned = true
 			break
 		}
 	}
 
 	// 没有输入的 API: 只有一种请求,能变的只有数据 → 跑好几份数据,覆盖条件累计起来判定
 	// (例: 前N条 取最新的 1 行,"最新的那一行被删除"在一份数据里很难碰到)
-	if len(env.userParams()) == 0 && len(env.tm.probes) == 0 {
+	// 输入只有请求固定的列(必填的等于: 分库键等,值域密集)时也一样: 请求只有几种(每个值一种),一份数据里
+	// 覆盖条件要的"≥3 个请求"凑不齐 → 几份数据累计(每份数据定向造删除的请求轮流换)。
+	// 只在一份数据(加倍重来 5 次)凑不齐时才这样(凑得齐的 API 和以前一样)
+	if (len(env.userParams()) == 0 && len(env.tm.probes) == 0) || (env.onlyPinnedInputs() && !planned) {
 		var results []Result
 		var total coverage
-		for k := 0; k < 6; k++ {
+		rounds := 6
+		if len(env.userParams()) > 0 { // 输入只有请求固定的列: 每份数据的请求也只有几种,多跑几份
+			rounds = 9
+		}
+		for k := 0; k < rounds; k++ {
 			if k > 0 {
 				env.rnd = rand.New(rand.NewSource(seed0 + int64(100+k)*7919))
 				env.rows, env.anchors = nil, nil
@@ -395,7 +404,7 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 				reqs = env.requests()
 			}
 			if len(reqs) > 0 && k%3 != 2 { // 定向造数据: 2/3 的数据让结果里的那一行的最新版本是删除 / 逻辑删除
-				if err := env.injectRemoval(reqs[0], k%3); err != nil {
+				if err := env.injectRemoval(reqs[k%len(reqs)], k%3); err != nil {
 					return fail("数据(删除的版本): %v", err)
 				}
 			}
@@ -404,7 +413,11 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 			total.add(cov)
 		}
 		ok, text := total.verdict(env)
-		text += " / 没有输入: 6 份数据累计"
+		if len(env.userParams()) == 0 {
+			text += " / 没有输入: 6 份数据累计"
+		} else {
+			text += fmt.Sprintf(" / 输入只有请求固定的列: %d 份数据累计", rounds)
+		}
 		return append(results, Result{Spec: api.ID, Suite: "diff", Case: "覆盖条件", Passed: ok, Detail: text})
 	}
 	results, cov := env.measure(url, reqs, inserted, rejected, "")
@@ -1144,6 +1157,18 @@ func (e *diffEnv) load() (int, int, error) {
 // ---------------------------------------------------------------------------
 // 请求
 // ---------------------------------------------------------------------------
+
+// onlyPinnedInputs: 输入全部是必填的等于(请求固定的列: 值域密集,请求只有几种)。
+func (e *diffEnv) onlyPinnedInputs() bool {
+	ps := e.userParams()
+	for _, d := range ps {
+		f := e.filter[d.Name]
+		if !d.Required || d.List || f.Op != "eq" || !e.pinCols[f.Column] {
+			return false
+		}
+	}
+	return len(ps) > 0
+}
 
 func (e *diffEnv) userParams() []core.ParamDecl {
 	var out []core.ParamDecl

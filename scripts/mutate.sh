@@ -205,6 +205,36 @@ PN=gen/db/sales.list-store-price-names.sql.go
 PNH=internal/handler/sales/list_store_price_names_gen.go
 run "随父: 保留写成丢弃(LEFT JOIN → JOIN)"           $PN 's/LEFT JOIN local_products AS t2/JOIN local_products AS t2/'
 run "随父: 别の店舗の DB を引く(店舗コード + 1)"      $PNH 's/h\.at\(int64\(m\.GetStoreCode\(\)\)\)/h.at(int64(m.GetStoreCode())+2)/'
+# R2.7 H1/H2: 逻辑表への按日期的关联 + 整数编码的日期(YYYYMMDD)+ 对方的列 = 常量
+PC=gen/db/catalog.list-product-costs.sql.go
+run "YMD按日期: 开始の不正な日付を検査しない"        $PC 's/\n\s+AND \(CASE WHEN t8\.valid_from BETWEEN[^\n]*END\)//'
+run "YMD按日期: 不正な最終日を無期限扱い"            $PC 's/ AND \(CASE WHEN t8\.valid_to BETWEEN[^\n]*?ELSE FALSE END\)\)\)/))/'
+run "按日期(逻辑表): 最終日を含まない(<= → <)"      $PC 's/\x27YYYYMMDD\x27\)\)::int4 <= t8\.valid_to/\x27YYYYMMDD\x27))::int4 < t8.valid_to/'
+run "按日期(逻辑表): 一番古い改定を取る"             $PC 's/ORDER BY t8\.valid_from DESC/ORDER BY t8.valid_from/'
+run "对方的列 = 常量(逻辑表): 区分を見ない"          $PC 's/WHERE \(t8\.cost_kind = \x27STD\x27::text\)\n\s+AND /WHERE /'
+run "按日期(逻辑表): 版を取らない(DISTINCT ON なし)"  $PC 's/SELECT DISTINCT ON \(t6\.product_code COLLATE "C", t6\.cost_kind COLLATE "C", t6\.valid_from\) /SELECT /'
+run "按日期(逻辑表・今天): UTC の日付"               $PC 's/AT TIME ZONE \x27Asia\/Tokyo\x27/AT TIME ZONE \x27UTC\x27/g'
+# R2.7 H1: 嵌套里的关联(子表・对方が逻辑表)
+CS=gen/db/catalog.list-category-shelf-labels.sql.go
+run "嵌套里的关联(逻辑表): 保留写成丢弃"             $CS 's/\) AS t8\n(\s+)LEFT JOIN LATERAL/) AS t8\n${1}JOIN LATERAL/'
+run "嵌套里的关联(逻辑表): 棚札の区分を見ない"       $CS 's/WHERE \(t12\.label_code = \x27SHELF\x27::text\)/WHERE TRUE/'
+run "嵌套里的关联(逻辑表): 削除されたラベルも使う"   $CS 's/WHERE \(\(t11\._action <> 1::int4\) AND/WHERE ((TRUE) AND/'
+run "嵌套(逻辑表的子表+关联): 削除された商品も出す"  $CS 's/WHERE \(\(t7\._action <> 1::int4\) AND/WHERE ((TRUE) AND/'
+# R2.7 H3: 分库: 随父 の逻辑表への关联
+PL=gen/db/sales.list-store-price-local-names.sql.go
+PLH=internal/handler/sales/list_store_price_local_names_gen.go
+run "随父(逻辑表): 别の店舗の DB を引く"             $PLH 's/h\.at\(int64\(m\.GetStoreCode\(\)\)\)/h.at(int64(m.GetStoreCode())+2)/'
+run "随父(逻辑表): 削除された商品名も使う"           $PL 's/WHERE \(\(t4\._action <> 1::int4\) AND/WHERE ((TRUE) AND/'
+run "随父(逻辑表): 古い版の商品名を使う"             $PL 's/t3\._o_registered_at DESC, t3\._o_id DESC/t3._o_registered_at, t3._o_id/'
+# R2.7 H4: 入力が分库キーだけの 前N条 1(逻辑表)
+GN=gen/db/sales.get-latest-store-notice.sql.go
+GNH=internal/handler/sales/get_latest_store_notice_gen.go
+run "最新のお知らせ: 削除を見ない"                   $GN 's/WHERE \(\(t3\._action <> 1::int4\) AND/WHERE ((TRUE) AND/'
+run "最新のお知らせ: 論理削除を見ない"               $GN 's/OR \(t3\._logical_delete <> \x271\x27::text\)/OR TRUE/'
+run "最新のお知らせ: 同じ日は番号の小さい方"         $GN 's/t5\.notice_no DESC/t5.notice_no/'
+run "最新のお知らせ: 今天 を UTC で"                 $GN 's/AT TIME ZONE \x27Asia\/Tokyo\x27/AT TIME ZONE \x27UTC\x27/'
+run "最新のお知らせ: 今日の掲載を含まない(<= → <)"  $GN 's/\(t4\.posted_ymd <= \(to_char/(t4.posted_ymd < (to_char/'
+run "最新のお知らせ: 別の店舗の DB"                  $GNH 's/h\.at\(int64\(m\.GetStoreCode\(\)\)\)/h.at(int64(m.GetStoreCode())+2)/'
 # 命令工厂(R3-1): 生成的写代码。每个变异都要被 ≥3 个状态差分的请求抓到(factory/accept/command_diff.go)
 UJ=internal/handler/schedules/update_job_schedule_gen.go
 SE=internal/handler/schedules/commands_gen.go

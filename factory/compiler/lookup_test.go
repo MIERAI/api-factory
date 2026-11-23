@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"apifactory/factory/cells"
+	"apifactory/factory/core"
 	"apifactory/factory/spec"
 )
 
@@ -179,5 +180,45 @@ func TestLookupR26(t *testing.T) {
 	onlyConst.On = []string{"kind = 'STD'"}
 	if err := run("orders", free, []spec.Lookup{onlyConst}, nil); err == nil {
 		t.Errorf("只有常量的条件 应该报错")
+	}
+}
+
+// R2.7 H2: 按日期的开始 / 结束是整数编码的日期(编码: YYYYMMDD): 参照要是日期(或整数编码的日期的列 → ymd(列)),
+// 开始 / 结束的编码要一致,参照不能是 现在。
+func TestLookupAsOfYMD(t *testing.T) {
+	cat := &catalog{tables: map[string][]catColumn{
+		"orders": {{"id", "int8", true}, {"sku", "text", true}, {"day", "date", true}, {"day_ymd", "int4", true}, {"n", "int4", true}},
+		"hist":   {{"sku", "text", true}, {"from_ymd", "int4", true}, {"to_ymd", "int4", false}, {"to_plain", "int4", false}, {"v", "text", true}},
+	}}
+	keys := map[string][][]string{"hist": {{"sku", "from_ymd"}}}
+	ymd := spec.ColumnMeta{Encoding: "YYYYMMDD"}
+	dom := &spec.Domain{Entities: map[string]spec.Entity{
+		"orders": {Columns: map[string]spec.ColumnMeta{"day_ymd": ymd}},
+		"hist":   {Columns: map[string]spec.ColumnMeta{"from_ymd": ymd, "to_ymd": ymd}},
+	}}
+	run := func(ref, end string) ([]core.Step, error) {
+		l := spec.Lookup{Name: "h", Table: "hist", On: []string{"sku = sku"}, Columns: []spec.TakeCol{{Name: "hv", From: "v"}},
+			AsOf: &spec.LookupAsOf{Start: "from_ymd", End: end, EndIn: true, Ref: ref}}
+		_, steps, err := lookupView(&spec.Spec{Domain: dom, Datasource: spec.Datasource{Table: "orders", Lookups: []spec.Lookup{l}}}, cat, keys, nil)
+		return steps, err
+	}
+	steps, err := run("day", "to_ymd")
+	if err != nil || len(steps) != 1 || steps[0].AsOf == nil || !steps[0].AsOf.YMD {
+		t.Fatalf("YMD 的开始 + 日期的参照: %v %+v", err, steps)
+	}
+	if steps, err = run("day_ymd", "to_ymd"); err != nil || steps[0].AsOf.Ref.Op != "ymd" {
+		t.Errorf("参照是整数编码的日期的列 → ymd(列): %v %+v", err, steps)
+	}
+	if _, err := run("今天", ""); err != nil {
+		t.Errorf("参照 今天: %v", err)
+	}
+	for _, c := range []struct{ ref, end, want string }{
+		{"现在", "to_ymd", "不能是 现在"},
+		{"n", "to_ymd", "要是日期"},
+		{"day", "to_plain", "编码不同"},
+	} {
+		if _, err := run(c.ref, c.end); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("参照 %s / 结束 %s: 应该报错(%s),得到 %v", c.ref, c.end, c.want, err)
+		}
 	}
 }

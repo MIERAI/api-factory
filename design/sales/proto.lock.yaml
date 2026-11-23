@@ -31,6 +31,10 @@
         total_amount: 2
         total_discount: 3
         unclosed_stores: 6
+    GetLatestStoreNoticeRequest:
+        store_code: 1
+    GetLatestStoreNoticeResponse:
+        notices: 1
     GetPriceChangeSummaryRequest:
         proc_date: 2
         store_code: 1
@@ -113,6 +117,11 @@
         store_code: 1
     ListRecentSnapshotsResponse:
         snapshots: 1
+    ListStorePriceLocalNamesRequest:
+        product_prefix: 2
+        store_code: 1
+    ListStorePriceLocalNamesResponse:
+        store_prices: 1
     ListStorePriceNamesRequest:
         product_name: 3
         product_prefix: 2
@@ -192,6 +201,10 @@
         closed_on: 4
         discount: 3
         sales_date: 1
+    StoreNotice:
+        notice_no: 1
+        posted_ymd: 3
+        title: 2
     StorePrice:
         price: 4
         product_code: 1
@@ -202,6 +215,12 @@
         old_price: 4
         product_code: 2
         store_code: 1
+    StorePriceWithLocalName:
+        price: 5
+        product_code: 1
+        product_name: 2
+        valid_from: 3
+        valid_to: 4
     StorePriceWithName:
         price: 5
         product_code: 1

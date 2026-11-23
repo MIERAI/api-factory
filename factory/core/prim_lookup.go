@@ -46,7 +46,7 @@ func lookupSQL(g *sqlGen, lv *sqlLevel, st Step) (*sqlLevel, error) {
 	if lv.joinBusy() {
 		lv = g.wrap(lv, false)
 	}
-	if (st.Pred != nil || st.AsOf != nil) && len(st.Source) == 0 { // 按日期 / 带对方的条件: LATERAL(lookup_asof.go)
+	if st.Pred != nil || st.AsOf != nil { // 按日期 / 带对方的条件(对方可以是逻辑表): LATERAL(lookup_asof.go)
 		lv, err := g.lookupLateralSQL(lv, st)
 		if err != nil {
 			return nil, err

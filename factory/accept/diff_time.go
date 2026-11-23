@@ -132,7 +132,11 @@ func (e *diffEnv) collectDerived() {
 				continue
 			}
 			t, _ := core.Schema(st.Columns).Col(c)
-			e.tm.cmps = append(e.tm.cmps, derivedCmp{table: st.Table, step: -1, col: c, expr: st.AsOf.Ref, kind: t.Kind, asof: true})
+			kind := t.Kind
+			if st.AsOf.YMD { // 整数编码的日期: 边界是日期的整数(约 1/4 不合法)
+				kind = core.Date
+			}
+			e.tm.cmps = append(e.tm.cmps, derivedCmp{table: st.Table, step: -1, col: c, expr: st.AsOf.Ref, kind: kind, asof: true, ymd: st.AsOf.YMD})
 		}
 		walkIn(st.AsOf.Ref)
 	}

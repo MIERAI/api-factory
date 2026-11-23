@@ -24,6 +24,7 @@ import (
 //	  product_id: { 类型: 整数32, 说明: 商品ID }
 //	  valid_from: { 类型: 整数32, 键: from, 说明: 生效开始日 }   # 键 = JSON 里的名字(默认 = 列名)
 //	  line_code:  { 类型: 文本, 可以为空: 是, 说明: … }          # 主键的列也可以为空: 空值自己是一组(和原来的 DISTINCT ON 一样)
+//	  start_ymd:  { 类型: 整数32, 编码: YYYYMMDD, 说明: … }     # 整数里的日期(和普通的表的列的 编码 一样)
 //	  登记时间:   { 类型: 时间, 列: registered_at }               # 外壳列: 物理表的列(这个版本的值),不在 JSON 里
 func init() {
 	Register(&Source{
@@ -57,7 +58,7 @@ func init() {
 }
 
 // FieldKeys: JSON版本 的表的一个字段可以写的键。
-var FieldKeys = []string{"类型", "键", "列", "说明", "枚举", "可以为空"}
+var FieldKeys = []string{"类型", "键", "列", "说明", "枚举", "可以为空", "编码"}
 
 func parseJSONVersions(d Domain) *spec.Storage {
 	n, name := d.Node(), d.Name()
@@ -124,6 +125,9 @@ func parseJSONVersions(d Domain) *spec.Storage {
 			}
 			st.Fields = append(st.Fields, spec.StorageField{Name: key.Value, Key: str(val, "键"), Type: sqlType, Nullable: nullable, Column: col})
 			d.Column(key.Value, str(val, "说明"), en)
+			if enc := str(val, "编码"); enc != "" { // 整数里的日期(YYYYMMDD): 和普通的表的列一样
+				d.Encoding(key.Line, key.Value, enc)
+			}
 		}
 	}
 	if len(st.Fields) == 0 {

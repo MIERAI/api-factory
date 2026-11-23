@@ -14,6 +14,9 @@ service SaleService {
   // 指定した売上日の売上を店舗横断で集計する(合計・値引き・純売上・値引き率・締めの状況)
   rpc GetDailySalesSummary(GetDailySalesSummaryRequest) returns (GetDailySalesSummaryResponse);
 
+  // 店舗を指定して、掲載日が今日以前の現在のお知らせのうち掲載日が一番新しいもの(同じ日はお知らせ番号が大きいもの)を 1 件返す
+  rpc GetLatestStoreNotice(GetLatestStoreNoticeRequest) returns (GetLatestStoreNoticeResponse);
+
   // 店舗と指示日を指定して、売価変更の指示を分類して件数を数え、変化率の平均・最大の値上げ率・警告を返す
   rpc GetPriceChangeSummary(GetPriceChangeSummaryRequest) returns (GetPriceChangeSummaryResponse);
 
@@ -46,6 +49,9 @@ service SaleService {
 
   // 店舗の、今日を含む直近 days 日分(days = 0 なら今日だけ)の売価スナップショットを新しい日から返す
   rpc ListRecentSnapshots(ListRecentSnapshotsRequest) returns (ListRecentSnapshotsResponse);
+
+  // 店舗を指定して、売価(有効期間つき)を店舗の商品名(現在の値)つきで商品コード順に返す
+  rpc ListStorePriceLocalNames(ListStorePriceLocalNamesRequest) returns (ListStorePriceLocalNamesResponse);
 
   // 店舗を指定して、売価(有効期間つき)を商品名つきで商品コード順に返す
   rpc ListStorePriceNames(ListStorePriceNamesRequest) returns (ListStorePriceNamesResponse);
@@ -99,6 +105,28 @@ message GetDailySalesSummaryResponse {
   int64 unclosed_stores = 6;
   // 締めの状況 NO_DATA / OPEN / CLOSED
   string status = 7;
+}
+
+// 店舗へのお知らせ(追加型。変更のたびに版を追加)。店舗ごとの DB に分かれている
+message StoreNotice {
+  // お知らせ番号
+  int32 notice_no = 1;
+  // 件名
+  optional string title = 2;
+  // 掲載日(YYYYMMDD の整数)
+  optional int32 posted_ymd = 3;
+}
+
+// 店舗を指定して、掲載日が今日以前の現在のお知らせのうち掲載日が一番新しいもの(同じ日はお知らせ番号が大きいもの)を 1 件返す
+message GetLatestStoreNoticeRequest {
+  // 店舗コード
+  int32 store_code = 1 [(buf.validate.field).int32.gt = 0];
+}
+
+// 店舗を指定して、掲載日が今日以前の現在のお知らせのうち掲載日が一番新しいもの(同じ日はお知らせ番号が大きいもの)を 1 件返す
+message GetLatestStoreNoticeResponse {
+  // 按排序取前 1 件(不足时全部)
+  repeated StoreNotice notices = 1;
 }
 
 // 店舗と指示日を指定して、売価変更の指示を分類して件数を数え、変化率の平均・最大の値上げ率・警告を返す
@@ -408,6 +436,34 @@ message ListRecentSnapshotsRequest {
 message ListRecentSnapshotsResponse {
   // 最多 200 件;超过时返回错误(不会截断)
   repeated RecentSnapshot snapshots = 1;
+}
+
+// 店別の売価(有効期間つき)。店舗ごとの DB に分かれている
+message StorePriceWithLocalName {
+  // 商品コード
+  string product_code = 1;
+  // 商品名(店舗の商品名の現在の版。無い・削除済み = 不设置)
+  optional string product_name = 2;
+  // 適用開始日
+  string valid_from = 3;
+  // 適用終了日
+  optional string valid_to = 4;
+  // 売価
+  string price = 5;
+}
+
+// 店舗を指定して、売価(有効期間つき)を店舗の商品名(現在の値)つきで商品コード順に返す
+message ListStorePriceLocalNamesRequest {
+  // 店舗コード
+  int32 store_code = 1 [(buf.validate.field).int32.gt = 0];
+  // 商品コードの先頭(省略 = 全商品)
+  optional string product_prefix = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.max_len = 20];
+}
+
+// 店舗を指定して、売価(有効期間つき)を店舗の商品名(現在の値)つきで商品コード順に返す
+message ListStorePriceLocalNamesResponse {
+  // 最多 300 件;超过时返回错误(不会截断)
+  repeated StorePriceWithLocalName store_prices = 1;
 }
 
 // 店別の売価(有効期間つき)。店舗ごとの DB に分かれている

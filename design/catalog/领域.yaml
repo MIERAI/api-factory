@@ -41,3 +41,16 @@
       category: { 类型: 文本,   说明: カテゴリ }
       title:    { 类型: 文本,   说明: カテゴリ名(表示用) }
       sort_no:  { 类型: 整数32, 说明: 表示順 }
+
+  product_cost:
+    说明: 商品の原価の履歴(区分ごと。改定のたびに版を追加)。日付は旧システムの整数 YYYYMMDD
+    存储: JSON版本
+    原始表: product_cost_events
+    主键: [product_code, cost_kind, valid_from]
+    逻辑删除: deleted = 1
+    字段:
+      product_code: { 类型: 文本,   说明: 商品コード }
+      cost_kind:    { 类型: 文本,   说明: 区分(STD = 通常 / SALE = 特売) }
+      valid_from:   { 类型: 整数32, 编码: YYYYMMDD, 说明: 適用開始日(YYYYMMDD。存在しない日付の版は使わない) }
+      valid_to:     { 类型: 整数32, 编码: YYYYMMDD, 说明: 適用最終日(含。空 = 次の改定まで。存在しない日付の版は使わない) }
+      cost:         { 类型: 十进制, 说明: 原価 }

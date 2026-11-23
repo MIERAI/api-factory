@@ -1,0 +1,75 @@
+# ============================================================================
+# ListCategoryShelfLabels: カテゴリ + 商品(嵌套)+ 商品の棚札の文言(嵌套里的关联)。子表も关联の相手も逻辑表
+#   子表(商品マスタ)の行にラベル(逻辑表)を引く。对方的列 = 常量(label_code = 'SHELF')
+# ============================================================================
+API: ListCategoryShelfLabels
+说明: カテゴリ(現在の値)をカテゴリコード順に、所属する商品(最大 5 件、商品コード順)と各商品の棚札の文言つきで返す
+背景: 棚札の印刷前チェック。カテゴリ・商品・ラベルはどれも変更のたびに行が追加される表(JSON版本)で、すべて現在の値(最新の版)で見る。
+  棚札 = ラベルコード SHELF のラベル。棚札のない商品も出す(文言が空)。1 カテゴリの商品は 5 件までの運用で、超えるのはデータの誤り
+  → 切り捨てずに、そのカテゴリが入るページの要求をエラーにする
+负责人: catalog-team
+风险: 低
+
+种类: 一览
+数据来源: category_master
+
+嵌套:
+  products:
+    表: product_master
+    条件: [category = category]
+    关联:
+      shelf: { 表: product_label, 条件: [product_code = product_code, label_code = 'SHELF'], 列: { shelf_text: text } }
+    排序: [product_code 小到大]
+    上限: 5
+    列: [product_code, name, shelf_text]
+    行名: ShelfProduct
+
+输出:
+  category: カテゴリ
+  title:    カテゴリ名
+  products: 商品(商品コード順。最大 5 件。超えるカテゴリが入るページはエラー)
+
+排序: [category 小到大]
+分页: { 默认每页: 20, 每页最多: 100 }
+输出行名: CategoryWithShelfLabels
+输出列表名: categories
+
+业务规则:
+  - 情况: 商品に棚札(SHELF)のラベルがない、または削除されている(ラベルの表に論理削除はない)
+    结果: 商品は出す。棚札の文言は空
+  - 情况: 商品が削除・論理削除されている、または今は別のカテゴリ
+    结果: そのカテゴリには出さない
+  - 情况: あるカテゴリの商品が 5 件を超える
+    结果: そのカテゴリが入るページの要求だけが FAILED_PRECONDITION になる(切り捨てない)
+
+例子:
+  准备数据:
+    category_master:
+      - { category: fruit, title: 果物, sort_no: 1 }
+      - { category: veg,   title: 野菜, sort_no: 2 }
+    product_master:   # 上から順に登録された(後の行が新しい)
+      - { product_code: "100", name: りんご,   category: fruit, price: 100, launched_on: null }
+      - { product_code: "200", name: バナナ,   category: fruit, price: 50,  launched_on: null }
+      - { product_code: "300", name: トマト,   category: fruit, price: 70,  launched_on: null }
+      - { product_code: "300", name: トマト,   category: veg,   price: 70,  launched_on: null }   # fruit → veg
+      - { product_code: "400", name: もも,     category: fruit, price: 300, launched_on: null }
+      - { product_code: "400", 操作: 删除 }
+    product_label:
+      - { product_code: "100", label_code: SHELF, text: 旧 }
+      - { product_code: "100", label_code: SHELF, text: りんご 1 個 }   # 新しい版
+      - { product_code: "100", label_code: POP,   text: 特売 }          # 棚札ではない
+      - { product_code: "200", label_code: SHELF, text: バナナ }
+      - { product_code: "200", label_code: SHELF, 操作: 删除 }
+      - { product_code: "300", label_code: SHELF, text: トマト }
+  用例:
+    - 说明: 果物は 100(棚札の新しい版)と 200(棚札は削除 → 空)。300 は今は野菜、400 は削除
+      输入: {}
+      结果:
+        categories:
+          - category: fruit
+            products:
+              - { product_code: "100", name: りんご, shelf_text: りんご 1 個 }
+              - { product_code: "200", name: バナナ, shelf_text: 不设置 }
+          - category: veg
+            products:
+              - { product_code: "300", name: トマト, shelf_text: トマト }
