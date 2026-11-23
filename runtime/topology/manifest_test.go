@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MIERAI/api-factory-runtime/message"
+	"github.com/MIERAI/api-factory/runtime/message"
 )
 
 // 清单 ↔ Spec: 写出来再读回来是同一个 Spec;手改推出来的名字 / 未知字段 / 版本不对 → 错误。

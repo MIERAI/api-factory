@@ -23,15 +23,15 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/MIERAI/api-factory-runtime/anomaly"
-	"github.com/MIERAI/api-factory-runtime/apierr"
-	"github.com/MIERAI/api-factory-runtime/broker"
-	"github.com/MIERAI/api-factory-runtime/clock"
-	"github.com/MIERAI/api-factory-runtime/message"
-	"github.com/MIERAI/api-factory-runtime/metrics"
-	"github.com/MIERAI/api-factory-runtime/paging"
-	"github.com/MIERAI/api-factory-runtime/shard"
-	"github.com/MIERAI/api-factory-runtime/txn"
+	"github.com/MIERAI/api-factory/runtime/anomaly"
+	"github.com/MIERAI/api-factory/runtime/apierr"
+	"github.com/MIERAI/api-factory/runtime/broker"
+	"github.com/MIERAI/api-factory/runtime/clock"
+	"github.com/MIERAI/api-factory/runtime/message"
+	"github.com/MIERAI/api-factory/runtime/metrics"
+	"github.com/MIERAI/api-factory/runtime/paging"
+	"github.com/MIERAI/api-factory/runtime/shard"
+	"github.com/MIERAI/api-factory/runtime/txn"
 )
 
 // Service 是一个已挂载的 Connect 服务。

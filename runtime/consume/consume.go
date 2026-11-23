@@ -31,12 +31,12 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/MIERAI/api-factory-runtime/broker"
-	"github.com/MIERAI/api-factory-runtime/clock"
-	"github.com/MIERAI/api-factory-runtime/message"
-	"github.com/MIERAI/api-factory-runtime/metrics"
-	"github.com/MIERAI/api-factory-runtime/topology"
-	"github.com/MIERAI/api-factory-runtime/txn"
+	"github.com/MIERAI/api-factory/runtime/broker"
+	"github.com/MIERAI/api-factory/runtime/clock"
+	"github.com/MIERAI/api-factory/runtime/message"
+	"github.com/MIERAI/api-factory/runtime/metrics"
+	"github.com/MIERAI/api-factory/runtime/topology"
+	"github.com/MIERAI/api-factory/runtime/txn"
 )
 
 // Handler: 处理一条消息(生成的代码)。在 tx 里做全部写入(操作、后续消息的 outbox);返回 nil = 提交。

@@ -7,10 +7,10 @@ import (
 
 	amqp "github.com/rabbitmq/amqp091-go"
 
-	"github.com/MIERAI/api-factory-runtime/broker"
-	"github.com/MIERAI/api-factory-runtime/internal/itest"
-	"github.com/MIERAI/api-factory-runtime/message"
-	"github.com/MIERAI/api-factory-runtime/topology"
+	"github.com/MIERAI/api-factory/runtime/broker"
+	"github.com/MIERAI/api-factory/runtime/internal/itest"
+	"github.com/MIERAI/api-factory/runtime/message"
+	"github.com/MIERAI/api-factory/runtime/topology"
 )
 
 // Ensure: 声明是幂等的;参数和已有的不一致 → 错误(启动失败);ctx 结束之前连不上 → nil。

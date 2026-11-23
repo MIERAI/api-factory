@@ -9,11 +9,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/MIERAI/api-factory-runtime/clock"
-	"github.com/MIERAI/api-factory-runtime/consume"
-	"github.com/MIERAI/api-factory-runtime/message"
-	"github.com/MIERAI/api-factory-runtime/sm"
-	"github.com/MIERAI/api-factory-runtime/txn"
+	"github.com/MIERAI/api-factory/runtime/clock"
+	"github.com/MIERAI/api-factory/runtime/consume"
+	"github.com/MIERAI/api-factory/runtime/message"
+	"github.com/MIERAI/api-factory/runtime/sm"
+	"github.com/MIERAI/api-factory/runtime/txn"
 	"github.com/jackc/pgx/v5"
 
 	approvalsv1 "apifactory/gen/factory/approvals/v1"

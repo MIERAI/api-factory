@@ -28,10 +28,10 @@ import (
 // The default is this repository's module, for unit tests that render without running Run.
 var modulePath = "apifactory"
 
-// runtimeModule: the public runtime every generated service imports (github.com/MIERAI/api-factory-runtime). The
+// runtimeModule: the public runtime every generated service imports (github.com/MIERAI/api-factory/runtime). The
 // pure-function gate of the manifest must forbid it (TestPureGateForbidsTheRuntime): a compute function that imports
 // the runtime can reach the database and the network.
-const runtimeModule = "github.com/MIERAI/api-factory-runtime"
+const runtimeModule = "github.com/MIERAI/api-factory/runtime"
 
 func init() { adapter.Register("go", Run) }
 
@@ -287,13 +287,13 @@ package {{.Domain}}
 import (
 	"{{.ConnectPath}}"
 	"{{module}}/gen/db"
-	"github.com/MIERAI/api-factory-runtime/paging"
-	"github.com/MIERAI/api-factory-runtime/shard"
+	"github.com/MIERAI/api-factory/runtime/paging"
+	"github.com/MIERAI/api-factory/runtime/shard"
 {{- if .Messages}}
-	"github.com/MIERAI/api-factory-runtime/outbox"
+	"github.com/MIERAI/api-factory/runtime/outbox"
 {{- end}}
 {{- if .Commands}}
-	"github.com/MIERAI/api-factory-runtime/txn"
+	"github.com/MIERAI/api-factory/runtime/txn"
 {{- end}}
 )
 
@@ -344,21 +344,21 @@ import (
 
 	"{{module}}/gen/db"
 {{- if .Messages}}
-	"github.com/MIERAI/api-factory-runtime/consume"
+	"github.com/MIERAI/api-factory/runtime/consume"
 {{- if .HasHandlers}}
-	"github.com/MIERAI/api-factory-runtime/message"
+	"github.com/MIERAI/api-factory/runtime/message"
 {{- end}}
-	"github.com/MIERAI/api-factory-runtime/outbox"
+	"github.com/MIERAI/api-factory/runtime/outbox"
 {{- end}}
-	"github.com/MIERAI/api-factory-runtime/server"
+	"github.com/MIERAI/api-factory/runtime/server"
 {{- if .HasMachines}}
-	"github.com/MIERAI/api-factory-runtime/sm"
+	"github.com/MIERAI/api-factory/runtime/sm"
 {{- end}}
 {{- if .Messages}}
-	"github.com/MIERAI/api-factory-runtime/topology"
+	"github.com/MIERAI/api-factory/runtime/topology"
 {{- end}}
 {{- if .Commands}}
-	"github.com/MIERAI/api-factory-runtime/txn"
+	"github.com/MIERAI/api-factory/runtime/txn"
 {{- end}}
 {{- range .Services}}
 	"{{.ConnectPath}}"

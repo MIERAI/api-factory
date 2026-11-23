@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/MIERAI/api-factory-runtime/txn"
+	"github.com/MIERAI/api-factory/runtime/txn"
 )
 
 // 唤醒中继(v0.5.2): NOTIFY 不在写事务里发,而是在提交之后、在事务外面发,并且按连接池合并。

@@ -9,8 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/MIERAI/api-factory-runtime/internal/itest"
-	"github.com/MIERAI/api-factory-runtime/leader"
+	"github.com/MIERAI/api-factory/runtime/internal/itest"
+	"github.com/MIERAI/api-factory/runtime/leader"
 )
 
 func TestKey(t *testing.T) {

@@ -12,11 +12,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	amqp "github.com/rabbitmq/amqp091-go"
 
-	"github.com/MIERAI/api-factory-runtime/broker"
-	"github.com/MIERAI/api-factory-runtime/leader"
-	"github.com/MIERAI/api-factory-runtime/message"
-	"github.com/MIERAI/api-factory-runtime/metrics"
-	"github.com/MIERAI/api-factory-runtime/topology"
+	"github.com/MIERAI/api-factory/runtime/broker"
+	"github.com/MIERAI/api-factory/runtime/leader"
+	"github.com/MIERAI/api-factory/runtime/message"
+	"github.com/MIERAI/api-factory/runtime/metrics"
+	"github.com/MIERAI/api-factory/runtime/topology"
 )
 
 // LockName: 中继的 advisory lock(leader.Key(LockName)),每个数据库一个工作中的中继。

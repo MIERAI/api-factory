@@ -18,9 +18,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/MIERAI/api-factory-runtime/clock"
-	"github.com/MIERAI/api-factory-runtime/message"
-	"github.com/MIERAI/api-factory-runtime/txn"
+	"github.com/MIERAI/api-factory/runtime/clock"
+	"github.com/MIERAI/api-factory/runtime/message"
+	"github.com/MIERAI/api-factory/runtime/txn"
 )
 
 // PlatformSQL: 平台表(factory_outbox、factory_processed_messages)的 DDL。工厂原样写到项目的

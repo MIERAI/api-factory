@@ -10,9 +10,9 @@ import (
 
 	amqp "github.com/rabbitmq/amqp091-go"
 
-	"github.com/MIERAI/api-factory-runtime/message"
-	"github.com/MIERAI/api-factory-runtime/metrics"
-	"github.com/MIERAI/api-factory-runtime/topology"
+	"github.com/MIERAI/api-factory/runtime/message"
+	"github.com/MIERAI/api-factory/runtime/metrics"
+	"github.com/MIERAI/api-factory/runtime/topology"
 )
 
 // Run: 消费 Queue,直到 ctx 结束(返回 nil)。连接 / channel 断了 → 退避(1s → 30s)后重新订阅。

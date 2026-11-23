@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MIERAI/api-factory-runtime/txn"
+	"github.com/MIERAI/api-factory/runtime/txn"
 )
 
 // 生产环境(FACTORY_TEST_FAULTS 没有设置): 进程内投递的入口不存在(发消息的人不能绕过 RabbitMQ 直接触发处理器)。

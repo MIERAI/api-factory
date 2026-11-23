@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"apifactory/factory/proj"
+	"apifactory/factory/version"
 )
 
 // factory init <dir> --module M [--name N]: a new project — another repository / another database the factory generates
@@ -48,7 +49,7 @@ func cmdInit(args []string) error {
 	files := map[string]string{
 		"go.mod":             projectGoMod(string(gomod), *module),
 		"factory.yaml":       fmt.Sprintf("# This project's settings; everything else (AI models, the adapter) comes from the factory's factory.yaml.\nproto:\n  package_prefix: %s\n", *name),
-		"cmd/server/main.go": "package main\n\nimport \"github.com/MIERAI/api-factory-runtime/server\"\n\nfunc main() {\n\tserver.Run(services)\n}\n",
+		"cmd/server/main.go": "package main\n\nimport \"" + version.RuntimeModule + "/server\"\n\nfunc main() {\n\tserver.Run(services)\n}\n",
 		".gitignore":         "bin/\n.factory/\n",
 		"design/.gitkeep":    "",
 		"db/schema/.gitkeep": "",
@@ -60,6 +61,15 @@ func cmdInit(args []string) error {
 			return err
 		}
 		files[f] = string(b)
+	}
+	// a project inside the factory's repository (examples/): build against the runtime in this checkout (runtime/),
+	// like the factory itself; the require line still names the paired version, which is what a copy elsewhere gets
+	if absDir, err := filepath.Abs(dir); err == nil {
+		if absHome, err := filepath.Abs(home); err == nil {
+			if rel, err := filepath.Rel(absDir, filepath.Join(absHome, "runtime")); err == nil && strings.HasPrefix(absDir, absHome+string(filepath.Separator)) {
+				files["go.mod"] += fmt.Sprintf("\nreplace %s => %s\n", version.RuntimeModule, filepath.ToSlash(rel))
+			}
+		}
 	}
 	pack, err := proj.Packaging(files["go.mod"]) // Dockerfile、.dockerignore: prepare 也会照 go.mod 重写
 	if err != nil {
@@ -82,12 +92,13 @@ func cmdInit(args []string) error {
 }
 
 // projectGoMod: the factory's go.mod with the project's module line and only what generated code needs: the Go
-// version, the protoc plugins (tool), and the requirements of the generated code and the runtime (go mod tidy trims).
+// version, the protoc plugins (tool), the runtime paired with this factory (factory/version), and the requirements
+// of the generated code (go mod tidy trims).
 func projectGoMod(factory, module string) string {
 	goVersion := regexp.MustCompile(`(?m)^go (\S+)`).FindStringSubmatch(factory)
-	need := []string{"github.com/MIERAI/api-factory-runtime", "connectrpc.com/connect", "connectrpc.com/validate",
+	need := []string{"connectrpc.com/connect", "connectrpc.com/validate",
 		"github.com/jackc/pgx/v5", "google.golang.org/protobuf", "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go"}
-	var req []string
+	req := []string{"\t" + version.RuntimeModule + " " + version.Runtime} // the runtime paired with this factory
 	for _, m := range need {
 		if v := regexp.MustCompile(`(?m)^\s+` + regexp.QuoteMeta(m) + `\s+(\S+)`).FindStringSubmatch(factory); v != nil {
 			req = append(req, "\t"+m+" "+v[1])

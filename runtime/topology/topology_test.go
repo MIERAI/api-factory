@@ -7,7 +7,7 @@ import (
 
 	amqp "github.com/rabbitmq/amqp091-go"
 
-	"github.com/MIERAI/api-factory-runtime/message"
+	"github.com/MIERAI/api-factory/runtime/message"
 )
 
 func TestTier(t *testing.T) {

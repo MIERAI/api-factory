@@ -7,9 +7,9 @@ package schedules
 import (
 	"apifactory/gen/db"
 	"apifactory/gen/factory/schedules/v1/schedulesv1connect"
-	"github.com/MIERAI/api-factory-runtime/paging"
-	"github.com/MIERAI/api-factory-runtime/shard"
-	"github.com/MIERAI/api-factory-runtime/txn"
+	"github.com/MIERAI/api-factory/runtime/paging"
+	"github.com/MIERAI/api-factory/runtime/shard"
+	"github.com/MIERAI/api-factory/runtime/txn"
 )
 
 // Handler 实现 schedulesv1connect.ScheduleServiceHandler。

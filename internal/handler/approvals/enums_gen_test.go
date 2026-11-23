@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	approvalsv1 "apifactory/gen/factory/approvals/v1"
-	"github.com/MIERAI/api-factory-runtime/anomaly"
+	"github.com/MIERAI/api-factory/runtime/anomaly"
 )
 
 func Test_documentsStatus_RoundTrip(t *testing.T) {

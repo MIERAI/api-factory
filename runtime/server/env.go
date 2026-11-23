@@ -1,9 +1,9 @@
 package server
 
 import (
-	"github.com/MIERAI/api-factory-runtime/clock"
-	"github.com/MIERAI/api-factory-runtime/outbox"
-	"github.com/MIERAI/api-factory-runtime/txn"
+	"github.com/MIERAI/api-factory/runtime/clock"
+	"github.com/MIERAI/api-factory/runtime/outbox"
+	"github.com/MIERAI/api-factory/runtime/txn"
 )
 
 // EnvVar: 生成的服务读的一个环境变量(G22: 项目的 README 从这份清单生成,不手抄)。

@@ -6,6 +6,8 @@
 //	factory guard   [specs-dir]                  路径闸门(检查 git 工作区的改动)
 //	factory accept  --server bin/server --db URL [specs-dir]  验收执行器
 //	factory system  <dir> [--check]              跨项目的消息契约检查 + 系统级的拓扑清单(<契约目录>/topology.json)
+//	factory version                              工厂的版本 + 配套的运行时(github.com/MIERAI/api-factory/runtime)
+//	factory upgrade [--project DIR] [--check]    项目的运行时依赖 → 配套的版本(go.mod + import),go mod tidy + build
 package main
 
 import (
@@ -44,6 +46,7 @@ import (
 	"apifactory/factory/review"
 	"apifactory/factory/spec"
 	"apifactory/factory/testenv"
+	"apifactory/factory/upgrade"
 )
 
 func main() {
@@ -112,6 +115,10 @@ func main() {
 		err = cmdInit(args)
 	case "system":
 		err = cmdSystem(args)
+	case "version":
+		err = cmdVersion(args)
+	case "upgrade":
+		err = cmdUpgrade(args)
 	default:
 		usage()
 	}
@@ -122,7 +129,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: factory [--project DIR] check|prepare|prompt|guard|accept|fixtures ...")
+	fmt.Fprintln(os.Stderr, "usage: factory [--project DIR] check|prepare|prompt|guard|accept|fixtures|version|upgrade ...")
 	os.Exit(2)
 }
 
@@ -198,6 +205,12 @@ func cmdCheck(args []string) error {
 }
 
 func cmdPrepare(args []string) error {
+	// 生成的代码按配套的运行时写: 项目的 go.mod 不是配套的版本 → 提醒(factory upgrade)。不挡: 编译会说话
+	if proj.InProject() {
+		if _, err := upgrade.Run(".", upgrade.Options{Check: true, NoBuild: true}); err != nil && !strings.Contains(err.Error(), "does not require the runtime") {
+			fmt.Fprintln(os.Stderr, "⚠", err)
+		}
+	}
 	specs, err := loadChecked(specsDir(args))
 	if err != nil {
 		return err
@@ -1294,7 +1307,7 @@ func compositeSQL(c *spec.Command) string {
 	return b.String()
 }
 
-// commandSQL: 命令的写操作的等价 SQL(审查用;实际由运行时 api-factory-runtime/txn 组装,值都是参数)。
+// commandSQL: 命令的写操作的等价 SQL(审查用;实际由运行时 runtime/txn 组装,值都是参数)。
 func commandSQL(s *spec.Spec) string {
 	c := s.Pattern.Command
 	if len(c.Ops) > 0 { // 组合命令: 每个操作一条,一个事务

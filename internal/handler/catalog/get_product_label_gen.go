@@ -7,7 +7,7 @@ import (
 	"context"
 
 	"connectrpc.com/connect"
-	"github.com/MIERAI/api-factory-runtime/apierr"
+	"github.com/MIERAI/api-factory/runtime/apierr"
 
 	"apifactory/gen/db"
 	catalogv1 "apifactory/gen/factory/catalog/v1"

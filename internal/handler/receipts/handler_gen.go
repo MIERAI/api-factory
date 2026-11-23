@@ -7,8 +7,8 @@ package receipts
 import (
 	"apifactory/gen/db"
 	"apifactory/gen/factory/receipts/v1/receiptsv1connect"
-	"github.com/MIERAI/api-factory-runtime/paging"
-	"github.com/MIERAI/api-factory-runtime/shard"
+	"github.com/MIERAI/api-factory/runtime/paging"
+	"github.com/MIERAI/api-factory/runtime/shard"
 )
 
 // Handler 实现 receiptsv1connect.ReceiptServiceHandler。

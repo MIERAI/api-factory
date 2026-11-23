@@ -1,5 +1,6 @@
 // Command factory-runtime: 生成的服务的运维子命令(R4 设计稿 §4.3 的 DLQ 处理;系统级拓扑的声明)。
 //
+//	factory-runtime version                      the runtime's version (= the factory's it is paired with)
 //	AMQP_URL=amqp://…/prod factory-runtime topology apply --file contracts/topology.json [--timeout 2m]
 //	AMQP_URL=amqp://…/prod factory-runtime dlq list    --queue notification.order.confirmed [--limit 20]
 //	AMQP_URL=amqp://…/prod factory-runtime dlq requeue --queue notification.order.confirmed [--limit 20]
@@ -19,9 +20,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/MIERAI/api-factory-runtime/broker"
-	"github.com/MIERAI/api-factory-runtime/consume"
-	"github.com/MIERAI/api-factory-runtime/topology"
+	"github.com/MIERAI/api-factory/runtime/broker"
+	"github.com/MIERAI/api-factory/runtime/consume"
+	"github.com/MIERAI/api-factory/runtime/topology"
+	"github.com/MIERAI/api-factory/runtime/version"
 )
 
 func main() {
@@ -32,11 +34,16 @@ func main() {
 }
 
 func usage() error {
-	return fmt.Errorf("usage: factory-runtime dlq {list|requeue|drop} --queue <main queue> [--limit n]\n" +
+	return fmt.Errorf("usage: factory-runtime version\n" +
+		"       factory-runtime dlq {list|requeue|drop} --queue <main queue> [--limit n]\n" +
 		"       factory-runtime topology apply --file <topology.json> [--timeout 2m]   (AMQP_URL must be set)")
 }
 
 func run(args []string) error {
+	if len(args) == 1 && args[0] == "version" {
+		fmt.Println(version.Version)
+		return nil
+	}
 	if len(args) >= 2 && args[0] == "topology" && args[1] == "apply" {
 		return applyTopology(args[2:])
 	}

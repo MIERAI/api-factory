@@ -1,4 +1,4 @@
-module github.com/MIERAI/api-factory-runtime
+module github.com/MIERAI/api-factory/runtime
 
 go 1.27.4
 

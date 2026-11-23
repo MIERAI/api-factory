@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/MIERAI/api-factory-runtime/txn"
+	"github.com/MIERAI/api-factory/runtime/txn"
 )
 
 // 生产环境(FACTORY_TEST_FAULTS 没有设置)中继的崩溃点无效。

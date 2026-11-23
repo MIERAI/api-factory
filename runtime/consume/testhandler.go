@@ -14,7 +14,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/MIERAI/api-factory-runtime/txn"
+	"github.com/MIERAI/api-factory/runtime/txn"
 )
 
 // TestPath: 进程内投递的路径(生成的 wiring 在测试环境挂载)。

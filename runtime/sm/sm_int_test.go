@@ -17,10 +17,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/MIERAI/api-factory-runtime/internal/itest"
-	"github.com/MIERAI/api-factory-runtime/metrics"
-	"github.com/MIERAI/api-factory-runtime/sm"
-	"github.com/MIERAI/api-factory-runtime/txn"
+	"github.com/MIERAI/api-factory/runtime/internal/itest"
+	"github.com/MIERAI/api-factory/runtime/metrics"
+	"github.com/MIERAI/api-factory/runtime/sm"
+	"github.com/MIERAI/api-factory/runtime/txn"
 )
 
 const schema = `CREATE TABLE jobs (id bigint PRIMARY KEY, status int NOT NULL, version int NOT NULL DEFAULT 1,

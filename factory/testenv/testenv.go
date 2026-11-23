@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/MIERAI/api-factory-runtime/shard"
+	"github.com/MIERAI/api-factory/runtime/shard"
 )
 
 // PlanAgnostic 让被测服务器的 DB 会话不使用索引扫描。
