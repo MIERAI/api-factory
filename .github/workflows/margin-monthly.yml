@@ -1,13 +1,13 @@
-# 每晚: main 的全量验证(verify.yml,变异余量 3 个种子 + 结果缓存 + 早停)。
+# 每月: main 的全量验证(verify.yml,变异余量 3 个种子 + 结果缓存 + 早停)。
 # 失败 → 开一个 issue(列出不够的变异);已经有开着的 → 在上面追加评论。
-name: margin-nightly
+name: margin-monthly
 on:
   schedule:
-    - cron: "17 18 * * *" # 03:17 JST
+    - cron: "17 18 1 * *" # 每月 2 日 03:17 JST(UTC 1 日 18:17)
   workflow_dispatch:
 permissions:
   contents: read
-concurrency: { group: margin-nightly, cancel-in-progress: false }
+concurrency: { group: margin-monthly, cancel-in-progress: false }
 jobs:
   verify:
     uses: ./.github/workflows/verify.yml
@@ -26,17 +26,17 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           {
-            echo "每晚的全量验证失败了: $RUN_URL"
+            echo "每月的全量验证失败了: $RUN_URL"
             echo
             echo "变异余量(不够 3 个差分用例的变异 / 没执行的变异):"
             echo '```'
             grep -h -E '^seed=.*✗' margin/*/margin.txt 2>/dev/null || echo "(变异余量的输出里没有失败: 看上面的链接,可能是 verify 的其他步骤)"
             echo '```'
           } > body.md
-          n=$(gh issue list --state open --label margin-nightly --json number --jq '.[0].number' || true)
+          n=$(gh issue list --state open --label margin-monthly --json number --jq '.[0].number' || true)
           if [ -n "$n" ]; then
             gh issue comment "$n" --body-file body.md
           else
-            gh label create margin-nightly --color B60205 --description "每晚的全量验证失败" 2>/dev/null || true
-            gh issue create --title "每晚的全量验证失败($(date -u +%F))" --label margin-nightly --body-file body.md
+            gh label create margin-monthly --color B60205 --description "每月的全量验证失败" 2>/dev/null || true
+            gh issue create --title "每月的全量验证失败($(date -u +%F))" --label margin-monthly --body-file body.md
           fi

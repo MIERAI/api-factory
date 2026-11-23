@@ -297,9 +297,9 @@ CEL 的 id 写成 `关系名.参数…`,编译器从 proto 读回 IR(`Message.Re
 - **缓存的键**: 变异(名字 / 文件 / 替换式 / 原文件 / 变异后) + 全局(除 design/ docs/ examples/ .github/ 说明以外
   不按领域划分的全部文件: factory/ 全部、runtime/、cmd/、db/、go.mod …) + 领域(specs/、gen/acceptance、
   internal/handler、proto、gen/db 里这个领域的文件) + Go 版本 + 种子 + 早停的门槛。`NO_CACHE=1` 不读缓存。
-- **CI 分层**: PR 1 个种子;合并到 main(release)和每晚(`margin-nightly.yml`)3 个种子;都带缓存 + 早停。
+- **CI 分层**: PR 1 个种子;合并到 main(release)和每月(`margin-monthly.yml`)3 个种子;都带缓存 + 早停。
   验收的 3 个种子从 verify 拆成 3 个并行 job(`scripts/ci/accept.sh`;margin 变快后它是 PR 的关键路径)。
-  每晚失败 → issue(标签 `margin-nightly`)。剩下的大头: `catalog.list-product-costs` 一个 API 占验收时间的 46%
+  每月失败 → issue(标签 `margin-monthly`)。剩下的大头: `catalog.list-product-costs` 一个 API 占验收时间的 46%
   (参考求值器生成定向请求,单线程 60–110 s;和变异无关,同一个 (API, 种子) 的请求可以复用 —— 没做)。
 
 ### P6 的结果(2026-11-17)
