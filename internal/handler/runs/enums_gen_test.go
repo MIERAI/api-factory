@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	runsv1 "apifactory/gen/factory/runs/v1"
-	"github.com/MIERAI/api-factory-runtime/anomaly"
+	"github.com/MIERAI/api-factory/runtime/anomaly"
 )
 
 func Test_jobRunsStatus_RoundTrip(t *testing.T) {

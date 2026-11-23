@@ -1,0 +1,4 @@
+# context = the repository root: only the runtime module
+*
+!runtime/
+runtime/**/*_test.go

@@ -11,7 +11,7 @@
 //   - 字段一致: 每个项目生成代码时用的契约字段 = 契约目录里现在的(否则那个项目要重新生成);接收方要的每个字段
 //     发送方都发(同名、同类型,接收方必填的发送方也必填)
 //
-// 拓扑清单(<contracts>/topology.json,api-factory-runtime 的 topology.Manifest): 每个处理器的队列
+// 拓扑清单(<contracts>/topology.json,runtime/topology 的.Manifest): 每个处理器的队列
 // (<服务>.<消息类型>,和生成的 wiring 同一个规则)、绑定、重试队列、DLQ,以及每种消息的发送方 / 接收方。
 // 平台在部署服务之前声明它(factory-runtime topology apply),订阅方第一次启动之前发出的事件也就有队列接收。
 package system
@@ -26,8 +26,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/MIERAI/api-factory-runtime/message"
-	"github.com/MIERAI/api-factory-runtime/topology"
+	"github.com/MIERAI/api-factory/runtime/message"
+	"github.com/MIERAI/api-factory/runtime/topology"
 
 	"apifactory/factory/design"
 	"apifactory/factory/spec"

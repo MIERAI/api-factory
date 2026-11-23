@@ -7,10 +7,10 @@ package ledger
 import (
 	"apifactory/gen/db"
 	"apifactory/gen/factory/ledger/v1/ledgerv1connect"
-	"github.com/MIERAI/api-factory-runtime/outbox"
-	"github.com/MIERAI/api-factory-runtime/paging"
-	"github.com/MIERAI/api-factory-runtime/shard"
-	"github.com/MIERAI/api-factory-runtime/txn"
+	"github.com/MIERAI/api-factory/runtime/outbox"
+	"github.com/MIERAI/api-factory/runtime/paging"
+	"github.com/MIERAI/api-factory/runtime/shard"
+	"github.com/MIERAI/api-factory/runtime/txn"
 )
 
 // Handler 实现 ledgerv1connect.LedgerServiceHandler。

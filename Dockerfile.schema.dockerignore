@@ -5,3 +5,5 @@
 !db/migrations/
 !db/seed/
 !cmd/migrate/
+!runtime/
+runtime/**/*_test.go

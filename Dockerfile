@@ -4,6 +4,8 @@ ARG IMAGE_MIRROR=mirror.gcr.io/library
 FROM ${IMAGE_MIRROR}/golang:1.27.4-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
+# the runtime: its own module in runtime/ (go.mod replaces it with ./runtime), needed before go mod download
+COPY runtime ./runtime
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY cmd ./cmd
 COPY gen ./gen

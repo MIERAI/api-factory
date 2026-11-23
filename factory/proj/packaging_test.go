@@ -8,7 +8,7 @@ import (
 )
 
 func TestPackagingFromGoMod(t *testing.T) {
-	gomod := "module github.com/x/shop/services/catalog\n\ngo 1.27.4\n\nrequire github.com/MIERAI/api-factory-runtime v0.4.1\n"
+	gomod := "module github.com/x/shop/services/catalog\n\ngo 1.27.4\n\nrequire github.com/MIERAI/api-factory/runtime v0.4.1\n"
 	a, err := Packaging(gomod)
 	if err != nil {
 		t.Fatal(err)

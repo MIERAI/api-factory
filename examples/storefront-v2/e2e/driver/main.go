@@ -5,7 +5,7 @@
 // the odd message (a late answer, a redelivery, poison) and checks what the services sent (read from each service's
 // outbox: published_at set = the relay got the broker's confirm) and store (their query APIs).
 //
-// Envelopes, exchanges, routing keys and headers are the runtime's (api-factory-runtime message / topology): the
+// Envelopes, exchanges, routing keys and headers are the runtime's (runtime/message, runtime/topology): the
 // driver uses the same packages a generated service uses, so a mismatch shows up here as a failed step.
 //
 //	go run .            (the stack must be up: make up)       env: see config() for the endpoints
@@ -30,10 +30,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	amqp "github.com/rabbitmq/amqp091-go"
 
-	"github.com/MIERAI/api-factory-runtime/broker"
-	"github.com/MIERAI/api-factory-runtime/consume"
-	"github.com/MIERAI/api-factory-runtime/message"
-	"github.com/MIERAI/api-factory-runtime/topology"
+	"github.com/MIERAI/api-factory/runtime/broker"
+	"github.com/MIERAI/api-factory/runtime/consume"
+	"github.com/MIERAI/api-factory/runtime/message"
+	"github.com/MIERAI/api-factory/runtime/topology"
 )
 
 type cfg struct {
