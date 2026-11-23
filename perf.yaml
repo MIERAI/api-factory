@@ -1,0 +1,10 @@
+# factory perf(make perf)的已知边界: API → 原因。列在这里的 API 的失败记为 ◇(已知边界),不挡 CI;
+# 不再失败时 perf 会提示删除。只写工厂 / 设计的边界(要改工厂才能修的),缺索引之类的直接修。
+boundaries:
+  catalog.list-labels-with-product: >-
+    工厂缺口: 筛选(product_codes)写在关联之后,core/pushdown.go 不把筛选下推过关联(lookup)到取最新版本之前,
+    所以要按自然键顺序读完全部版本。修法: pushdown 越过 missing=keep/drop 的 lookup(只引用当前行的列时)
+  sales.get-latest-store-notice: >-
+    工厂缺口: JSON 版本表的整数键(store_code)读出时是带校验的 cast(CASE … ::int4),表达式索引
+    ((data ->> 'store_code'))对不上,而把会报错的 cast 放进索引会让脏数据写不进去。修法: 整数键的等值条件
+    额外生成文本上的条件((data ->> 键) = 参数::text,在合法整数的前提下等价)

@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS orders (
 );
 CREATE INDEX IF NOT EXISTS orders_ordered_at_id_idx ON orders (ordered_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS orders_customer_id_idx ON orders (customer_id, ordered_at);
+CREATE INDEX IF NOT EXISTS orders_delayed_idx ON orders (ordered_at, id) WHERE status = 0 AND shipped_at IS NULL;  -- 未出荷の受注(make perf: 00017)
 
 CREATE TABLE IF NOT EXISTS order_items (
     order_id   BIGINT  NOT NULL,
