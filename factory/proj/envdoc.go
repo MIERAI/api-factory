@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/MIERAI/api-factory-runtime/server"
+	"github.com/MIERAI/api-factory/runtime/server"
 )
 
 // 项目 README 里的环境变量表(GAPS G22): 服务读哪些环境变量,从运行时的清单(server.Env;运行时的测试检查它和源码一致)
@@ -30,7 +30,7 @@ const (
 func EnvSection(u Uses) string {
 	var b strings.Builder
 	b.WriteString(envBegin + "\n## Environment\n\n")
-	b.WriteString("What the service reads at start-up (`api-factory-runtime/server`). The image already sets `PORT`, `METRICS_PORT`, " +
+	b.WriteString("What the service reads at start-up (`runtime/server`). The image already sets `PORT`, `METRICS_PORT`, " +
 		"`SERVICE_NAME` and `APP_VERSION`; the deployment provides the rest.\n\n")
 	b.WriteString("| Variable | This service | Default | |\n|---|---|---|---|\n")
 	var tests []server.EnvVar

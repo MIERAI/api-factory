@@ -7,8 +7,8 @@ import (
 	"context"
 
 	"connectrpc.com/connect"
-	"github.com/MIERAI/api-factory-runtime/apierr"
-	"github.com/MIERAI/api-factory-runtime/paging"
+	"github.com/MIERAI/api-factory/runtime/apierr"
+	"github.com/MIERAI/api-factory/runtime/paging"
 
 	"apifactory/gen/db"
 	logisticsv1 "apifactory/gen/factory/logistics/v1"

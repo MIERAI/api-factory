@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	ledgerv1 "apifactory/gen/factory/ledger/v1"
-	"github.com/MIERAI/api-factory-runtime/anomaly"
+	"github.com/MIERAI/api-factory/runtime/anomaly"
 )
 
 func Test_accountActivityKind_RoundTrip(t *testing.T) {

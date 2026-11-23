@@ -4,7 +4,7 @@ package runs
 
 import (
 	runsv1 "apifactory/gen/factory/runs/v1"
-	"github.com/MIERAI/api-factory-runtime/anomaly"
+	"github.com/MIERAI/api-factory/runtime/anomaly"
 )
 
 // jobRunsStatusToProto: job_runs.status 的 DB 值 → proto。映射表以外的值 → UNSPECIFIED,并记录 data_anomaly_total。

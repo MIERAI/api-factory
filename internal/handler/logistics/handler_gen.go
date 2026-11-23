@@ -7,8 +7,8 @@ package logistics
 import (
 	"apifactory/gen/db"
 	"apifactory/gen/factory/logistics/v1/logisticsv1connect"
-	"github.com/MIERAI/api-factory-runtime/paging"
-	"github.com/MIERAI/api-factory-runtime/shard"
+	"github.com/MIERAI/api-factory/runtime/paging"
+	"github.com/MIERAI/api-factory/runtime/shard"
 )
 
 // Handler 实现 logisticsv1connect.LogisticServiceHandler。

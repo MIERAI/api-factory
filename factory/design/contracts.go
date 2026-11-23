@@ -28,7 +28,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/MIERAI/api-factory-runtime/outbox"
+	"github.com/MIERAI/api-factory/runtime/outbox"
 
 	"apifactory/factory/constraints"
 	"apifactory/factory/core"

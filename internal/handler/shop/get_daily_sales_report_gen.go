@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/MIERAI/api-factory-runtime/conv"
+	"github.com/MIERAI/api-factory/runtime/conv"
 
 	"apifactory/gen/db"
 	shopv1 "apifactory/gen/factory/shop/v1"
