@@ -23,7 +23,8 @@ done
 F() { if [[ $p == . ]]; then go run ./factory/cmd/factory "$@"; else go run ./factory/cmd/factory --project "$p" "$@"; fi; }
 todo=()   # "<项目|.> <spec>"
 for p in . $projects; do
-  for s in $(F review-changed -v --base "$BASE"); do todo+=("$p $s"); done
+  changed=$(F review-changed -v --base "$BASE")   # 失败 → 整个脚本失败(不能当成"没有改动")
+  for s in $changed; do todo+=("$p $s"); done
 done
 md "" "改动的 API: ${#todo[@]} 个" ""
 blocked=0
