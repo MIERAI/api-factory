@@ -36,9 +36,11 @@ func concurrency(ctx context.Context, conn *pgx.Conn, ws writeSpec, tables map[s
 		r.Fail = append(r.Fail, fmt.Sprintf(format, args...))
 		return r
 	}
-	const rounds = 3 // 1 路 / N 路 alternate; the best rate of each: load from elsewhere on the machine hits both
+	// 1 路 / N 路 alternate, 3 rounds, the best rate of each (load from elsewhere on the machine hits both); below the
+	// ratio: 3 more rounds before failing (a serialized API stays below, a noisy machine does not)
+	const rounds, maxRounds = 3, 6
 	per := m + n*m
-	envs, err := genRequests(ctx, conn, ws, tables, rounds*per, seq, opt.Pick)
+	envs, err := genRequests(ctx, conn, ws, tables, maxRounds*per, seq, opt.Pick)
 	if err != nil {
 		return fail("造请求: %v", err)
 	}
@@ -82,6 +84,7 @@ func concurrency(ctx context.Context, conn *pgx.Conn, ws writeSpec, tables map[s
 	stop := make(chan struct{})
 	var samples, waits int
 	waitBy := map[string]int{}
+	other := map[string]int{} // waits that are not locks (IO, LWLock …): shown when the ratio is low
 	strong := map[string]int{}
 	var inN atomic.Bool
 	var sampler sync.WaitGroup
@@ -99,21 +102,23 @@ func concurrency(ctx context.Context, conn *pgx.Conn, ws writeSpec, tables map[s
 				continue
 			}
 			rows, err := conn.Query(ctx, `
-				SELECT a.wait_event_type IS NOT DISTINCT FROM 'Lock', coalesce(a.wait_event, ''),
+				SELECT coalesce(a.wait_event_type, ''), coalesce(a.wait_event, ''),
 				       coalesce(l.locktype, ''), coalesce(l.relation::regclass::text, '')
 				FROM pg_stat_activity a LEFT JOIN pg_locks l ON l.pid = a.pid AND NOT l.granted
 				WHERE a.application_name = $1 AND a.state = 'active' AND a.pid <> pg_backend_pid()`, perfApp)
 			if err == nil {
 				for rows.Next() {
-					var lock bool
-					var ev, lt, rel string
-					if rows.Scan(&lock, &ev, &lt, &rel) != nil {
+					var typ, ev, lt, rel string
+					if rows.Scan(&typ, &ev, &lt, &rel) != nil {
 						continue
 					}
 					samples++
-					if lock && ev != "extend" {
+					switch {
+					case typ == "Lock" && ev != "extend":
 						waits++
 						waitBy[strings.TrimSpace(ev+" "+rel)]++
+					case typ != "" && typ != "Client":
+						other[typ+":"+ev]++
 					}
 				}
 				rows.Close()
@@ -137,7 +142,12 @@ func concurrency(ctx context.Context, conn *pgx.Conn, ws writeSpec, tables map[s
 		}
 	}()
 	rate1, rateN := 0.0, 0.0
-	for k := range rounds {
+	done := 0
+	for k := range maxRounds {
+		if k >= rounds && rateN/rate1 >= opt.MinScale {
+			break
+		}
+		done++
 		part := envs[k*per : (k+1)*per]
 		t0 := time.Now()
 		for _, e := range part[:m] {
@@ -162,7 +172,7 @@ func concurrency(ctx context.Context, conn *pgx.Conn, ws writeSpec, tables map[s
 	}
 	close(stop)
 	sampler.Wait()
-	total := int64(rounds * per)
+	total := int64(done * per)
 	ratio := rateN / rate1
 	waitPct := 0.0
 	if samples > 0 {
@@ -202,7 +212,13 @@ func concurrency(ctx context.Context, conn *pgx.Conn, ws writeSpec, tables map[s
 		r.Fail = append(r.Fail, fmt.Sprintf("不同的键的请求在等锁: %.1f%% 的样本(%s)", waitPct, strings.Join(ls, ", ")))
 	}
 	if ratio < opt.MinScale {
-		r.Fail = append(r.Fail, fmt.Sprintf("%d 路的吞吐只有 1 路的 %.2f 倍(< %.1f): 请求被串行化了", n, ratio, opt.MinScale))
+		var top []string
+		for k, v := range other {
+			top = append(top, fmt.Sprintf("%s %.0f%%", k, 100*float64(v)/float64(max(samples, 1))))
+		}
+		sort.Strings(top)
+		r.Fail = append(r.Fail, fmt.Sprintf("%d 路的吞吐只有 1 路的 %.2f 倍(< %.1f,%d 轮里最好的): 请求被串行化了;其他等待: %s",
+			n, ratio, opt.MinScale, done, strings.Join(top, ", ")))
 	}
 	return r
 }
