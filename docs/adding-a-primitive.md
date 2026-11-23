@@ -60,7 +60,9 @@
    (参考求值器认的开关,例如 `Expr.Loose`、`Step.NullEq` / `Step.Mutant`,SQL 后端和 IR 里没有),每个要被 ≥ 3 个请求区分。
 4. **用到它的 API**:设计稿(`design/…`)→ `make design check prepare`,生成物入库。`make accept` 通过。
 5. **变异余量** `scripts/mutate.sh`:往这个 API 的生成物(`gen/db/*.sql.go` / `internal/handler/**/_gen.go`)植入典型的 bug,
-   `make margin` 每个变异 ≥ 3 个差分用例抓到。
+   `make margin` 每个变异 ≥ 3 个差分用例抓到。新写的差分用例的结果用 `diffResult(Result{…})` 创建(早停的计数,
+   `factory/accept/early.go`;漏了会在验收时报"早停的计数不一致")。随机数据只从 `rnd` 取,遍历 map 时先排序键
+   (同一个种子要造出同样的用例)。
 
 全部闸门:`make check`、`make test`、`FACTORY_TEST_DB=… go test ./factory/...`、`make accept`、`scripts/projects.sh`、
 `make margin`、`scripts/ci/migrations-check.sh`。

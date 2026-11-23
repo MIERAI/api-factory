@@ -46,7 +46,7 @@ func runMQ(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API, 
 		return nil
 	}
 	fail := func(c, f string, a ...any) []Result {
-		return []Result{{Spec: api.ID, Suite: "diff", Case: "RabbitMQ: " + c, Passed: false, Detail: fmt.Sprintf(f, a...)}}
+		return []Result{diffResult(Result{Spec: api.ID, Suite: "diff", Case: "RabbitMQ: " + c, Passed: false, Detail: fmt.Sprintf(f, a...)})}
 	}
 	var base *spec.Case
 	for i := range s.Acceptance.Cases {
@@ -93,7 +93,7 @@ func runMQ(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API, 
 	}
 	var out []Result
 	add := func(name string, problems []string, ok string) {
-		out = append(out, Result{Spec: api.ID, Suite: "diff", Case: "RabbitMQ: " + name, Passed: len(problems) == 0, Detail: strings.Join(append([]string{ok}, problems...), " | ")})
+		out = append(out, diffResult(Result{Spec: api.ID, Suite: "diff", Case: "RabbitMQ: " + name, Passed: len(problems) == 0, Detail: strings.Join(append([]string{ok}, problems...), " | ")}))
 	}
 	if !api.Command.IsHandler() { // 组合命令的 发出
 		if err := reset(); err != nil {

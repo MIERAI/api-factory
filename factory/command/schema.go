@@ -216,7 +216,18 @@ func ReadRows(ctx context.Context, conn *pgx.Conn, t *Table) ([]Row, error) {
 	for i, c := range t.Cols {
 		sel[i] = pgx.Identifier{c.Name}.Sanitize() + "::text"
 	}
-	rows, err := conn.Query(ctx, "SELECT "+strings.Join(sel, ", ")+" FROM "+pgx.Identifier{t.Name}.Sanitize())
+	// 按主键排序(没有主键: 按全部列): 行的顺序要确定 —— 验收从这些行里随机挑(同一个种子要造出同样的数据),
+	// 不排序时是堆的物理顺序,UPDATE / autovacuum 之后会变
+	order := make([]string, 0, len(t.Cols))
+	for _, k := range t.PK {
+		order = append(order, pgx.Identifier{k}.Sanitize())
+	}
+	if len(order) == 0 {
+		for i := range t.Cols {
+			order = append(order, fmt.Sprint(i+1))
+		}
+	}
+	rows, err := conn.Query(ctx, "SELECT "+strings.Join(sel, ", ")+" FROM "+pgx.Identifier{t.Name}.Sanitize()+" ORDER BY "+strings.Join(order, ", "))
 	if err != nil {
 		return nil, err
 	}
