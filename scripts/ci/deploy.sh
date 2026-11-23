@@ -19,7 +19,7 @@ local)
   simdb() { # 模拟用的库(和本地开发的库分开): 结构来自 db/schema
     docker network inspect $NET >/dev/null 2>&1 || docker network create $NET >/dev/null
     docker start $DB >/dev/null 2>&1 || docker run -d --name $DB --network $NET -e POSTGRES_USER=factory -e POSTGRES_PASSWORD=factory -e POSTGRES_DB=factory \
-      -e POSTGRES_INITDB_ARGS="--locale-provider=icu --icu-locale=en-US" -p ${SIM_DB_PORT:-55440}:5432 postgres:16-alpine >/dev/null
+      -e POSTGRES_INITDB_ARGS="--locale-provider=icu --icu-locale=en-US" -p ${SIM_DB_PORT:-55440}:5432 ${IMAGE_MIRROR:-mirror.gcr.io/library}/postgres:16-alpine >/dev/null
     until docker exec $DB psql -U factory -d factory -c 'select 1' >/dev/null 2>&1; do sleep 0.5; done
     for s in shard_a shard_b; do docker exec $DB psql -q -U factory -tAc "SELECT 1 FROM pg_database WHERE datname='$s'" | grep -q 1 || docker exec $DB psql -q -U factory -c "CREATE DATABASE $s" >/dev/null; done
     for d in factory shard_a shard_b; do cat db/schema/*.sql | docker exec -i $DB psql -q -U factory -d $d -v ON_ERROR_STOP=1 >/dev/null; done

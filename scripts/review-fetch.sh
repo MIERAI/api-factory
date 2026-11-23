@@ -5,6 +5,7 @@
 #   scripts/review-fetch.sh --branch design/x
 #   scripts/review-fetch.sh --run 123456789  指定的运行
 # 用 gh(GH_TOKEN 可以; 仓库默认 = origin,REPO=owner/name 可以覆盖)。只追加: 本地已有的审查目录不覆盖。
+# 本仓库和项目(<项目>/.factory/reviews)都下载;之后 factory review-sync 把 CI 的轮次写进轮次记录(X.审查轮次.jsonl,提交)。
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 pr= branch= run=
@@ -33,21 +34,39 @@ fi
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 gh run download "$run" -R "$repo" -n spec-reviews -D "$tmp" || {
   echo "✗ 运行 $run 没有 spec-reviews 的 artifact(这个功能之前的运行 / 已过保留期)" >&2; exit 1; }
-mkdir -p .factory/reviews
+# artifact 的布局: 新 = 仓库根开始的路径(.factory/reviews/… 和 <项目>/.factory/reviews/…);
+# 旧(只有本仓库)/ 只有本仓库的结果时 = .factory/reviews 的内容直接在根上
+roots=()
+while IFS= read -r d; do roots+=("${d#"$tmp"/}"); done < <(find "$tmp" -type d -path '*/.factory/reviews' | sort)
+[[ ${#roots[@]} -gt 0 ]] || roots=(".")
 n=0
-for d in "$tmp"/*/; do
-  name=$(basename "$d")
-  if [[ $name == passed ]]; then   # "通过"的标记(按指纹沿用): 合并
-    mkdir -p .factory/reviews/passed; cp -n "$d"* .factory/reviews/passed/ 2>/dev/null || true; continue
-  fi
-  [[ -e .factory/reviews/$name ]] && continue
-  cp -R "$d" ".factory/reviews/$name"; n=$((n + 1))
+for r in "${roots[@]}"; do
+  src=$tmp/$r; dst=$r
+  [[ $r == . ]] && dst=.factory/reviews
+  mkdir -p "$dst"
+  for d in "$src"/*/; do
+    [[ -d $d ]] || continue
+    name=$(basename "$d")
+    if [[ $name == passed ]]; then   # "通过"的标记(按指纹沿用): 合并
+      mkdir -p "$dst/passed"; cp -n "$d"* "$dst/passed/" 2>/dev/null || true; continue
+    fi
+    [[ -e $dst/$name ]] && continue
+    cp -R "$d" "$dst/$name"; n=$((n + 1))
+  done
 done
 echo "✓ 运行 $run 的审查结果 → .factory/reviews(新增 $n 个)"
-# 每个 API 最新的一轮(目录名 = 时间戳-模型-API[-标签])还没通过的: 要回答的
-for d in $(ls -d .factory/reviews/*/ | sort); do
-  b=$(basename "$d"); echo "${b#*-*-} $d"
-done | awk '{last[$1]=$2} END {for (k in last) print last[k]}' | sort | while read -r d; do
-  [[ -f $d/verdict.json ]] && grep -q '"passed": false' "$d/verdict.json" && echo "  ✗ 没通过: $(basename "$d")"
+# 轮次记录(design/<领域>/X.审查轮次.jsonl,提交): CI 的轮次写进去 → 提交后本地和 CI 共用一份历史
+for p in . $(scripts/projects.sh --list); do
+  if [[ $p == . ]]; then go run ./factory/cmd/factory review-sync; else go run ./factory/cmd/factory --project "$p" review-sync | sed "s#^✓ #✓ $p/#"; fi
 done
-echo "回答: go run ./factory/cmd/factory answer design/<领域>/<API>.yaml   (或 F1=2 …,--list 只列出)"
+# 每个 API 最新的一轮(目录名 = 时间戳-模型-API[-标签])还没通过的: 要回答的
+for p in . $(scripts/projects.sh --list); do
+  [[ -d $p/.factory/reviews ]] || continue
+  for d in $(ls -d "$p"/.factory/reviews/*/ 2>/dev/null | sort); do
+    b=$(basename "$d"); echo "${b#*-*-} $d"
+  done | awk '{last[$1]=$2} END {for (k in last) print last[k]}' | sort | while read -r d; do
+    [[ -f $d/verdict.json ]] && grep -q '"passed": false' "$d/verdict.json" && echo "  ✗ 没通过: ${d%/.factory/reviews/*}: $(basename "$d")"
+  done
+done
+echo "回答: go run ./factory/cmd/factory answer [<项目>/]design/<领域>/<API>.yaml   (或 F1=2 / F1=keep:\"现在的行为\" …,--list 只列出)"
+echo "然后提交 X.审查.yaml 和 X.审查轮次.jsonl(轮次记录)"

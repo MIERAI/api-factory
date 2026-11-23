@@ -1,7 +1,9 @@
 # Migration image (built with the API image in the same release: schema and code versions match). Runs as the
 # api-factory Deployment's init container: goose migrations (db/migrations, embedded) on factory + shards, before the
 # API starts — also after a database is re-created. SEED=demo (dev): demo data (db/seed, embedded).
-FROM golang:1.27.4-alpine AS build
+# Base image through mirror.gcr.io (Docker Hub's official images, cached; no anonymous pull limit). --build-arg IMAGE_MIRROR=… to change
+ARG IMAGE_MIRROR=mirror.gcr.io/library
+FROM ${IMAGE_MIRROR}/golang:1.27.4-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download

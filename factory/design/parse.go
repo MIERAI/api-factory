@@ -298,7 +298,7 @@ func loadQA(path string) ([]QA, error) {
 	var out []QA
 	if list := get(root, "问答"); list != nil {
 		for _, q := range list.Content {
-			checkKeys(e, q, "问答", "问题", "选项", "同一个问题", "回答", "补充规则", "补充例子", "补充计算例子", "改了设计", "来自")
+			checkKeys(e, q, "问答", "问题", "位置", "选项", "问题编号", "同一个问题", "回答", "补充规则", "补充例子", "补充计算例子", "改了设计", "来自")
 			qa := QA{Question: str(q, "问题"), Options: strList(get(q, "选项")), Answer: str(q, "回答"), From: str(q, "来自")}
 			if r := get(q, "补充规则"); r != nil {
 				for _, b := range seqOrOne(r) {

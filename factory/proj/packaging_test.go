@@ -27,7 +27,7 @@ func TestPackagingFromGoMod(t *testing.T) {
 	}
 	d := a["Dockerfile"]
 	for _, want := range []string{
-		"FROM golang:1.27.4-alpine AS build", // the Go of go.mod
+		"ARG IMAGE_MIRROR=mirror.gcr.io/library\nFROM ${IMAGE_MIRROR}/golang:1.27.4-alpine AS build", // the Go of go.mod, via the mirror
 		"go build -trimpath -ldflags \"-s -w\" -o /out/server ./cmd/server",
 		"FROM gcr.io/distroless/static-debian12:nonroot",
 		"USER nonroot:nonroot",
@@ -58,11 +58,11 @@ func TestPackagingToolchainWins(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(a["Dockerfile"], "FROM golang:1.27.4-alpine") {
+	if !strings.Contains(a["Dockerfile"], "/golang:1.27.4-alpine AS build") {
 		t.Fatal("the toolchain line picks the build Go (as the go command does)")
 	}
 	a, _ = Packaging("module m/x\n\ngo 1.27\n")
-	if !strings.Contains(a["Dockerfile"], "FROM golang:1.27-alpine") {
+	if !strings.Contains(a["Dockerfile"], "/golang:1.27-alpine AS build") {
 		t.Fatal("go 1.27 → golang:1.27-alpine")
 	}
 	for _, bad := range []string{"go 1.27\n", "module m/x\n", "module m/x\ngo 1.28rc1\n"} {

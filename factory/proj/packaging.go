@@ -54,7 +54,7 @@ func Packaging(gomod string) (map[string]string, error) {
 	}
 	service := path.Base(m[1])
 	return map[string]string{
-		"Dockerfile":    fmt.Sprintf(dockerfile, goVersion, service),
+		"Dockerfile":    fmt.Sprintf(dockerfile, goVersion, service, ImageMirror),
 		".dockerignore": dockerignore,
 	}, nil
 }
@@ -82,9 +82,17 @@ func WritePackaging(dir string) error {
 	return nil
 }
 
+// ImageMirror: the default registry prefix of the build stage's Docker Hub official image (golang). mirror.gcr.io is
+// Google's cache of Docker Hub: same images and tags, no anonymous pull rate limit, no login — CI, compose and cluster
+// builds pull it often. The generated Dockerfile takes it as ARG IMAGE_MIRROR, so a build can point elsewhere
+// (--build-arg IMAGE_MIRROR=docker.io/library) without regenerating. distroless is already on gcr.io. boundaries.md §8
+const ImageMirror = "mirror.gcr.io/library"
+
 const dockerfile = generatedHeader + `# The service's image: docker build -t <image> .   (run: DATABASE_URL and AUTH_MODE come from the deployment)
 # A service that sends or handles messages (R4) also needs AMQP_URL: without it the outbox is written but never sent
-FROM golang:%[1]s-alpine AS build
+# Base image: Docker Hub's official golang through IMAGE_MIRROR (a cache without the anonymous pull limit)
+ARG IMAGE_MIRROR=%[3]s
+FROM ${IMAGE_MIRROR}/golang:%[1]s-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download

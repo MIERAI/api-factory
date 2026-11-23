@@ -28,7 +28,7 @@ fi
 echo "✓ migrations: $(ls db/migrations/*.sql | wc -l | tr -d ' ') files, versions increasing, Up + Down, append-only"
 
 name=factory-drift-$$
-docker run -d --rm --name "$name" -e POSTGRES_PASSWORD=t -e POSTGRES_USER=factory -e POSTGRES_DB=factory postgres:18 >/dev/null
+docker run -d --rm --name "$name" -e POSTGRES_PASSWORD=t -e POSTGRES_USER=factory -e POSTGRES_DB=factory "${IMAGE_MIRROR:-mirror.gcr.io/library}/postgres:18" >/dev/null
 trap 'docker rm -f "$name" >/dev/null' EXIT
 until docker exec "$name" pg_isready -q -U factory 2>/dev/null; do sleep 1; done; sleep 1
 psql() { docker exec -i -e PGOPTIONS="-c client_min_messages=warning" "$name" psql -q -U factory -v ON_ERROR_STOP=1 "$@"; }
