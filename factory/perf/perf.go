@@ -7,6 +7,7 @@
 //   - 执行时间 > 阈值                         → ✗
 //   - 排序溢出到磁盘(Sort Method: external)  → ✗
 //   - 有必填的筛选条件,却对大表全表扫描        → ⚠(提示要加的索引)
+//   - JSON版本 的表的索引用了 JSON 键,却不是查询里的式子(core.JSONKeyIndexSQL)→ ✗(keyindex.go)
 package perf
 
 import (
@@ -115,6 +116,11 @@ func Run(ctx context.Context, plan *ir.Plan, o *Options) ([]Report, error) {
 			out = append(out, unknownKind(api))
 		}
 	}
+	ks, err := keyIndexes(ctx, conn, plan) // JSON 键的表达式索引 = 查询里的式子(keyindex.go)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, ks...)
 	ws, err := checkWrites(ctx, conn, plan, tables, opt)
 	if err != nil {
 		return nil, err

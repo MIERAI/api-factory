@@ -9,7 +9,14 @@ package core
 // 用途: 取最新版本(JSON版本来源)之后的"商品代码属于[...]"之类的条件,下推后数据库可以用索引直接定位,
 // 而不是先给全部的键取最新版本再筛选。
 //
-// 只跨过 filter(筛选之间可以交换)和只做列改名的 project;遇到 sort / limit / 计算列就停。
+// 只跨过 filter(筛选之间可以交换)、只做列改名的 project 和 lookup;遇到 sort / limit / 计算列 / 其他元件就停。
+//
+// 越过 lookup(多对一查找)的等式: filter(P) ∘ lookup(L) = lookup(L) ∘ filter(P),当 P 不引用 L 加的列。
+// 理由: lookup 对每一行单独判断(最多匹配一行): keep 原样留下每一行、只加列;drop 只去掉找不到的行。
+// 两种都不改已有的列、不改变行之间的关系 —— 只看已有的列的条件 P 在 lookup 之前和之后对每一行的结果相同。
+// 引用加的列的条件(包括 is_null(加的列)、和已有列 or 在一起的条件)一律不下推: 找不到时(keep)加的列是 NULL,
+// 同名的已有列不存在(检查禁止重名)但为了保险,加的列名从改名表里去掉。
+// 用途: 关联之后的"商品代码属于[...]"(catalog.list-labels-with-product)下推到来源的取最新之前,用得上 (键, 登记顺序) 的索引。
 
 // pushdown 返回改写后的流水线(不修改原来的)。没有可以下推的条件时返回原来的。
 func pushdown(p *Pipeline) *Pipeline {
@@ -41,6 +48,12 @@ func pushdown(p *Pipeline) *Pipeline {
 					}
 				}
 				name = next
+				continue
+			}
+			if st.Kind == "lookup" { // 见文件开头: 只加列 / 逐行去掉找不到的行,已有的列不变
+				for _, t := range st.Take {
+					delete(name, t.Name)
+				}
 				continue
 			}
 			if st.Kind != "filter" {

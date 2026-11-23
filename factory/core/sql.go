@@ -93,6 +93,12 @@ func ToSQL(p *Pipeline, opt Options) (*SQL, error) {
 		}
 		p = q
 	}
+	if q := keyIndex(p); q != p { // JSON 字段上的比较另加索引的键(json_key)的条件: keyindex.go
+		if _, err := Check(q); err != nil {
+			return nil, fmt.Errorf("索引的键的改写之后的流水线不合法(工厂的 bug): %w", err)
+		}
+		p = q
+	}
 	g := &sqlGen{p: p, index: map[string]int{}, ref: opt.ParamRef}
 	lv, err := g.steps(p.Steps)
 	if err != nil {

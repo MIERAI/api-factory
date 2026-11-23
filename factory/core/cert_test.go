@@ -394,8 +394,10 @@ func TestCertification(t *testing.T) {
 		env.check(fmt.Sprintf("json_field 规范写法 %s %s", c.kind, c.val), p, nil)
 	}
 	certLookup(env, all)
-	certNest(env, all) // cert_nest_test.go
-	certAsOf(env, all) // cert_asof_test.go
+	certPushLookup(env, all) // cert_keyindex_test.go: 筛选越过关联下推
+	certNest(env, all)       // cert_nest_test.go
+	certAsOf(env, all)       // cert_asof_test.go
+	certJSONKey(env, all)    // cert_keyindex_test.go: 索引的键(往 c 里插不合法的值,放在最后)
 	if !t.Failed() {
 		t.Logf("元件认证: %d 个用例全部一致", env.n)
 	}

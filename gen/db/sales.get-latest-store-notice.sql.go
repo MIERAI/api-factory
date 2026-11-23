@@ -18,6 +18,7 @@ FROM (
             FROM (
                 SELECT ((CASE WHEN (t1.data ->> 'store_code') ~ '^[ \t\n\r\f\v]*[+-]?[0-9]+[ \t\n\r\f\v]*$' THEN (t1.data ->> 'store_code') ELSE '✗' || (t1.data ->> 'store_code') END)::int4) AS store_code, ((CASE WHEN (t1.data ->> 'notice_no') ~ '^[ \t\n\r\f\v]*[+-]?[0-9]+[ \t\n\r\f\v]*$' THEN (t1.data ->> 'notice_no') ELSE '✗' || (t1.data ->> 'notice_no') END)::int4) AS notice_no, ((t1.data ->> 'title')::text) AS title, ((CASE WHEN (t1.data ->> 'posted_ymd') ~ '^[ \t\n\r\f\v]*[+-]?[0-9]+[ \t\n\r\f\v]*$' THEN (t1.data ->> 'posted_ymd') ELSE '✗' || (t1.data ->> 'posted_ymd') END)::int4) AS posted_ymd, t1.action_type AS _action, t1.registered_at AS _o_registered_at, t1.id AS _o_id, ((t1.data ->> 'deleted')::text) AS _logical_delete
                 FROM store_notice_events AS t1
+                WHERE ((CASE WHEN (t1.data ->> 'store_code') ~ '^[ \t\n\r\f\v]*[+-]?[0-9]+[ \t\n\r\f\v]*$' THEN (CASE WHEN ((t1.data ->> 'store_code')::numeric BETWEEN -2147483648 AND 2147483647) THEN ((t1.data ->> 'store_code')::int4) END) END) = $1::int4)
             ) AS t2
             WHERE ((NOT (t2.store_code IS NULL)) AND (NOT (t2.notice_no IS NULL)))
               AND (t2.store_code = $1::int4)

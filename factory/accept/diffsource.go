@@ -163,11 +163,22 @@ func (e *diffEnv) loadLogical(lt *logicalTable, vs []version) error {
 	types := core.Schema(lt.cols)
 	var rows []map[string]any
 	lt.versions = nil
-	for _, v := range vs {
+	for vi, v := range vs {
 		m := map[string]any{}
-		for k, x := range v.row {
-			t, _ := types.Col(k)
-			m[k] = jsonFriendly(x, t.Kind)
+		for ci, c := range lt.cols { // 列的顺序(确定)
+			x, ok := v.row[c.Name]
+			if !ok {
+				continue
+			}
+			m[c.Name] = jsonFriendly(x, c.Type.Kind)
+			if e.plan.Enum(lt.view, c.Name) == nil && !lt.shellCol(c.Name) {
+				m[c.Name] = jsonSpelling(m[c.Name], c.Type.Kind, vi+ci)
+			}
+		}
+		for k, x := range v.row { // 逻辑表的列以外(没有的话报错的地方照旧)
+			if _, ok := types.Col(k); !ok {
+				m[k] = jsonFriendly(x, "")
+			}
 		}
 		if v.action != "" {
 			m[spec.FixtureAction] = v.action
@@ -215,6 +226,54 @@ func jsonFriendly(v any, k core.Kind) any {
 			return x.Format("2006-01-02")
 		}
 		return x.UTC().Format(time.RFC3339Nano)
+	}
+	return v
+}
+
+// jsonSpelling: JSON 里整数 / 十进制的值换成另一种合法的写法(json_field 的规范写法的正则认的: 文本、前后空白、+ 号、
+// 前导 0、十进制末尾的 0),按 i 轮换(不用随机数)。SQL 和参考求值器都按值读,结果不变;"把 JSON 的值按文本比较"的
+// 错误实现(例如索引的键的条件写成 (data ->> 键) = 参数::text,core/keyindex.go)因此能被差分测试看出来。
+func jsonSpelling(v any, k core.Kind, i int) any {
+	switch k {
+	case core.Int32, core.Int64:
+		var n int64
+		switch x := v.(type) {
+		case int64:
+			n = x
+		case int:
+			n = int64(x)
+		default:
+			return v
+		}
+		abs, sign := n, ""
+		if n < 0 {
+			abs, sign = -n, "-"
+		}
+		switch i % 4 {
+		case 1:
+			return fmt.Sprint(n) // "7"
+		case 2:
+			if sign == "" {
+				sign = "+"
+			}
+			return fmt.Sprintf(" %s%d ", sign, abs) // " +7 "
+		case 3:
+			return fmt.Sprintf("%s0%d", sign, abs) // "07"
+		}
+	case core.Decimal:
+		s, ok := v.(string)
+		if !ok {
+			return v
+		}
+		switch i % 3 {
+		case 1:
+			if strings.Contains(s, ".") {
+				return s + "0" // "1.50"
+			}
+			return s + ".0"
+		case 2:
+			return " " + s + " "
+		}
 	}
 	return v
 }

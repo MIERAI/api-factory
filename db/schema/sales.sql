@@ -82,5 +82,6 @@ CREATE TABLE IF NOT EXISTS store_notice_events (
     registered_by TEXT        NOT NULL DEFAULT 'factory',
     registered_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS store_notice_events_store_idx
-    ON store_notice_events ((data ->> 'store_code'), registered_at DESC, id DESC);
+-- 整数の键: 式は工厂が生成(core.JSONKeyIndexSQL = 查询の json_key)。make perf が比较する
+CREATE INDEX IF NOT EXISTS store_notice_events_store_key_idx
+    ON store_notice_events ((CASE WHEN (data ->> 'store_code') ~ '^[ \t\n\r\f\v]*[+-]?[0-9]+[ \t\n\r\f\v]*$' THEN (CASE WHEN ((data ->> 'store_code')::numeric BETWEEN -2147483648 AND 2147483647) THEN ((data ->> 'store_code')::int4) END) END), registered_at DESC, id DESC);

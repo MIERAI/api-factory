@@ -19,6 +19,7 @@ FROM (
                 FROM product_label_events AS t1
             ) AS t2
             WHERE (NOT (t2.product_code IS NULL))
+              AND (t2.product_code = ANY($1::text[]))
             ORDER BY t2.product_code COLLATE "C", t2.label_code COLLATE "C", t2._o_registered_at DESC, t2._o_id DESC
         ) AS t3
         WHERE ((t3._action <> 1::int4) AND ((NULL::text IS NULL) OR (NULL::text <> ''::text)))
@@ -51,7 +52,6 @@ FROM (
         ) AS t11
         WHERE ((t11._action <> 1::int4) AND ((t11._logical_delete IS NULL) OR (t11._logical_delete <> '1'::text)))
     ) AS t12 ON TRUE
-    WHERE (t4.product_code = ANY($1::text[]))
 ) AS t13
 ORDER BY t13.product_code COLLATE "C", t13.label COLLATE "C"
 LIMIT 501
