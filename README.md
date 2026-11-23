@@ -44,9 +44,9 @@ spec-review     generate                verify               deploy
 |---|---|---|---|
 | 式样书的 PR | `scripts/ci/spec-review.sh` | `spec-pr.yml` | 机械检查 + 确定性生成 + AI 审查(结果贴到 PR) |
 | 合并后: 生成 | `scripts/ci/generate.sh` | `generate.yml` | 生成物的分支 `factory/gen-<sha>` + PR 说明(管理者看这一页,不用逐行读生成的代码) |
-| 生成物的 PR | `scripts/ci/verify.sh` + `scripts/ci/margin.sh` | `verify.yml` | 生成物和式样书一致 + 编译 + 单元测试 + 验收 3 种子 + 变异余量(按变异分 4 个并行 job;PR 1 个种子、合并后和每晚 3 个种子,都带结果缓存 + 早停) |
+| 生成物的 PR | `scripts/ci/verify.sh` + `scripts/ci/margin.sh` | `verify.yml` | 生成物和式样书一致 + 编译 + 单元测试 + 验收 3 种子 + 变异余量(按变异分 4 个并行 job;PR 1 个种子、合并后和每月 3 个种子,都带结果缓存 + 早停) |
 | 合并后: 发布(GitOps) | 共用的 workflow | `release.yml` | 验证 → API 和建表的镜像(只构建一次,tag = 提交,Trivy / SBOM)→ gitops-manifests 的 dev 更新 → Argo CD 同步 |
-| 每晚 | 同上 | `margin-nightly.yml` | main 的全量验证(3 个种子);失败 → 开 issue(标签 `margin-nightly`,列出不够 3 次的变异) |
+| 每月 | 同上 | `margin-monthly.yml` | main 的全量验证(每月 2 日;也可手动触发)(3 个种子);失败 → 开 issue(标签 `margin-monthly`,列出不够 3 次的变异) |
 | (另一种)Cloud Run | `scripts/ci/deploy.sh` | `deploy.yml` | `TARGET=cloudrun`: Cloud Build → `--no-traffic` 的新版本 → 只读检查 → 切流量(GCP 的设定有了才运行) |
 
 ### 式样书 PR 的 AI 审查: 审查哪些 API / 推送前自己跑 / 本地回答 CI 的问题
