@@ -1,0 +1,622 @@
+// Package txn 是命令(写入)的事务执行器: 生成的 handler 把写操作作为数据(Op)交给这里,
+// 在一个事务里按顺序执行,失败时整个回滚,把失败分成固定的几种原因(Reason)。
+//
+// 分工(api-factory 的命令工厂,R3):
+//   - 这里: 事务(开始 / 提交 / 回滚)、SQL 的组装(标识符加引号,值一律是参数)、"没有更新"的原因判定
+//     (同一个事务里再读一次: 不存在 / 版本冲突 / 条件不成立)、数据库错误的分类、序列化失败 / 死锁的有限重试、
+//     测试用的故障注入钩子;条件更新(Cond)、幂等新建(Conflict)、组合命令里引用前面操作的返回值(Later)
+//   - 生成的代码: 原因 → 错误码(每个服务的 commands_gen.go;改错误码的决定只改生成器,不用发运行时)
+//
+// handler 里不写 SQL,也不碰连接: 生成代码只依赖这个包的 Op / Run / ReasonOf。
+package txn
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/MIERAI/api-factory-runtime/anomaly"
+)
+
+// Kind: 写操作的种类。
+type Kind uint8
+
+const (
+	Insert Kind = iota + 1 // INSERT … RETURNING
+	Update                 // UPDATE … WHERE 主键 [AND 版本] RETURNING
+	Delete                 // DELETE … WHERE 主键 [AND 版本] RETURNING
+)
+
+func (k Kind) String() string {
+	switch k {
+	case Insert:
+		return "insert"
+	case Update:
+		return "update"
+	case Delete:
+		return "delete"
+	}
+	return "kind(" + strconv.Itoa(int(k)) + ")"
+}
+
+// Col: 列 = 值。Incr 不为 0 时是 "列 = 列 + Incr"(乐观锁的版本号加 1),Value 不用。
+// Expr 不为 nil 时是 "列 = 表达式"(update 的 SET,例: available = available + $1;表达式里的列是更新之前的值),Value 不用。
+// Value 可以是 Later(组合命令: 执行到这个操作时才取前面操作的返回值)。
+type Col struct {
+	Name  string
+	Value any
+	Incr  int64
+	Expr  *Expr
+}
+
+// Incr1: 版本列加 1(update 的 SET 里写;生成代码里看得见,改错了变异测试能抓到)。
+func Incr1(name string) Col { return Col{Name: name, Incr: 1} }
+
+// Op: 一个写操作(数据)。
+type Op struct {
+	Kind  Kind
+	Table string
+	// Values: insert = 插入的列;update = SET 的列(包括 Incr1 的版本列)。delete 不用
+	Values []Col
+	// Key: update / delete 的主键(WHERE 主键 = …)。insert 不用
+	Key []Col
+	// Version: 乐观锁(update / delete): WHERE … AND 版本列 = 请求带的版本号。nil = 不检查版本
+	Version *Col
+	// Returning: RETURNING 的列;Into: 扫描的目标(和 Returning 一一对应,指针)。
+	// update / delete 没有碰到行、但行存在(Conflict / Unmet)时,Into = 同一个事务里读到的现在的行
+	Returning []string
+	Into      []any
+	// NotFound: 行不存在时的消息(给调用方看的)
+	NotFound string
+	// Cond: 条件更新(update): WHERE … AND 条件。行存在、版本一致、条件不成立 → Unmet,Error.Code = Unmet(业务原因码)
+	Cond  *Expr
+	Unmet string
+	// Conflict: 幂等新建(insert): INSERT … ON CONFLICT (这些列) DO NOTHING;冲突时读出已有的行(按这些列,
+	// 值 = Values 里同名的列)扫进 Into,不报错、不写。Created: 是否真的插入了(nil = 不需要)
+	Conflict []string
+	Created  *bool
+	// R4(api-factory docs/design/r4-events-messages.md §5)的 每项(对列表逐项执行)、仅当(由前一个幂等新建的
+	// Created / 前一个更新是否真的更新了 控制)、条件不成立 = 跳过(Unmet 时 Into 是现在的行)由生成的代码在 InTx 里
+	// 用 RunIn / Savepoint 组合,Op 的语义不变
+}
+
+// Reason: 写操作失败的原因(生成代码按它决定错误码)。
+type Reason uint8
+
+const (
+	None       Reason = iota
+	NotFound          // update / delete: 行不存在
+	Conflict          // update / delete: 行存在,版本不一致(乐观锁)
+	Unique            // 唯一约束冲突(23505)
+	Check             // CHECK 约束(23514)/ 值不合法(22xxx: 溢出、格式)
+	NotNull           // NOT NULL(23502)
+	ForeignKey        // 外键(23503)
+	Retry             // 序列化失败 / 死锁(40001 / 40P01),重试 MaxAttempts 次之后仍然失败
+	Injected          // 测试用的故障注入(FACTORY_TEST_FAULTS=1 + 请求头 X-Factory-Fail-After)
+	Unmet             // update: 行存在、版本一致,条件不成立(条件更新;Error.Code = 业务原因码)
+)
+
+func (r Reason) String() string {
+	return [...]string{"none", "not_found", "conflict", "unique", "check", "not_null", "foreign_key", "retry", "injected", "unmet"}[r]
+}
+
+// Error: 写操作失败。Op = 第几个操作(从 0 开始),Constraint = 数据库报的约束名(有的话)。
+type Error struct {
+	Reason     Reason
+	Op         int
+	Table      string
+	Constraint string
+	Code       string // Unmet: 设计稿里声明的业务原因码(例: INSUFFICIENT_STOCK)
+	Msg        string // 给调用方看的消息(不含 SQL 和值)
+	Err        error  // 原始的数据库错误(日志用)
+}
+
+func (e *Error) Error() string {
+	if e.Err != nil {
+		return e.Msg + ": " + e.Err.Error()
+	}
+	return e.Msg
+}
+
+func (e *Error) Unwrap() error { return e.Err }
+
+// ReasonOf: err 的原因(不是写操作的错误 → None: 连接断开、超时等,交给平台的拦截器)。
+func ReasonOf(err error) Reason {
+	var e *Error
+	if errors.As(err, &e) {
+		return e.Reason
+	}
+	return None
+}
+
+// MaxAttempts: 序列化失败 / 死锁时最多执行几次(第一次 + 重试)。
+const MaxAttempts = 3
+
+// Beginner: 能开始事务的连接(*pgxpool.Pool / *pgx.Conn)。
+type Beginner interface {
+	BeginTx(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error)
+}
+
+// Executor: 事务执行器。生成的服务每个进程一个(wiring: txn.New(deps.Pool))。
+type Executor struct {
+	db Beginner
+	// ⚖️ D2(命令工厂设计稿 §3.4,待负责人确认): 隔离级别 READ COMMITTED(Postgres 的默认)。
+	// 乐观锁和"没有更新"的判定都靠单条 UPDATE / DELETE 的原子性,不需要更高的级别。
+	// 组合命令(R3-2)需要时在这里按操作选 REPEATABLE READ
+	iso pgx.TxIsoLevel
+}
+
+func New(db Beginner) *Executor { return &Executor{db: db, iso: pgx.ReadCommitted} }
+
+// Run: 在一个事务里按顺序执行 ops。任何一个失败 → 回滚,返回 *Error(或者连接等平台的错误)。
+// 序列化失败 / 死锁 → 整个事务重来(最多 MaxAttempts 次);Into 每次都会被重新写入。
+func (e *Executor) Run(ctx context.Context, ops ...Op) error {
+	return e.InTx(ctx, func(ctx context.Context, tx pgx.Tx) error { return RunIn(ctx, tx, ops...) })
+}
+
+// InTx: 在一个事务里执行 fn,fn 返回 nil 就提交。给"不只是一串 Op"的写入用(R4: 消息处理器的去重 + 操作 + outbox,
+// 写操作之后按返回值组装消息再写 outbox)。fn 里的写操作用 RunIn / Savepoint / outbox.Write,都在 tx 上。
+//
+//   - fn 返回错误 → 回滚,原样返回这个错误
+//   - 序列化失败 / 死锁(fn 里或提交时)→ 整个事务重来,fn 会被再调用(最多 MaxAttempts 次),所以 fn 除了 tx 以外不能有副作用
+//   - 测试的故障注入(WithFault: 第 k 个写操作之后失败)按整个事务计数: RunIn 的每个操作和 AfterWrite 各算一个
+func (e *Executor) InTx(ctx context.Context, fn func(ctx context.Context, tx pgx.Tx) error) error {
+	var err error
+	for attempt := 1; attempt <= MaxAttempts; attempt++ {
+		err = e.once(ctx, fn)
+		if !retryable(err) {
+			return err
+		}
+	}
+	var pe *pgconn.PgError
+	errors.As(err, &pe)
+	return &Error{Reason: Retry, Op: -1, Msg: "concurrent update: retry the request", Err: err, Constraint: constraintOf(pe)}
+}
+
+func (e *Executor) once(ctx context.Context, fn func(ctx context.Context, tx pgx.Tx) error) (err error) {
+	tx, err := e.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: e.iso})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	st := &attemptState{} // 每次尝试从头开始: 故障注入的计数、保存点里遇到的序列化失败、提交后的回调
+	ctx = context.WithValue(ctx, stateKey{}, st)
+	ferr := fn(ctx, tx)
+	if st.retry != nil { // 保存点里遇到了序列化失败 / 死锁: 不管 fn 怎么处理了那个错误,整个事务重来
+		return st.retry
+	}
+	if ferr != nil {
+		return ferr
+	}
+	if err := tx.Commit(ctx); err != nil { // 提交时的错误(序列化失败 → 重试;延迟检查的约束 → 原因)
+		return classify(-1, Op{Table: "(commit)"}, err)
+	}
+	for _, h := range st.hooks {
+		h.fn(e.db)
+	}
+	return nil
+}
+
+// RunIn: 在已经开始的事务 tx 里按顺序执行 ops(InTx 的 fn 里用)。失败时不回滚 tx: 交给 InTx(返回错误 = 整个回滚)
+// 或者 Savepoint(只回滚到保存点)。错误和 Run 一样(*Error 的 Op 是 ops 里的下标)。
+func RunIn(ctx context.Context, tx pgx.Tx, ops ...Op) error {
+	for i, op := range ops {
+		if err := exec(ctx, tx, i, op); err != nil {
+			return err
+		}
+		if err := afterWrite(ctx, i, op.Table); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// AfterWrite: 不经过 RunIn 的写入(例: outbox.Write 的每一行)也计入故障注入的写操作个数。
+// 测试设置了"第 k 个写操作之后失败"且这是第 k 个时返回 Reason = Injected 的错误;否则 nil。生产环境总是 nil。
+func AfterWrite(ctx context.Context, table string) error { return afterWrite(ctx, -1, table) }
+
+func afterWrite(ctx context.Context, i int, table string) error {
+	failAfter := faultFrom(ctx)
+	if failAfter <= 0 {
+		return nil
+	}
+	var n *int
+	if st, _ := ctx.Value(stateKey{}).(*attemptState); st != nil {
+		n = &st.writes
+	}
+	if n == nil { // 不在 InTx 里(直接对一个 tx 调用 RunIn): 按这一次调用的下标数
+		n = new(int)
+		*n = i
+		if i < 0 {
+			return nil
+		}
+	}
+	*n++
+	if *n == failAfter { // 测试用: 第 k 个写操作之后强制失败(之前的写入必须被回滚)
+		return &Error{Reason: Injected, Op: i, Table: table, Msg: fmt.Sprintf("injected fault after write %d", failAfter)}
+	}
+	return nil
+}
+
+type stateKey struct{}
+
+type attemptState struct {
+	writes int    // 这次尝试里做过的写操作(故障注入)
+	retry  error  // 保存点里遇到的序列化失败 / 死锁
+	hooks  []hook // 提交成功之后按登记的顺序调用(回滚 / 重来的尝试 → 丢弃)
+}
+
+type hook struct {
+	key any
+	fn  func(db Beginner)
+}
+
+// AfterCommit: 在 InTx 的 fn 里登记一个回调,这个事务提交成功之后调用(参数是执行器的连接 —— 提交之后的连接,
+// 不在事务里)。同一个事务里同一个 key 只登记一次(第一次的 fn)。回滚 / 序列化失败重来的那次尝试的回调不调用
+// (重来时 fn 会再登记)。回调在 InTx 返回之前同步调用: 要做 IO 的回调自己转到后台(outbox 的唤醒就是这样)。
+// 不在 InTx 里 → 不登记,返回 false。
+//
+// 用途: 只该在提交之后发生、又不该拉长事务的事情。outbox.Writer 用它在提交之后唤醒中继(NOTIFY 不放在写事务里:
+// 发过 NOTIFY 的事务在提交时持有整个实例的一把锁直到 WAL 落盘,所有写 outbox 的提交会因此排成一队)。
+func AfterCommit(ctx context.Context, key any, fn func(db Beginner)) bool {
+	st, _ := ctx.Value(stateKey{}).(*attemptState)
+	if st == nil {
+		return false
+	}
+	for _, h := range st.hooks {
+		if h.key == key {
+			return true
+		}
+	}
+	st.hooks = append(st.hooks, hook{key: key, fn: fn})
+	return true
+}
+
+// Savepoint: 在 tx 里开一个保存点执行 fn。fn 返回错误 → 只回滚到保存点(之前的写入和 tx 都还在),返回 fn 的错误;
+// 否则释放保存点。R4 §4.2: 业务结果(条件不满足)要回滚已经做了的操作,但去重记录和结果消息照样提交。
+// 序列化失败 / 死锁不是业务结果: 在 InTx 里时记下来,InTx 不管 fn 怎么处理了这个错误都会让整个事务重来。
+func Savepoint(ctx context.Context, tx pgx.Tx, fn func(ctx context.Context, tx pgx.Tx) error) error {
+	sp, err := tx.Begin(ctx) // pgx: 事务里的 Begin = SAVEPOINT
+	if err != nil {
+		return err
+	}
+	if err := fn(ctx, sp); err != nil {
+		if st, _ := ctx.Value(stateKey{}).(*attemptState); st != nil && retryable(err) && st.retry == nil {
+			st.retry = err
+		}
+		if rerr := sp.Rollback(ctx); rerr != nil {
+			return errors.Join(err, rerr)
+		}
+		return err
+	}
+	return sp.Commit(ctx) // RELEASE SAVEPOINT
+}
+
+// exec: 一个操作。RETURNING 0 行(update / delete)→ 同一个事务里再读一次,分出 NotFound / Conflict。
+func exec(ctx context.Context, tx pgx.Tx, i int, op Op) error {
+	sql, args, err := Build(op)
+	if err != nil {
+		return err
+	}
+	if len(op.Into) != len(op.Returning) {
+		return fmt.Errorf("txn: op %d (%s %s): %d returning columns but %d scan targets", i, op.Kind, op.Table, len(op.Returning), len(op.Into))
+	}
+	rows, err := tx.Query(ctx, sql, args...)
+	if err != nil {
+		return classify(i, op, err)
+	}
+	n := 0
+	for rows.Next() {
+		n++
+		if n == 1 && len(op.Into) > 0 {
+			if err := rows.Scan(op.Into...); err != nil {
+				rows.Close()
+				return err
+			}
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return classify(i, op, err)
+	}
+	switch {
+	case n == 1:
+		if op.Created != nil {
+			*op.Created = true
+		}
+		return nil
+	case n > 1: // 主键 = 一行;多于一行说明 Key 不是主键(生成器的 bug)
+		return fmt.Errorf("txn: op %d (%s %s) touched %d rows, want 1 (key is not the primary key?)", i, op.Kind, op.Table, n)
+	case op.Kind == Insert && len(op.Conflict) > 0: // 幂等新建: 键已经有了 → 读出已有的行
+		return existing(ctx, tx, i, op)
+	case op.Kind == Insert: // INSERT 没有返回行: 不会发生
+		return fmt.Errorf("txn: op %d (insert %s) returned no row", i, op.Table)
+	}
+	return explain(ctx, tx, i, op)
+}
+
+// existing: 幂等新建的冲突 → 同一个事务里按幂等键读出已有的行(READ COMMITTED: 这条语句看得到
+// 刚刚提交的、和我们冲突的那一行)。Created = false。
+func existing(ctx context.Context, tx pgx.Tx, i int, op Op) error {
+	key, err := conflictKey(op)
+	if err != nil {
+		return err
+	}
+	names := []string{"1"}
+	if len(op.Returning) > 0 {
+		names = make([]string, len(op.Returning))
+		for j, c := range op.Returning {
+			names[j] = pgx.Identifier{c}.Sanitize()
+		}
+	}
+	var b strings.Builder
+	b.WriteString("SELECT " + strings.Join(names, ", ") + " FROM " + pgx.Identifier{op.Table}.Sanitize())
+	args := where(&b, key, nil, 0)
+	row := tx.QueryRow(ctx, b.String(), args...)
+	var one int
+	targets := op.Into
+	if len(targets) == 0 {
+		targets = []any{&one}
+	}
+	if err := row.Scan(targets...); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) { // 冲突的行在我们读之前又被删掉了: 当作并发冲突,整个事务重来
+			return &Error{Reason: Conflict, Op: i, Table: op.Table, Msg: op.Table + ": the conflicting row disappeared (retry the request)"}
+		}
+		return classify(i, op, err)
+	}
+	if op.Created != nil {
+		*op.Created = false
+	}
+	return nil
+}
+
+// conflictKey: 幂等键的列 = Values 里同名的列的值。
+func conflictKey(op Op) ([]Col, error) {
+	var key []Col
+	for _, k := range op.Conflict {
+		found := false
+		for _, c := range op.Values {
+			if c.Name == k && c.Incr == 0 && c.Expr == nil {
+				key = append(key, Col{Name: k, Value: c.Value})
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("txn: insert %s: conflict column %s has no value", op.Table, k)
+		}
+	}
+	return key, nil
+}
+
+// explain: UPDATE / DELETE 没有碰到行的原因。同一个事务里按主键再读一次,按这个顺序判定:
+// 没有这一行 → NotFound;版本不一致 → Conflict;有条件(条件更新)→ Unmet(业务原因码);
+// 都不是(读到之前被别的事务改过)→ Conflict。
+// 行存在时(Conflict / Unmet)Into 是这次读到的行(Returning 的列): 消息处理器的"条件不成立 = 跳过"按现在的行
+// 判断结果(例: 预留已经是 COMMITTED = 重发,是 RELEASED = 异常)。返回错误时 Into 以前没有定义,所以不影响已有的调用方。
+func explain(ctx context.Context, tx pgx.Tx, i int, op Op) error {
+	var b strings.Builder
+	var args []any
+	b.WriteString("SELECT ")
+	if op.Version != nil { // 版本一致吗(空 = 不一致)
+		args = append(args, arg(op.Version.Value))
+		fmt.Fprintf(&b, "coalesce(%s = $1, false)", pgx.Identifier{op.Version.Name}.Sanitize())
+	} else {
+		b.WriteString("true")
+	}
+	for _, c := range op.Returning { // 行还在(版本不一致 / 条件不成立): 把读到的行扫进 Into(R4: 条件不成立 = 跳过 时要看现在的行)
+		b.WriteString(", " + pgx.Identifier{c}.Sanitize())
+	}
+	b.WriteString(" FROM ")
+	b.WriteString(pgx.Identifier{op.Table}.Sanitize())
+	args = append(args, where(&b, op.Key, nil, len(args))...)
+	var sameVersion bool
+	targets := []any{&sameVersion}
+	if len(op.Into) == len(op.Returning) {
+		targets = append(targets, op.Into...)
+	} else {
+		for range op.Returning {
+			targets = append(targets, new(any))
+		}
+	}
+	err := tx.QueryRow(ctx, b.String(), args...).Scan(targets...)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		msg := op.NotFound
+		if msg == "" {
+			msg = op.Table + " not found"
+		}
+		return &Error{Reason: NotFound, Op: i, Table: op.Table, Msg: msg}
+	case err != nil:
+		return classify(i, op, err)
+	case sameVersion && op.Cond != nil:
+		return &Error{Reason: Unmet, Op: i, Table: op.Table, Code: op.Unmet,
+			Msg: op.Unmet + ": " + op.Table + ": the condition of the update does not hold"}
+	}
+	return &Error{Reason: Conflict, Op: i, Table: op.Table,
+		Msg: op.Table + ": version conflict (the row was changed by someone else; read it again and retry)"}
+}
+
+// Build: 操作 → SQL + 参数。标识符一律加引号,值一律是参数($n)。
+func Build(op Op) (string, []any, error) {
+	if op.Table == "" {
+		return "", nil, errors.New("txn: op without a table")
+	}
+	var b strings.Builder
+	var args []any
+	table := pgx.Identifier{op.Table}.Sanitize()
+	switch op.Kind {
+	case Insert:
+		if len(op.Key) > 0 || op.Version != nil || op.Cond != nil {
+			return "", nil, fmt.Errorf("txn: insert %s: Key / Version / Cond are for update and delete", op.Table)
+		}
+		b.WriteString("INSERT INTO " + table)
+		if len(op.Values) == 0 {
+			b.WriteString(" DEFAULT VALUES")
+			break
+		}
+		names, holders := make([]string, len(op.Values)), make([]string, len(op.Values))
+		for i, c := range op.Values {
+			if c.Incr != 0 || c.Expr != nil {
+				return "", nil, fmt.Errorf("txn: insert %s: column %s: Incr / Expr are for update", op.Table, c.Name)
+			}
+			names[i] = pgx.Identifier{c.Name}.Sanitize()
+			args = append(args, arg(c.Value))
+			holders[i] = "$" + strconv.Itoa(len(args))
+		}
+		b.WriteString(" (" + strings.Join(names, ", ") + ") VALUES (" + strings.Join(holders, ", ") + ")")
+		if len(op.Conflict) > 0 { // 幂等新建: 冲突(只认这个键)→ 不插入、不报错;exec 读出已有的行
+			if _, err := conflictKey(op); err != nil {
+				return "", nil, err
+			}
+			cols := make([]string, len(op.Conflict))
+			for i, c := range op.Conflict {
+				cols[i] = pgx.Identifier{c}.Sanitize()
+			}
+			b.WriteString(" ON CONFLICT (" + strings.Join(cols, ", ") + ") DO NOTHING")
+		}
+	case Update:
+		if len(op.Key) == 0 {
+			return "", nil, fmt.Errorf("txn: update %s without a key", op.Table)
+		}
+		if len(op.Values) == 0 {
+			return "", nil, fmt.Errorf("txn: update %s without columns to set", op.Table)
+		}
+		if len(op.Conflict) > 0 {
+			return "", nil, fmt.Errorf("txn: update %s: Conflict is for insert", op.Table)
+		}
+		b.WriteString("UPDATE " + table + " SET ")
+		for i, c := range op.Values {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			name := pgx.Identifier{c.Name}.Sanitize()
+			switch {
+			case c.Incr != 0:
+				fmt.Fprintf(&b, "%s = %s + %d", name, name, c.Incr)
+			case c.Expr != nil:
+				if isCond(c.Expr) {
+					return "", nil, fmt.Errorf("txn: update %s: column %s: a condition is not a value", op.Table, c.Name)
+				}
+				b.WriteString(name + " = ")
+				if err := sqlExpr(&b, c.Expr, &args); err != nil {
+					return "", nil, err
+				}
+			default:
+				args = append(args, arg(c.Value))
+				fmt.Fprintf(&b, "%s = $%d", name, len(args))
+			}
+		}
+		args = append(args, where(&b, op.Key, op.Version, len(args))...)
+		if op.Cond != nil { // 条件更新: WHERE 主键 [AND 版本] AND (条件)
+			if !isCond(op.Cond) {
+				return "", nil, fmt.Errorf("txn: update %s: Cond must be a comparison or and", op.Table)
+			}
+			if op.Unmet == "" {
+				return "", nil, fmt.Errorf("txn: update %s: Cond without an Unmet reason code", op.Table)
+			}
+			b.WriteString(" AND ")
+			if err := sqlExpr(&b, op.Cond, &args); err != nil {
+				return "", nil, err
+			}
+		}
+	case Delete:
+		if len(op.Key) == 0 {
+			return "", nil, fmt.Errorf("txn: delete %s without a key", op.Table)
+		}
+		if op.Cond != nil || len(op.Conflict) > 0 {
+			return "", nil, fmt.Errorf("txn: delete %s: Cond / Conflict are not supported", op.Table)
+		}
+		b.WriteString("DELETE FROM " + table)
+		args = append(args, where(&b, op.Key, op.Version, 0)...)
+	default:
+		return "", nil, fmt.Errorf("txn: unknown op kind %d", op.Kind)
+	}
+	// RETURNING 总是要有: 碰到了几行靠返回的行数判断(没有要返回的列时 RETURNING 1)
+	names := []string{"1"}
+	if len(op.Returning) > 0 {
+		names = make([]string, len(op.Returning))
+		for i, c := range op.Returning {
+			names[i] = pgx.Identifier{c}.Sanitize()
+		}
+	}
+	b.WriteString(" RETURNING " + strings.Join(names, ", "))
+	return b.String(), args, nil
+}
+
+// where: " WHERE k1 = $n AND k2 = $n+1 [AND version = $m]"。n 从 offset+1 开始。
+func where(b *strings.Builder, key []Col, version *Col, offset int) []any {
+	var args []any
+	conds := append([]Col{}, key...)
+	if version != nil {
+		conds = append(conds, *version)
+	}
+	for i, c := range conds {
+		if i == 0 {
+			b.WriteString(" WHERE ")
+		} else {
+			b.WriteString(" AND ")
+		}
+		args = append(args, arg(c.Value))
+		fmt.Fprintf(b, "%s = $%d", pgx.Identifier{c.Name}.Sanitize(), offset+len(args))
+	}
+	return args
+}
+
+// classify: 数据库错误 → 原因。CHECK / NOT NULL / 值不合法说明请求的校验漏了规则(设计稿的问题):
+// 同时计入异常指标(write_rejected_total),不能只是悄悄地变成 INVALID_ARGUMENT。
+func classify(i int, op Op, err error) error {
+	var pe *pgconn.PgError
+	if !errors.As(err, &pe) {
+		return err
+	}
+	e := &Error{Op: i, Table: op.Table, Constraint: constraintOf(pe), Err: err}
+	switch {
+	case pe.Code == "23505":
+		e.Reason, e.Msg = Unique, op.Table+": already exists"
+	case pe.Code == "23514" || strings.HasPrefix(pe.Code, "22"):
+		e.Reason, e.Msg = Check, op.Table+": rejected by a database rule"
+	case pe.Code == "23502":
+		e.Reason, e.Msg = NotNull, op.Table+": a required value is missing"
+	case pe.Code == "23503":
+		e.Reason, e.Msg = ForeignKey, op.Table+": a referenced row does not exist, or the row is still referenced"
+	case pe.Code == "40001" || pe.Code == "40P01":
+		return err // 重试(Run)
+	default:
+		return err
+	}
+	if e.Constraint != "" {
+		e.Msg += " (" + e.Constraint + ")"
+	}
+	if e.Reason == Check || e.Reason == NotNull {
+		anomaly.ReportWrite(op.Table, e.Constraint)
+	}
+	return e
+}
+
+func constraintOf(pe *pgconn.PgError) string {
+	if pe == nil {
+		return ""
+	}
+	if pe.ConstraintName != "" {
+		return pe.ConstraintName
+	}
+	return pe.ColumnName
+}
+
+// IsRetryable: 序列化失败 / 死锁(40001 / 40P01)。InTx 会自己重来;在 InTx 外面自己管事务时用。
+func IsRetryable(err error) bool { return retryable(err) }
+
+func retryable(err error) bool {
+	var pe *pgconn.PgError
+	return errors.As(err, &pe) && (pe.Code == "40001" || pe.Code == "40P01")
+}
