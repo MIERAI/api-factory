@@ -1,98 +1,12 @@
 package perf
 
 import (
-	"context"
 	"fmt"
 	"regexp"
-	"slices"
 	"strings"
-
-	"github.com/jackc/pgx/v5"
 
 	"apifactory/factory/core"
 )
-
-// otherTables: 当前 schema 里没有 API 读的表(列由 allColumns 补)。
-func otherTables(ctx context.Context, conn *pgx.Conn, tables map[string]*table) error {
-	rows, err := conn.Query(ctx, `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_type = 'BASE TABLE'`)
-	if err != nil {
-		return err
-	}
-	var names []string
-	for rows.Next() {
-		var n string
-		if err := rows.Scan(&n); err != nil {
-			rows.Close()
-			return err
-		}
-		names = append(names, n)
-	}
-	rows.Close()
-	for _, n := range names {
-		if _, ok := tables[n]; ok || n == "goose_db_version" {
-			continue
-		}
-		t := newTable(n, nil)
-		if err := loadKeys(ctx, conn, t); err != nil {
-			return err
-		}
-		tables[n] = t
-	}
-	return rows.Err()
-}
-
-// allColumns: 物理表的全部列(FillOnly: 没有 API 读的列也要有值,迁移排练才真实)+ 可为空的标记。
-func allColumns(ctx context.Context, conn *pgx.Conn, t *table) error {
-	rows, err := conn.Query(ctx, `
-		SELECT column_name, udt_name, is_nullable = 'YES' FROM information_schema.columns
-		WHERE table_schema = current_schema() AND table_name = $1 ORDER BY ordinal_position`, t.name)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var name, udt string
-		var nullable bool
-		if err := rows.Scan(&name, &udt, &nullable); err != nil {
-			return err
-		}
-		t.nullable[name] = nullable
-		if slices.ContainsFunc(t.cols, func(x core.NamedType) bool { return x.Name == name }) {
-			continue
-		}
-		k, ok := kindOfSQL(udt)
-		if udt == "jsonb" || udt == "json" {
-			k, ok = core.JSON, true
-		}
-		if !ok {
-			continue // 不认识的类型: 留给默认值
-		}
-		t.cols = append(t.cols, core.NamedType{Name: name, Type: core.Type{Kind: k}})
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	rows.Close()
-	checks, err := conn.Query(ctx, `
-		SELECT a.attname, pg_get_constraintdef(c.oid) FROM pg_constraint c
-		JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
-		WHERE c.contype = 'c' AND c.conrelid = to_regclass($1)`, pgx.Identifier{t.name}.Sanitize())
-	if err != nil {
-		return err
-	}
-	defer checks.Close()
-	for checks.Next() {
-		var name, def string
-		if err := checks.Scan(&name, &def); err != nil {
-			return err
-		}
-		t.checked[name] = true
-		if vals := checkValues(name, def); len(vals) > 0 { // 取值列表: 当作枚举
-			t.literals[name] = vals
-		}
-	}
-	return checks.Err()
-}
 
 // dirtySQL: 在正常值 e 上掺生产里常见的"脏"值(只用约束允许的值: 唯一 / 组合键 / 枚举 / 操作列不碰)。
 // 比例按行号取模,不同的列用 salt 错开: 空值 5%(只有可为空的列)、各种边界值各 1~2%。
@@ -183,10 +97,10 @@ func textPattern(rules string) string {
 }
 
 // patternSQL: values in the request field's format (unique: the row number; otherwise ~5000 distinct values).
-func patternSQL(p string, unique bool, salt int) string {
-	n := fmt.Sprintf("((i::int8 * %d) %% 5000)", 104729+salt)
+func patternSQL(p string, unique bool, salt int, idx string) string {
+	n := hashSQL(idx, salt, 5000)
 	if unique {
-		n = "i"
+		n = "(" + idx + ")"
 	}
 	if p == "zip" {
 		return "lpad((" + n + " / 10000 % 1000)::text, 3, '0') || '-' || lpad((" + n + " % 10000)::text, 4, '0')"

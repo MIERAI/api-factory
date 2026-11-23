@@ -9,3 +9,6 @@ CREATE TABLE IF NOT EXISTS jobs (
 
 -- ListJobs 的 keyset 分页用
 CREATE INDEX IF NOT EXISTS jobs_created_at_id_idx ON jobs (created_at DESC, id DESC);
+-- 種類ごとの最新 / 種類 + 状態(make perf: 00017)
+CREATE INDEX IF NOT EXISTS jobs_type_latest_idx ON jobs ((job_type COLLATE "C"), created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS jobs_type_status_idx ON jobs (job_type, status);

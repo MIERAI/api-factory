@@ -958,7 +958,7 @@ func cmdSeedVolume(args []string) error {
 		return fmt.Errorf("IR not found (run factory prepare first): %w", err)
 	}
 	t0 := time.Now()
-	if _, err := perf.Run(context.Background(), plan, perf.Options{DB: *db, Rows: *rows, FillOnly: true, Dirty: *dirty}); err != nil {
+	if _, err := perf.Run(context.Background(), plan, &perf.Options{DB: *db, Rows: *rows, FillOnly: true, Dirty: *dirty}); err != nil {
 		return err
 	}
 	fmt.Printf("✓ %s: 每表 %d 行(脏数据 %v) %s\n", cfg.Database, *rows, *dirty, time.Since(t0).Round(time.Second))
@@ -993,12 +993,19 @@ func cmdLoadgen(args []string) error {
 }
 
 // cmdPerf: 性能闸门(P4)。接近真实的数据量 + EXPLAIN ANALYZE。会清空 --db 里的表,只用专门的性能库。
+// 判定: ✗ = 失败(退出码 1);⚠ = 警告;◇ = 已知边界(写明原因)。perf 不认识的 API 种类是 ✗,不会跳过。
 func cmdPerf(args []string) error {
 	fs := flag.NewFlagSet("perf", flag.ExitOnError)
 	db := fs.String("db", os.Getenv("PERF_DB_URL"), "性能测试专用的 DB(会被清空)")
 	rows := fs.Int("rows", 200000, "每张物理表的行数")
-	maxMs := fs.Float64("max-ms", 50, "执行时间的阈值(毫秒)")
+	maxMs := fs.Float64("max-ms", 50, "执行时间的阈值(毫秒,参考机器上;实际阈值 = max-ms × 倍率)")
+	scale := fs.Float64("scale", 0, "阈值的倍率(0 = 按这台机器的速度自动校准)")
+	bfile := fs.String("boundaries", "perf.yaml", "项目的已知边界(API → 原因;没有这个文件 = 没有)")
 	_ = fs.Parse(args)
+	bs, err := perf.LoadBoundaries(*bfile)
+	if err != nil {
+		return err
+	}
 	if *db == "" {
 		return fmt.Errorf("perf: --db (or PERF_DB_URL) is required")
 	}
@@ -1006,22 +1013,26 @@ func cmdPerf(args []string) error {
 	if err != nil {
 		return fmt.Errorf("IR not found (run factory prepare first): %w", err)
 	}
-	reports, err := perf.Run(context.Background(), plan, perf.Options{DB: *db, Rows: *rows, MaxMs: *maxMs})
+	opt := perf.Options{DB: *db, Rows: *rows, MaxMs: *maxMs, Scale: *scale}
+	reports, err := perf.Run(context.Background(), plan, &opt)
 	if err != nil {
 		return err
 	}
+	if err := perf.ApplyBoundaries(reports, bs); err != nil {
+		return err
+	}
+	if opt.CalibrationMs > 0 {
+		fmt.Printf("校准: %.1fms(参考机器 150ms)→ 倍率 %.2f,阈值 %.0fms\n", opt.CalibrationMs, opt.Scale, *maxMs*opt.Scale)
+	}
 	fails, warns, bounds := 0, 0, 0
 	for _, r := range reports {
-		if r.Disabled != "" {
-			fmt.Printf("–  %-40s 跳过: %s\n", r.API, r.Disabled)
-			continue
-		}
 		mark := "✓"
-		if len(r.Warn) > 0 || r.Boundary != "" {
+		if len(r.Warn) > 0 {
 			mark = "⚠"
 			warns++
 		}
 		if r.Boundary != "" {
+			mark = "◇"
 			bounds++
 		}
 		if len(r.Fail) > 0 {
@@ -1036,13 +1047,14 @@ func cmdPerf(args []string) error {
 			fmt.Printf("     ⚠ %s\n", m)
 		}
 		if r.Boundary != "" {
-			fmt.Printf("     ⚠ %s\n", r.Boundary)
+			fmt.Printf("     ◇ %s\n", r.Boundary)
 		}
 	}
+	sum := fmt.Sprintf("%d 个计划: 失败 %d, 警告 %d, 已知边界 %d (每表 %d 行, 阈值 %.0fms)", len(reports), fails, warns, bounds, *rows, *maxMs*opt.Scale)
 	if fails > 0 {
-		return fmt.Errorf("perf: %d 个失败, %d 个警告 (每表 %d 行, 阈值 %.0fms)", fails, warns, *rows, *maxMs)
+		return fmt.Errorf("perf: %s", sum)
 	}
-	fmt.Printf("✓ perf passed (%d 个计划, 警告 %d 其中已知边界 %d, 每表 %d 行, 阈值 %.0fms)\n", len(reports), warns, bounds, *rows, *maxMs)
+	fmt.Printf("✓ perf passed: %s\n", sum)
 	return nil
 }
 

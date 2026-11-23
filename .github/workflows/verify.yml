@@ -46,3 +46,18 @@ jobs:
       - if: steps.scope.outputs.code == '1'
         run: scripts/ci/margin.sh
         env: { MARGIN_SHARD: "${{ matrix.shard }}/4" }
+  api-perf:        # 性能闸门(scripts/perf.sh = make perf): 本仓库 + examples/ 的项目,每表 20 万行 + EXPLAIN,新的 Postgres 容器
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, ref: "${{ inputs.ref }}" }
+      - name: 只改了式样书?
+        id: scope
+        run: |
+          if [ "${{ github.event_name }}" != pull_request ]; then echo "code=1" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if git -c core.quotePath=false diff --name-only origin/${{ github.base_ref }}...HEAD | grep -qv '^design/'; then echo "code=1" >> "$GITHUB_OUTPUT"; fi
+      - if: steps.scope.outputs.code == '1'
+        uses: ./.github/actions/setup
+      - if: steps.scope.outputs.code == '1'
+        run: scripts/perf.sh

@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS price_changes (
     deal_id      BIGINT,
     PRIMARY KEY (store_code, product_code, proc_date)
 );
+CREATE INDEX IF NOT EXISTS price_changes_product_date_idx ON price_changes (product_code, proc_date);  -- 店舗の一覧なしの履歴(make perf: 00017)
 
 -- 店別・商品別の売価スナップショット(旧システムから取り込んだ表)。日付は整数 YYYYMMDD(整数编码的日期の例)。
 -- 取込のバグで 20260230 のような存在しない日付が混ざることがある(CHECK はかけない: 旧システムの値をそのまま持つ)

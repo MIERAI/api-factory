@@ -21,12 +21,8 @@ ACCEPT_SPECS ?= specs
 hooks:            ## 安装 git 钩子(内容防护: 产品分支不能出现试用公司的内容)
 	@git config core.hooksPath scripts/hooks && echo "✓ hooks: scripts/hooks"
 
-PERF_DB_URL = $(SHARD_URL)/factory_perf?sslmode=disable
-perf:             ## 性能闸门: 每表 20 万行 + EXPLAIN ANALYZE(慢,不在 accept 里)
-	@docker exec $(PG_NAME) psql -q -U factory -d factory -tAc "SELECT 1 FROM pg_database WHERE datname='factory_perf'" | grep -q 1 || \
-		docker exec $(PG_NAME) psql -q -U factory -d factory -c "CREATE DATABASE factory_perf" >/dev/null
-	@cat db/schema/*.sql $(wildcard db/views/*.sql) | docker exec -i -e PGOPTIONS="-c client_min_messages=warning" $(PG_NAME) psql -q -U factory -d factory_perf -v ON_ERROR_STOP=1
-	@$(FACTORY) perf --db '$(PERF_DB_URL)' $(PERF_ARGS)
+perf:             ## 性能闸门: 本仓库 + examples/ 的项目,每表 20 万行 + EXPLAIN ANALYZE(独立的新 Postgres 容器;慢,不在 accept 里)
+	@PERF_ARGS='$(PERF_ARGS)' scripts/perf.sh $(PERF_DIRS)
 
 margin:           ## 差分测试的余量: 换种子跑变异,每个变异 ≥3 个差分用例(并行: go build -overlay + 每个 worker 一套数据库)
 	@DB_URL='$(DB_URL)' PG_NAME=$(PG_NAME) scripts/margin.sh

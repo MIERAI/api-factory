@@ -13,10 +13,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
 	"math/big"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
@@ -31,7 +29,10 @@ type Options struct {
 	FillOnly bool    // 只灌数据(迁移排练 / 恢复演练的数据量),不跑 EXPLAIN。所有列都填(包括没有 API 读的列)
 	Dirty    bool    // 掺"脏"数据: 可为空的列 5% 空值、空字符串 / 前后空格 / 超长文本 / 0 / 负数 / 极端日期(约束允许的范围内)
 	Rows     int     // 每张物理表的行数
-	MaxMs    float64 // 执行时间的阈值
+	MaxMs    float64 // 执行时间的阈值(这台机器 = 参考机器时)
+	Scale    float64 // 阈值的倍率: 这台机器比参考机器慢几倍(0 = Calibrate;≥ 1)
+
+	CalibrationMs float64 // Calibrate 量到的时间(输出)
 }
 
 type Report struct {
@@ -42,30 +43,15 @@ type Report struct {
 	Fail     []string
 	Warn     []string
 	Plan     string // 计划的摘要(节点类型)
-	Disabled string // 跳过的原因
-	Boundary string // 已知边界(超时但原因是工厂的边界,不是回归)
+	Boundary string // 已知边界(原因是工厂的边界,不是回归;写明原因)
+
+	seqScanOnly bool   // the failure is a sequential scan (known boundary for 包含)
+	slow        string // execution time over the threshold (a failure unless a known boundary explains it)
 }
 
-// table: 一张物理表要生成的数据。
-type table struct {
-	name      string
-	cols      []core.NamedType
-	unique    map[string]bool
-	composite map[string][2]int               // 组合主键/唯一约束的列 → (该列在约束里的位置, 约束的列数)
-	json      map[string]map[string]core.Kind // JSON 列 → 键 → 类型
-	nkKeys    map[string][2]int               // JSON 版本的自然键 → (位置, 列数)。按 i/5 混合进制拆开: 每个键约 5 个版本
-	delKey    map[string]string               // 逻辑删除的键 → 值
-	action    string                          // 操作列(删除值 1)
-	orderTs   string                          // 登记顺序(时间)
-	enums     map[string][]int64              // 枚举列(物理列名或 JSON 键) → 合法的 DB 值
-	nullable  map[string]bool                 // 物理列可以为空
-	checked   map[string]bool                 // 物理列出现在 CHECK 约束里(脏数据只掺空值)
-	literals  map[string][]string             // CHECK 的取值列表(SQL 字面量): 轮流取
-	pattern   map[string]string               // 文本列(物理列名或 JSON 键) → 请求字段的格式(digits / zip): API 能查到的值
-	dirty     bool
-}
-
-func Run(ctx context.Context, plan *ir.Plan, opt Options) ([]Report, error) {
+// Run: fill the database, then EXPLAIN every API. opt.Scale = 0: calibrated here (written back).
+func Run(ctx context.Context, plan *ir.Plan, o *Options) ([]Report, error) {
+	opt := *o
 	cfg, err := pgx.ParseConfig(opt.DB)
 	if err != nil {
 		return nil, fmt.Errorf("perf db: %w", err)
@@ -79,420 +65,84 @@ func Run(ctx context.Context, plan *ir.Plan, opt Options) ([]Report, error) {
 	if _, err := conn.Exec(ctx, "SET TimeZone = 'UTC'"); err != nil {
 		return nil, err
 	}
-	tables := map[string]*table{}
-	for i := range plan.APIs {
-		api := &plan.APIs[i]
-		if api.Pipeline == nil {
-			continue
-		}
-		if err := collect(ctx, conn, plan, api, tables); err != nil {
-			return nil, fmt.Errorf("%s: %w", api.ID, err)
-		}
-	}
-	if opt.FillOnly { // 没有 API 读的表也灌(迁移排练要整个库)
-		if err := otherTables(ctx, conn, tables); err != nil {
-			return nil, err
-		}
-	}
-	names := make([]string, 0, len(tables))
-	for n := range tables {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	for _, n := range names {
-		t := tables[n]
-		if opt.FillOnly {
-			if err := allColumns(ctx, conn, t); err != nil {
-				return nil, fmt.Errorf("数据 %s: %w", n, err)
-			}
-		}
-		t.dirty = opt.Dirty
-		if err := fill(ctx, conn, t, opt.Rows); err != nil {
-			return nil, fmt.Errorf("数据 %s: %w", n, err)
-		}
+	tables, err := Fill(ctx, conn, plan, opt)
+	if err != nil {
+		return nil, err
 	}
 	if opt.FillOnly {
 		return nil, nil
 	}
+	if opt.Scale <= 0 {
+		if opt.Scale, o.CalibrationMs, err = Calibrate(ctx, conn); err != nil {
+			return nil, err
+		}
+		o.Scale = opt.Scale
+	}
 	var out []Report
 	for i := range plan.APIs {
 		api := &plan.APIs[i]
-		if api.Pipeline == nil {
-			out = append(out, Report{API: api.ID, Disabled: "逃生口 SQL / 自定义(没有流水线)"})
-			continue
-		}
-		opts, err := optionalParams(api)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", api.ID, err)
-		}
-		variants := []string{"", "*"}
-		if len(opts) > 1 { // 只有 1 个可选参数时,"全部参数"就是它
-			variants = append(variants, opts...)
-		}
-		for _, v := range variants {
-			r, err := explain(ctx, conn, plan, api, v, opt, tables)
+		switch {
+		case api.Pipeline != nil:
+			opts, err := optionalParams(api)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", api.ID, err)
+			}
+			variants := []string{"", "*"}
+			if len(opts) > 1 { // 只有 1 个可选参数时,"全部参数"就是它
+				variants = append(variants, opts...)
+			}
+			for _, v := range variants {
+				r, err := explain(ctx, conn, plan, api, v, opt, tables)
+				if err != nil {
+					return nil, fmt.Errorf("%s: %w", api.ID, err)
+				}
+				out = append(out, r)
+			}
+		case api.Query.Escape && api.Query.SQL != "":
+			r, err := explainEscape(ctx, conn, api, opt, tables)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", api.ID, err)
 			}
 			out = append(out, r)
+		default:
+			out = append(out, unknownKind(api))
 		}
-
 	}
 	return out, nil
 }
 
-func newTable(name string, cols []core.NamedType) *table {
-	return &table{name: name, cols: cols, unique: map[string]bool{}, composite: map[string][2]int{}, json: map[string]map[string]core.Kind{},
-		nkKeys: map[string][2]int{}, delKey: map[string]string{}, enums: map[string][]int64{}, nullable: map[string]bool{}, checked: map[string]bool{}, literals: map[string][]string{}, pattern: map[string]string{}}
-}
-
-// loadKeys: 主键 / 唯一约束(单列 → unique,多列 → composite)。
-func loadKeys(ctx context.Context, conn *pgx.Conn, t *table) error {
-	rows, err := conn.Query(ctx, `
-			SELECT kcu.column_name, count(*) OVER (PARTITION BY tc.constraint_name), kcu.ordinal_position
-			FROM information_schema.table_constraints tc
-			JOIN information_schema.key_column_usage kcu
-			  ON kcu.constraint_schema = tc.constraint_schema AND kcu.constraint_name = tc.constraint_name
-			WHERE tc.table_schema = current_schema() AND tc.table_name = $1 AND tc.constraint_type IN ('PRIMARY KEY', 'UNIQUE')`, t.name)
+// Fill: the perf database's data (every table of the schema, n rows each). Returns the tables (generator's view).
+func Fill(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, opt Options) (map[string]*table, error) {
+	tables, err := loadSchema(ctx, conn)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("perf schema: %w", err)
 	}
-	for rows.Next() {
-		var c string
-		var n int64
-		var pos int32
-		if err := rows.Scan(&c, &n, &pos); err != nil {
-			rows.Close()
-			return err
-		}
-		if n == 1 {
-			t.unique[c] = true
-		} else if _, seen := t.composite[c]; !seen {
-			t.composite[c] = [2]int{int(pos) - 1, int(n)}
-		}
+	for _, t := range tables {
+		t.n, t.dirty = opt.Rows, opt.Dirty
 	}
-	rows.Close()
-	return nil
-}
-
-// collect: 从流水线的来源部分知道要生成哪张物理表、哪些列 / JSON 的键。
-func collect(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, api *ir.API, tables map[string]*table) error {
-	scan := api.Pipeline.Steps[0]
-	t, ok := tables[scan.Table]
-	if !ok {
-		t = newTable(scan.Table, scan.Columns)
-		if err := loadKeys(ctx, conn, t); err != nil {
-			return err
-		}
-		tables[scan.Table] = t
-	} else { // 别的 API 读同一张表的其他列
-		for _, c := range scan.Columns {
-			if !slices.ContainsFunc(t.cols, func(x core.NamedType) bool { return x.Name == c.Name }) {
-				t.cols = append(t.cols, c)
-			}
-		}
+	if err := applyPlan(plan, tables); err != nil {
+		return nil, err
 	}
-	for _, f := range api.Filters { // 请求字段有格式(数字 / 邮编): 数据也用这个格式,否则压测的请求全是校验错误
-		if fld := api.Request.Field(f.Field); fld != nil && fld.Rules != nil {
-			if p := textPattern(string(fld.Rules.Raw)); p != "" {
-				col := f.Column
-				if st := plan.Storage(api.Table); st != nil {
-					for _, sf := range st.Fields {
-						if sf.Name == f.Column && sf.Column == "" {
-							col = sf.Key
-						}
-					}
-				}
-				t.pattern[col] = p
-			}
-		}
-	}
-	st := plan.Storage(api.Table)
-	if st == nil {
-		for _, c := range t.cols {
-			if en := plan.Enum(api.Table, c.Name); en != nil {
-				t.enums[c.Name] = enumValues(en)
-			}
-		}
-		return nil
-	}
-	t.action, t.orderTs = st.ActionColumn, ""
-	for _, c := range st.OrderBy {
-		for _, x := range t.cols {
-			if x.Name == c && x.Type.Kind == core.Timestamp {
-				t.orderTs = c
-			}
-		}
-	}
-	if st.LogicalDeleteKey != "" {
-		t.delKey[st.LogicalDeleteKey] = st.LogicalDeleteValue
-	}
-	keys := map[string]core.Kind{}
-	for _, f := range st.Fields {
-		if f.Column != "" { // 外壳列: 物理表的列(不在 JSON 里)
-			continue
-		}
-		if k, ok := kindOfSQL(f.Type); ok {
-			keys[f.Key] = k
-		}
-		if en := plan.Enum(api.Table, f.Name); en != nil {
-			t.enums[f.Key] = enumValues(en)
-		}
-		for pos, nk := range st.NaturalKey {
-			if nk == f.Name {
-				t.nkKeys[f.Key] = [2]int{pos, len(st.NaturalKey)}
-			}
-		}
-	}
-	t.json[st.DataColumn] = keys
-	return nil
-}
-
-func enumValues(en *ir.Enum) []int64 {
-	var out []int64
-	for _, v := range en.Values {
-		out = append(out, v.DB)
-	}
-	return out
-}
-
-// enumSQL: 在合法值里轮流取。
-func enumSQL(vals []int64, salt int) string {
-	var xs []string
-	for _, v := range vals {
-		xs = append(xs, fmt.Sprint(v))
-	}
-	return fmt.Sprintf("(ARRAY[%s])[1 + (i + %d) %% %d]", strings.Join(xs, ","), salt, len(vals))
-}
-
-func kindOfSQL(s string) (core.Kind, bool) {
-	switch s {
-	case "int4", "integer", "int2", "smallint", "serial":
-		return core.Int32, true
-	case "int8", "bigint", "bigserial":
-		return core.Int64, true
-	case "text", "varchar":
-		return core.Text, true
-	case "bool", "boolean":
-		return core.Bool, true
-	case "numeric":
-		return core.Decimal, true
-	case "date":
-		return core.Date, true
-	case "timestamptz", "timestamp":
-		return core.Timestamp, true
-	}
-	return "", false
-}
-
-// valueSQL: 第 i 行(SQL 表达式里的 i)这一列的值。salt 让不同的列不相关。
-func valueSQL(k core.Kind, salt int, unique bool) string {
-	h := fmt.Sprintf("((i::int8 * %d + %d) %% 1000)::int4", 7919+2*salt, salt*13)
-	switch k {
-	case core.Int32, core.Int64:
-		if unique {
-			return "i"
-		}
-		return h + " + 1"
-	case core.Text:
-		if unique {
-			return "'k' || i"
-		}
-		return fmt.Sprintf("'v' || ((i::int8 * %d) %% 5000)", 104729+salt)
-	case core.Bool:
-		return fmt.Sprintf("(i + %d) %% 2 = 0", salt)
-	case core.Decimal:
-		return "(" + h + " * 1.25)::numeric"
-	case core.Date:
-		return "date '2024-01-01' + " + h
-	case core.Timestamp:
-		return "timestamptz '2024-01-01 00:00:00+00' + make_interval(mins => i)"
-	}
-	return "NULL"
-}
-
-// jsonSQL: JSON 里的值(和 json_field 的 cast 对应: 日期 / 十进制 / 时间是字符串)。
-func jsonSQL(k core.Kind, salt int, nk [2]int, n int) string {
-	if nk[1] > 0 { // 自然键: 行号 / 5 按混合进制拆到各个键列(3 列的键每列约 34 种值),每个键约 5 个版本
-		base := mixedRadix("(i / 5)", nk, n/5)
-		switch k {
-		case core.Text:
-			return "'k' || " + base
-		case core.Date:
-			return "to_char(date '2024-01-01' + " + base + ", 'YYYY-MM-DD')"
-		case core.Timestamp:
-			return "to_char((timestamptz '2024-01-01 00:00:00+00' + make_interval(mins => " + base + ")) AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')"
-		case core.Decimal:
-			return base + "::text"
-		case core.Bool:
-			return base + " % 2 = 0"
-		default:
-			return base + " + 1"
-		}
-	}
-	v := valueSQL(k, salt, false)
-	switch k {
-	case core.Date:
-		return "to_char(" + v + ", 'YYYY-MM-DD')"
-	case core.Decimal:
-		return "(" + v + ")::text"
-	case core.Timestamp:
-		return "to_char((" + v + ") AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')"
-	}
-	return v
-}
-
-func fill(ctx context.Context, conn *pgx.Conn, t *table, n int) error {
-	ident := pgx.Identifier{t.name}.Sanitize()
-	if _, err := conn.Exec(ctx, "TRUNCATE "+ident+" CASCADE"); err != nil {
-		return err
-	}
-	var cols, exprs []string
-	for salt, c := range t.cols {
-		cols = append(cols, pgx.Identifier{c.Name}.Sanitize())
-		var e string
-		switch {
-		case c.Type.Kind == core.JSON:
-			keys := t.json[c.Name]
-			names := make([]string, 0, len(keys))
-			for k := range keys {
-				names = append(names, k)
-			}
-			sort.Strings(names)
-			var parts []string
-			for j, k := range names {
-				v := jsonSQL(keys[k], salt*31+j, t.nkKeys[k], n)
-				if p := t.pattern[k]; p != "" && keys[k] == core.Text {
-					if nk := t.nkKeys[k]; nk[1] > 0 {
-						v = "(" + mixedRadix("(i / 5)", nk, n/5) + ")::text" // 自然键: 和 jsonSQL 同样的值,只是不加前缀
-						if p == "zip" {
-							v = "lpad(((" + mixedRadix("(i / 5)", nk, n/5) + ") / 10000 % 1000)::text, 3, '0') || '-' || lpad(((" + mixedRadix("(i / 5)", nk, n/5) + ") % 10000)::text, 4, '0')"
-						}
-					} else {
-						v = patternSQL(p, false, salt*31+j)
-					}
-				}
-				if en, ok := t.enums[k]; ok {
-					v = enumSQL(en, j)
-				}
-				parts = append(parts, quote(k), v)
-			}
-			for k, v := range t.delKey { // 逻辑删除: 1%
-				parts = append(parts, quote(k), fmt.Sprintf("CASE WHEN i %% 100 = 0 THEN %s ELSE '0' END", quote(v)))
-			}
-			e = "jsonb_build_object(" + strings.Join(parts, ", ") + ")"
-		case c.Name == t.action: // 删除: 2%
-			e = "CASE WHEN i % 50 = 0 THEN 1 ELSE 0 END"
-		case len(t.enums[c.Name]) > 0:
-			e = enumSQL(t.enums[c.Name], salt)
-		case len(t.literals[c.Name]) > 0:
-			e = fmt.Sprintf("(ARRAY[%s])[1 + (i + %d) %% %d]", strings.Join(t.literals[c.Name], ","), salt, len(t.literals[c.Name]))
-		case c.Name == t.orderTs:
-			e = "timestamptz '2024-01-01 00:00:00+00' + make_interval(secs => i)"
-		case !t.unique[c.Name] && t.composite[c.Name][1] > 1:
-			e = compositeSQL(c.Type.Kind, t.composite[c.Name], n)
-			if c.Type.Kind == core.Text && t.pattern[c.Name] == "digits" { // same tuple values, without the prefix
-				e = "(" + mixedRadix("i", t.composite[c.Name], n) + ")::text"
-			}
-		case c.Type.Kind == core.Text && t.pattern[c.Name] != "":
-			e = patternSQL(t.pattern[c.Name], t.unique[c.Name], salt)
-		default:
-			e = valueSQL(c.Type.Kind, salt, t.unique[c.Name])
-			if t.dirty && !t.unique[c.Name] && t.composite[c.Name][1] == 0 {
-				e = dirtySQL(c.Type.Kind, e, t.nullable[c.Name], t.checked[c.Name], salt)
-			}
-		}
-		exprs = append(exprs, e)
-	}
-	sql := fmt.Sprintf("INSERT INTO %s (%s) SELECT %s FROM generate_series(1, %d) AS i", ident, strings.Join(cols, ", "), strings.Join(exprs, ", "), n)
-	if _, err := conn.Exec(ctx, sql); err != nil {
-		return fmt.Errorf("%w\n%s", err, sql)
-	}
-	_, err := conn.Exec(ctx, "ANALYZE "+ident)
-	return err
-}
-
-// compositeSQL: 组合键的第 pos 列。把行号按混合进制拆开(每列约 n^(1/k) 种值),元组就唯一。
-func compositeSQL(k core.Kind, pk [2]int, n int) string {
-	base := mixedRadix("i", pk, n)
-	switch k {
-	case core.Text:
-		return "'k' || " + base
-	case core.Date:
-		return "date '2024-01-01' + " + base
-	case core.Timestamp:
-		return "timestamptz '2024-01-01 00:00:00+00' + make_interval(mins => " + base + ")"
-	case core.Decimal:
-		return base + "::numeric"
-	}
-	return base + " + 1"
-}
-
-// mixedRadix: 把 idx(0..total)按混合进制拆开,取第 pos 位(共 cnt 位,最后一位不取模)。各位组合起来唯一。
-func mixedRadix(idx string, pk [2]int, total int) string {
-	pos, cnt := pk[0], pk[1]
-	radix := max(2, int(math.Ceil(math.Pow(float64(total), 1/float64(cnt)))))
-	div := 1
-	for j := 0; j < pos; j++ {
-		div *= radix
-	}
-	if pos == cnt-1 {
-		return fmt.Sprintf("(%s / %d)", idx, div)
-	}
-	return fmt.Sprintf("((%s / %d) %% %d)", idx, div, radix)
-}
-
-func quote(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
-
-// sample: 数据里这一列(逻辑列: JSON 版本取 data->>键)按顺序排在 q 分位的值。
-// 区间筛选的下界取 0.4、上界取 0.6,区间里约有 20% 的行;其他取中位数。
-func sample(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, api *ir.API, col string, k core.Kind, n int, q float64) (any, error) {
-	xs, err := sampleRow(ctx, conn, plan, api, []string{col}, []core.Kind{k}, n, q)
+	order, err := fillOrder(tables)
 	if err != nil {
 		return nil, err
 	}
-	return xs[0], nil
-}
-
-// sampleRow: 同一行的几列(组属于的一个组要取自同一行,否则组合在数据里不存在)。
-func sampleRow(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, api *ir.API, cols []string, ks []core.Kind, n int, q float64) ([]any, error) {
-	scan := api.Pipeline.Steps[0]
-	var exprs, conds []string
-	for i, col := range cols {
-		expr := pgx.Identifier{col}.Sanitize()
-		if st := plan.Storage(api.Table); st != nil {
-			for _, f := range st.Fields {
-				if f.Name == col && f.Column != "" {
-					expr = pgx.Identifier{f.Column}.Sanitize()
-				} else if f.Name == col {
-					expr = fmt.Sprintf("(%s ->> %s)::%s", pgx.Identifier{st.DataColumn}.Sanitize(), quote(f.Key), ks[i].SQLType())
-				}
-			}
-		}
-		exprs = append(exprs, expr+"::text")
-		conds = append(conds, expr+" IS NOT NULL")
+	if len(order) == 0 {
+		return tables, nil
 	}
-	ss := make([]*string, len(cols))
-	dst := make([]any, len(cols))
-	for i := range ss {
-		dst[i] = &ss[i]
+	var names []string
+	for _, t := range order {
+		names = append(names, pgx.Identifier{t.name}.Sanitize())
 	}
-	var order []string
-	for i := range cols {
-		order = append(order, fmt.Sprint(i+1))
-	}
-	err := conn.QueryRow(ctx, fmt.Sprintf("SELECT %s FROM %s WHERE %s ORDER BY %s OFFSET %d LIMIT 1",
-		strings.Join(exprs, ", "), pgx.Identifier{scan.Table}.Sanitize(), strings.Join(conds, " AND "), strings.Join(order, ", "), int(float64(n)*q))).Scan(dst...)
-	if err != nil {
+	if _, err := conn.Exec(ctx, "TRUNCATE "+strings.Join(names, ", ")+" RESTART IDENTITY CASCADE"); err != nil {
 		return nil, err
 	}
-	out := make([]any, len(cols))
-	for i, s := range ss {
-		if out[i], err = core.FromPGText(s, ks[i]); err != nil {
-			return nil, err
+	for _, t := range order {
+		if err := fill(ctx, conn, t); err != nil {
+			return nil, fmt.Errorf("数据 %s: %w", t.name, err)
 		}
 	}
-	return out, nil
+	return tables, nil
 }
 
 // quantile: 筛选的种类 → 取样的分位。
@@ -534,6 +184,33 @@ func versionScan(api *ir.API, given []string) string {
 	return fmt.Sprintf("已知边界: 取最新版本之后的非键筛选(%s)要扫全部版本", strings.Join(nonKey, ", "))
 }
 
+// joinVersionScan: 已知边界 —— 关联 / 嵌套 / 子表合计的对方是逻辑表(取最新版本),关联键却不是对方的键:
+// 每一行都要给对方全部的键取最新版本再比较,成本 = 对方的全部版本 × 行数。解决同上(物化表)。
+func joinVersionScan(api *ir.API) string {
+	for _, st := range api.Pipeline.Steps {
+		if len(st.Source) == 0 {
+			continue
+		}
+		keys := map[string]bool{}
+		for _, s := range st.Source {
+			if s.Kind == "pick_per_key" {
+				for _, k := range s.Keys {
+					keys[k] = true
+				}
+			}
+		}
+		if len(keys) == 0 {
+			continue
+		}
+		for _, on := range st.On {
+			if !keys[on.Key] {
+				return fmt.Sprintf("已知边界: %s 的对方 %s 是逻辑表,关联键 %s 不是它的键,每行都要扫对方的全部版本", st.Kind, st.Table, on.Key)
+			}
+		}
+	}
+	return ""
+}
+
 // required: 参数是不是必填(流水线里必填,或者请求的校验规则必填)。
 func required(api *ir.API, d core.ParamDecl) bool {
 	if fd := api.Request.Field(d.Name); fd != nil && fd.Rules != nil && fd.Rules.Required {
@@ -567,155 +244,6 @@ func optionalParams(api *ir.API) ([]string, error) {
 	return out, nil
 }
 
-// explain: variant = "" 只有必填参数 / "*" 全部参数 / 参数名 必填参数 + 这一个可选参数。
-func explain(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, api *ir.API, variant string, opt Options, tables map[string]*table) (Report, error) {
-	all := variant == "*"
-	r := Report{API: api.ID, Variant: "必填参数"}
-	switch variant {
-	case "":
-	case "*":
-		r.Variant = "全部参数"
-	default:
-		r.Variant = "+" + variant
-	}
-	q, err := core.ToSQL(api.Pipeline, core.Options{})
-	if err != nil {
-		return r, err
-	}
-	filters := map[string]ir.Filter{}
-	tuple := map[string]ir.Filter{} // 组属于的字段的参数 → 这个筛选
-	for _, f := range api.Filters {
-		if f.Op == "in_tuples" {
-			for _, c := range f.Columns {
-				m := ir.MemberParam(f.Field, c)
-				filters[m] = ir.Filter{Field: m, Column: c, Op: "in"}
-				tuple[m] = f
-			}
-			continue
-		}
-		filters[f.Field] = f
-	}
-	tupleRow := map[string][]any{} // 组属于: 一个组(同一行)的样本
-	var args []any
-	var requiredCols, givenCols, containsCols []string
-	for _, d := range q.Params {
-		var v any
-		switch {
-		case d.Name == "row_limit" && api.Keyset != nil:
-			v = int64(api.Keyset.DefaultSize + 1)
-		case strings.HasPrefix(d.Name, "cursor_"):
-			v = nil // 第一页
-		default:
-			f, ok := filters[d.Name]
-			required := required(api, d)
-			if !ok || (!required && !all && d.Name != variant && tuple[d.Name].Field != variant) {
-				break
-			}
-			if f.Op == "contains" && !slices.Contains(containsCols, f.Column) { // 包含: btree 用不上
-				containsCols = append(containsCols, f.Column)
-			}
-			if required && !slices.Contains(requiredCols, f.Column) {
-				requiredCols = append(requiredCols, f.Column)
-			}
-			var x any
-			if tf, ok := tuple[d.Name]; ok {
-				row, ok := tupleRow[tf.Field]
-				if !ok {
-					var ks []core.Kind
-					for _, c := range tf.Columns {
-						pd := api.Pipeline.Param(ir.MemberParam(tf.Field, c))
-						ks = append(ks, pd.Type.Kind)
-					}
-					if row, err = sampleRow(ctx, conn, plan, api, tf.Columns, ks, opt.Rows, 0.5); err != nil {
-						return r, fmt.Errorf("参数 %s: %w", tf.Field, err)
-					}
-					tupleRow[tf.Field] = row
-				}
-				x = row[slices.Index(tf.Columns, f.Column)]
-			} else if x, err = sample(ctx, conn, plan, api, f.Column, d.Type.Kind, opt.Rows, quantile(f.Op)); err != nil {
-				return r, fmt.Errorf("参数 %s: %w", d.Name, err)
-			}
-			if s, isText := x.(string); isText && (f.Op == "prefix" || f.Op == "contains") {
-				x = string([]rune(s)[:min(2, len([]rune(s)))])
-			}
-			v = x
-			givenCols = append(givenCols, f.Column)
-			if d.List {
-				v = []any{x}
-			}
-		}
-		args = append(args, sqlArg(v))
-	}
-	var raw string
-	start := time.Now()
-	if err := conn.QueryRow(ctx, "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "+q.Text, args...).Scan(&raw); err != nil {
-		return r, fmt.Errorf("explain: %w\n%s", err, q.Text)
-	}
-	_ = start
-	var doc []struct {
-		Plan          map[string]any `json:"Plan"`
-		ExecutionTime float64        `json:"Execution Time"`
-	}
-	if err := json.Unmarshal([]byte(raw), &doc); err != nil || len(doc) == 0 {
-		return r, fmt.Errorf("explain json: %v", err)
-	}
-	r.Ms = doc[0].ExecutionTime
-	if v, ok := doc[0].Plan["Actual Rows"].(float64); ok {
-		r.Rows = int(v)
-	}
-	var nodes []string
-	var walk func(n map[string]any)
-	walk = func(n map[string]any) {
-		typ, _ := n["Node Type"].(string)
-		rel, _ := n["Relation Name"].(string)
-		label := typ
-		if rel != "" {
-			label += "(" + rel + ")"
-		}
-		if idx, _ := n["Index Name"].(string); idx != "" {
-			label += "[" + idx + "]"
-		}
-		nodes = append(nodes, label)
-		if m, _ := n["Sort Method"].(string); strings.Contains(m, "external") {
-			var keys []string
-			if ks, ok := n["Sort Key"].([]any); ok {
-				for _, k := range ks {
-					keys = append(keys, fmt.Sprint(k))
-				}
-			}
-			r.Fail = append(r.Fail, fmt.Sprintf("排序溢出到磁盘(%s);考虑按排序键建索引: %s", m, strings.Join(keys, ", ")))
-		}
-		if typ == "Seq Scan" && len(requiredCols) > 0 {
-			if t, ok := tables[rel]; ok && opt.Rows > 10000 && t != nil {
-				r.Warn = append(r.Warn, fmt.Sprintf("有必填的筛选条件却全表扫描 %s(%d 行);考虑索引 (%s)", rel, opt.Rows, strings.Join(requiredCols, ", ")))
-				if len(containsCols) > 0 {
-					r.Warn = append(r.Warn, fmt.Sprintf("包含(部分一致)的筛选 %s 用不上 btree 索引;需要的话建 pg_trgm 的 GIN 索引(USING gin (列 gin_trgm_ops)),或改用 前缀匹配", strings.Join(containsCols, ", ")))
-				}
-			}
-		}
-		if kids, ok := n["Plans"].([]any); ok {
-			for _, k := range kids {
-				if m, ok := k.(map[string]any); ok {
-					walk(m)
-				}
-			}
-		}
-	}
-	walk(doc[0].Plan)
-	r.Plan = strings.Join(nodes, " → ")
-	if variant == "" && r.Rows == 0 {
-		r.Warn = append(r.Warn, "只有必填参数时 0 行: 样本参数没有命中数据,这个计划可能不代表真实负载")
-	}
-	if r.Ms > opt.MaxMs {
-		if b := versionScan(api, givenCols); b != "" {
-			r.Boundary = fmt.Sprintf("执行时间 %.1fms > %.0fms: %s", r.Ms, opt.MaxMs, b)
-		} else {
-			r.Fail = append(r.Fail, fmt.Sprintf("执行时间 %.1fms > %.0fms", r.Ms, opt.MaxMs))
-		}
-	}
-	return r, nil
-}
-
 func sqlArg(v any) any {
 	switch x := v.(type) {
 	case *big.Rat:
@@ -730,4 +258,39 @@ func sqlArg(v any) any {
 		return out
 	}
 	return v
+}
+
+// refCalibrationMs: calibrationSQL on the reference machine (the factory's development Mac, Postgres 16 in Docker).
+const refCalibrationMs = 150.0
+
+const calibrationSQL = "SELECT sum(x * 2 + 1) FROM generate_series(1, 2000000) AS x"
+
+// Calibrate: how many times slower this database is than the reference machine (≥ 1; the fastest of 5 runs). The time
+// threshold is MaxMs × Scale, so the same gate holds on a laptop and on a shared CI runner; the plan rules do not scale.
+func Calibrate(ctx context.Context, conn *pgx.Conn) (float64, float64, error) {
+	best := -1.0
+	for range 5 {
+		var raw string
+		if err := conn.QueryRow(ctx, "EXPLAIN (ANALYZE, FORMAT JSON) "+calibrationSQL).Scan(&raw); err != nil {
+			return 0, 0, err
+		}
+		var doc []struct {
+			ExecutionTime float64 `json:"Execution Time"`
+		}
+		if err := json.Unmarshal([]byte(raw), &doc); err != nil || len(doc) == 0 {
+			return 0, 0, fmt.Errorf("calibrate: %v", err)
+		}
+		if best < 0 || doc[0].ExecutionTime < best {
+			best = doc[0].ExecutionTime
+		}
+	}
+	return max(1, best/refCalibrationMs), best, nil
+}
+
+func enumValues(en *ir.Enum) []int64 {
+	var out []int64
+	for _, v := range en.Values {
+		out = append(out, v.DB)
+	}
+	return out
 }

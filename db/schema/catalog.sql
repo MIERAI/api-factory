@@ -22,6 +22,11 @@ CREATE TABLE IF NOT EXISTS product_label_events (
 -- 按自然键查最新版本(db/migrations/00002): 默认排序规则 — WHERE 用它比较,COLLATE "C" 的索引用不上
 CREATE INDEX IF NOT EXISTS product_label_events_key_idx
     ON product_label_events ((data ->> 'product_code'), (data ->> 'label_code'), registered_at DESC, id DESC);
+-- 自然キーの字节序で最新版を順に読む / ラベルコードだけの条件(make perf: 00017)
+CREATE INDEX IF NOT EXISTS product_label_events_key_c_idx
+    ON product_label_events (((data ->> 'product_code') COLLATE "C"), ((data ->> 'label_code') COLLATE "C"), registered_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS product_label_events_label_idx
+    ON product_label_events ((data ->> 'label_code'));
 -- 关联 / 嵌套の対象が逻辑表のとき(R2.5 T1)、関連条件(キー = 外側の列)は既定の照合順序で比較される:
 -- 既定の照合順序の式索引で、キーごとの最新の版を直接引く
 CREATE INDEX IF NOT EXISTS product_events_code_idx
@@ -37,6 +42,9 @@ CREATE TABLE IF NOT EXISTS category_events (
 );
 CREATE INDEX IF NOT EXISTS category_events_key_idx
     ON category_events ((data ->> 'category'), registered_at DESC, id DESC);
+-- 一覧はカテゴリの字节序(COLLATE "C")で最新版を順に読む(make perf: 00017)
+CREATE INDEX IF NOT EXISTS category_events_key_c_idx
+    ON category_events (((data ->> 'category') COLLATE "C"), registered_at DESC, id DESC);
 
 -- 商品の原価の履歴(追加型。自然キー [product_code, cost_kind, valid_from])。日付は旧システムの整数 YYYYMMDD
 -- (逻辑表への按日期的关联 + 整数编码的日期の例: R2.7)。商品ごとに全区分の版を引くので product_code の式索引

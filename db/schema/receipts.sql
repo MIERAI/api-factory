@@ -10,3 +10,4 @@ CREATE TABLE IF NOT EXISTS sales_lines (
     discount    NUMERIC CHECK (discount > 0)                 -- 値引き額(値引きなしは空。0 は入れない)
 );
 CREATE INDEX IF NOT EXISTS sales_lines_date_store_idx ON sales_lines (sales_date, store_code);
+CREATE INDEX IF NOT EXISTS sales_lines_store_idx ON sales_lines (store_code);  -- 店舗の一覧での絞り込み(make perf: 00017)
