@@ -59,7 +59,31 @@ func loadSchema(ctx context.Context, conn *pgx.Conn) (map[string]*table, error) 
 	if err := loadForeignKeys(ctx, conn, tables); err != nil {
 		return nil, err
 	}
+	nameRefs(tables)
 	return tables, nil
+}
+
+// nameRefs: a column named like another table's single-column primary key (debits.account_id ↔ accounts.account_id,
+// reservations.sku ↔ stock.sku; same kind, no FOREIGN KEY) refers to it — the usual convention when the schema declares
+// no constraint. Not "id", and only when exactly one table has that primary key.
+func nameRefs(tables map[string]*table) {
+	pk := map[string][]*table{} // column name → tables whose single-column primary key it is
+	for _, t := range sortedTables(tables) {
+		if len(t.primary) == 1 && t.primary[0] != "id" {
+			pk[t.primary[0]] = append(pk[t.primary[0]], t)
+		}
+	}
+	for _, t := range sortedTables(tables) {
+		for _, c := range t.cols {
+			ps := pk[c.Name]
+			if len(ps) != 1 || ps[0] == t || t.unique[c.Name] {
+				continue
+			}
+			if k, ok := ps[0].kindOf(c.Name); ok && k == c.Type.Kind {
+				t.addRef(c.Name, ref{parent: ps[0], slot: c.Name, group: "name:" + c.Name})
+			}
+		}
+	}
 }
 
 // loadForeignKeys: FOREIGN KEY (a, b) REFERENCES p (x, y) → a ← p.x, b ← p.y (one group).
@@ -254,11 +278,29 @@ func lineage(plan *ir.Plan, steps []core.Step, tables map[string]*table, join bo
 	return m
 }
 
-// addRef: a join's reference, unless the slot already has one (FOREIGN KEY first, then the first join).
+// addRef: a join's reference, unless the slot already has one (FOREIGN KEY first, then the first join). Not on a
+// column with CHECKs of its own (the parent's values might violate them), unless they are the parent's too.
 func (t *table) addRef(slot string, r ref) {
-	if _, ok := t.refs[slot]; !ok {
-		t.refs[slot] = r
+	if _, ok := t.refs[slot]; ok {
+		return
 	}
+	if t.checked[slot] && !sameChecks(t, slot, r.parent, r.slot) {
+		return
+	}
+	t.refs[slot] = r
+}
+
+// sameChecks: the child column's CHECKs are the parent column's (so the parent's values satisfy them).
+func sameChecks(t *table, c string, p *table, pc string) bool {
+	if t.regex[c] != p.regex[pc] || !slices.Equal(t.literals[c], p.literals[pc]) {
+		return false
+	}
+	a, b := t.bounds[c], p.bounds[pc]
+	if a == nil || b == nil {
+		return a == nil // an unbounded child accepts the parent's values
+	}
+	eq := func(x, y *float64) bool { return (x == nil && y == nil) || (x != nil && y != nil && *x == *y) }
+	return eq(a.lo, b.lo) && eq(a.hi, b.hi) && a.loStrict == b.loStrict && a.hiStrict == b.hiStrict && a.minLen == b.minLen && a.maxLen == b.maxLen
 }
 
 // fillOrder: parents of FOREIGN KEYs first. A cycle is an error (the generator cannot satisfy it in one pass).

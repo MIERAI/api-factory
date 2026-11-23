@@ -29,16 +29,7 @@ import (
 var perfNow = time.Date(2024, 4, 1, 0, 0, 0, 0, time.UTC)
 
 // boundaryKinds: API kinds (ir.API.Pattern) without an EXPLAIN check here, and why. Anything else without a check fails.
-var boundaryKinds = map[string]string{
-	"insert":  writeBoundary,
-	"update":  writeBoundary,
-	"delete":  writeBoundary,
-	"command": writeBoundary,
-	"message": writeBoundary,
-	"machine": writeBoundary,
-}
-
-const writeBoundary = "已知边界: 写入 API(命令 / 消息处理 / 状态机)的 SQL 还没有 perf 检查(计划中: 写入的 EXPLAIN + 并发锁检查)"
+var boundaryKinds = map[string]string{}
 
 func unknownKind(api *ir.API) Report {
 	r := Report{API: api.ID, Variant: api.Pattern}

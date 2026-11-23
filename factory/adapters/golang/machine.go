@@ -179,20 +179,7 @@ func genTransition(g *genCtx, base *ir.API, m *ir.Machine, r ir.MachineReceive, 
 		}
 	}
 	from, to := m.StateByName(tr.From), m.StateByName(tr.To)
-	cond := &ir.CmdExpr{Op: "=", Args: []*ir.CmdExpr{
-		{Op: "col", Name: m.State.Name, Type: m.State.Type},
-		{Op: "const", Value: strconv.FormatInt(from.DB, 10), Type: m.State.Type}}}
-	if tr.Guard != nil {
-		cond = &ir.CmdExpr{Op: "and", Args: []*ir.CmdExpr{cond, guardSQL(tr.Guard)}}
-	}
-	op := ir.CommandOp{Name: entityOp, Kind: "update", Table: m.Table,
-		Key:       []ir.CommandVal{{Column: m.Key.Name, Type: m.Key.Type, Expr: &ir.CmdExpr{Op: "input", Name: r.KeyField, Type: m.Key.Type}}},
-		Values:    append(stateValues(m, to), incr(m, m.Version)),
-		Cond:      cond,
-		Unmet:     "STATE",
-		Returning: m.Columns,
-		NotFound:  fmt.Sprintf("%s not found: {%s}", m.Table, r.KeyField),
-	}
+	op := MachineTransitionOp(m, tr, r)
 	g.api = entityAPI(base, m, &ct.Message, op)
 	cg := newCmdGen(g)
 	cg.loads = loads
@@ -252,25 +239,78 @@ func genTransition(g *genCtx, base *ir.API, m *ir.Machine, r ir.MachineReceive, 
 	return b.String(), nil
 }
 
-// genTimeouts: Due(到期的实体)/ Fire(一个实体: 读行 → 期限 / 重发)/ Stats(每个等待状态的实体数、最老的进入时间)。
-func genTimeouts(g *genCtx, base *ir.API, m *ir.Machine, loads map[string]*loadGen) (string, error) {
-	g.use("time", "")
-	var b strings.Builder
+// MachineTransitionOp: 转移 tr(收到 r)的写操作: UPDATE 实体 SET 状态 = 到, 进入时间 = now, 重发计数 = 0, 版本 + 1
+// WHERE 键 AND 状态 = 从 [AND 守卫]。生成的处理器和 factory perf(写入的检查)用同一个。
+func MachineTransitionOp(m *ir.Machine, tr *ir.MachineTransition, r ir.MachineReceive) ir.CommandOp {
+	from, to := m.StateByName(tr.From), m.StateByName(tr.To)
+	cond := &ir.CmdExpr{Op: "=", Args: []*ir.CmdExpr{
+		{Op: "col", Name: m.State.Name, Type: m.State.Type},
+		{Op: "const", Value: strconv.FormatInt(from.DB, 10), Type: m.State.Type}}}
+	if tr.Guard != nil {
+		cond = &ir.CmdExpr{Op: "and", Args: []*ir.CmdExpr{cond, guardSQL(tr.Guard)}}
+	}
+	return ir.CommandOp{Name: entityOp, Kind: "update", Table: m.Table,
+		Key:       []ir.CommandVal{{Column: m.Key.Name, Type: m.Key.Type, Expr: &ir.CmdExpr{Op: "input", Name: r.KeyField, Type: m.Key.Type}}},
+		Values:    append(stateValues(m, to), incr(m, m.Version)),
+		Cond:      cond,
+		Unmet:     "STATE",
+		Returning: m.Columns,
+		NotFound:  fmt.Sprintf("%s not found: {%s}", m.Table, r.KeyField),
+	}
+}
+
+// MachineDueSQL: 到期的实体($1 = now,$2 = 最多几个)。MachineReadSQL: 超时处理读一个实体($1 = 键)。
+// MachineLoadSQL: 载入的子行($1 = 实体的键)。生成的代码和 factory perf 用同一份 SQL。
+func MachineDueSQL(m *ir.Machine) string {
 	q := func(s string) string { return `"` + s + `"` }
-	var conds, waiting []string
+	var conds []string
 	for _, st := range m.States {
 		if st.Final {
 			continue
 		}
-		waiting = append(waiting, strconv.FormatInt(st.DB, 10))
 		c := fmt.Sprintf("%s + interval '1 second' * (%d + %d * %s) <= $1", q(m.Entered), st.Timeout, st.Every, q(m.Attempts))
 		if st.Deadline > 0 {
 			c = fmt.Sprintf("(%s OR %s + interval '%d seconds' <= $1)", c, q(m.Entered), st.Deadline)
 		}
 		conds = append(conds, fmt.Sprintf("(%s = %d AND %s)", q(m.State.Name), st.DB, c))
 	}
+	return fmt.Sprintf("SELECT %s FROM %s WHERE %s ORDER BY %s, %s LIMIT $2", q(m.Key.Name), q(m.Table), strings.Join(conds, " OR "), q(m.Entered), q(m.Key.Name))
+}
+
+func MachineReadSQL(m *ir.Machine) string {
+	q := func(s string) string { return `"` + s + `"` }
+	return fmt.Sprintf("SELECT %s, %s, %s, %s FROM %s WHERE %s = $1", q(m.State.Name), q(m.Version), q(m.Attempts), q(m.Entered), q(m.Table), q(m.Key.Name))
+}
+
+func MachineLoadSQL(ld *ir.MachineLoad) string {
+	q := func(s string) string { return `"` + s + `"` }
+	var cols, order []string
+	for _, c := range ld.Columns {
+		cols = append(cols, q(c.Name))
+	}
+	for i, c := range ld.OrderBy {
+		dir := "ASC"
+		if ld.Desc[i] {
+			dir = "DESC"
+		}
+		order = append(order, q(c)+" "+dir)
+	}
+	return fmt.Sprintf("SELECT %s FROM %s WHERE %s = $1 ORDER BY %s LIMIT %d", strings.Join(cols, ", "), q(ld.Table), q(ld.Child), strings.Join(order, ", "), ld.Max+1)
+}
+
+// genTimeouts: Due(到期的实体)/ Fire(一个实体: 读行 → 期限 / 重发)/ Stats(每个等待状态的实体数、最老的进入时间)。
+func genTimeouts(g *genCtx, base *ir.API, m *ir.Machine, loads map[string]*loadGen) (string, error) {
+	g.use("time", "")
+	var b strings.Builder
+	q := func(s string) string { return `"` + s + `"` }
+	var waiting []string
+	for _, st := range m.States {
+		if !st.Final {
+			waiting = append(waiting, strconv.FormatInt(st.DB, 10))
+		}
+	}
 	keyGo, _ := goOfSQL(m.Key.Type)
-	due := fmt.Sprintf("SELECT %s FROM %s WHERE %s ORDER BY %s, %s LIMIT $2", q(m.Key.Name), q(m.Table), strings.Join(conds, " OR "), q(m.Entered), q(m.Key.Name))
+	due := MachineDueSQL(m)
 	fmt.Fprintf(&b, "// %sDue: 到期的实体(sm.Scanner.Due): 每个等待状态,进入时间 + 超时 + 重发间隔 × 重发计数 <= now,或者 进入时间 + 期限 <= now。\n", m.Name)
 	fmt.Fprintf(&b, "func (h *Handler) %sDue(ctx context.Context, q sm.Querier, now time.Time, limit int) ([]any, error) {\n", m.Name)
 	fmt.Fprintf(&b, "\trows, err := q.Query(ctx, %s, now, limit)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tkeys, err := pgx.CollectRows(rows, pgx.RowTo[%s])\n\tout := make([]any, len(keys))\n\tfor i, k := range keys {\n\t\tout[i] = k\n\t}\n\treturn out, err\n}\n\n",
@@ -279,7 +319,7 @@ func genTimeouts(g *genCtx, base *ir.API, m *ir.Machine, loads map[string]*loadG
 	stGo, _ := goOfSQL(m.State.Type)
 	verGo, _ := goOfSQL(colType(m, m.Version))
 	attGo, _ := goOfSQL(colType(m, m.Attempts))
-	read := fmt.Sprintf("SELECT %s, %s, %s, %s FROM %s WHERE %s = $1", q(m.State.Name), q(m.Version), q(m.Attempts), q(m.Entered), q(m.Table), q(m.Key.Name))
+	read := MachineReadSQL(m)
 	g.use("errors", "")
 	fmt.Fprintf(&b, "// %sFire: 一个实体的超时(sm.Scanner.Fire,在它自己的事务里): 读行 → 期限 / 重发 → UPDATE … WHERE 版本 = 读到的 → 发出。\n// 版本变了(回答 / 别的扫描先改了这一行)= sm.Conflict: 扫描让整个事务重来(重新读、重新判定)。\n", m.Name)
 	fmt.Fprintf(&b, "func (h *Handler) %sFire(ctx context.Context, tx pgx.Tx, key any, now time.Time) (sm.Fired, error) {\n", m.Name)
@@ -370,26 +410,16 @@ func genTimeouts(g *genCtx, base *ir.API, m *ir.Machine, loads map[string]*loadG
 // genLoad: 载入的子行(在转移 / 超时的事务里读;多于上限 = 数据的问题,报错不截断)。
 func genLoad(g *genCtx, m *ir.Machine, lg *loadGen) (string, error) {
 	ld := lg.load
-	q := func(s string) string { return `"` + s + `"` }
-	var cols, fields []string
+	var fields []string
 	for _, c := range ld.Columns {
 		goType, ok := goOfSQL(c.Type)
 		if !ok {
 			return "", fmt.Errorf("载入 %s: column %s: type %s", ld.Name, c.Name, c.Type)
 		}
-		cols = append(cols, q(c.Name))
 		fields = append(fields, fmt.Sprintf("\t%s %s", goCamelCase(c.Name), ptr(goType, !c.NotNull)))
 	}
-	var order []string
-	for i, c := range ld.OrderBy {
-		dir := "ASC"
-		if ld.Desc[i] {
-			dir = "DESC"
-		}
-		order = append(order, q(c)+" "+dir)
-	}
 	keyGo, _ := goOfSQL(m.Key.Type)
-	sql := fmt.Sprintf("SELECT %s FROM %s WHERE %s = $1 ORDER BY %s LIMIT %d", strings.Join(cols, ", "), q(ld.Table), q(ld.Child), strings.Join(order, ", "), ld.Max+1)
+	sql := MachineLoadSQL(ld)
 	g.use("fmt", "")
 	var b strings.Builder
 	fmt.Fprintf(&b, "// %s: 载入 %s 的一行。\ntype %s struct {\n%s\n}\n\n", lg.row, ld.Name, lg.row, strings.Join(fields, "\n"))
