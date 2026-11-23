@@ -187,10 +187,13 @@ func TestWakeupsCoalesce(t *testing.T) {
 // 写 outbox 的提交不再在实例上排队: N 个并发事务的提交吞吐,和"在写事务里 NOTIFY"(v0.5.1)比。
 // 发过 NOTIFY 的事务在提交时持有 pg_database 上的 AccessExclusiveLock 直到 WAL 落盘,所以旧的做法每秒最多
 // 1/fsync 次提交;现在应该和完全不通知的一样(组提交)。
-// 吞吐的测量: 只在 RUNTIME_PERF=1 时跑(性能闸门的 job,不加 -race、不和别的包并行);在 -race 的测试套件里
-// 和别的包一起跑时太吵(runner 上偶发 0.49 < 0.6)。闸门本身是 perf_gate_test.go。
+// 手动的测量(RUNTIME_TEST_THROUGHPUT=1),不在 CI: 每种做法只测一次 2 秒,GitHub runner 上太吵(-race 套件里
+// 0.49 < 0.6;perf job 里 after-commit 4108/s 对 baseline 12085/s 而闸门同一次运行里是 0.62)。
+// CI 的闸门是 perf_gate_test.go(交替 3 轮取中位数 + pg_locks 采样)。
 func TestOutboxCommitsDoNotSerialize(t *testing.T) {
-	perfOn(t)
+	if os.Getenv("RUNTIME_TEST_THROUGHPUT") != "1" {
+		t.Skip("RUNTIME_TEST_THROUGHPUT=1 to measure (the CI gate is perf_gate_test.go)")
+	}
 	dbURL := itest.NewDB(t)
 	pool := tracedPool(t, dbURL, nil)
 	e := txn.New(pool)

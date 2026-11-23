@@ -72,7 +72,7 @@ jobs:
             echo "| check | measured | ratio 1 | ratio 2 | ratio 3 |"
             echo "|---|---|---|---|---|"
           } >> "$GITHUB_STEP_SUMMARY"
-          RUNTIME_PERF_SUMMARY="$GITHUB_STEP_SUMMARY" go test -count=1 -p 1 -run '^(TestPerf|TestOutboxCommitsDoNotSerialize$)' -v ./outbox/
+          RUNTIME_PERF_SUMMARY="$GITHUB_STEP_SUMMARY" go test -count=1 -p 1 -run '^TestPerf' -v ./outbox/
   versions:
     runs-on: ubuntu-latest
     timeout-minutes: 10
