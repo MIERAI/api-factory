@@ -153,6 +153,30 @@ R2 之后 `make perf` 坏了没人知道(不在 CI 里): 造数据只认 CHECK �
 第一次在数据量下检查 R2〜R2.7 的 API,找到 8 处缺索引(迁移 00017),2 处工厂缺口记进 perf.yaml(筛选不下推过关联;
 JSON 整数键的带校验 cast 对不上表达式索引)。
 
+### P4.2 写入 API 的 perf(2026-11-23)
+
+以前 perf 跳过所有没有查询流水线的 API(新建 / 按键更新 / 按键删除 / 组合命令 / 消息处理 / 状态机)。现在(factory/perf/write.go、
+writecheck.go、concurrency.go)用**生成的处理器同样的代码**造出写操作: IR 的操作(command.OpsOf;状态机的转移 =
+适配器的 `MachineTransitionOp`)→ 运行时的 `txn.Build` / `txn.RunIn` / `txn.Executor`。运行时自己的写(outbox、消费端去重)
+不在这里: 那是 runtime/outbox 的性能闸门(runtime.yml 的 perf job),不重复。
+
+请求的值: 更新 / 删除的键(和版本、守卫里 `列 = 输入`)取**表里现有的行**(每个请求不同的行;条件要的状态 `列 = 常量`;
+同一个输入也是别的表的键时那边也存在;删除的行没有子行);新建的列取数据生成器的**新行**(第 n+1 … 行: 新的键、引用已有的父、
+满足 CHECK);`列 >= 输入`、`列 = 列 - 输入` 的输入 = 1;每项 3 个元素(请求级的值和元素的键在同一个表时,取同一组的行)。
+
+- (a) **EXPLAIN**: 一个请求的每个操作在请求的事务里 `EXPLAIN ANALYZE`(保存点回滚,整个事务最后回滚)。✗: 按键的写入却全表扫描;
+  外键检查(触发器)或语句超过阈值。状态机的定时扫描(到期)/ 读实体 / 载入也 EXPLAIN(全表扫描扔掉 ≥90% = ✗)。
+  静态规则: 有 API 删除父表的行 → 每个引用它的外键在子表上要有以外键列开头的索引(否则每次删除扫子表全表)。
+- (b) **并发的锁**: N 路(默认 8)× 每路 100 个请求,不同的键;采样 pg_stat_activity / pg_locks(5ms)。✗: 持有行级以上的锁
+  (比 ROW EXCLUSIVE 强的表锁、object 锁 —— 例如提交时 NOTIFY 的数据库锁、advisory 锁);等锁(relation extension 除外)
+  的样本 > 1%(不同的键在互相等: 共用的计数行、每个请求都改的父行 …)。
+- (c) **扩展性**: 同一次运行里 N 路吞吐 ÷ 1 路吞吐 ≥ 1.5(`--min-scale`;比值,不是绝对值)。
+- 业务结果(找不到 / 版本冲突 / 条件不满足 / 唯一 / 外键 / CHECK)超过一半 → ✗(perf 造的请求不对,检查没有意义)。
+
+闸门本身的检验(一次性的库): 在 jobs 上加 `pg_notify` 的触发器 → create-job ✗(object AccessExclusiveLock pg_database;
+等锁 86%;1.34×);job_requests 的插入触发器更新同一个计数行 → submit-job-request ✗(transactionid / tuple 等锁 85%;1.10×);
+加一个没有索引的外键子表 → delete-job ✗(外键检查要扫子表全表)。
+
 ### P5 的结果(2026-11-17,收住)
 
 **方法**: `scripts/review-converge.sh` 对试用的 10 本中文式样书**删掉所有回答记录**,反复"审查 → 按推荐的选项回答 → 重新生成",

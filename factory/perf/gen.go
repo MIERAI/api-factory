@@ -41,6 +41,7 @@ type table struct {
 	refs       map[string]ref                  // column / JSON key → a parent's key
 	ymd        map[string]bool                 // integer column / JSON key read as a YYYYMMDD date (ymd)
 	serial     []string                        // identity / serial columns: the sequence continues after the data
+	primary    []string                        // the primary key
 	dirty      bool
 }
 
@@ -55,7 +56,7 @@ func newTable(name string, cols []core.NamedType) *table {
 // loadKeys: primary key / unique constraints (one column → unique, several → composite).
 func loadKeys(ctx context.Context, conn *pgx.Conn, t *table) error {
 	rows, err := conn.Query(ctx, `
-		SELECT c.conname, array(SELECT a.attname::text FROM unnest(c.conkey) WITH ORDINALITY k(n, o)
+		SELECT c.conname, c.contype = 'p', array(SELECT a.attname::text FROM unnest(c.conkey) WITH ORDINALITY k(n, o)
 		                        JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.n ORDER BY k.o)
 		FROM pg_constraint c WHERE c.conrelid = to_regclass($1) AND c.contype IN ('p', 'u') ORDER BY c.contype, c.conname`,
 		pgx.Identifier{t.name}.Sanitize())
@@ -65,9 +66,13 @@ func loadKeys(ctx context.Context, conn *pgx.Conn, t *table) error {
 	defer rows.Close()
 	for rows.Next() {
 		var name string
+		var primary bool
 		var cols []string
-		if err := rows.Scan(&name, &cols); err != nil {
+		if err := rows.Scan(&name, &primary, &cols); err != nil {
 			return err
+		}
+		if primary {
+			t.primary = cols
 		}
 		if len(cols) == 1 {
 			t.unique[cols[0]] = true
@@ -212,6 +217,21 @@ func fill(ctx context.Context, conn *pgx.Conn, t *table) error {
 	return err
 }
 
+// keyCols: the primary key (or a unique key) of the table: a single unique column, else a composite key's columns.
+func (t *table) keyCols() []string {
+	for _, c := range t.cols {
+		if t.unique[c.Name] {
+			return []string{c.Name}
+		}
+	}
+	for _, c := range t.cols {
+		if m := t.members[c.Name]; len(m) > 0 {
+			return m
+		}
+	}
+	return nil
+}
+
 func (t *table) kindOf(col string) (core.Kind, bool) {
 	for _, c := range t.cols {
 		if c.Name == col {
@@ -312,7 +332,7 @@ func (t *table) uniqueExpr(c core.NamedType, idx string) (string, error) {
 	b := t.bounds[c.Name]
 	switch {
 	case t.regex[c.Name] != "":
-		return regexSQL(t.regex[c.Name], idx, t.n+1)
+		return regexSQL(t.regex[c.Name], idx, 4*t.n+1) // room for new rows (write checks insert after the data)
 	case c.Type.Kind == core.Text && t.pattern[c.Name] != "":
 		return patternSQL(t.pattern[c.Name], true, 0, idx), nil
 	}
@@ -340,13 +360,22 @@ func (t *table) compositeExpr(c core.NamedType, idx string, depth int) (string, 
 		}
 	}
 	r, isRef := keyRef(c.Name)
+	_, firstRef := keyRef(members[0])
 	switch {
 	case len(refd) == 0:
 		return keyValue(c.Type.Kind, mixedRadix("("+idx+" - 1)", pk, t.n), t.bounds[c.Name], t.n)
 	case len(others) == 0: // a link table: every column a reference, the row number in mixed radix picks the parents
 		return t.refExpr(r, c.Type.Kind, "("+mixedRadix("("+idx+" - 1)", pk, t.n)+" + 1)", depth)
-	case isRef:
+	case isRef && firstRef: // the key starts with the parent: (order_id, line_no) = 4 lines per order
 		return t.refExpr(r, c.Type.Kind, fmt.Sprintf("(((%s - 1) / 4) %% %d + 1)", idx, r.parent.n), depth)
+	case isRef: // an association (transfer_id, account_id): 4 rows per first column, each a different parent row
+		stride := 7919
+		if r.parent.n%stride == 0 {
+			stride = 7927
+		}
+		return t.refExpr(r, c.Type.Kind, fmt.Sprintf("(((%s - 1)::int8 * %d) %% %d + 1)", idx, stride, r.parent.n), depth)
+	case !firstRef && c.Name == others[0]:
+		return keyValue(c.Type.Kind, fmt.Sprintf("((%s - 1) / 4)", idx), t.bounds[c.Name], t.n)
 	case c.Name == others[0]:
 		return keyValue(c.Type.Kind, fmt.Sprintf("((%s - 1) %% 4)", idx), t.bounds[c.Name], t.n)
 	}

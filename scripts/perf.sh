@@ -39,7 +39,7 @@ for d in "${dirs[@]}"; do
     # shellcheck disable=SC2086
     "$F" --project "$d" perf --db "postgres://factory:factory@127.0.0.1:${port}/${db}?sslmode=disable" ${PERF_ARGS:-}
   ) > "$out" 2>&1 || { fail=1; }
-  # everything but ✓ (and the write APIs' boundary while they have no check), with the detail lines
-  awk '/^[^ ]/ { show = ($0 !~ /^✓  / && $0 !~ /^◇  [^ ]+ +(insert|update|delete|command|message|machine) /) } show' "$out"
+  # everything but ✓, with the detail lines
+  awk '/^[^ ]/ { show = ($0 !~ /^✓  /) } show' "$out"
 done
 exit $fail

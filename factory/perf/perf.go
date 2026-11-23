@@ -33,6 +33,12 @@ type Options struct {
 	Scale    float64 // 阈值的倍率: 这台机器比参考机器慢几倍(0 = Calibrate;≥ 1)
 
 	CalibrationMs float64 // Calibrate 量到的时间(输出)
+
+	// 写入 API 的并发检查(concurrency.go): Workers 路(0 = 不做),每路 WriteRequests 个请求;N 路 ÷ 1 路的吞吐 ≥ MinScale
+	Workers       int
+	WriteRequests int
+	MinScale      float64
+	Pick          func(n, i int) int // 第 i 个请求用 n 个候选行里的哪一个(nil = 每个请求不同的行)
 }
 
 type Report struct {
@@ -104,11 +110,16 @@ func Run(ctx context.Context, plan *ir.Plan, o *Options) ([]Report, error) {
 				return nil, fmt.Errorf("%s: %w", api.ID, err)
 			}
 			out = append(out, r)
+		case api.Command != nil: // after all the reads (the write checks change the data)
 		default:
 			out = append(out, unknownKind(api))
 		}
 	}
-	return out, nil
+	ws, err := checkWrites(ctx, conn, plan, tables, opt)
+	if err != nil {
+		return nil, err
+	}
+	return append(out, ws...), nil
 }
 
 // Fill: the perf database's data (every table of the schema, n rows each). Returns the tables (generator's view).

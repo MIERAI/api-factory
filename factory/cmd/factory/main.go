@@ -1001,6 +1001,9 @@ func cmdPerf(args []string) error {
 	maxMs := fs.Float64("max-ms", 50, "执行时间的阈值(毫秒,参考机器上;实际阈值 = max-ms × 倍率)")
 	scale := fs.Float64("scale", 0, "阈值的倍率(0 = 按这台机器的速度自动校准)")
 	bfile := fs.String("boundaries", "perf.yaml", "项目的已知边界(API → 原因;没有这个文件 = 没有)")
+	workers := fs.Int("workers", 8, "写入 API 的并发检查: 几路(0 = 不做)")
+	writeReqs := fs.Int("write-requests", 60, "写入 API 的并发检查: 每轮每路几个请求(3 轮)")
+	minScale := fs.Float64("min-scale", 1.5, "写入 API 的并发检查: N 路的吞吐至少是 1 路的几倍")
 	_ = fs.Parse(args)
 	bs, err := perf.LoadBoundaries(*bfile)
 	if err != nil {
@@ -1013,7 +1016,7 @@ func cmdPerf(args []string) error {
 	if err != nil {
 		return fmt.Errorf("IR not found (run factory prepare first): %w", err)
 	}
-	opt := perf.Options{DB: *db, Rows: *rows, MaxMs: *maxMs, Scale: *scale}
+	opt := perf.Options{DB: *db, Rows: *rows, MaxMs: *maxMs, Scale: *scale, Workers: *workers, WriteRequests: *writeReqs, MinScale: *minScale}
 	reports, err := perf.Run(context.Background(), plan, &opt)
 	if err != nil {
 		return err
