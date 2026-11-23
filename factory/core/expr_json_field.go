@@ -41,6 +41,10 @@ func init() {
 				return "", err
 			}
 			v := fmt.Sprintf("(%s ->> %s)", a, quoteLit(e.Name))
+			if e.Type.Kind == Text { // 文本: 不校验,和索引的键(json_key)是同一个式子
+				s, _ := JSONKeySQL(v, Text)
+				return s, nil
+			}
 			f, ok := jsonFormats[e.Type.Kind]
 			if !ok {
 				return fmt.Sprintf("(%s::%s)", v, e.Type.Kind.SQLType()), nil

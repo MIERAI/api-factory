@@ -157,6 +157,9 @@ run "逻辑表の关联: 取了最旧的版本"                $LP 's/t6\._o_reg
 run "逻辑表の关联: 不处理删除"                    $LP 's/\(t7\._action <> 1::int4\) AND //'
 run "逻辑表の链: 末端不处理逻辑删除"              $LP "s/ AND \(\(t11\._logical_delete IS NULL\) OR \(t11\._logical_delete <> '1'::text\)\)//"
 run "逻辑表の关联: 按物理表的行(不取最新)"       $LP 's/SELECT DISTINCT ON \(t6\.product_code COLLATE "C"\) /SELECT /'
+# 筛选越过关联下推(core/pushdown.go): 键の条件はラベルの取最新の前へ。外部结合(keep)の側に入れると効かない
+run "关联の下推: 键の条件を落とした"                  $LP 's/\n\s+AND \(t2\.product_code = ANY\(\$1::text\[\]\)\)//'
+run "关联の下推: keep の关联(カテゴリ)の条件に入れた" $LP 's/\n\s+AND \(t2\.product_code = ANY\(\$1::text\[\]\)\)//; s/AND \(t10\.category = t8\.category\)/AND (t10.category = t8.category) AND (t4.product_code = ANY(\$1::text[]))/'
 CP2=gen/db/catalog.list-category-products.sql.go
 run "逻辑表の嵌套: 子行取了最旧的版本"            $CP2 's/t10\._o_registered_at DESC, t10\._o_id DESC/t10._o_registered_at ASC, t10._o_id ASC/'
 run "逻辑表の子聚合: 删除的子行也数"              $CP2 's/\(t17\._action <> 1::int4\) AND //'
@@ -234,6 +237,9 @@ run "最新のお知らせ: 論理削除を見ない"               $GN 's/OR \(
 run "最新のお知らせ: 同じ日は番号の小さい方"         $GN 's/t5\.notice_no DESC/t5.notice_no/'
 run "最新のお知らせ: 今天 を UTC で"                 $GN 's/AT TIME ZONE \x27Asia\/Tokyo\x27/AT TIME ZONE \x27UTC\x27/'
 run "最新のお知らせ: 今日の掲載を含まない(<= → <)"  $GN 's/\(t4\.posted_ymd <= \(to_char/(t4.posted_ymd < (to_char/'
+# 索引的键(core/keyindex.go): 整数の键の条件は表达式索引と同じ式(不正な値は NULL)。文本での比较は ' +7 '・'07' の版を落とす
+run "索引的键: 整数を文本で比较"                    $GN 's/WHERE \(\(CASE WHEN \(t1\.data ->> \x27store_code\x27\) ~ [^\n]*= \$1::int4\)/WHERE ((t1.data ->> \x27store_code\x27) = \$1::int4::text)/'
+run "索引的键: 前后の空白・符号を许さない"          $GN 's/(WHERE \(\(CASE WHEN \(t1\.data ->> \x27store_code\x27\) ~ )\x27[^\x27]*\x27/$1\x27^[0-9]+\$\x27/'
 run "最新のお知らせ: 別の店舗の DB"                  $GNH 's/h\.at\(int64\(m\.GetStoreCode\(\)\)\)/h.at(int64(m.GetStoreCode())+2)/'
 # 命令工厂(R3-1): 生成的写代码。每个变异都要被 ≥3 个状态差分的请求抓到(factory/accept/command_diff.go)
 UJ=internal/handler/schedules/update_job_schedule_gen.go

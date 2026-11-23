@@ -228,6 +228,7 @@ func (g *sqlGen) sourceSQL(st Step, lv *sqlLevel) (string, error) {
 		}
 		sub = q
 	}
+	sub = keyIndex(sub) // 关联条件(对方的 JSON 的键 = 外层的列)也用得上表达式索引
 	saved := g.p
 	g.p = sub
 	defer func() { g.p = saved }()

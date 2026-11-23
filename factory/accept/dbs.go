@@ -66,8 +66,8 @@ func (d *dbs) forKey(v any) (*pgx.Conn, error) {
 		key = int64(x)
 	case float64:
 		key = int64(x)
-	case string:
-		n, err := strconv.ParseInt(x, 10, 64)
+	case string: // JSON 里的写法(" +7 "、"07" 也是合法的整数: core 的 jsonFormats)
+		n, err := strconv.ParseInt(strings.Trim(x, " \t\n\r\f\v"), 10, 64)
 		if err != nil {
 			return nil, fmt.Errorf("分库键 %q 不是整数", x)
 		}

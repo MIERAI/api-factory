@@ -851,6 +851,11 @@ func (e *diffEnv) value(c core.NamedType, i int, unique bool) any {
 			}
 			e.nkSeen = append(e.nkSeen, key)
 		}
+		for idx, k := range e.json[c.Name] { // 合法但不规范的写法(按行号,不用随机数: 值和其他的数据不变)
+			if v, ok := obj[k.key]; ok && e.plan.Enum(e.api.Table, e.keyCol[k.key]) == nil {
+				obj[k.key] = jsonSpelling(v, k.kind, i+idx)
+			}
+		}
 		b, _ := json.Marshal(obj)
 		return string(b)
 	}

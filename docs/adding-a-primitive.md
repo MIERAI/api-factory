@@ -47,7 +47,7 @@
 - `sql.go` 的 `sqlLevel` 和 `render`:一层 SELECT 的形状(`group` / `rank` / `distinct` 字段和对应的写法)。
   需要新的 SELECT 子句的元件要加 `sqlLevel` 的字段和 `render` 的分支。
 - `parse.go`:单元定义的语法(表达式元件的名字和参数个数),`Format`。
-- `pushdown.go`:只认 pick_per_key / project / filter。新元件不在这里 = 下推在它前面停下(安全)。
+- `pushdown.go`:只认 pick_per_key / project / filter / lookup(不引用加的列的条件越过 lookup)。新元件不在这里 = 下推在它前面停下(安全)。`keyindex.go`:JSON 字段的等值条件另加和表达式索引同一个式子的条件(只给 SQL)。
 - 工厂的其他地方:单元库 `factory/cells/standard.yaml`(词表)、`factory/compiler`(设计稿 → 流水线)、
   `factory/accept/diff*.go`(差分测试的数据生成;`diff.go` 里有一份和 `exprPrim.request` 一样的"依赖请求"列表)。
 

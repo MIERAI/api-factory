@@ -38,6 +38,15 @@ mutate "SQL: 组属于用 IN(三值)"          $S 's|return fmt.Sprintf("EXISTS 
 mutate "参考: 组属于列为 NULL → UNKNOWN"  $E '/case "in_tuples":/,/vals\[i\] = v/s|return false, nil|return nil, nil|'
 mutate "SQL: lookup 的 keep 写成 JOIN"     $S 's|join := "LEFT JOIN"|join := "JOIN"|'
 mutate "SQL: lookup 的 drop 写成 LEFT JOIN" $S 's|join = "JOIN"|join = "LEFT JOIN"|'
+# 筛选越过关联下推(pushdown.go)/ 索引的键(keyindex.go、expr_json_key.go)
+P=factory/core/pushdown.go; K=factory/core/keyindex.go; JK=factory/core/expr_json_key.go
+mutate "下推: 越过任何步骤(不只 lookup)"         $P 's|if st.Kind == "lookup" {|if st.Kind != "filter" {|'
+mutate "下推: 加的键列当作关联的列(找不到时 NULL)" $P 's|delete(name, t.Name)|if len(st.On) > 1 \&\& t.Col == st.On[1].Key { name[t.Name] = name[st.On[1].Col] }|'
+mutate "索引的键: 越过取一条之后的条件"          $K 's|p.Steps\[j\].Kind == "filter"; j++|p.Steps[j].Kind != "sort"; j++|'
+mutate "索引的键: 整数不检查范围"                $JK 's|(CASE WHEN (%s::numeric BETWEEN %s AND %s) THEN|(CASE WHEN TRUE OR (%s::numeric BETWEEN %s AND %s) THEN|'
+mutate "索引的键: 日期不检查月末"                $JK 's|(CASE WHEN (%s BETWEEN 1 AND %s) THEN make_date|(CASE WHEN (%s BETWEEN 1 AND 31 OR %s IS NULL) THEN make_date|'
+mutate "索引的键: 整数的正则不认空白"            $JK 's|return fmt.Sprintf("%s ~ %s", v, quoteLit(f.pattern))|return fmt.Sprintf("%s ~ %s", v, quoteLit(`^[0-9]+$`))|'
+
 mutate "SQL: lookup NULL 当作相等"        $S 's|"%s = %s.%s", g.col(lv, k.Col)|"%s IS NOT DISTINCT FROM %s.%s", g.col(lv, k.Col)|'
 mutate "SQL: lookup 多列键只比较第一列"     $S 's|ON %s", join, quoteIdent(st.Table), alias, strings.Join(conds, " AND "))|ON %s", join, quoteIdent(st.Table), alias, conds[0])|'
 mutate "SQL: lookup 键按文本忽略大小写比较"    $S 's|"%s = %s.%s", g.col(lv, k.Col)|"lower(%s::text) = lower(%s.%s::text)", g.col(lv, k.Col)|'
