@@ -170,7 +170,7 @@ func contractFields(e *errs, where string, n *yaml.Node, elem bool) []spec.Contr
 			if len(f.Elem) < 2 {
 				e.add(p.Line, "%s 的字段 %s: 元素至少 2 个字段", where, p.Key)
 			}
-			f.Unique = strList(get(p.Val, "唯一"))
+			f.Unique = strs(e, get(p.Val, "唯一"), where+" 的字段 "+p.Key+" 的唯一")
 			for _, u := range f.Unique {
 				ok := false
 				for _, x := range f.Elem {
