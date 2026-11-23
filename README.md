@@ -105,8 +105,23 @@ spec-review     generate                verify               deploy
 ## 其他项目(给另一个仓库 / 另一个数据库生成服务)
 
 工厂不只给本仓库生成。一个**项目** = 一个 Go 模块 + 它自己的数据库,目录结构和本仓库一样(`design/`、`db/schema/` 由人写,
-其余由工厂生成)。生成的代码只依赖项目自己的模块和公开的运行时 [api-factory-runtime](https://github.com/MIERAI/api-factory-runtime),
-工厂本身(生成器、核心代数、审查、验证)不进入项目。
+其余由工厂生成)。生成的代码只依赖项目自己的模块和公开的运行时 [`runtime/`](runtime/)(Go 模块
+`github.com/MIERAI/api-factory/runtime`,Apache-2.0),工厂本身(生成器、核心代数、审查、验证)不进入项目。
+
+### 一个产品: 生成器 + 运行时 + 验证(v0.6.0 起)
+
+- **运行时在本仓库的 `runtime/`**,是独立的 Go 模块 `github.com/MIERAI/api-factory/runtime`(v0.5.2 之前在
+  MIERAI/api-factory-runtime,历史已经搬过来)。工厂自己和 `examples/` 下的项目用 `replace` 编译本仓库的 `runtime/`;
+  别处的项目按版本导入。
+- **统一版本号**: 一次发布 = 同一个提交上的两个 tag `vX.Y.Z`(工厂)+ `runtime/vX.Y.Z`(运行时模块,`go get` 用的)。
+  工厂 vX.Y.Z 生成的项目导入运行时 vX.Y.Z。`factory version` 显示两者;`scripts/release.sh bump vX.Y.Z` 改所有写版本的地方,
+  合并后 `scripts/release.sh tag` 打两个 tag。
+- **一条命令升级**: `factory upgrade --project DIR` 把项目的运行时依赖(go.mod 的模块路径 + 版本、Go 文件的 import)改成
+  这个工厂配套的版本,再 `go mod tidy` + `go build ./...`;之后用同一个工厂重新生成(`factory --project DIR prepare`)。
+  `--check` 只检查(CI 用)。
+- **性能闸门**(运行时,`.github/workflows/runtime.yml` 的 perf): 写 outbox 的提交吞吐在 16 路并发下 ≥ k × 1 路、
+  pg_locks 采样里没有全实例锁的等待、中继从提交到发出的延迟远小于轮询间隔 —— 全是比值,不写死绝对数字。
+  见 [runtime/outbox/perf_gate_test.go](runtime/outbox/perf_gate_test.go)。
 
 ```sh
 factory init ../shop/services/catalog --module github.com/you/shop/services/catalog   # 脚手架: go.mod、buf、cmd/server、factory.yaml
@@ -177,7 +192,7 @@ gen/acceptance/*.yaml                 [AI 实现] factory ai(模型和角色在 
 | (多条 / 前N条 / 一览 + `分组` / `排名`) | 工厂(GROUP BY + 件数 / 合计 / 最小 / 最大,RANK()) | 无 | ListTopLineStores、ListStoreLineRanking |
 | `compute` | 工厂(映射 + 查询 + 调用逻辑) | 纯函数 `<method>Logic(req, rows)` | GetJobSummary |
 | `custom` | AI(逃生口) | 整个 handler | — |
-| `insert` / `update` / `delete`(命令) | 工厂(写操作作为数据 → `api-factory-runtime/txn` 的事务执行器;乐观锁、错误映射) | 无 | CreateJob、DeleteJob、UpdateJobSchedule |
+| `insert` / `update` / `delete`(命令) | 工厂(写操作作为数据 → `runtime/txn` 的事务执行器;乐观锁、错误映射) | 无 | CreateJob、DeleteJob、UpdateJobSchedule |
 | `command`(组合命令: 条件更新 / 幂等新建 / 多个写操作) | 工厂(操作的列表 → 一个事务;`条件` + 业务原因码、`幂等新建`、`操作名.列`) | 无 | ConsumeJobQuota、StartJobRun、SubmitJobRequest |
 
 映射默认按名字自动对应(`job_type` ↔ `JobType`),对不上时在 `pattern.mapping` 里写。
@@ -204,9 +219,9 @@ gen/acceptance/*.yaml                 [AI 实现] factory ai(模型和角色在 
 | 错误转换、超时、日志 | `platform/` 拦截器 |
 | handler 骨架、wiring | `factory prepare` |
 | 请求↔查询↔响应的映射 | `factory prepare`(proto 描述符 + gen/db 的 AST) |
-| 分页(游标、多取一行、token 签名/绑定) | `list_keyset` 插件 + `api-factory-runtime/paging` |
-| 查询里的"现在"(派生参数的 `现在`) | `api-factory-runtime/clock`(请求开始的时刻;测试时 `FACTORY_TEST_CLOCK=1` + 请求头 `X-Factory-Now` 固定) |
-| 写操作的事务、"没有更新"的原因(不存在 / 版本冲突)、数据库错误的分类、序列化失败的重试 | `api-factory-runtime/txn`(v0.4.1;READ COMMITTED;条件更新、幂等新建、`Later`;测试用的故障注入 `FACTORY_TEST_FAULTS=1` + `X-Factory-Fail-After`) |
+| 分页(游标、多取一行、token 签名/绑定) | `list_keyset` 插件 + `runtime/paging` |
+| 查询里的"现在"(派生参数的 `现在`) | `runtime/clock`(请求开始的时刻;测试时 `FACTORY_TEST_CLOCK=1` + 请求头 `X-Factory-Now` 固定) |
+| 写操作的事务、"没有更新"的原因(不存在 / 版本冲突)、数据库错误的分类、序列化失败的重试 | `runtime/txn`(v0.4.1;READ COMMITTED;条件更新、幂等新建、`Later`;测试用的故障注入 `FACTORY_TEST_FAULTS=1` + `X-Factory-Fail-After`) |
 | 写操作失败的原因 → 错误码 | 生成的 `commands_gen.go`(每个服务一个) |
 
 ## 模型对照试验

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MIERAI/api-factory-runtime/server"
+	"github.com/MIERAI/api-factory/runtime/server"
 )
 
 func TestEnvSection(t *testing.T) {

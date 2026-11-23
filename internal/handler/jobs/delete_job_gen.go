@@ -8,7 +8,7 @@ import (
 	"fmt"
 
 	"connectrpc.com/connect"
-	"github.com/MIERAI/api-factory-runtime/txn"
+	"github.com/MIERAI/api-factory/runtime/txn"
 
 	jobsv1 "apifactory/gen/factory/jobs/v1"
 )

@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	shopv1 "apifactory/gen/factory/shop/v1"
-	"github.com/MIERAI/api-factory-runtime/anomaly"
+	"github.com/MIERAI/api-factory/runtime/anomaly"
 )
 
 func Test_customersTier_RoundTrip(t *testing.T) {

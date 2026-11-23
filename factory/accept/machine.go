@@ -31,8 +31,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	amqp "github.com/rabbitmq/amqp091-go"
 
-	"github.com/MIERAI/api-factory-runtime/message"
-	"github.com/MIERAI/api-factory-runtime/topology"
+	"github.com/MIERAI/api-factory/runtime/message"
+	"github.com/MIERAI/api-factory/runtime/topology"
 
 	"apifactory/factory/command"
 	"apifactory/factory/constraints"

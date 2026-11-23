@@ -7,8 +7,8 @@ package sales
 import (
 	"apifactory/gen/db"
 	"apifactory/gen/factory/sales/v1/salesv1connect"
-	"github.com/MIERAI/api-factory-runtime/paging"
-	"github.com/MIERAI/api-factory-runtime/shard"
+	"github.com/MIERAI/api-factory/runtime/paging"
+	"github.com/MIERAI/api-factory/runtime/shard"
 )
 
 // Handler 实现 salesv1connect.SaleServiceHandler。

@@ -29,13 +29,13 @@ import (
 	saleshandler "apifactory/internal/handler/sales"
 	scheduleshandler "apifactory/internal/handler/schedules"
 	shophandler "apifactory/internal/handler/shop"
-	"github.com/MIERAI/api-factory-runtime/consume"
-	"github.com/MIERAI/api-factory-runtime/message"
-	"github.com/MIERAI/api-factory-runtime/outbox"
-	"github.com/MIERAI/api-factory-runtime/server"
-	"github.com/MIERAI/api-factory-runtime/sm"
-	"github.com/MIERAI/api-factory-runtime/topology"
-	"github.com/MIERAI/api-factory-runtime/txn"
+	"github.com/MIERAI/api-factory/runtime/consume"
+	"github.com/MIERAI/api-factory/runtime/message"
+	"github.com/MIERAI/api-factory/runtime/outbox"
+	"github.com/MIERAI/api-factory/runtime/server"
+	"github.com/MIERAI/api-factory/runtime/sm"
+	"github.com/MIERAI/api-factory/runtime/topology"
+	"github.com/MIERAI/api-factory/runtime/txn"
 )
 
 func services(deps server.Deps, opts ...connect.HandlerOption) []server.Service {

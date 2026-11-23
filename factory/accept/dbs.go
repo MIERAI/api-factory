@@ -14,7 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"apifactory/factory/ir"
-	"github.com/MIERAI/api-factory-runtime/shard"
+	"github.com/MIERAI/api-factory/runtime/shard"
 )
 
 type dbs struct {

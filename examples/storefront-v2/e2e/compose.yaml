@@ -28,12 +28,18 @@ x-schema: &schema
       cat /schema/*.sql | PGOPTIONS='-c client_min_messages=warning' psql -q -v ON_ERROR_STOP=1 -d "$$DB"
       echo "schema applied: $$DB"
 
-# What every generated server needs (api-factory-runtime/server; the full list is in each project's README.md,
+# What every generated server needs (runtime/server; the full list is in each project's README.md,
 # "Environment"): DATABASE_URL, AUTH_MODE; AMQP_URL turns on the topology / outbox relay / consumers. PAGE_TOKEN_KEY:
 # stable page tokens (only a warning without it).
 # Base images of the builds: the same mirror as the images above (the Dockerfiles' ARG IMAGE_MIRROR)
 x-build-args: &build-args
   IMAGE_MIRROR: ${IMAGE_MIRROR:-mirror.gcr.io/library}
+
+# The generated Dockerfiles, unchanged, but their build stage's golang image swapped for golang + this checkout's
+# runtime (runtime-base.Dockerfile; the Makefile builds it first): the projects' go.mod replaces the runtime with
+# ../../../runtime = /runtime in the build stage
+x-runtime-base: &runtime-base
+  - "${IMAGE_MIRROR:-mirror.gcr.io/library}/golang:${GO_VERSION:?run through the Makefile (it reads the Go version from the projects' go.mod)}-alpine=docker-image://sf2-e2e/golang-runtime:local"
 
 x-service-env: &service-env
   AMQP_URL: amqp://e2e:e2e@rabbitmq:5672/e2e
@@ -75,9 +81,9 @@ services:
   # their own queues at start-up (idempotent).
   topology:
     build:
-      context: .
-      dockerfile: topology.Dockerfile
-      args: { <<: *build-args, RUNTIME_VERSION: "${RUNTIME_VERSION:?run through the Makefile (it reads the runtime version from driver/go.mod)}" }
+      context: ../../..
+      dockerfile: examples/storefront-v2/e2e/topology.Dockerfile
+      args: { <<: *build-args, GO_VERSION: "${GO_VERSION:?run through the Makefile}" }
     image: sf2-e2e/topology:local
     restart: "no"
     environment: { AMQP_URL: "amqp://e2e:e2e@rabbitmq:5672/e2e" }
@@ -109,7 +115,7 @@ services:
 
   # catalog: W1–W3; CreateProduct emits catalog.product_created → inventory's InitStock creates the stock row (M13)
   catalog:
-    build: { context: ../catalog, args: *build-args }
+    build: { context: ../catalog, args: *build-args, additional_contexts: *runtime-base }
     image: sf2-e2e/catalog:local
     environment: { <<: *service-env, DATABASE_URL: "postgres://e2e:e2e@postgres:5432/catalog?sslmode=disable" }
     ports: ["58085:8080", "59095:9090"]
@@ -117,7 +123,7 @@ services:
       schema-catalog: { condition: service_completed_successfully }
       topology: { condition: service_completed_successfully }
   inventory:
-    build: { context: ../inventory, args: *build-args }
+    build: { context: ../inventory, args: *build-args, additional_contexts: *runtime-base }
     image: sf2-e2e/inventory:local
     environment: { <<: *service-env, DATABASE_URL: "postgres://e2e:e2e@postgres:5432/inventory?sslmode=disable" }
     ports: ["58081:8080", "59091:9090"]
@@ -125,7 +131,7 @@ services:
       schema-inventory: { condition: service_completed_successfully }
       topology: { condition: service_completed_successfully }
   payment:
-    build: { context: ../payment, args: *build-args }
+    build: { context: ../payment, args: *build-args, additional_contexts: *runtime-base }
     image: sf2-e2e/payment:local
     environment: { <<: *service-env, DATABASE_URL: "postgres://e2e:e2e@postgres:5432/payment?sslmode=disable" }
     ports: ["58082:8080", "59092:9090"]
@@ -133,7 +139,7 @@ services:
       schema-payment: { condition: service_completed_successfully }
       topology: { condition: service_completed_successfully }
   notification:
-    build: { context: ../notification, args: *build-args }
+    build: { context: ../notification, args: *build-args, additional_contexts: *runtime-base }
     image: sf2-e2e/notification:local
     environment: { <<: *service-env, DATABASE_URL: "postgres://e2e:e2e@postgres:5432/notification?sslmode=disable" }
     ports: ["58083:8080", "59093:9090"]
@@ -143,7 +149,7 @@ services:
   # order: W5 PlaceOrder + the order saga (R5). With AMQP_URL its timeout scanner runs too (real clock: resends
   # after 30 s; nothing in the driver waits that long)
   order:
-    build: { context: ../order, args: *build-args }
+    build: { context: ../order, args: *build-args, additional_contexts: *runtime-base }
     image: sf2-e2e/order:local
     environment: { <<: *service-env, DATABASE_URL: "postgres://e2e:e2e@postgres:5432/order?sslmode=disable" }
     ports: ["58084:8080", "59094:9090"]

@@ -6,11 +6,12 @@ require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260825204119-511051f7f437.2
 	buf.build/go/protovalidate v1.4.0
 	connectrpc.com/connect v1.21.1
-	github.com/MIERAI/api-factory-runtime v0.5.2
+	github.com/MIERAI/api-factory/runtime v0.6.0
 	github.com/bmatcuk/doublestar/v4 v4.10.4
 	github.com/jackc/pgx/v5 v5.13.0
 	github.com/pressly/goose/v3 v3.29.0
 	github.com/rabbitmq/amqp091-go v1.16.0
+	golang.org/x/mod v0.43.0
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20261005182115-fad411399dd8
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v3 v3.0.1
@@ -41,3 +42,5 @@ tool (
 	connectrpc.com/connect/cmd/protoc-gen-connect-go
 	google.golang.org/protobuf/cmd/protoc-gen-go
 )
+
+replace github.com/MIERAI/api-factory/runtime => ./runtime

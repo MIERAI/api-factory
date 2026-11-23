@@ -17,7 +17,7 @@ import (
 // golang:<go.mod 的版本>-alpine 里编译 cmd/server,最终镜像 distroless static nonroot,只放服务器一个文件。
 // 项目的服务器运行时不读任何文件(建表 db/schema 由平台在部署前执行;没有 migrate 步骤),所以只复制二进制。
 //
-// 健康检查和指标由运行时(api-factory-runtime/server)提供,镜像只把端口定下来:
+// 健康检查和指标由运行时(runtime/server)提供,镜像只把端口定下来:
 //   PORT=8080          API + /livez(liveness) /readyz(readiness: 有 AMQP_URL 时拓扑声明好、消费循环订阅之前 503;
 //                      停机开始后 503) /healthz(数据库能 ping 通)
 //   HEALTHCHECK        docker / compose 用(k8s 不看): /server probe 请求自己的 /readyz(distroless 没有 shell / curl)
