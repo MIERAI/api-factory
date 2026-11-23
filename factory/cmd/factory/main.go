@@ -965,18 +965,21 @@ func cmdSeedVolume(args []string) error {
 	return nil
 }
 
-// cmdLoadgen: 压测用的请求(每个 API --per-api 个,参数从 --db 的真实数据抽样)→ JSON(k6 读)。只读。
+// cmdLoadgen: 压测用的请求(每个 API --per-api 个,参数从 --db 的真实数据抽样;写入 API: 新建 = 新的键,更新 / 删除 =
+// 已有的键,--skew 决定热键)→ JSON(k6 读,docs/loadgen.md)。只读(不写 --db)。
 func cmdLoadgen(args []string) error {
 	fs := flag.NewFlagSet("loadgen", flag.ExitOnError)
 	db := fs.String("db", "", "抽样用的库(只读)")
 	perAPI := fs.Int("per-api", 40, "每个 API 的请求数")
 	out := fs.String("out", "-", "输出文件(- = 标准输出)")
+	newOffset := fs.Int("new-offset", 0, "新建的请求的新行从第 (表的行数 + 1 + 这个数) 行起(同一个库造几份请求时错开,否则新的键重复)")
+	skew := fs.String("skew", "uniform", "已有的键怎么分到请求上: uniform(每个请求不同的键)| zipf:s(s>1,少数热键 + 长尾)| hot:N(都在前 N 个键上)")
 	_ = fs.Parse(args)
 	plan, err := ir.Load(ir.DefaultPath)
 	if err != nil {
 		return fmt.Errorf("IR not found (run factory prepare first): %w", err)
 	}
-	reqs, err := perf.LoadRequests(context.Background(), plan, *db, *perAPI)
+	reqs, err := perf.LoadRequests(context.Background(), plan, *db, *perAPI, *skew, *newOffset)
 	if err != nil {
 		return err
 	}
