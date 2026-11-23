@@ -3,7 +3,7 @@ module storefront.example/e2e/driver
 go 1.27.4
 
 require (
-	github.com/MIERAI/api-factory-runtime v0.5.1
+	github.com/MIERAI/api-factory-runtime v0.5.2
 	github.com/jackc/pgx/v5 v5.13.0
 	github.com/rabbitmq/amqp091-go v1.16.0
 )
