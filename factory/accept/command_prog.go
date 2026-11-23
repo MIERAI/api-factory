@@ -84,7 +84,7 @@ func runProg(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 	// 每组测试从新的随机初始状态开始: 前面的请求可能用完了某种行(例: 重新上架之后没有已下架的商品了)
 	for _, suite := range []func() []Result{e.faults, e.concurrency, e.replay} {
 		if err := e.load(); err != nil {
-			return append(results, Result{Spec: api.ID, Suite: "diff", Case: "R3-2 准备", Passed: false, Detail: "初始状态: " + err.Error()})
+			return append(results, diffResult(Result{Spec: api.ID, Suite: "diff", Case: "R3-2 准备", Passed: false, Detail: "初始状态: " + err.Error()}))
 		}
 		results = append(results, suite()...)
 	}
@@ -94,7 +94,7 @@ func runProg(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 // newProgEnv: 验证的环境(随机的初始状态已经灌好)。失败 → 结果。
 func newProgEnv(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API) (*progEnv, []Result) {
 	fail := func(format string, args ...any) []Result {
-		return []Result{{Spec: api.ID, Suite: "diff", Case: "R3-2 准备", Passed: false, Detail: fmt.Sprintf(format, args...)}}
+		return []Result{diffResult(Result{Spec: api.ID, Suite: "diff", Case: "R3-2 准备", Passed: false, Detail: fmt.Sprintf(format, args...)})}
 	}
 	h := fnv.New64a()
 	h.Write([]byte(api.ID + "/prog" + os.Getenv("FACTORY_DIFF_SEED")))
@@ -912,7 +912,7 @@ func (e *progEnv) step(name string, req map[string]any) (Result, command.ProgRes
 	var want command.ProgResult
 	bad, err := e.val.invalid(req)
 	if err != nil {
-		return Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: false, Detail: "请求: " + err.Error()}, want, reply{}
+		return diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: false, Detail: "请求: " + err.Error()}), want, reply{}
 	}
 	if bad {
 		want = command.ProgResult{Outcome: command.Invalid, Failed: -1}
@@ -925,7 +925,7 @@ func (e *progEnv) step(name string, req map[string]any) (Result, command.ProgRes
 	r := e.call(req, e.nowText(), 0)
 	db, err := e.readState()
 	if err != nil {
-		return Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: false, Detail: err.Error()}, want, r
+		return diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: false, Detail: err.Error()}), want, r
 	}
 	problems := e.diffState(model, db, true)
 	for i := range problems {
@@ -946,10 +946,10 @@ func (e *progEnv) step(name string, req map[string]any) (Result, command.ProgRes
 	desc := fmt.Sprintf("%s → %s", describeReq(req), outcomeText(want))
 	if len(problems) > 0 {
 		e.syncState(db)
-		return Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: false, Detail: desc + " | " + strings.Join(problems, " | ")}, want, r
+		return diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: false, Detail: desc + " | " + strings.Join(problems, " | ")}), want, r
 	}
 	e.state = model
-	return Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: true, Detail: desc}, want, r
+	return diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: true, Detail: desc}), want, r
 }
 
 func outcomeText(r command.ProgResult) string {
@@ -1063,13 +1063,13 @@ func (e *progEnv) diff() []Result {
 		req := e.find(a)
 		if req == nil { // 状态里没有合适的行了: 换一份新的随机初始状态再试
 			if err := e.load(); err != nil {
-				results = append(results, Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: false, Detail: "初始状态: " + err.Error()})
+				results = append(results, diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: false, Detail: "初始状态: " + err.Error()}))
 				continue
 			}
 			req = e.find(a)
 		}
 		if req == nil {
-			results = append(results, Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: true, Detail: "跳过: 造不出命中目标的请求"})
+			results = append(results, diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: true, Detail: "跳过: 造不出命中目标的请求"}))
 			continue
 		}
 		res, want, _ := e.step(name, req)
@@ -1105,7 +1105,7 @@ func (e *progEnv) diff() []Result {
 	if len(weak) > 0 {
 		text += fmt.Sprintf(" ✗ 少于 %d 次: %v", minOutcome, weak)
 	}
-	return append(results, Result{Spec: e.api.ID, Suite: "diff", Case: "覆盖条件(组合命令)", Passed: len(weak) == 0, Detail: text})
+	return append(results, diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: "覆盖条件(组合命令)", Passed: len(weak) == 0, Detail: text}))
 }
 
 // ---------------------------------------------------------------------------
@@ -1122,8 +1122,14 @@ func (e *progEnv) faults() []Result {
 		for rep := 1; rep <= reps; rep++ {
 			name := fmt.Sprintf("故障注入: 第 %d 个写操作之后失败 #%d", k, rep)
 			req := e.find(progAim{-1, command.OK})
+			for try := 0; req == nil && try < 3; try++ { // 这份随机初始状态里造不出来(例: 没有已下架的商品可以重新上架)→ 换一份
+				if err := e.load(); err != nil {
+					break
+				}
+				req = e.find(progAim{-1, command.OK})
+			}
 			if req == nil {
-				results = append(results, Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: false, Detail: "造不出全部成功的请求"})
+				results = append(results, diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: false, Detail: "造不出全部成功的请求"}))
 				continue
 			}
 			e.seq++
@@ -1133,7 +1139,7 @@ func (e *progEnv) faults() []Result {
 			r := e.call(req, e.nowText(), k)
 			db, err := e.readState()
 			if err != nil {
-				results = append(results, Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: false, Detail: err.Error()})
+				results = append(results, diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: false, Detail: err.Error()}))
 				continue
 			}
 			var problems []string
@@ -1154,8 +1160,7 @@ func (e *progEnv) faults() []Result {
 					problems = append(problems, fmt.Sprintf("回滚了却有 %d 条消息进了 outbox", len(rows)))
 				}
 			}
-			results = append(results, Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: len(problems) == 0,
-				Detail: describeReq(req) + " | " + strings.Join(append([]string{"回滚 ✓"}, problems...), " | ")})
+			results = append(results, diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: len(problems) == 0, Detail: describeReq(req) + " | " + strings.Join(append([]string{"回滚 ✓"}, problems...), " | ")}))
 		}
 	}
 	return results
@@ -1223,7 +1228,7 @@ func (e *progEnv) serial(req map[string]any, n int) ([]command.ProgResult, []*co
 // burst: 同一个请求同时发 concurrentN 个。spread = 选串行成功次数在中间的请求(条件更新: 一部分成功、一部分不满足)。
 func (e *progEnv) burst(name string, aim progAim, spread bool) Result {
 	fail := func(f string, a ...any) Result {
-		return Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: false, Detail: fmt.Sprintf(f, a...)}
+		return diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: false, Detail: fmt.Sprintf(f, a...)})
 	}
 	e.seq++
 	var req map[string]any
@@ -1334,9 +1339,9 @@ func (e *progEnv) burst(name string, aim progAim, spread bool) Result {
 		detail += fmt.Sprintf(" / 新建 = true %d", created)
 	}
 	if len(problems) > 0 {
-		return Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: false, Detail: detail + " | " + strings.Join(problems, " | ")}
+		return diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: false, Detail: detail + " | " + strings.Join(problems, " | ")})
 	}
-	return Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: true, Detail: detail}
+	return diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: true, Detail: detail})
 }
 
 func abs(x int) int {
@@ -1384,7 +1389,7 @@ func (e *progEnv) lockLoop(k int) Result {
 	op := e.ops[k]
 	name := fmt.Sprintf("并发: 乐观锁的重读循环(%s)", op.Name)
 	fail := func(f string, a ...any) Result {
-		return Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: false, Detail: fmt.Sprintf(f, a...)}
+		return diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: false, Detail: fmt.Sprintf(f, a...)})
 	}
 	total := lockWorkers * lockSuccesses
 	e.seq++
@@ -1407,7 +1412,7 @@ func (e *progEnv) lockLoop(k int) Result {
 		}
 	}
 	if req == nil {
-		return Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: true, Detail: "跳过: 重复执行会失败(条件被自己的效果变成假的),同一个版本号的并发已经检查"}
+		return diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: true, Detail: "跳过: 重复执行会失败(条件被自己的效果变成假的),同一个版本号的并发已经检查"})
 	}
 	_ = keyRow
 	var mu sync.Mutex
@@ -1470,9 +1475,9 @@ func (e *progEnv) lockLoop(k int) Result {
 	}
 	detail := fmt.Sprintf("%d 个写入方 × %d 次: 成功 %d / 尝试 %d(其余是版本冲突后重读)", lockWorkers, lockSuccesses, succ, attempts)
 	if len(problems) > 0 {
-		return Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: false, Detail: detail + " | " + strings.Join(problems, " | ")}
+		return diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: false, Detail: detail + " | " + strings.Join(problems, " | ")})
 	}
-	return Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: true, Detail: detail + ",版本号 = 初始 + 成功次数 ✓"}
+	return diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: true, Detail: detail + ",版本号 = 初始 + 成功次数 ✓"})
 }
 
 // withVersion: 请求的版本号换成模型里这一行现在的版本号。
@@ -1538,7 +1543,7 @@ func (e *progEnv) replay() []Result {
 	for _, aim := range []progAim{{idem, command.Created}, {idem, command.Hit}} {
 		req := e.find(aim)
 		if req == nil {
-			results = append(results, Result{Spec: e.api.ID, Suite: "diff", Case: "重放 " + aim.String(), Passed: false, Detail: "造不出这种请求"})
+			results = append(results, diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: "重放 " + aim.String(), Passed: false, Detail: "造不出这种请求"}))
 			continue
 		}
 		var first map[string]any
@@ -1558,6 +1563,7 @@ func (e *progEnv) replay() []Result {
 				}
 				if len(problems) > 0 {
 					res.Passed, res.Detail = false, res.Detail+" | "+strings.Join(problems, " | ")
+					res = diffResult(res) // 创建时是通过的(没有计数),现在是失败: 计入早停的计数
 				} else {
 					res.Detail += " | 和第一次相同 ✓"
 				}

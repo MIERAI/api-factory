@@ -93,7 +93,7 @@ func runMachine(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.
 		results = append(results, Result{Spec: s.ID(), Case: c.Name, Passed: ok, Detail: detail})
 	}
 	if err := e.setup(); err != nil {
-		return append(results, Result{Spec: api.ID, Suite: "diff", Case: "R5 准备", Passed: false, Detail: err.Error()}), nil
+		return append(results, diffResult(Result{Spec: api.ID, Suite: "diff", Case: "R5 准备", Passed: false, Detail: err.Error()})), nil
 	}
 	for _, suite := range []func() []Result{e.coverage, e.timeouts, e.walk, e.faults, e.concurrency} {
 		results = append(results, suite()...)
@@ -229,7 +229,7 @@ func (e *machEnv) step(name, typ, id string, data map[string]any, now time.Time)
 	got, err := e.deliver(typ, id, data, now, 0)
 	desc := fmt.Sprintf("%s %s → 模型 %s", typ, showData(data), machOutcome(want, dup))
 	if err != nil {
-		return Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: false, Detail: desc + " | " + err.Error()}, want
+		return diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: false, Detail: desc + " | " + err.Error()}), want
 	}
 	var problems []string
 	problems = append(problems, outcomeVs(want, dup, got)...)
@@ -244,9 +244,9 @@ func (e *machEnv) step(name, typ, id string, data map[string]any, now time.Time)
 	problems = append(problems, e.compare()...)
 	e.sent = append(e.sent, machSent{typ, id, data})
 	if len(problems) > 0 {
-		return Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: false, Detail: desc + " | 服务器 " + got.Outcome + " " + got.Business + " " + got.Error + " | " + strings.Join(problems, " | ")}, want
+		return diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: false, Detail: desc + " | 服务器 " + got.Outcome + " " + got.Business + " " + got.Error + " | " + strings.Join(problems, " | ")}), want
 	}
-	return Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: true, Detail: desc}, want
+	return diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: true, Detail: desc}), want
 }
 
 func machOutcome(r command.MachineResult, dup bool) string {
@@ -297,7 +297,7 @@ func (e *machEnv) tick(name string, now time.Time) (Result, []command.MachineRes
 	}
 	desc := fmt.Sprintf("超时 @%s → 模型 重发 %d / 期限 %d", now.Format("15:04:05.000000"), retried, deadlines)
 	if err != nil {
-		return Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: false, Detail: desc + " | " + err.Error()}, want
+		return diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: false, Detail: desc + " | " + err.Error()}), want
 	}
 	var problems []string
 	if got.Retried != retried || got.Deadlines != deadlines || len(got.Errors) > 0 {
@@ -310,9 +310,9 @@ func (e *machEnv) tick(name string, now time.Time) (Result, []command.MachineRes
 	problems = append(problems, e.msg.checkRows(emits, rows)...)
 	problems = append(problems, e.compare()...)
 	if len(problems) > 0 {
-		return Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: false, Detail: desc + " | " + strings.Join(problems, " | ")}, want
+		return diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: false, Detail: desc + " | " + strings.Join(problems, " | ")}), want
 	}
-	return Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: true, Detail: desc}, want
+	return diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: true, Detail: desc}), want
 }
 
 func showData(d map[string]any) string {
@@ -817,7 +817,7 @@ func (e *machEnv) coverage() []Result {
 	guards := map[string]int{}
 	for round := 0; round < machRounds; round++ {
 		if err := e.reset(); err != nil {
-			return append(results, Result{Spec: e.api.ID, Suite: "diff", Case: "R5 覆盖 准备", Passed: false, Detail: err.Error()})
+			return append(results, diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: "R5 覆盖 准备", Passed: false, Detail: err.Error()}))
 		}
 		now := e.t0.Add(time.Duration(round) * time.Hour)
 		type target struct {
@@ -835,7 +835,7 @@ func (e *machEnv) coverage() []Result {
 					}
 					k, err := e.entity(st.Name, now.Add(-time.Duration(e.rnd.Intn(20))*time.Second), int64(e.rnd.Intn(3)))
 					if err != nil {
-						return append(results, Result{Spec: e.api.ID, Suite: "diff", Case: "R5 覆盖 准备", Passed: false, Detail: err.Error()})
+						return append(results, diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: "R5 覆盖 准备", Passed: false, Detail: err.Error()}))
 					}
 					targets = append(targets, target{st.Name, r.Type, k, g})
 				}
@@ -886,7 +886,7 @@ func (e *machEnv) coverage() []Result {
 	if len(weak) > 0 {
 		text += " | 不足: " + strings.Join(weak, ", ")
 	}
-	return append(results, Result{Spec: e.api.ID, Suite: "diff", Case: "R5 覆盖条件", Passed: len(weak) == 0, Detail: text})
+	return append(results, diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: "R5 覆盖条件", Passed: len(weak) == 0, Detail: text}))
 }
 
 // ---------------------------------------------------------------------------
@@ -896,7 +896,7 @@ func (e *machEnv) coverage() []Result {
 func (e *machEnv) timeouts() []Result {
 	var results []Result
 	fail := func(err error) []Result {
-		return append(results, Result{Spec: e.api.ID, Suite: "diff", Case: "R5 超时 准备", Passed: false, Detail: err.Error()})
+		return append(results, diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: "R5 超时 准备", Passed: false, Detail: err.Error()}))
 	}
 	us := time.Microsecond
 	for _, st := range e.waiting() {
@@ -960,7 +960,7 @@ func (e *machEnv) timeouts() []Result {
 func (e *machEnv) walk() []Result {
 	var results []Result
 	if err := e.reset(); err != nil {
-		return []Result{{Spec: e.api.ID, Suite: "diff", Case: "R5 随机游走 准备", Passed: false, Detail: err.Error()}}
+		return []Result{diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: "R5 随机游走 准备", Passed: false, Detail: err.Error()})}
 	}
 	now := e.t0
 	initial := e.initial()
@@ -968,7 +968,7 @@ func (e *machEnv) walk() []Result {
 	for i := 0; i < machWalkStarts; i++ {
 		k, err := e.entity(initial, now, 0)
 		if err != nil {
-			return []Result{{Spec: e.api.ID, Suite: "diff", Case: "R5 随机游走 准备", Passed: false, Detail: err.Error()}}
+			return []Result{diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: "R5 随机游走 准备", Passed: false, Detail: err.Error()})}
 		}
 		keys = append(keys, k)
 	}
@@ -984,7 +984,7 @@ func (e *machEnv) walk() []Result {
 		if len(live) == 0 { // 全部到了终态: 再开始一个(开始 = 新建在初始状态)
 			k, err := e.entity(initial, now, 0)
 			if err != nil {
-				return append(results, Result{Spec: e.api.ID, Suite: "diff", Case: "R5 随机游走", Passed: false, Detail: err.Error()})
+				return append(results, diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: "R5 随机游走", Passed: false, Detail: err.Error()}))
 			}
 			keys = append(keys, k)
 			live = append(live, k)
@@ -1037,7 +1037,7 @@ func (e *machEnv) walk() []Result {
 	for _, k := range []string{"回答", "重投", "迟到 / 重发的回答", "超时"} {
 		parts = append(parts, fmt.Sprintf("%s %d", k, counts[k]))
 	}
-	return append(results, Result{Spec: e.api.ID, Suite: "diff", Case: "R5 随机游走(步骤)", Passed: true, Detail: strings.Join(parts, " / ")})
+	return append(results, diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: "R5 随机游走(步骤)", Passed: true, Detail: strings.Join(parts, " / ")}))
 }
 
 // initial: 初始状态(开始的组合命令新建实体时的状态 = 第一个转移的 从 之外没有入边的等待状态;没有 → 第一个等待状态)。
@@ -1066,7 +1066,7 @@ func (e *machEnv) initial() string {
 func (e *machEnv) faults() []Result {
 	var results []Result
 	fail := func(err error) []Result {
-		return append(results, Result{Spec: e.api.ID, Suite: "diff", Case: "R5 故障 准备", Passed: false, Detail: err.Error()})
+		return append(results, diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: "R5 故障 准备", Passed: false, Detail: err.Error()}))
 	}
 	check := func(name string, extra []string) {
 		problems := append([]string{}, extra...)
@@ -1074,7 +1074,7 @@ func (e *machEnv) faults() []Result {
 			problems = append(problems, fmt.Sprintf("回滚之后 outbox 里有 %d 条消息 %v", len(rows), err))
 		}
 		problems = append(problems, e.compare()...)
-		results = append(results, Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: len(problems) == 0, Detail: strings.Join(append([]string{"回滚 ✓"}, problems...), " | ")})
+		results = append(results, diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: len(problems) == 0, Detail: strings.Join(append([]string{"回滚 ✓"}, problems...), " | ")}))
 	}
 	for _, t := range e.m.Transitions {
 		for round := 0; round < machRounds; round++ {
@@ -1149,7 +1149,7 @@ func (e *machEnv) faults() []Result {
 func (e *machEnv) concurrency() []Result {
 	var results []Result
 	fail := func(err error) []Result {
-		return append(results, Result{Spec: e.api.ID, Suite: "diff", Case: "R5 并发 准备", Passed: false, Detail: err.Error()})
+		return append(results, diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: "R5 并发 准备", Passed: false, Detail: err.Error()}))
 	}
 	finish := func(name string, wantEmits []command.Msg, extra []string) {
 		problems := append([]string{}, extra...)
@@ -1159,7 +1159,7 @@ func (e *machEnv) concurrency() []Result {
 		}
 		problems = append(problems, e.msg.checkRows(wantEmits, rows)...)
 		problems = append(problems, e.compare()...)
-		results = append(results, Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: len(problems) == 0, Detail: strings.Join(append([]string{"串行等价 ✓"}, problems...), " | ")})
+		results = append(results, diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: len(problems) == 0, Detail: strings.Join(append([]string{"串行等价 ✓"}, problems...), " | ")}))
 	}
 	for _, t := range e.m.Transitions {
 		for round := 0; round < machRounds; round++ {
@@ -1272,8 +1272,7 @@ func (e *machEnv) concurrency() []Result {
 			}
 			e.proc[e.queue(t.On)+"/"+id] = true
 			problems := append(extra, e.compare()...)
-			results = append(results, Result{Spec: e.api.ID, Suite: "diff", Case: fmt.Sprintf("R5 并发: %s 和超时扫描同时", t.On), Passed: len(problems) == 0,
-				Detail: strings.Join(append([]string{"串行等价 ✓"}, problems...), " | ")})
+			results = append(results, diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: fmt.Sprintf("R5 并发: %s 和超时扫描同时", t.On), Passed: len(problems) == 0, Detail: strings.Join(append([]string{"串行等价 ✓"}, problems...), " | ")}))
 		}
 	}
 	// (d) 两个超时扫描同时 → 每个到期的实体只重发一次
@@ -1306,8 +1305,7 @@ func (e *machEnv) concurrency() []Result {
 			rows, _ := e.msg.newRows()
 			extra = append(extra, e.msg.checkRowsSet(msgsOf(want), rows)...)
 			problems := append(extra, e.compare()...)
-			results = append(results, Result{Spec: e.api.ID, Suite: "diff", Case: fmt.Sprintf("R5 并发: %s 两个超时扫描同时", st.Name), Passed: len(problems) == 0,
-				Detail: strings.Join(append([]string{"每个实体一次 ✓"}, problems...), " | ")})
+			results = append(results, diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: fmt.Sprintf("R5 并发: %s 两个超时扫描同时", st.Name), Passed: len(problems) == 0, Detail: strings.Join(append([]string{"每个实体一次 ✓"}, problems...), " | ")}))
 		}
 	}
 	return results
@@ -1395,7 +1393,7 @@ func runMachineMQ(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *i
 		return nil
 	}
 	fail := func(f string, a ...any) []Result {
-		return []Result{{Spec: api.ID, Suite: "diff", Case: "RabbitMQ: 准备", Passed: false, Detail: fmt.Sprintf(f, a...)}}
+		return []Result{diffResult(Result{Spec: api.ID, Suite: "diff", Case: "RabbitMQ: 准备", Passed: false, Detail: fmt.Sprintf(f, a...)})}
 	}
 	conn, err := amqp.Dial(amqpURL)
 	if err != nil {
@@ -1466,8 +1464,7 @@ func runMachineMQ(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *i
 			problems = append(problems, fmt.Sprintf("状态: 期待 %s,数据库 %d", st, cur))
 		}
 		n0, _ := e.outboxCount()
-		out = append(out, Result{Spec: api.ID, Suite: "diff", Case: fmt.Sprintf("RabbitMQ: %s → 转移到 %s → 发出的消息经中继发出", c.Message.Type, st),
-			Passed: len(problems) == 0, Detail: strings.Join(append([]string{"✓"}, problems...), " | ")})
+		out = append(out, diffResult(Result{Spec: api.ID, Suite: "diff", Case: fmt.Sprintf("RabbitMQ: %s → 转移到 %s → 发出的消息经中继发出", c.Message.Type, st), Passed: len(problems) == 0, Detail: strings.Join(append([]string{"✓"}, problems...), " | ")}))
 		problems = publish() // 同一个 id 再发
 		time.Sleep(1500 * time.Millisecond)
 		if k, _ := e.outboxCount(); k != n0 {
@@ -1476,8 +1473,7 @@ func runMachineMQ(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *i
 		if p, _ := e.processed(); len(p) != 1 {
 			problems = append(problems, fmt.Sprintf("去重表 %d 行(应该 1)", len(p)))
 		}
-		out = append(out, Result{Spec: api.ID, Suite: "diff", Case: fmt.Sprintf("RabbitMQ: %s 同一个 id 再发 → 只处理一次", c.Message.Type),
-			Passed: len(problems) == 0, Detail: strings.Join(append([]string{"duplicate ✓"}, problems...), " | ")})
+		out = append(out, diffResult(Result{Spec: api.ID, Suite: "diff", Case: fmt.Sprintf("RabbitMQ: %s 同一个 id 再发 → 只处理一次", c.Message.Type), Passed: len(problems) == 0, Detail: strings.Join(append([]string{"duplicate ✓"}, problems...), " | ")}))
 	}
 	return out
 }

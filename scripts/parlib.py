@@ -70,10 +70,14 @@ class Workers:
             self.q.put(w)
 
 
-def accept(workers, server, seed="", specs=None):
-    """在一个 worker 上跑验收,返回输出。specs: 式样书目录(None = 全部)。"""
+def accept(workers, server, seed="", specs=None, stop_after=0, extra_env=None):
+    """在一个 worker 上跑验收,返回输出。specs: 式样书目录(None = 全部)。
+    stop_after > 0: 失败的差分用例够这么多个就停止(早停,margin 用;factory/accept/early.go)。"""
     with workers.take() as (url, shards):
-        env = {**os.environ, "FACTORY_DIFF_SEED": seed, "FACTORY_SHARDS": shards}
+        env = {**os.environ, "FACTORY_DIFF_SEED": seed, "FACTORY_SHARDS": shards,
+               "FACTORY_ACCEPT_STOP_AFTER": str(stop_after), **(extra_env or {})}
+        # 验收的工厂进程大多是参考求值器的计算(分配很多);GC 少做一些: CPU 少 ~30%(很多 worker 同时跑时 CPU 是瓶颈)
+        env.setdefault("GOGC", "400")
         cmd = [FACTORY, "serve-test", "--server", server, "--db", url, "--", FACTORY, "accept", "--db", url]
         if specs:
             cmd.append(specs)

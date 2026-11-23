@@ -311,7 +311,7 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 		return nil
 	}
 	fail := func(format string, args ...any) []Result {
-		return []Result{{Spec: api.ID, Suite: "diff", Case: "准备", Passed: false, Detail: fmt.Sprintf(format, args...)}}
+		return []Result{diffResult(Result{Spec: api.ID, Suite: "diff", Case: "准备", Passed: false, Detail: fmt.Sprintf(format, args...)})}
 	}
 	h := fnv.New64a()
 	h.Write([]byte(api.ID + os.Getenv("FACTORY_DIFF_SEED"))) // 换种子: 检查覆盖不是靠运气
@@ -418,14 +418,14 @@ func runDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API
 		} else {
 			text += fmt.Sprintf(" / 输入只有请求固定的列: %d 份数据累计", rounds)
 		}
-		return append(results, Result{Spec: api.ID, Suite: "diff", Case: "覆盖条件", Passed: ok, Detail: text})
+		return append(results, diffResult(Result{Spec: api.ID, Suite: "diff", Case: "覆盖条件", Passed: ok, Detail: text}))
 	}
 	results, cov := env.measure(url, reqs, inserted, rejected, "")
 	ok, text := cov.verdict(env)
 	if attempts > 1 {
 		text += fmt.Sprintf(" / 数据生成 %d 次(覆盖条件不满足时换种子、数据加倍重来;最后 %d 倍)", attempts, env.scale)
 	}
-	return append(results, Result{Spec: api.ID, Suite: "diff", Case: "覆盖条件", Passed: ok, Detail: text})
+	return append(results, diffResult(Result{Spec: api.ID, Suite: "diff", Case: "覆盖条件", Passed: ok, Detail: text}))
 }
 
 // injectRemoval: 定向造数据(多版本的来源)。没有输入的 API 只有一种请求,删除 / 逻辑删除要看得出来,
@@ -618,16 +618,16 @@ func (env *diffEnv) measure(url string, reqs []core.Params, inserted, rejected i
 		default:
 			hits["n"]++
 		}
-		results = append(results, Result{Spec: api.ID, Suite: "diff", Case: name, Passed: ok, Detail: detail})
+		results = append(results, diffResult(Result{Spec: api.ID, Suite: "diff", Case: name, Passed: ok, Detail: detail}))
 	}
 	if ex.DiffExtra != nil { // 出口自己的用例(分页: 途中改条件 / 非法 token …)
 		for _, c := range ex.DiffExtra(env) {
 			if c.Fail != "" {
-				results = append(results, Result{Spec: api.ID, Suite: "diff", Case: prefix + c.Name, Passed: false, Detail: c.Fail})
+				results = append(results, diffResult(Result{Spec: api.ID, Suite: "diff", Case: prefix + c.Name, Passed: false, Detail: c.Fail}))
 				continue
 			}
 			ok, detail := runCase(url, c.Case, &api.Response)
-			results = append(results, Result{Spec: api.ID, Suite: "diff", Case: prefix + c.Name, Passed: ok, Detail: detail})
+			results = append(results, diffResult(Result{Spec: api.ID, Suite: "diff", Case: prefix + c.Name, Passed: ok, Detail: detail}))
 		}
 	}
 	cov := coverage{inserted: inserted, rejected: rejected, anchors: len(env.anchors), hits: hits}

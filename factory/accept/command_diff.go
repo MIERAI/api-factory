@@ -60,7 +60,7 @@ type cmdEnv struct {
 
 func runCommandDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api *ir.API) []Result {
 	fail := func(format string, args ...any) []Result {
-		return []Result{{Spec: api.ID, Suite: "diff", Case: "准备", Passed: false, Detail: fmt.Sprintf(format, args...)}}
+		return []Result{diffResult(Result{Spec: api.ID, Suite: "diff", Case: "准备", Passed: false, Detail: fmt.Sprintf(format, args...)})}
 	}
 	conn := d.main
 	h := fnv.New64a()
@@ -438,7 +438,7 @@ func (e *cmdEnv) step(url string, i int, in intent) stepResult {
 	req, mreq := e.request(in, now)
 	name := fmt.Sprintf("请求 #%02d %s", i+1, in)
 	res := func(ok bool, detail string, o command.Outcome) stepResult {
-		return stepResult{res: Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: ok, Detail: detail}, outcome: o}
+		return stepResult{res: diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: ok, Detail: detail}), outcome: o}
 	}
 	if req == nil {
 		return res(true, "跳过: 造不出这种请求(状态里没有合适的行)", "")
@@ -759,5 +759,5 @@ func (e *cmdEnv) coverage(counts map[command.Outcome]int) Result {
 	if len(weak) > 0 {
 		text += fmt.Sprintf(" ✗ 少于 %d 次: %v", minOutcome, weak)
 	}
-	return Result{Spec: e.api.ID, Suite: "diff", Case: "覆盖条件", Passed: len(weak) == 0, Detail: text}
+	return diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: "覆盖条件", Passed: len(weak) == 0, Detail: text})
 }

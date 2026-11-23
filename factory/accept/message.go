@@ -558,6 +558,7 @@ type handlerEnv struct {
 	ihome map[string][2]string   // 每项: 元素的字段 → 表.列
 	binds map[string][][2]string // 字段(顶层 / 元素)→ 写进 / 按它找的全部 表.列
 	item  *ir.Message
+	force map[string]any // 抽样时固定的顶层字段(如果 的边界: diff 的 "if:" 目标)
 }
 
 type sentMsg struct {
@@ -598,7 +599,7 @@ func runHandlerDiff(ctx context.Context, d *dbs, url string, plan *ir.Plan, api 
 	var results []Result
 	for _, suite := range []func() []Result{h.diff, h.faults, h.concurrency} {
 		if err := h.reload(); err != nil {
-			return append(results, Result{Spec: api.ID, Suite: "diff", Case: "R4 准备", Passed: false, Detail: err.Error()})
+			return append(results, diffResult(Result{Spec: api.ID, Suite: "diff", Case: "R4 准备", Passed: false, Detail: err.Error()}))
 		}
 		results = append(results, suite()...)
 	}
@@ -629,7 +630,14 @@ func (h *handlerEnv) reload() error {
 // 这些列取同一批值(不然扣款记录和账户永远对不上,命中 / 跳过 / 墓碑的路径造不出来)。没有外键的表之间才需要。
 func (h *handlerEnv) align() error {
 	changed := false
-	for _, bs := range h.binds {
+	// 按键的顺序(map 的遍历顺序是随机的,循环里用了 h.rnd: 同一个种子要造出同样的数据)
+	bindKeys := make([]string, 0, len(h.binds))
+	for k := range h.binds {
+		bindKeys = append(bindKeys, k)
+	}
+	sort.Strings(bindKeys)
+	for _, key := range bindKeys {
+		bs := h.binds[key]
 		var src *[2]string
 		for i, b := range bs {
 			if pk := h.cat[b[0]].PK; len(pk) == 1 && pk[0] == b[1] {
@@ -664,7 +672,8 @@ func (h *handlerEnv) align() error {
 		}
 	}
 	// 顶层字段写进组合主键的一列(例: debits 的 transfer_id): 一部分行取同一个值(一笔转账的多个账户 → 每项 的第 2 项)
-	for key, bs := range h.binds {
+	for _, key := range bindKeys {
+		bs := h.binds[key]
 		if !strings.HasPrefix(key, "input:") {
 			continue
 		}
@@ -710,6 +719,10 @@ func (h *handlerEnv) sampleMsg() map[string]any {
 	var anchorTable string
 	for _, f := range h.api.Request.Fields {
 		if f.List {
+			continue
+		}
+		if v, ok := h.force[f.Name]; ok {
+			req[f.Name] = h.jsonOf(&f, v)
 			continue
 		}
 		hm, ok := h.home[f.Name]
@@ -826,7 +839,13 @@ func (h *handlerEnv) sampleMsg() map[string]any {
 				cands = append(cands, h.helper[hm[0]].pools[hm[1]]...)
 			}
 			if target != nil {
-				for _, c := range target {
+				cols := make([]string, 0, len(target)) // 按列名的顺序(map 的遍历顺序随机 → 同一个种子造出不同的值)
+				for c := range target {
+					cols = append(cols, c)
+				}
+				sort.Strings(cols)
+				for _, col := range cols {
+					c := target[col]
 					if n, err := strconv.ParseInt(fmt.Sprint(c), 10, 64); err == nil && n > 0 {
 						cands = append(cands, n, n+1, n-1, n, n/2+1)
 					}
@@ -916,6 +935,7 @@ func (h *handlerEnv) predict(id string, req map[string]any) (*command.State, com
 }
 
 // step: 投递一条消息: 模型 → 服务器 → 结果 / 表 / outbox / 去重表。不一致 → 模型同步成数据库。
+// step 的结果不经过 diffResult(早停的计数): 调用的地方有的直接输出(在那里 diffResult),有的折进别的用例(重试)。
 func (h *handlerEnv) step(name, id string, req map[string]any) (Result, command.HandlerResult, bool) {
 	h.seq++
 	model, want, dup := h.predict(id, req)
@@ -1097,6 +1117,17 @@ func (h *handlerEnv) findFresh(aim string) map[string]any {
 	return nil
 }
 
+// findValid: 任意一条合法的消息(按校验规则;如果 的边界的消息按模型处理不成功时用)。
+func (h *handlerEnv) findValid() map[string]any {
+	for i := 0; i < progSamples; i++ {
+		req := h.sampleMsg()
+		if bad, err := h.val.invalid(req); err == nil && !bad {
+			return req
+		}
+	}
+	return nil
+}
+
 // find: 抽样到命中目标的消息。
 func (h *handlerEnv) find(aim string) map[string]any {
 	for i := 0; i < progSamples*2; i++ {
@@ -1123,6 +1154,23 @@ func (h *handlerEnv) diff() []Result {
 	for len(plan) < handlerSteps {
 		plan = append(plan, needs[h.rnd.Intn(len(needs))])
 	}
+	// 如果 的条件里和常量比较的字段: 刚好等于常量的消息 minOutcome+2 条。
+	// 随机抽样只有约 1/8 的机会取到边界,>= 和 > 的区别在一个种子下可能只出现 2 次(确定的顺序之后暴露)
+	// (先找按模型处理成功的;造不出来就要任意一条合法的。不进覆盖条件: 边界上的值可能按设计就不会成功)
+	seenIf := map[string]bool{}
+	for _, f := range h.api.Request.Fields {
+		c := h.ifAnchors(f.Name)
+		for k := 1; k < len(c); k += 3 { // 常量 - 1 / 常量 / 常量 + 1 → 常量
+			a := fmt.Sprintf("if:%s=%v", f.Name, c[k])
+			if seenIf[a] {
+				continue
+			}
+			seenIf[a] = true
+			for i := 0; i <= minOutcome+1; i++ {
+				plan = append(plan, a)
+			}
+		}
+	}
 	for i := 0; i < minOutcome+4; i++ {
 		plan = append(plan, "redeliver", "resend")
 	}
@@ -1148,7 +1196,7 @@ func (h *handlerEnv) diff() []Result {
 				} else if r := h.find(command.HandlerOK); r != nil { // 这份状态里还没有处理过的: 先处理一条,再重投它
 					pid := message.NewID()
 					res, _, _ := h.step(name+" (先处理)", pid, r)
-					results = append(results, res)
+					results = append(results, diffResult(res))
 					h.sent = append(h.sent, sentMsg{id: pid, data: r})
 					prev = sentMsg{id: pid, data: r}
 				}
@@ -1161,22 +1209,33 @@ func (h *handlerEnv) diff() []Result {
 			if aim == "redeliver" || aim == "resend" {
 				aim = command.HandlerOK
 			}
-			req = h.find(aim)
-			if req == nil {
-				if err := h.reload(); err != nil {
-					results = append(results, Result{Spec: h.api.ID, Suite: "diff", Case: name, Passed: false, Detail: err.Error()})
-					continue
-				}
-				req = h.find(aim)
+			target := aim
+			if strings.HasPrefix(aim, "if:") { // 如果 的边界: 这个字段固定为常量,处理成功的消息
+				f, v, _ := strings.Cut(strings.TrimPrefix(aim, "if:"), "=")
+				n, _ := strconv.ParseInt(v, 10, 64)
+				h.force, target = map[string]any{f: n}, command.HandlerOK
+			}
+			req = h.find(target)
+			if req == nil && h.force != nil {
+				req = h.findValid()
 			}
 			if req == nil {
-				results = append(results, Result{Spec: h.api.ID, Suite: "diff", Case: name, Passed: true, Detail: "跳过: 造不出命中目标的消息"})
+				if err := h.reload(); err != nil {
+					h.force = nil
+					results = append(results, diffResult(Result{Spec: h.api.ID, Suite: "diff", Case: name, Passed: false, Detail: err.Error()}))
+					continue
+				}
+				req = h.find(target)
+			}
+			h.force = nil
+			if req == nil {
+				results = append(results, diffResult(Result{Spec: h.api.ID, Suite: "diff", Case: name, Passed: true, Detail: "跳过: 造不出命中目标的消息"}))
 				continue
 			}
 			id = message.NewID()
 		}
 		res, want, dup := h.step(name, id, req)
-		results = append(results, res)
+		results = append(results, diffResult(res))
 		h.sent = append(h.sent, sentMsg{id: id, data: req})
 		switch {
 		case dup:
@@ -1185,6 +1244,7 @@ func (h *handlerEnv) diff() []Result {
 			if aim == "resend" {
 				counts["resend"]++
 			}
+
 			for _, a := range needs {
 				if hitsAim(want, a) {
 					counts[a]++
@@ -1203,7 +1263,7 @@ func (h *handlerEnv) diff() []Result {
 	if len(weak) > 0 {
 		text += fmt.Sprintf(" ✗ 少于 %d 次: %v", minOutcome, weak)
 	}
-	return append(results, Result{Spec: h.api.ID, Suite: "diff", Case: "覆盖条件(消息处理器)", Passed: len(weak) == 0, Detail: text})
+	return append(results, diffResult(Result{Spec: h.api.ID, Suite: "diff", Case: "覆盖条件(消息处理器)", Passed: len(weak) == 0, Detail: text}))
 }
 
 // faults: 第 k 个写操作之后失败 → 重试,什么都不变;同一条消息再投 → 处理一次。
@@ -1225,7 +1285,7 @@ func (h *handlerEnv) faults() []Result {
 			}
 			if req == nil {
 				if k == 1 {
-					results = append(results, Result{Spec: h.api.ID, Suite: "diff", Case: name, Passed: false, Detail: "造不出成功的消息"})
+					results = append(results, diffResult(Result{Spec: h.api.ID, Suite: "diff", Case: name, Passed: false, Detail: "造不出成功的消息"}))
 				}
 				continue
 			}
@@ -1233,7 +1293,7 @@ func (h *handlerEnv) faults() []Result {
 			h.seq++
 			got, err := h.m.deliver(h.m.envelope(id, req), h.nowText(), k)
 			if err != nil {
-				results = append(results, Result{Spec: h.api.ID, Suite: "diff", Case: name, Passed: false, Detail: err.Error()})
+				results = append(results, diffResult(Result{Spec: h.api.ID, Suite: "diff", Case: name, Passed: false, Detail: err.Error()}))
 				continue
 			}
 			var problems []string
@@ -1242,7 +1302,7 @@ func (h *handlerEnv) faults() []Result {
 			}
 			db, err := h.readState()
 			if err != nil {
-				results = append(results, Result{Spec: h.api.ID, Suite: "diff", Case: name, Passed: false, Detail: err.Error()})
+				results = append(results, diffResult(Result{Spec: h.api.ID, Suite: "diff", Case: name, Passed: false, Detail: err.Error()}))
 				continue
 			}
 			if d := h.diffState(h.state, db, false); len(d) > 0 {
@@ -1260,8 +1320,7 @@ func (h *handlerEnv) faults() []Result {
 			if !res.Passed {
 				problems = append(problems, "重试: "+res.Detail)
 			}
-			results = append(results, Result{Spec: h.api.ID, Suite: "diff", Case: name, Passed: len(problems) == 0,
-				Detail: describeReq(req) + " | " + strings.Join(append([]string{"回滚 + 重试 ✓"}, problems...), " | ")})
+			results = append(results, diffResult(Result{Spec: h.api.ID, Suite: "diff", Case: name, Passed: len(problems) == 0, Detail: describeReq(req) + " | " + strings.Join(append([]string{"回滚 + 重试 ✓"}, problems...), " | ")}))
 		}
 	}
 	return results
@@ -1274,7 +1333,7 @@ func (h *handlerEnv) concurrency() []Result {
 		name := fmt.Sprintf("并发: 同一条消息同时投 %d 次 #%d", concurrentMsgs, rep)
 		req := h.findFresh(command.HandlerOK)
 		if req == nil {
-			results = append(results, Result{Spec: h.api.ID, Suite: "diff", Case: name, Passed: false, Detail: "造不出成功的消息"})
+			results = append(results, diffResult(Result{Spec: h.api.ID, Suite: "diff", Case: name, Passed: false, Detail: "造不出成功的消息"}))
 			continue
 		}
 		id := message.NewID()
@@ -1297,7 +1356,7 @@ func (h *handlerEnv) concurrency() []Result {
 		problems = append(problems, h.m.checkRows(want.Emits, rows)...)
 		h.syncState(db)
 		h.proc[id] = true
-		results = append(results, Result{Spec: h.api.ID, Suite: "diff", Case: name, Passed: len(problems) == 0, Detail: strings.Join(append([]string{"只处理一次 ✓"}, problems...), " | ")})
+		results = append(results, diffResult(Result{Spec: h.api.ID, Suite: "diff", Case: name, Passed: len(problems) == 0, Detail: strings.Join(append([]string{"只处理一次 ✓"}, problems...), " | ")}))
 	}
 	for rep := 1; rep <= 2; rep++ {
 		name := fmt.Sprintf("并发: 不同的消息同时 %d 条 #%d", concurrentMsgs, rep)
@@ -1353,7 +1412,7 @@ func (h *handlerEnv) concurrency() []Result {
 		}
 		_, _ = h.m.newRows()
 		h.syncState(db)
-		results = append(results, Result{Spec: h.api.ID, Suite: "diff", Case: name, Passed: len(problems) == 0, Detail: strings.Join(append([]string{fmt.Sprintf("%d 条 ✓", len(reqs))}, problems...), " | ")})
+		results = append(results, diffResult(Result{Spec: h.api.ID, Suite: "diff", Case: name, Passed: len(problems) == 0, Detail: strings.Join(append([]string{fmt.Sprintf("%d 条 ✓", len(reqs))}, problems...), " | ")}))
 	}
 	return results
 }

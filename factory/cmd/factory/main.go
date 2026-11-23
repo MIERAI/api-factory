@@ -431,6 +431,9 @@ func cmdAccept(args []string) error {
 		}
 		fmt.Printf("  %s [%s] %s — %s\n", mark, label, r.Case, r.Detail)
 	}
+	if stopped, n := accept.EarlyStopped(); stopped {
+		fmt.Printf("  ⏹ 早停: 失败的差分用例够 %d 个了(FACTORY_ACCEPT_STOP_AFTER),剩下的用例没有执行\n", n)
+	}
 	if failed > 0 {
 		return fmt.Errorf("acceptance failed: %d/%d case(s) (人写 %d / 自动 %d / 差分 %d)", failed, len(results), human, auto, diff)
 	}

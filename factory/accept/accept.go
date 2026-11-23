@@ -31,6 +31,8 @@ type Result struct {
 	Case   string
 	Passed bool
 	Detail string
+
+	counted bool // 经过了 diffResult 的失败(早停的计数,early.go)
 }
 
 // LoadFixtures: 只灌入式样书例子的准备数据(不执行用例)。影子对比 / 手动调试用。
@@ -54,7 +56,17 @@ func LoadFixtures(ctx context.Context, db string, plan *ir.Plan, specs []*spec.S
 }
 
 // Run 对每份式样书灌入 fixture 并执行用例。baseURL 是被测服务器,fixturesDB 只用来灌数据。
-func Run(ctx context.Context, baseURL, fixturesDB string, plan *ir.Plan, specs []*spec.Spec) ([]Result, error) {
+func Run(ctx context.Context, baseURL, fixturesDB string, plan *ir.Plan, specs []*spec.Spec) (results []Result, err error) {
+	earlyBegin()
+	defer func() { // 早停(early.go): 失败的差分用例够数了 → 到此为止,当前这份式样书里已经失败的差分用例也算进结果
+		if r := recover(); r != nil {
+			if _, ok := r.(earlyStop); !ok {
+				panic(r)
+			}
+			results, err = append(results, early.pending...), nil
+			early.stopped = true
+		}
+	}()
 	conn, err := connect(ctx, fixturesDB)
 	if err != nil {
 		return nil, fmt.Errorf("connect db: %w", err)
@@ -71,8 +83,8 @@ func Run(ctx context.Context, baseURL, fixturesDB string, plan *ir.Plan, specs [
 		apis[plan.APIs[i].ID] = &plan.APIs[i]
 	}
 
-	var results []Result
 	for _, s := range specs {
+		from := len(results) // 这份式样书的结果从这里开始(早停的核对: early.go)
 		api, ok := apis[s.ID()]
 		if !ok {
 			return nil, fmt.Errorf("%s: not in the IR (run factory prepare first)", s.ID())
@@ -87,6 +99,9 @@ func Run(ctx context.Context, baseURL, fixturesDB string, plan *ir.Plan, specs [
 				return nil, err
 			}
 			results = append(results, rs...)
+			if err := earlyCheck(s.ID(), results[from:]); err != nil {
+				return nil, err
+			}
 			continue
 		}
 		out := &api.Response
@@ -130,6 +145,9 @@ func Run(ctx context.Context, baseURL, fixturesDB string, plan *ir.Plan, specs [
 		}
 		// 差分测试(随机数据 + 参考求值器)
 		results = append(results, runDiff(ctx, d, url, plan, api)...)
+		if err := earlyCheck(s.ID(), results[from:]); err != nil {
+			return nil, err
+		}
 	}
 	return results, nil
 }
