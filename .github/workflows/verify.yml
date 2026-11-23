@@ -1,4 +1,4 @@
-# 阶段 3: 代码的 PR(生成物 / 工厂本身)。生成物是最新的 + 编译 + 单元测试 + 验收(3 个种子)+ 变异余量
+# 阶段 3: 代码的 PR(生成物 / 工厂本身)。生成物是最新的 + 编译 + 单元测试 + 验收(3 个种子,每个种子一个 job)+ 变异余量
 # 只改了 design/ 的 PR 由 spec-pr 负责(生成物还没生成,这里会说"不是最新的")
 # 变异余量按变异分成 4 个并行 job(分片合起来 = 全部变异,判定不变)。PR 跑 1 个种子,release(合并到 main)跑 3 个;
 # 两者都用结果缓存 + 早停(每个变异差分失败够 3 个就停)。每晚 3 个种子: margin-nightly.yml
@@ -26,7 +26,27 @@ jobs:
         uses: ./.github/actions/setup
       - if: steps.scope.outputs.code == '1'
         run: scripts/ci/verify.sh
-        env: { SKIP_MARGIN: "1" }
+        env: { SKIP_MARGIN: "1", SKIP_ACCEPT: "1" }
+  accept:          # 验收 3 个种子: 每个种子一个并行 job(以前在 verify 里串在一起,PR 的关键路径)
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        seed: [default, s1, s2]
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, ref: "${{ inputs.ref }}" }
+      - name: 只改了式样书?
+        id: scope
+        run: |
+          if [ "${{ github.event_name }}" != pull_request ]; then echo "code=1" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if git -c core.quotePath=false diff --name-only origin/${{ github.base_ref }}...HEAD | grep -qv '^design/'; then echo "code=1" >> "$GITHUB_OUTPUT"; fi
+      - if: steps.scope.outputs.code == '1'
+        uses: ./.github/actions/setup
+      - if: steps.scope.outputs.code == '1'
+        run: scripts/ci/accept.sh
+        env: { ACCEPT_SEED: "${{ matrix.seed }}" }
   margin:
     runs-on: ubuntu-latest
     timeout-minutes: 50

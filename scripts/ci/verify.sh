@@ -14,7 +14,12 @@ uptodate() {
 }
 stage "② 生成物是最新的" uptodate
 stage "②' 迁移(编号递增 / Up+Down / 只追加 / 和 db/schema 无漂移)" scripts/ci/migrations-check.sh
-stage "③ 编译 + 单元测试 + 验收(3 个种子)" bash -c "make --no-print-directory accept SEEDS=',s1,s2' 2>&1 | grep -v '^ok\|no test files' | tee .factory/accept.txt; exit \${PIPESTATUS[0]}"
+# 验收: CI 上是另外的并行 job(scripts/ci/accept.sh,每个种子一个);本地模拟(sim.sh)不设 SKIP_ACCEPT 时在这里跑 3 个种子
+if [[ -n ${SKIP_ACCEPT:-} ]]; then
+  stage "③ 编译 + 单元测试(验收按种子分成并行 job)" make --no-print-directory build test
+else
+  stage "③ 编译 + 单元测试 + 验收(3 个种子)" bash -c "make --no-print-directory accept SEEDS=',s1,s2' 2>&1 | grep -v '^ok\|no test files' | tee .factory/accept.txt; exit \${PIPESTATUS[0]}"
+fi
 # 变异余量: CI 上是另外的并行 job(scripts/ci/margin.sh,按变异分片);本地模拟(sim.sh)不设 SKIP_MARGIN 时在这里跑全部
 if [[ -z ${SKIP_MARGIN:-} ]]; then
   stage "④ 变异余量(margin)" bash -c "make --no-print-directory margin 2>&1 | tee .factory/margin.txt; exit \${PIPESTATUS[0]}"
