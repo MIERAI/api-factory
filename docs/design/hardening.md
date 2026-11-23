@@ -277,8 +277,8 @@ CEL 的 id 写成 `关系名.参数…`,编译器从 proto 读回 IR(`Message.Re
 | | 以前 | 现在 | 做法 |
 |---|---|---|---|
 | 编译 | 142–212 s | 7–10 s | 变异体合编(`factory/mutant`): 所有变异编进一个服务器,`FACTORY_MUTANT=<序号>` 选择;单元测试只跑变异所在的包,测试二进制每包编译一次 |
-| 验收(3 种子) | 404–532 s | 261 s | 早停: 一个变异的差分用例失败够 3 个就停(`FACTORY_ACCEPT_STOP_AFTER`,`factory/accept/early.go`)|
-| PR(1 种子,没有缓存 = 改了工厂核心) | — | 88–100 s | `MARGIN_SEED_COUNT=1` |
+| 验收(3 种子) | 404–532 s | 212–261 s | 早停: 一个变异的差分用例失败够 3 个就停(`FACTORY_ACCEPT_STOP_AFTER`,`factory/accept/early.go`)|
+| PR(1 种子,没有缓存 = 改了工厂核心) | — | 88–110 s | `MARGIN_SEED_COUNT=1` |
 | PR(只改了一个领域) | — | 10 s | 结果缓存(`scripts/margincache.py`,内容寻址;命中 159/201) |
 | PR / main(什么都没变) | — | 2 s | 缓存全部命中 |
 
@@ -298,6 +298,7 @@ CEL 的 id 写成 `关系名.参数…`,编译器从 proto 读回 IR(`Message.Re
   不按领域划分的全部文件: factory/ 全部、runtime/、cmd/、db/、go.mod …) + 领域(specs/、gen/acceptance、
   internal/handler、proto、gen/db 里这个领域的文件) + Go 版本 + 种子 + 早停的门槛。`NO_CACHE=1` 不读缓存。
 - **CI 分层**: PR 1 个种子;合并到 main(release)和每晚(`margin-nightly.yml`)3 个种子;都带缓存 + 早停。
+  验收的 3 个种子从 verify 拆成 3 个并行 job(`scripts/ci/accept.sh`;margin 变快后它是 PR 的关键路径)。
   每晚失败 → issue(标签 `margin-nightly`)。剩下的大头: `catalog.list-product-costs` 一个 API 占验收时间的 46%
   (参考求值器生成定向请求,单线程 60–110 s;和变异无关,同一个 (API, 种子) 的请求可以复用 —— 没做)。
 
