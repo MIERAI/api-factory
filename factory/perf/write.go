@@ -27,7 +27,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/MIERAI/api-factory-runtime/txn"
+	"github.com/MIERAI/api-factory/runtime/txn"
 	"github.com/jackc/pgx/v5"
 
 	golang "apifactory/factory/adapters/golang"

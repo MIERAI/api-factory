@@ -2,8 +2,8 @@ package perf
 
 // (b) + (c): a write API under concurrency, on distinct keys (every request its own rows).
 //
-//	phase 1: 1 worker, M requests; phase 2: N workers, M requests each (other rows) while pg_stat_activity / pg_locks
-//	are sampled for the workers' sessions.
+//	3 rounds of: 1 worker, M requests; N workers, M requests each (other rows) while pg_stat_activity / pg_locks are
+//	sampled for the workers' sessions. Rates: the best round of each (other load on the machine hits both).
 //
 // ✗ when
 //   - a worker holds a lock above row level: a relation lock stronger than ROW EXCLUSIVE, an object lock (e.g. the
@@ -22,7 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/MIERAI/api-factory-runtime/txn"
+	"github.com/MIERAI/api-factory/runtime/txn"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -36,7 +36,9 @@ func concurrency(ctx context.Context, conn *pgx.Conn, ws writeSpec, tables map[s
 		r.Fail = append(r.Fail, fmt.Sprintf(format, args...))
 		return r
 	}
-	envs, err := genRequests(ctx, conn, ws, tables, m+n*m, seq, opt.Pick)
+	const rounds = 3 // 1 路 / N 路 alternate; the best rate of each: load from elsewhere on the machine hits both
+	per := m + n*m
+	envs, err := genRequests(ctx, conn, ws, tables, rounds*per, seq, opt.Pick)
 	if err != nil {
 		return fail("造请求: %v", err)
 	}
@@ -77,16 +79,11 @@ func concurrency(ctx context.Context, conn *pgx.Conn, ws writeSpec, tables map[s
 		go func() { defer warm.Done(); c, err := pool.Acquire(ctx); if err == nil { time.Sleep(20 * time.Millisecond); c.Release() } }()
 	}
 	warm.Wait()
-	t0 := time.Now()
-	for _, e := range envs[:m] {
-		one(e)
-	}
-	t1 := time.Since(t0)
-	// phase 2 + sampler
 	stop := make(chan struct{})
 	var samples, waits int
 	waitBy := map[string]int{}
 	strong := map[string]int{}
+	var inN atomic.Bool
 	var sampler sync.WaitGroup
 	sampler.Add(1)
 	go func() {
@@ -96,6 +93,10 @@ func concurrency(ctx context.Context, conn *pgx.Conn, ws writeSpec, tables map[s
 			case <-stop:
 				return
 			default:
+			}
+			if !inN.Load() { // sample the N-worker phases only
+				time.Sleep(time.Millisecond)
+				continue
 			}
 			rows, err := conn.Query(ctx, `
 				SELECT a.wait_event_type IS NOT DISTINCT FROM 'Lock', coalesce(a.wait_event, ''),
@@ -135,31 +136,39 @@ func concurrency(ctx context.Context, conn *pgx.Conn, ws writeSpec, tables map[s
 			time.Sleep(5 * time.Millisecond)
 		}
 	}()
-	t0 = time.Now()
-	var wg sync.WaitGroup
-	for w := range n {
-		wg.Add(1)
-		go func(part []*reqEnv) {
-			defer wg.Done()
-			for _, e := range part {
-				one(e)
-			}
-		}(envs[m+w*m : m+(w+1)*m])
+	rate1, rateN := 0.0, 0.0
+	for k := range rounds {
+		part := envs[k*per : (k+1)*per]
+		t0 := time.Now()
+		for _, e := range part[:m] {
+			one(e)
+		}
+		rate1 = max(rate1, float64(m)/time.Since(t0).Seconds())
+		inN.Store(true)
+		t0 = time.Now()
+		var wg sync.WaitGroup
+		for w := range n {
+			wg.Add(1)
+			go func(reqs []*reqEnv) {
+				defer wg.Done()
+				for _, e := range reqs {
+					one(e)
+				}
+			}(part[m+w*m : m+(w+1)*m])
+		}
+		wg.Wait()
+		rateN = max(rateN, float64(n*m)/time.Since(t0).Seconds())
+		inN.Store(false)
 	}
-	wg.Wait()
-	t2 := time.Since(t0)
 	close(stop)
 	sampler.Wait()
-
-	total := int64(m + n*m)
-	rate1 := float64(m) / t1.Seconds()
-	rateN := float64(n*m) / t2.Seconds()
+	total := int64(rounds * per)
 	ratio := rateN / rate1
 	waitPct := 0.0
 	if samples > 0 {
 		waitPct = 100 * float64(waits) / float64(samples)
 	}
-	r.Ms = float64(t2.Microseconds()) / 1000 / float64(m) // per request per worker
+	r.Ms = 1000 * float64(n) / rateN // per request of one worker (best N-worker round)
 	r.Rows = int(okN.Load())
 	r.Plan = fmt.Sprintf("1 路 %.0f 请求/秒, %d 路 %.0f 请求/秒 = %.2f×; 锁等待 %.1f%%(%d 个样本)", rate1, n, rateN, ratio, waitPct, samples)
 	if e, _ := firstErr.Load().(string); e != "" {

@@ -7,7 +7,7 @@ package perf
 //     (= an index is missing), or one repeated per outer row (a nested loop over a full scan)
 //   - execution time > the threshold (the threshold scales with the machine: calibrate.go)
 // Known boundaries (⚠, listed with their reason): the 包含 filter (btree cannot help), non-key filters after 取最新版本.
-// API kinds perf has no check for are ✗, unless listed in boundaryKinds with the reason.
+// API kinds perf has no check for are ✗, unless listed in boundaryKinds with the reason. Write APIs: write.go.
 
 import (
 	"context"
@@ -28,7 +28,8 @@ import (
 // perfNow: now() in perf requests (inside the generated data's time range).
 var perfNow = time.Date(2024, 4, 1, 0, 0, 0, 0, time.UTC)
 
-// boundaryKinds: API kinds (ir.API.Pattern) without an EXPLAIN check here, and why. Anything else without a check fails.
+// boundaryKinds: API kinds (ir.API.Pattern) without a check, and why (none today: reads here, writes in write.go).
+// Anything else without a check fails.
 var boundaryKinds = map[string]string{}
 
 func unknownKind(api *ir.API) Report {
