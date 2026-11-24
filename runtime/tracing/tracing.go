@@ -17,7 +17,7 @@
 //
 //	server    <包>.<服务>/<方法>          Connect 的每个请求(SpanKindServer,接请求头 traceparent)
 //	txn       txn                          一个写事务(txn.Executor.InTx;序列化失败的重来是事件 txn.retry)
-//	pgx       <SQL 动词> <表>               每条 SQL(BEGIN / COMMIT 也是;只在有正在记录的父 span 时)
+//	pgx       <查询名> 或 <SQL 动词> <表>   每条 SQL(BEGIN / COMMIT 也是;只在有正在记录的父 span 时)
 //	outbox    outbox.write <类型>           写 outbox(SpanKindProducer);envelope 的 traceparent = 这个 span
 //	relay     publish <类型>                中继发布一条(父 = envelope 的 traceparent;AMQP header traceparent = 这个 span)
 //	consume   process <队列>                处理一条消息(SpanKindConsumer,父 = AMQP header 的 traceparent)

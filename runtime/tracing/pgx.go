@@ -9,7 +9,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// PGX: pgx 的 QueryTracer —— 每条 SQL 一个 span(名 = "<动词> <表>",例 "INSERT factory_outbox"、"COMMIT")。
+// PGX: pgx 的 QueryTracer —— 每条 SQL 一个 span。名字见 Summary: 生成的查询带 "-- name: X :kind" 注释 → "X"
+// (例 "GetProductLabel");其余 = "<动词> <表>"(例 "INSERT factory_outbox"、"COMMIT")。
 // 只在 ctx 里有正在记录的 span 时才建(请求、事务、消息的子 span);后台的轮询(中继、选主、超时扫描的查询)没有父 span,
 // 不产生成千上万条孤立的 trace。server 在追踪打开时把它装到连接池上(ConnConfig.Tracer)。
 type PGX struct{}
@@ -51,9 +52,15 @@ func (PGX) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryEn
 	span.End()
 }
 
-// Summary: span 名: SQL 的第一个词(大写)+ 主要的表(INTO / UPDATE / FROM 之后的第一个名字)。
+// Summary: span 名。先跳过开头的空白和注释(-- 行注释、/* */ 块注释,可嵌套);开头注释里有
+// "-- name: X :kind"(工厂 / sqlc 生成的查询都带)就用 X。否则 = SQL 的第一个词(大写)+ 主要的表
+// (INTO / UPDATE / FROM 之后的第一个名字)。
 func Summary(sql string) string {
-	f := strings.Fields(sql)
+	rest, name := stripLeadingComments(sql)
+	if name != "" {
+		return name
+	}
+	f := strings.Fields(rest)
 	if len(f) == 0 {
 		return "SQL"
 	}
@@ -78,6 +85,54 @@ func Summary(sql string) string {
 		}
 	}
 	return verb
+}
+
+// stripLeadingComments: 去掉开头的空白和注释,返回剩下的 SQL 和第一个 "-- name: X" 注释里的 X(没有 = "")。
+// 没闭合的块注释 = 整条都是注释。
+func stripLeadingComments(sql string) (rest, name string) {
+	s := sql
+	for {
+		s = strings.TrimLeft(s, " \t\r\n\f\v")
+		switch {
+		case strings.HasPrefix(s, "--"):
+			line := s[2:]
+			if i := strings.IndexByte(line, '\n'); i >= 0 {
+				s = line[i+1:]
+				line = line[:i]
+			} else {
+				s = ""
+			}
+			if name == "" {
+				name = queryName(line)
+			}
+		case strings.HasPrefix(s, "/*"):
+			depth, i := 1, 2
+			for i < len(s) && depth > 0 {
+				switch {
+				case strings.HasPrefix(s[i:], "/*"):
+					depth++
+					i += 2
+				case strings.HasPrefix(s[i:], "*/"):
+					depth--
+					i += 2
+				default:
+					i++
+				}
+			}
+			s = s[i:]
+		default:
+			return s, name
+		}
+	}
+}
+
+// queryName: 行注释正文 " name: GetProductLabel :one" → "GetProductLabel";不是这个形式 → ""。
+func queryName(comment string) string {
+	f := strings.Fields(comment)
+	if len(f) < 2 || f[0] != "name:" {
+		return ""
+	}
+	return f[1]
 }
 
 func trimName(s string) string {
