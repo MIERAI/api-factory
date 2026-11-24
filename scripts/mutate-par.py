@@ -59,8 +59,8 @@ parlib.build_factory()
 # 变异改的文件 → 受影响的式样书目录(只验收这一部分;推不出来时验收全部)。
 # 变异只影响用到这个文件的 API,判定(抓到几次)和验收全部时一样,时间不随 API 的总数增长。
 def scope(path):
-    if is_schema(path):  # 表结构的变异(生成的触发器等): 全部的式样书
-        return None
+    if is_schema(path):  # 表结构的变异(生成的触发器等): 用到这个文件里的工厂的表 / 视图的领域(只有一个时),否则全部
+        return schema_scope(path)
     m = re.match(r"gen/db/(\w+)\.([\w-]+)\.sql\.go$", path)
     if m:
         d = f"specs/{m.group(1)}/{m.group(2)}"
@@ -71,6 +71,28 @@ def scope(path):
     else:
         return None
     return d if os.path.isdir(os.path.join(ROOT, d)) else None
+
+
+_schema_scopes = {}
+
+
+def schema_scope(path):
+    if path not in _schema_scopes:
+        names = set(re.findall(r"\b(factory_(?:current|hot)_\w+)", open(path, encoding="utf-8").read()))
+        doms = set()
+        for d, pat in (("gen/db", r"^(\w+)\."), ("internal/handler", None)):
+            base = os.path.join(ROOT, d)
+            for dirpath, _, files in os.walk(base):
+                for f in files:
+                    if not f.endswith(".go"):
+                        continue
+                    text = open(os.path.join(dirpath, f), encoding="utf-8").read()
+                    if any(n in text for n in names):
+                        dom = re.match(pat, f).group(1) if pat else os.path.relpath(dirpath, base).split(os.sep)[0]
+                        doms.add(dom)
+        one = f"specs/{next(iter(doms))}" if len(doms) == 1 else None
+        _schema_scopes[path] = one if one and os.path.isdir(os.path.join(ROOT, one)) else None
+    return _schema_scopes[path]
 
 
 def is_schema(path):

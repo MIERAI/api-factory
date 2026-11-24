@@ -22,7 +22,8 @@ API's validation.
 
 | skew | keys |
 |---|---|
-| `uniform` (default) | every request a different key (distinct rows; reads: a random sampled row) |
+| (not given) | each API's declared distribution: the design's `负载.键分布`, else the platform default of its kind (`同时抢: 是` → `hot:1`, everything else `uniform`; docs/design/hotspots.md §3) |
+| `uniform` | every request a different key (distinct rows; reads: a random sampled row) |
 | `zipf:s` (s > 1) | key k with probability ∝ 1/kˢ: a few hot keys and a long tail (`zipf:1.2` ≈ realistic popularity) |
 | `hot:N` | every request one of the first N keys: an explicit hot-key scenario (row lock waits, version conflicts) |
 

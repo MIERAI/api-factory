@@ -308,6 +308,9 @@ func Write(plan *ir.Plan, path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
+	if err := WriteHotKeyRules(plan); err != nil { // 热键监控的告警规则(gen/observability/hotkeys.rules.yaml)
+		return err
+	}
 	return ir.Save(plan, path)
 }
 

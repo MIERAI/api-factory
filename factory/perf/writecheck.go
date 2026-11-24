@@ -30,6 +30,15 @@ func checkWrites(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, tables map[
 			continue
 		}
 		out = append(out, fkIndexes(ctx, conn, api, tables, written)...)
+		o := opt // 并发的检查: 声明的键分布(负载.键分布;同时抢: 是 的默认 hot:1;docs/design/hotspots.md §6)
+		if l := api.Load; l != nil && l.Skew != "" && l.Skew != "uniform" {
+			pick, err := ParseSkew(l.Skew)
+			if err != nil {
+				out = append(out, Report{API: api.ID, Variant: "键分布", Fail: []string{err.Error()}})
+				continue
+			}
+			o.Pick = pick
+		}
 		for _, ws := range specs {
 			rs, err := explainWrite(ctx, conn, ws, tables, opt, seq)
 			if err != nil {
@@ -38,7 +47,14 @@ func checkWrites(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, tables map[
 			}
 			out = append(out, rs...)
 			if opt.Workers > 0 {
-				out = append(out, concurrency(ctx, conn, ws, tables, opt, seq))
+				c := concurrency(ctx, conn, ws, tables, o, seq)
+				if o.Pick != nil {
+					c.Variant += ", 键分布 " + api.Load.Skew
+				}
+				out = append(out, c)
+				if updatesByKey(ws) {
+					out = append(out, singleKeyProbe(ctx, conn, ws, tables, opt, seq))
+				}
 			}
 		}
 	}

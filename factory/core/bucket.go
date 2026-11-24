@@ -113,13 +113,17 @@ func BucketDDL(s BucketSpec) string {
 	}
 	// T 的触发器: 写进 T 的数量 = 合计设成这个值
 	fn(s.BucketTable+"_set", fmt.Sprintf(`BEGIN
-    DELETE FROM %s WHERE %s;
-    INSERT INTO %s (%s, bucket, %s%s)
-    SELECT %s, i, NEW.%s / %d + CASE WHEN i < NEW.%s %% %d THEN 1 ELSE 0 END%s
-    FROM generate_series(0, %d) AS i;
-    NEW.%s := 0;
+    IF NEW.%[3]s < 0 THEN -- 和一行的时候的 CHECK (数量 >= 0) 一样
+        RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = format('new row for relation %%L violates check constraint (%%s >= 0)', %[9]s, %[10]s);
+    END IF;
+    DELETE FROM %[1]s WHERE %[2]s;
+    INSERT INTO %[1]s (%[4]s, bucket, %[3]s%[5]s)
+    SELECT %[6]s, i, NEW.%[3]s / %[7]d + CASE WHEN i < NEW.%[3]s %% %[7]d THEN 1 ELSE 0 END%[8]s
+    FROM generate_series(0, %[11]d) AS i;
+    NEW.%[3]s := 0;
     RETURN NEW;
-END`, B, newKeyMatch, B, list(s.Key, q), Q, list2(s.PerBucket, q), keyOf("NEW"), Q, s.N, Q, s.N, list2(s.PerBucket, func(c string) string { return "NEW." + q(c) }), s.N-1, Q))
+END`, B, newKeyMatch, Q, list(s.Key, q), list2(s.PerBucket, q), keyOf("NEW"), s.N, list2(s.PerBucket, func(c string) string { return "NEW." + q(c) }),
+		quoteLit(s.Table), quoteLit(s.Column), s.N-1))
 	fn(s.BucketTable+"_rekey", fmt.Sprintf(`BEGIN
     IF (%s) IS DISTINCT FROM (%s) THEN
         UPDATE %s SET %s WHERE %s;
@@ -162,6 +166,7 @@ END`, keyOf("NEW"), keyOf("OLD"), B, list(s.Key, func(k string) string { return 
     b int2 := floor(random() * %[8]d)::int2; -- 一个请求选一次(写在 WHERE 里会每行重新取随机数)
     v %[1]s;
     bb int2;
+    hit bool;
 BEGIN
     IF NOT %[3]s THEN
         RAISE EXCEPTION 'factory: 分桶的表 %% 不能改主键', %[4]s;
@@ -169,10 +174,19 @@ BEGIN
     IF d < 0 THEN
         -- 热路径: 从随机的桶开始,第一个没被锁、又够的桶(SKIP LOCKED: 不等别人;只锁这一行)。
         -- 不写成 UPDATE … WHERE 量 >= …: 等到别人提交之后条件不成立时,PostgreSQL 仍然留着那一行的锁(EvalPlanQual),会死锁
-        SELECT bucket INTO bb FROM %[5]s WHERE %[7]s AND %[2]s >= -d ORDER BY (bucket + %[8]d - b) %% %[8]d LIMIT 1 FOR UPDATE SKIP LOCKED;
-        IF FOUND THEN
+        -- 子事务: 没取到时回滚它 —— 被别人刚改过、重新检查之后不够的行,PostgreSQL 也会留着锁(EvalPlanQual),
+        -- 留着去等回退的互斥就会和回退互相等(死锁)
+        hit := true;
+        BEGIN
+            SELECT bucket INTO bb FROM %[5]s WHERE %[7]s AND %[2]s >= -d ORDER BY (bucket + %[8]d - b) %% %[8]d LIMIT 1 FOR UPDATE SKIP LOCKED;
+            IF NOT FOUND THEN
+                RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'factory: bucket miss';
+            END IF;
             UPDATE %[5]s SET %[2]s = %[2]s + d%[6]s WHERE %[7]s AND bucket = bb;
-        ELSE
+        EXCEPTION WHEN raise_exception THEN
+            hit := false;
+        END;
+        IF NOT hit THEN
             -- 回退: 表的这一行当互斥(FOR NO KEY UPDATE: 不挡外键检查;热路径不碰它),再按桶的顺序锁住这个键的全部桶,
             -- 合计够才扣(不够 = 不更新)。热路径的事务只锁一个桶、锁到之后不再等别的;回退一次只有一个 → 没有死锁
             PERFORM 1 FROM %[14]s WHERE %[7]s FOR NO KEY UPDATE;

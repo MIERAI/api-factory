@@ -73,6 +73,8 @@ type API struct {
 	Shared []SharedQty `json:"shared,omitempty"`
 	Hot    string      `json:"hot,omitempty"`
 	Load   *LoadSpec   `json:"load,omitempty"`
+	// HotKeys: 热键监控(同时抢 = 不确定): 每次请求记录的键 = 这些请求字段(共享数量的更新的键;docs/design/hotspots.md §5)
+	HotKeys []string `json:"hot_keys,omitempty"`
 
 	// BaseRequest: 第一个 code: OK 的人写用例的请求(自动生成校验边界用例时作为"其他字段都合法"的基础)
 	BaseRequest map[string]any `json:"base_request,omitempty"`

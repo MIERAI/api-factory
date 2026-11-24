@@ -978,7 +978,8 @@ func cmdLoadgen(args []string) error {
 	perAPI := fs.Int("per-api", 40, "每个 API 的请求数")
 	out := fs.String("out", "-", "输出文件(- = 标准输出)")
 	newOffset := fs.Int("new-offset", 0, "新建的请求的新行从第 (表的行数 + 1 + 这个数) 行起(同一个库造几份请求时错开,否则新的键重复)")
-	skew := fs.String("skew", "uniform", "已有的键怎么分到请求上: uniform(每个请求不同的键)| zipf:s(s>1,少数热键 + 长尾)| hot:N(都在前 N 个键上)")
+	skew := fs.String("skew", "", "已有的键怎么分到请求上: uniform(每个请求不同的键)| zipf:s(s>1,少数热键 + 长尾)| hot:N(都在前 N 个键上);"+
+		"空 = 每个 API 声明的分布(设计书的 负载.键分布,没写 = 平台的默认: 同时抢: 是 → hot:1,其他 uniform)")
 	_ = fs.Parse(args)
 	plan, err := ir.Load(ir.DefaultPath)
 	if err != nil {
@@ -1059,6 +1060,9 @@ func cmdPerf(args []string) error {
 		}
 		if r.Boundary != "" {
 			fmt.Printf("     ◇ %s\n", r.Boundary)
+		}
+		for _, m := range r.Info {
+			fmt.Printf("     ℹ %s\n", m)
 		}
 	}
 	sum := fmt.Sprintf("%d 个计划: 失败 %d, 警告 %d, 已知边界 %d (每表 %d 行, 阈值 %.0fms)", len(reports), fails, warns, bounds, *rows, *maxMs*opt.Scale)

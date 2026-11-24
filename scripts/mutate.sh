@@ -158,6 +158,13 @@ run "状态表: 逻辑删除没有反映"                      $ST 's/(FUNCTION 
 run "状态表: 可以为空的键的空值和空字符串合成一组"  $ST 's/(FUNCTION factory_current_product_label_ins\(\).*?)t3\.label_code AS _k_label_code/${1}coalesce(t3.label_code, \x27\x27) AS _k_label_code/s'
 run "状态表: 关联的对方(分类)的状态表是空的"      $ST 's/(FUNCTION factory_current_category_master_ins\(\).*?)FROM factory_new AS t1/${1}FROM (SELECT * FROM factory_new WHERE FALSE) AS t1/s'
 run "外壳列: 取了最早的版本的时间(状态表的更新没换外壳列)" $ST 's/(FUNCTION factory_current_product_label_ins\(\).*?)registered_at = EXCLUDED\.registered_at/${1}registered_at = s.registered_at/s'
+# 分桶的生产线(docs/design/hotspots.md §4;ConsumeJobQuota 同时抢: 是): 生成的 db/schema/zz_factory_buckets.sql
+BK=db/schema/zz_factory_buckets.sql
+run "分桶: 视图不合计桶(只看表本身)"            $BK 's/\(t\.remaining \+ coalesce\(x\.q, 0\)\)/(t.remaining + 0)/'
+run "分桶: 回退不检查合计(不够也扣)"            $BK 's/IF coalesce\(total, 0\) < -d THEN/IF FALSE THEN/'
+run "分桶: 热路径不看桶够不够"                  $BK 's/ AND remaining >= -d ORDER BY/ ORDER BY/'
+run "分桶: 设合计时丢了余数"                    $BK 's/CASE WHEN i < NEW\.remaining % 16 THEN 1 ELSE 0 END/0/'
+run "分桶: 取的时候按桶记的列没更新"            $BK 's/, updated_at = NEW\.updated_at WHERE job_type = OLD\.job_type AND bucket = bb;/ WHERE job_type = OLD.job_type AND bucket = bb;/'
 # R2.5 T1: 关联 / 嵌套 / 子聚合的对方是逻辑表(JSON版本)
 LP=gen/db/catalog.list-labels-with-product.sql.go
 run "逻辑表の关联: 不处理删除" $LP 's/\(t5\._action <> 1::int4\) AND //'

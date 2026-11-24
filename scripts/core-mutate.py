@@ -24,7 +24,7 @@ os.chdir(ROOT)
 
 C = "factory/core/"
 S, E, A, P, K, JK = C + "sql.go", C + "eval.go", C + "agg.go", C + "pushdown.go", C + "keyindex.go", C + "expr_json_key.go"
-LK, NEST, REL, ST = C + "prim_lookup.go", C + "prim_nest.go", C + "relation.go", C + "state.go"
+LK, NEST, REL, ST, BK = C + "prim_lookup.go", C + "prim_nest.go", C + "relation.go", C + "state.go", C + "bucket.go"
 
 
 def m(name, file, *edits, within=None):
@@ -122,6 +122,15 @@ MUTANTS = [
     m("状态表: TRUNCATE 原始表没有清空", ST, ('fn("trunc", fmt.Sprintf("TRUNCATE %s;", q(S)))', 'fn("trunc", "NULL;")')),
     m("状态表: 没有回填", ST, ('w("-- 回填(已有的数据;幂等)\\n%s;\\n", upsert(fromRaw))', 'w("-- 回填\\n")')),
     m("状态表: 键为空的行也进状态表", ST, ("steps = append(steps, source[2:k]...)", "_ = k")),
+    # ---- 分桶的生产线(bucket.go;docs/design/hotspots.md §4)
+    m("分桶: 热路径取的时候不看够不够", BK, ("AND %[2]s >= -d ORDER BY", "ORDER BY")),
+    m("分桶: 回退不检查合计(不够也扣)", BK, ("IF coalesce(total, 0) < -d THEN", "IF FALSE THEN")),
+    # 不列: "回退没有互斥(表的这一行的 FOR NO KEY UPDATE)" —— 热路径没取到时回滚子事务之后,回退按桶的顺序加锁,认证的并发里
+    # 测不出死锁(留着互斥是防御: PostgreSQL 的 ORDER BY … FOR UPDATE 在 EvalPlanQual 时可能不按顺序)
+    m("分桶: 还加到了全部的桶", BK, ("UPDATE %[5]s SET %[2]s = %[2]s + d%[6]s WHERE %[7]s AND bucket = b;", "UPDATE %[5]s SET %[2]s = %[2]s + d%[6]s WHERE %[7]s AND b = b;")),
+    m("分桶: 视图不合计(最大的桶)", BK, ("sum(b.%s) AS q", "max(b.%s) AS q")),
+    m("分桶: 合计设成负数不报错", BK, ("IF NEW.%[3]s < 0 THEN", "IF FALSE THEN")),
+    m("分桶: 删除不删桶", BK, ('fn(s.BucketTable+"_del", fmt.Sprintf("BEGIN\\n    DELETE FROM %s WHERE %s;', 'fn(s.BucketTable+"_del", fmt.Sprintf("BEGIN\\n    PERFORM 1%.0s%.0s;')),
     # ---- 筛选越过关联下推(pushdown.go)/ 索引的键(keyindex.go、expr_json_key.go)
     m("下推: 非键的条件也移到取最新之前", P, ("n, ok := name[e.Name]", "n, ok := name[e.Name]\n\t\t\tif !ok {\n\t\t\t\tn, ok = e.Name, true\n\t\t\t}")),
     m("下推: 越过任何步骤(不只 lookup)", P, ('if st.Kind == "lookup" {', 'if st.Kind != "filter" {')),

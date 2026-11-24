@@ -32,11 +32,18 @@ type Request struct {
 	SingleUse bool `json:"single_use,omitempty"`
 }
 
-// LoadRequests: perAPI requests per API (per message type for state machines). skew: ParseSkew.
+// LoadRequests: perAPI requests per API (per message type for state machines). skew: ParseSkew; "" = each API's
+// declared distribution (IR Load.Skew: 负载.键分布, or the platform default of its kind — docs/design/hotspots.md §6).
 func LoadRequests(ctx context.Context, plan *ir.Plan, db string, perAPI int, skew string, newOffset int) ([]Request, error) {
-	pick, err := ParseSkew(skew)
-	if err != nil {
+	if _, err := ParseSkew(skew); err != nil {
 		return nil, err
+	}
+	pickFor := func(api *ir.API) (func(n, i int) int, error) {
+		s := skew
+		if s == "" && api.Load != nil {
+			s = api.Load.Skew
+		}
+		return ParseSkew(s)
 	}
 	conn, err := pgx.Connect(ctx, db)
 	if err != nil {
@@ -60,12 +67,20 @@ func LoadRequests(ctx context.Context, plan *ir.Plan, db string, perAPI int, ske
 					seq[t.name] = newOffset
 				}
 			}
+			pick, err := pickFor(api)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", api.ID, err)
+			}
 			rs, err := writeRequests(ctx, conn, plan, api, tables, perAPI, seq, pick)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", api.ID, err)
 			}
 			out = append(out, rs...)
 			continue
+		}
+		pick, err := pickFor(api)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", api.ID, err)
 		}
 		rs, err := apiRequests(ctx, conn, plan, api, perAPI, pick)
 		if err != nil {

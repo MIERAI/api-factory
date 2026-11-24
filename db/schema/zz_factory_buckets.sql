@@ -16,6 +16,9 @@ FROM job_quotas AS t
 LEFT JOIN LATERAL (SELECT sum(b.remaining) AS q, max(b.updated_at) AS p0 FROM factory_bucket_job_quotas AS b WHERE b.job_type = t.job_type) AS x ON TRUE;
 CREATE OR REPLACE FUNCTION factory_bucket_job_quotas_set() RETURNS trigger LANGUAGE plpgsql AS $factory$
 BEGIN
+    IF NEW.remaining < 0 THEN -- 和一行的时候的 CHECK (数量 >= 0) 一样
+        RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = format('new row for relation %L violates check constraint (%s >= 0)', 'job_quotas', 'remaining');
+    END IF;
     DELETE FROM factory_bucket_job_quotas WHERE job_type = NEW.job_type;
     INSERT INTO factory_bucket_job_quotas (job_type, bucket, remaining, updated_at)
     SELECT NEW.job_type, i, NEW.remaining / 16 + CASE WHEN i < NEW.remaining % 16 THEN 1 ELSE 0 END, NEW.updated_at
@@ -52,6 +55,7 @@ DECLARE
     b int2 := floor(random() * 16)::int2; -- 一个请求选一次(写在 WHERE 里会每行重新取随机数)
     v int4;
     bb int2;
+    hit bool;
 BEGIN
     IF NOT (NEW.job_type) IS NOT DISTINCT FROM (OLD.job_type) THEN
         RAISE EXCEPTION 'factory: 分桶的表 % 不能改主键', 'job_quotas';
@@ -59,10 +63,19 @@ BEGIN
     IF d < 0 THEN
         -- 热路径: 从随机的桶开始,第一个没被锁、又够的桶(SKIP LOCKED: 不等别人;只锁这一行)。
         -- 不写成 UPDATE … WHERE 量 >= …: 等到别人提交之后条件不成立时,PostgreSQL 仍然留着那一行的锁(EvalPlanQual),会死锁
-        SELECT bucket INTO bb FROM factory_bucket_job_quotas WHERE job_type = OLD.job_type AND remaining >= -d ORDER BY (bucket + 16 - b) % 16 LIMIT 1 FOR UPDATE SKIP LOCKED;
-        IF FOUND THEN
+        -- 子事务: 没取到时回滚它 —— 被别人刚改过、重新检查之后不够的行,PostgreSQL 也会留着锁(EvalPlanQual),
+        -- 留着去等回退的互斥就会和回退互相等(死锁)
+        hit := true;
+        BEGIN
+            SELECT bucket INTO bb FROM factory_bucket_job_quotas WHERE job_type = OLD.job_type AND remaining >= -d ORDER BY (bucket + 16 - b) % 16 LIMIT 1 FOR UPDATE SKIP LOCKED;
+            IF NOT FOUND THEN
+                RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'factory: bucket miss';
+            END IF;
             UPDATE factory_bucket_job_quotas SET remaining = remaining + d, updated_at = NEW.updated_at WHERE job_type = OLD.job_type AND bucket = bb;
-        ELSE
+        EXCEPTION WHEN raise_exception THEN
+            hit := false;
+        END;
+        IF NOT hit THEN
             -- 回退: 表的这一行当互斥(FOR NO KEY UPDATE: 不挡外键检查;热路径不碰它),再按桶的顺序锁住这个键的全部桶,
             -- 合计够才扣(不够 = 不更新)。热路径的事务只锁一个桶、锁到之后不再等别的;回退一次只有一个 → 没有死锁
             PERFORM 1 FROM job_quotas WHERE job_type = OLD.job_type FOR NO KEY UPDATE;

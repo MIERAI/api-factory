@@ -334,6 +334,12 @@ func genComposite(g *genCtx) (string, error) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "// %s %s\nfunc (h *Handler) %s(ctx context.Context, req *connect.Request[%s]) (*connect.Response[%s], error) {\n\tm := req.Msg\n",
 		g.api.Method, g.api.Summary, g.api.Method, g.pbType(in), g.pbType(out))
+	if hk := hotKeyLine(g.api); hk != "" { // 热键监控(同时抢: 不确定;docs/design/hotspots.md §5)
+		g.use("github.com/MIERAI/api-factory/runtime/metrics", "")
+		g.use("fmt", "")
+		g.use("time", "")
+		fmt.Fprintf(&b, "\t%s\n", hk)
+	}
 	for _, v := range vars {
 		fmt.Fprintf(&b, "\t%s\n", v)
 	}
@@ -423,4 +429,16 @@ func constLit(x *ir.CmdExpr) (string, error) {
 		return x.Value, nil
 	}
 	return "", fmt.Errorf("command: a constant of type %s is not supported", x.Type)
+}
+
+// hotKeyLine: 热键监控(IR 的 HotKeys: 同时抢 = 不确定)→ 每次请求记录写的键(runtime/metrics.HotKey)。
+func hotKeyLine(api *ir.API) string {
+	if len(api.HotKeys) == 0 {
+		return ""
+	}
+	var parts []string
+	for _, f := range api.HotKeys {
+		parts = append(parts, "m.Get"+goCamelCase(f)+"()")
+	}
+	return fmt.Sprintf("defer metrics.HotKey(%q, fmt.Sprint(%s), time.Now()) // 热键监控: 同时抢 = 不确定(写入集中度 → 告警 → 建议分桶)", api.ID, strings.Join(parts, `, "|", `))
 }
