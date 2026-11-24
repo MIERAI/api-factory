@@ -134,11 +134,6 @@ func Fill(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, opt Options) (map[
 	if err != nil {
 		return nil, fmt.Errorf("perf schema: %w", err)
 	}
-	for name := range tables {
-		if strings.HasPrefix(name, "factory_current_") { // 当前状态表: 原始表上的触发器维护(写原始表时一起填),不直接造数据
-			delete(tables, name)
-		}
-	}
 	for _, t := range tables {
 		t.n, t.dirty = opt.Rows, opt.Dirty
 	}
