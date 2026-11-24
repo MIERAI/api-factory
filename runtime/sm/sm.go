@@ -25,10 +25,13 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/MIERAI/api-factory/runtime/clock"
 	"github.com/MIERAI/api-factory/runtime/leader"
 	"github.com/MIERAI/api-factory/runtime/metrics"
+	"github.com/MIERAI/api-factory/runtime/tracing"
 	"github.com/MIERAI/api-factory/runtime/txn"
 )
 
@@ -151,7 +154,30 @@ func (s *Scanner) Round(ctx context.Context, q Querier, now time.Time) (RoundRes
 }
 
 // fireOne: 一个实体的事务;版本冲突 → 重来(最多 MaxAttempts 次;仍冲突 = 这一轮放过,下一轮再判定)。
+// 追踪打开时一个实体一个 span "sm.timeout <机器>"(新的 trace: 超时不是哪个请求引起的),转移是它的事件 sm.transition,
+// 发出的命令(重发 / 补偿)接在它下面。
 func (s *Scanner) fireOne(ctx context.Context, key any, now time.Time) (Fired, int, error) {
+	if !tracing.Enabled() {
+		return s.fire(ctx, key, now)
+	}
+	ctx, span := tracing.StartRoot(ctx, "sm.timeout "+s.Machine, trace.SpanKindInternal)
+	defer span.End()
+	f, conflicts, err := s.fire(ctx, key, now)
+	if span.IsRecording() {
+		span.SetAttributes(attribute.String("sm.machine", s.Machine), attribute.String("sm.key", fmt.Sprint(key)),
+			attribute.String("sm.result", f.Kind.String()), attribute.Int("sm.conflicts", conflicts))
+		switch f.Kind {
+		case Retry:
+			transitionEvent(span, s.Machine, f.From, f.To, "timeout")
+		case Deadline:
+			transitionEvent(span, s.Machine, f.From, f.To, "deadline")
+		}
+		tracing.Fail(span, err)
+	}
+	return f, conflicts, err
+}
+
+func (s *Scanner) fire(ctx context.Context, key any, now time.Time) (Fired, int, error) {
 	conflicts := 0
 	for attempt := 1; attempt <= MaxAttempts; attempt++ {
 		var f Fired
@@ -282,8 +308,25 @@ func (q poolQuerier) Query(ctx context.Context, sql string, args ...any) (pgx.Ro
 // Ignored / Rejected / Transition / Completed: 生成的转移处理器调用的指标(在处理器的事务里调用: 事务重来时可能多计一次)。
 func Ignored(machine, reason string)  { metrics.MachineIgnored(machine, reason) }
 func Rejected(machine, reason string) { metrics.MachineRejected(machine, reason) }
+
+// Transition 是 v0.6.0 及以前生成的代码调用的;现在的生成器调用 Transitioned(多一个 ctx: 追踪的事件)。
 func Transition(machine, from, to, trigger string) {
 	metrics.MachineTransition(machine, from, to, trigger)
+}
+
+// Transitioned: 一次转移(生成的转移处理器调用): 指标 + 追踪打开时在当前的 span(消息处理器的事务)上加事件 sm.transition。
+func Transitioned(ctx context.Context, machine, from, to, trigger string) {
+	metrics.MachineTransition(machine, from, to, trigger)
+	if tracing.Enabled() {
+		if span := trace.SpanFromContext(ctx); span.IsRecording() {
+			transitionEvent(span, machine, from, to, trigger)
+		}
+	}
+}
+
+func transitionEvent(span trace.Span, machine, from, to, trigger string) {
+	span.AddEvent("sm.transition", trace.WithAttributes(attribute.String("sm.machine", machine), attribute.String("sm.from", from),
+		attribute.String("sm.to", to), attribute.String("sm.trigger", trigger)))
 }
 
 // Completed: 进入终态(created = 实体的创建时刻):"创建到终态的耗时"直方图。

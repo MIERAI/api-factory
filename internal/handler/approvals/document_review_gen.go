@@ -108,7 +108,7 @@ func (h *Handler) DocumentReviewOnReviewApproved(ctx context.Context, tx pgx.Tx,
 		_, err := handlerResult(err)
 		return err
 	}
-	sm.Transition("DocumentReview", "REVIEWING", "PUBLISHING", "review.approved")
+	sm.Transitioned(ctx, "DocumentReview", "REVIEWING", "PUBLISHING", "review.approved")
 	d1 := &approvalsv1.PublishRequestV1{ // publish.request v1 的 data
 		DocId:    r1.Id,
 		Revision: r1.Revision,
@@ -175,7 +175,7 @@ func (h *Handler) DocumentReviewOnReviewRejected(ctx context.Context, tx pgx.Tx,
 		_, err := handlerResult(err)
 		return err
 	}
-	sm.Transition("DocumentReview", "REVIEWING", "REJECTED", "review.rejected")
+	sm.Transitioned(ctx, "DocumentReview", "REVIEWING", "REJECTED", "review.rejected")
 	sm.Completed("DocumentReview", "REJECTED", r1.SubmittedAt, clock.Now(ctx))
 	d1 := &approvalsv1.DocumentRejectedV1{ // document.rejected v1 的 data
 		DocId:  r1.Id,
@@ -243,7 +243,7 @@ func (h *Handler) DocumentReviewOnPublishDone(ctx context.Context, tx pgx.Tx, en
 		_, err := handlerResult(err)
 		return err
 	}
-	sm.Transition("DocumentReview", "PUBLISHING", "PUBLISHED", "publish.done")
+	sm.Transitioned(ctx, "DocumentReview", "PUBLISHING", "PUBLISHED", "publish.done")
 	sm.Completed("DocumentReview", "PUBLISHED", r1.SubmittedAt, clock.Now(ctx))
 	d1 := &approvalsv1.DocumentPublishedV1{ // document.published v1 的 data
 		DocId:    r1.Id,
