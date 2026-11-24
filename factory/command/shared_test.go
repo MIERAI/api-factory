@@ -12,7 +12,7 @@ func TestSharedQuantity(t *testing.T) {
 	ops := []ir.CommandOp{
 		{Name: "a", Kind: "update", Table: "t", Values: []ir.CommandVal{{Column: "q", Type: "int4", Expr: &ir.CmdExpr{Op: "-", Args: []*ir.CmdExpr{col("q"), in}}}}},
 		{Name: "b", Kind: "update", Table: "t", Values: []ir.CommandVal{{Column: "q", Type: "int8", Expr: &ir.CmdExpr{Op: "+", Args: []*ir.CmdExpr{in, col("q")}}}}},
-		{Name: "c", Kind: "update", Table: "t", Values: []ir.CommandVal{{Column: "q", Type: "int4", Expr: in}}},                                                     // 设成一个值: 不是
+		{Name: "c", Kind: "update", Table: "t", Values: []ir.CommandVal{{Column: "q", Type: "int4", Expr: in}}},                                                      // 设成一个值: 不是
 		{Name: "d", Kind: "update", Table: "t", Values: []ir.CommandVal{{Column: "s", Type: "text", Expr: &ir.CmdExpr{Op: "+", Args: []*ir.CmdExpr{col("s"), in}}}}}, // 不是数值
 		{Name: "e", Kind: "update", Table: "t", Values: []ir.CommandVal{{Column: "q", Type: "int4", Expr: &ir.CmdExpr{Op: "-", Args: []*ir.CmdExpr{in, col("q")}}}}}, // n - q: 不是
 		{Name: "f", Kind: "insert", Table: "t", Values: []ir.CommandVal{{Column: "q", Type: "int4", Expr: &ir.CmdExpr{Op: "+", Args: []*ir.CmdExpr{col("q"), in}}}}},

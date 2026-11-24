@@ -49,8 +49,8 @@ type Report struct {
 	Rows     int // 返回的行数
 	Fail     []string
 	Warn     []string
-	Plan     string // 计划的摘要(节点类型)
-	Boundary string // 已知边界(原因是工厂的边界,不是回归;写明原因)
+	Plan     string   // 计划的摘要(节点类型)
+	Boundary string   // 已知边界(原因是工厂的边界,不是回归;写明原因)
 	Info     []string // 只是信息(不失败): 同一键的吞吐上限(单键探针)等
 
 	seqScanOnly bool   // the failure is a sequential scan (known boundary for 包含)

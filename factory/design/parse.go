@@ -353,12 +353,12 @@ type API struct {
 	Derived    []*Derived // 派生参数(不出现在请求里)
 	Cases      []*yaml.Node
 	LogicCases []*yaml.Node
-	Reviewed   []QA        // X.审查.yaml
-	Hot        string      // 同时抢: yes / no / unsure / ""(没回答)
+	Reviewed   []QA           // X.审查.yaml
+	Hot        string         // 同时抢: yes / no / unsure / ""(没回答)
 	Load       *spec.LoadDecl // 负载(高级,可选)
-	Lookups    []*Lookup   // 关联(多对一查找),按书写顺序
-	Nests      []*Nest     // 嵌套(一对多: 子行的列表)
-	ChildAggs  []*ChildAgg // 子聚合(按父行聚合)
+	Lookups    []*Lookup      // 关联(多对一查找),按书写顺序
+	Nests      []*Nest        // 嵌套(一对多: 子行的列表)
+	ChildAggs  []*ChildAgg    // 子聚合(按父行聚合)
 }
 
 // parseLookups: 关联的各项(数据来源的 关联 / 嵌套里的 关联: at = 报错用的前缀)。

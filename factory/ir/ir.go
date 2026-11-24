@@ -27,7 +27,7 @@ type Plan struct {
 	Storages []Storage `json:"storages,omitempty"`
 	// Buckets: 分桶的生产线(同时抢: 是;docs/design/hotspots.md): 数量列拆到桶表,写 / 读经过视图
 	Buckets []Bucket `json:"buckets,omitempty"`
-	Shards   []Shard   `json:"shards,omitempty"` // 分库的表(验收把数据写进分库键对应的库)
+	Shards  []Shard  `json:"shards,omitempty"` // 分库的表(验收把数据写进分库键对应的库)
 	// ShardWithParent: 分库: 随父 的表(没有分库键的列;验收把行写进父行的库 / 每个库都写一份)
 	ShardWithParent []string `json:"shard_with_parent,omitempty"`
 }
