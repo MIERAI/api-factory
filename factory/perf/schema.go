@@ -44,7 +44,7 @@ func loadSchema(ctx context.Context, conn *pgx.Conn) (map[string]*table, error) 
 	}
 	tables := map[string]*table{}
 	for _, n := range names {
-		if n == "goose_db_version" || strings.HasPrefix(n, "factory_") {
+		if n == "goose_db_version" || strings.HasPrefix(n, "factory_") { // 工厂的表(平台表、当前状态表: 触发器填)不造数据
 			continue
 		}
 		t := newTable(n, nil)

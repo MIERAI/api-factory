@@ -175,11 +175,12 @@ func quantile(op string) float64 {
 
 // versionScan: 已知边界 —— 每组取一条(取最新版本)之后的筛选,只有引用分组键的能下推(core/pushdown.go);
 // 非键的条件必须先给全部的键取最新版本再判断,成本 = 全部版本。请求里有非键条件、却没有键上的条件时就是这种情况。
-// 解决要靠"最新版本"物化表(外: docs/memo/out-of-scope.md)或按参数组合生成多条 SQL。
+// 有当前状态表(pick_per_key 的 State;docs/design/current-state.md)时不是边界: 从状态表读,非键的筛选用它的索引。
+// 只在逻辑表声明了 当前状态表: 否 时适用。
 func versionScan(api *ir.API, given []string) string {
 	keys := map[string]bool{}
 	for _, st := range api.Pipeline.Steps {
-		if st.Kind == "pick_per_key" {
+		if st.Kind == "pick_per_key" && st.State == "" {
 			for _, k := range st.Keys {
 				keys[k] = true
 			}
@@ -202,7 +203,7 @@ func versionScan(api *ir.API, given []string) string {
 }
 
 // joinVersionScan: 已知边界 —— 关联 / 嵌套 / 子表合计的对方是逻辑表(取最新版本),关联键却不是对方的键:
-// 每一行都要给对方全部的键取最新版本再比较,成本 = 对方的全部版本 × 行数。解决同上(物化表)。
+// 每一行都要给对方全部的键取最新版本再比较,成本 = 对方的全部版本 × 行数。有当前状态表时不是边界(同上)。
 func joinVersionScan(api *ir.API) string {
 	for _, st := range api.Pipeline.Steps {
 		if len(st.Source) == 0 {
@@ -210,7 +211,7 @@ func joinVersionScan(api *ir.API) string {
 		}
 		keys := map[string]bool{}
 		for _, s := range st.Source {
-			if s.Kind == "pick_per_key" {
+			if s.Kind == "pick_per_key" && s.State == "" {
 				for _, k := range s.Keys {
 					keys[k] = true
 				}

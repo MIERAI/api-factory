@@ -144,6 +144,10 @@ func Compile(specs []*spec.Spec) (*ir.Plan, error) {
 		apis[i] = api
 		final[s.ID()] = queryFile(s, sql)
 	}
+	// 当前状态表的 DDL(db/schema/zz_factory_current.sql): 下面的 sqlc 分析要看得到状态表
+	if err := writeStateSQL(specs, apis, cat, lib); err != nil {
+		return nil, err
+	}
 	// 逃生口的 SQL + 分页: SQL 对核心代数不透明,仍然用 keysetSQL 包一层(游标列的类型来自 sqlc 对基础查询的分析)
 	escBase := map[string]string{}
 	for i, s := range specs {

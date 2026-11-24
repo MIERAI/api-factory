@@ -10,68 +10,56 @@ import (
 )
 
 const listCategoryShelfLabels = `-- name: ListCategoryShelfLabels :many
-SELECT t17.category, t17.title, t17.products
+SELECT t14.category, t14.title, t14.products
 FROM (
-    SELECT t4.category AS category, t4.title AS title, t16.v AS products
+    SELECT t3.category AS category, t3.title AS title, t13.v AS products
     FROM (
-        SELECT t3.category AS category, t3.title AS title, t3.sort_no AS sort_no
+        SELECT t2.category AS category, t2.title AS title, t2.sort_no AS sort_no
         FROM (
-            SELECT DISTINCT ON (t2.category COLLATE "C") t2.category, t2.title, t2.sort_no, t2._action, t2._o_registered_at, t2._o_id, t2._logical_delete
-            FROM (
-                SELECT ((t1.data ->> 'category')::text) AS category, ((t1.data ->> 'title')::text) AS title, ((CASE WHEN (t1.data ->> 'sort_no') ~ '^[ \t\n\r\f\v]*[+-]?[0-9]+[ \t\n\r\f\v]*$' THEN (t1.data ->> 'sort_no') ELSE '✗' || (t1.data ->> 'sort_no') END)::int4) AS sort_no, t1.action_type AS _action, t1.registered_at AS _o_registered_at, t1.id AS _o_id, ((t1.data ->> 'deleted')::text) AS _logical_delete
-                FROM category_events AS t1
-            ) AS t2
-            WHERE (NOT (t2.category IS NULL))
-            ORDER BY t2.category COLLATE "C", t2._o_registered_at DESC, t2._o_id DESC
-        ) AS t3
-        WHERE ((t3._action <> 1::int4) AND ((t3._logical_delete IS NULL) OR (t3._logical_delete <> '1'::text)))
-    ) AS t4
+            SELECT ((t1.data ->> 'category')::text) AS category, ((t1.data ->> 'title')::text) AS title, ((CASE WHEN (t1.data ->> 'sort_no') ~ '^[ \t\n\r\f\v]*[+-]?[0-9]+[ \t\n\r\f\v]*$' THEN (t1.data ->> 'sort_no') ELSE '✗' || (t1.data ->> 'sort_no') END)::int4) AS sort_no, t1.action_type AS _action, t1.registered_at AS _o_registered_at, t1.id AS _o_id, ((t1.data ->> 'deleted')::text) AS _logical_delete
+            FROM factory_current_category_master AS t1
+        ) AS t2
+        WHERE ((t2._action <> 1::int4) AND ((t2._logical_delete IS NULL) OR (t2._logical_delete <> '1'::text)))
+          AND (NOT (t2.category IS NULL))
+    ) AS t3
     LEFT JOIN LATERAL (
-        SELECT coalesce(jsonb_agg(jsonb_build_object('product_code', t15.product_code, 'name', t15.name, 'shelf_text', t15.shelf_text) ORDER BY t15.product_code COLLATE "C"), '[]'::jsonb) AS v
+        SELECT coalesce(jsonb_agg(jsonb_build_object('product_code', t12.product_code, 'name', t12.name, 'shelf_text', t12.shelf_text) ORDER BY t12.product_code COLLATE "C"), '[]'::jsonb) AS v
         FROM (
-            SELECT t14.product_code, t14.name, t14.shelf_text
+            SELECT t11.product_code, t11.name, t11.shelf_text
             FROM (
-                SELECT t8.product_code, t8.name, t8.category, t8.price, t8.launched_on, t8.maker_zip, t13.text AS shelf_text
+                SELECT t6.product_code, t6.name, t6.category, t6.price, t6.launched_on, t6.maker_zip, t10.text AS shelf_text
                 FROM (
-                    SELECT t7.product_code AS product_code, t7.name AS name, t7.category AS category, t7.price AS price, t7.launched_on AS launched_on, t7.maker_zip AS maker_zip
+                    SELECT t5.product_code AS product_code, t5.name AS name, t5.category AS category, t5.price AS price, t5.launched_on AS launched_on, t5.maker_zip AS maker_zip
                     FROM (
-                        SELECT DISTINCT ON (t6.product_code COLLATE "C") t6.product_code, t6.name, t6.category, t6.price, t6.launched_on, t6.maker_zip, t6._action, t6._o_registered_at, t6._o_id, t6._logical_delete
-                        FROM (
-                            SELECT ((t5.data ->> 'product_code')::text) AS product_code, ((t5.data ->> 'name')::text) AS name, ((t5.data ->> 'category')::text) AS category, ((CASE WHEN (t5.data ->> 'price') ~ '^[ \t\n\r\f\v]*[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)[ \t\n\r\f\v]*$' THEN (t5.data ->> 'price') ELSE '✗' || (t5.data ->> 'price') END)::numeric) AS price, ((CASE WHEN (t5.data ->> 'launched_on') ~ '^[ \t\n\r\f\v]*[0-9]{4}-[0-9]{2}-[0-9]{2}[ \t\n\r\f\v]*$' THEN (t5.data ->> 'launched_on') ELSE '✗' || (t5.data ->> 'launched_on') END)::date) AS launched_on, ((t5.data ->> 'maker_zip')::text) AS maker_zip, t5.action_type AS _action, t5.registered_at AS _o_registered_at, t5.id AS _o_id, ((t5.data ->> 'deleted')::text) AS _logical_delete
-                            FROM product_events AS t5
-                        ) AS t6
-                        WHERE (NOT (t6.product_code IS NULL))
-                        ORDER BY t6.product_code COLLATE "C", t6._o_registered_at DESC, t6._o_id DESC
-                    ) AS t7
-                    WHERE ((t7._action <> 1::int4) AND ((t7._logical_delete IS NULL) OR (t7._logical_delete <> '1'::text)))
-                ) AS t8
+                        SELECT ((t4.data ->> 'product_code')::text) AS product_code, ((t4.data ->> 'name')::text) AS name, ((t4.data ->> 'category')::text) AS category, ((CASE WHEN (t4.data ->> 'price') ~ '^[ \t\n\r\f\v]*[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)[ \t\n\r\f\v]*$' THEN (t4.data ->> 'price') ELSE '✗' || (t4.data ->> 'price') END)::numeric) AS price, ((CASE WHEN (t4.data ->> 'launched_on') ~ '^[ \t\n\r\f\v]*[0-9]{4}-[0-9]{2}-[0-9]{2}[ \t\n\r\f\v]*$' THEN (t4.data ->> 'launched_on') ELSE '✗' || (t4.data ->> 'launched_on') END)::date) AS launched_on, ((t4.data ->> 'maker_zip')::text) AS maker_zip, t4.action_type AS _action, t4.registered_at AS _o_registered_at, t4.id AS _o_id, ((t4.data ->> 'deleted')::text) AS _logical_delete
+                        FROM factory_current_product_master AS t4
+                    ) AS t5
+                    WHERE ((t5._action <> 1::int4) AND ((t5._logical_delete IS NULL) OR (t5._logical_delete <> '1'::text)))
+                      AND (t5.category = t3.category)
+                      AND (NOT (t5.product_code IS NULL))
+                ) AS t6
                 LEFT JOIN LATERAL (
-                    SELECT t12.text
+                    SELECT t9.text
                     FROM (
-                        SELECT t11.product_code AS product_code, t11.label_code AS label_code, t11.text AS text, t11.updated_at AS updated_at
+                        SELECT t8.product_code AS product_code, t8.label_code AS label_code, t8.text AS text, t8.updated_at AS updated_at
                         FROM (
-                            SELECT DISTINCT ON (t10.product_code COLLATE "C", t10.label_code COLLATE "C") t10.product_code, t10.label_code, t10.text, t10.updated_at, t10._action, t10._o_registered_at, t10._o_id
-                            FROM (
-                                SELECT ((t9.data ->> 'product_code')::text) AS product_code, ((t9.data ->> 'label_code')::text) AS label_code, ((t9.data ->> 'text')::text) AS text, t9.registered_at AS updated_at, t9.action_type AS _action, t9.registered_at AS _o_registered_at, t9.id AS _o_id
-                                FROM product_label_events AS t9
-                            ) AS t10
-                            WHERE (NOT (t10.product_code IS NULL))
-                              AND (t10.product_code = t8.product_code)
-                            ORDER BY t10.product_code COLLATE "C", t10.label_code COLLATE "C", t10._o_registered_at DESC, t10._o_id DESC
-                        ) AS t11
-                        WHERE ((t11._action <> 1::int4) AND ((NULL::text IS NULL) OR (NULL::text <> ''::text)))
-                    ) AS t12
-                    WHERE (t12.label_code = 'SHELF'::text)
-                ) AS t13 ON TRUE
-                WHERE (t8.category = t4.category)
-            ) AS t14
-            ORDER BY t14.product_code COLLATE "C"
+                            SELECT ((t7.data ->> 'product_code')::text) AS product_code, ((t7.data ->> 'label_code')::text) AS label_code, ((t7.data ->> 'text')::text) AS text, t7.registered_at AS updated_at, t7.action_type AS _action, t7.registered_at AS _o_registered_at, t7.id AS _o_id
+                            FROM factory_current_product_label AS t7
+                        ) AS t8
+                        WHERE ((t8._action <> 1::int4) AND ((NULL::text IS NULL) OR (NULL::text <> ''::text)))
+                          AND (t8.product_code = t6.product_code)
+                          AND (NOT (t8.product_code IS NULL))
+                    ) AS t9
+                    WHERE (t9.label_code = 'SHELF'::text)
+                ) AS t10 ON TRUE
+            ) AS t11
+            ORDER BY t11.product_code COLLATE "C"
             LIMIT 6
-        ) AS t15
-    ) AS t16 ON TRUE
-) AS t17
-WHERE ($1::text IS NULL OR (t17.category COLLATE "C") > ($1::text))
-ORDER BY t17.category COLLATE "C"
+        ) AS t12
+    ) AS t13 ON TRUE
+) AS t14
+WHERE ($1::text IS NULL OR (t14.category COLLATE "C") > ($1::text))
+ORDER BY t14.category COLLATE "C"
 LIMIT $2::int4
 `
 

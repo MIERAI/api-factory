@@ -25,6 +25,7 @@ entities:
                   type: text
                 - name: sort_no
                   type: int4
+            state: factory_current_category_master
         columns: {}
         invariants: []
     product_cost:
@@ -56,6 +57,7 @@ entities:
                   type: int4
                 - name: cost
                   type: numeric
+            state: factory_current_product_cost
         columns:
             valid_from:
                 encoding: YYYYMMDD
@@ -87,6 +89,7 @@ entities:
                 - name: updated_at
                   type: timestamptz
                   column: registered_at
+            state: factory_current_product_label
         columns: {}
         invariants: []
     product_master:
@@ -118,6 +121,7 @@ entities:
                   type: date
                 - name: maker_zip
                   type: text
+            state: factory_current_product_master
         columns: {}
         invariants: []
 review_decisions: []

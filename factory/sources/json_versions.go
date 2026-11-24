@@ -20,6 +20,7 @@ import (
 //	原始表: product_events            # 物理表
 //	存储列: { 数据: data, 操作: action_type, 删除值: 1, 登记顺序: [registered_at, id] }   # 可省略,这是默认值
 //	逻辑删除: deleted = 1              # 可省略
+//	当前状态表: 否                      # 可省略(默认 是): 每键最新的物化表 factory_current_<逻辑表>,读最新从它读
 //	字段:                              # 逻辑表的列
 //	  product_id: { 类型: 整数32, 说明: 商品ID }
 //	  valid_from: { 类型: 整数32, 键: from, 说明: 生效开始日 }   # 键 = JSON 里的名字(默认 = 列名)
@@ -29,7 +30,7 @@ import (
 func init() {
 	Register(&Source{
 		Name: "JSON版本", Kind: "json_versions",
-		DesignKeys: []string{"原始表", "存储列", "逻辑删除", "字段"},
+		DesignKeys: []string{"原始表", "存储列", "逻辑删除", "字段", "当前状态表"},
 		FieldKeys:  FieldKeys,
 		Parse:      parseJSONVersions,
 		Columns: func(st *spec.Storage, nk []string) []Column {
@@ -85,6 +86,13 @@ func parseJSONVersions(d Domain) *spec.Storage {
 		if v := list(get(sc, "登记顺序")); len(v) > 0 {
 			st.OrderBy = v
 		}
+	}
+	switch str(n, "当前状态表") {
+	case "", "是":
+		st.State = StateTable(name)
+	case "否":
+	default:
+		d.Err(n.Line, "表 %s: 当前状态表 只能是 是 / 否", name)
 	}
 	if ld := str(n, "逻辑删除"); ld != "" {
 		k, v, ok := strings.Cut(ld, "=")
@@ -199,8 +207,20 @@ func jsonVersionsSteps(st *spec.Storage, nk []string, scan core.Step, lib *cells
 		parts.Names["逻辑删除"] = core.Col("_logical_delete")
 		parts.Names["逻辑删除值"] = core.Const(ld.Value, core.Type{Kind: core.Text})
 	}
-	return lib.Source("JSON版本", parts)
+	steps, err := lib.Source("JSON版本", parts)
+	if err != nil || st.State == "" {
+		return steps, err
+	}
+	for i := range steps { // 每键最新 从当前状态表读(core/state.go;参考求值器照常取最新)
+		if steps[i].Kind == "pick_per_key" {
+			steps[i].State = st.State
+		}
+	}
+	return steps, nil
 }
+
+// StateTable: 逻辑表的当前状态表的名字(factory_ 是工厂保留的前缀)。
+func StateTable(view string) string { return "factory_current_" + view }
 
 // jsonVersionsRow: 逻辑表的一行 → 物理表的一行(数据列的 JSON + 操作列)。登记顺序列由验收按行的顺序合成。
 func jsonVersionsRow(st *ir.Storage, row map[string]any, enumDB func(col string, v any) (any, error)) (Physical, error) {

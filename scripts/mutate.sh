@@ -61,20 +61,17 @@ V=gen/db/sales.list-prices-as-of.sql.go
 run "有效期: 结束日不含当天(<= → <)"     $V 's/\(\$2::date <= t1\.valid_to\)/(\$2::date < t1.valid_to)/'
 run "有效期: 结束日为空没处理"          $V 's/\(t1\.valid_to IS NULL\) OR //'
 J=gen/db/catalog.list-product-master.sql.go
-run "JSON版本: 取最旧的版本"            $J 's/t2\._o_registered_at DESC, t2\._o_id DESC/t2._o_registered_at ASC, t2._o_id ASC/'
-run "JSON版本: 不处理删除"              $J 's/\(t3\._action <> 1::int4\) AND //'
-run "JSON版本: 不处理逻辑删除"          $J "s/ AND \(\(t3\._logical_delete IS NULL\) OR \(t3\._logical_delete <> '1'::text\)\)//"
-run "JSON版本: 先筛选再取最新(公司引擎的问题)" $J 's/WHERE \(NOT \(t2\.product_code IS NULL\)\)/WHERE (NOT (t2.product_code IS NULL)) AND ((\$2::text IS NULL) OR (t2.category = \$2::text))/'
-run "下推: 丢掉了键上的条件(属于)"        $J 's/\n\s+AND \(\(coalesce\(cardinality\(\$1::text\[\]\), 0\) = 0\) OR \(t2\.product_code = ANY\(\$1::text\[\]\)\)\)//'
+run "JSON版本: 不处理删除" $J 's/\(t2\._action <> 1::int4\) AND //'
+run "JSON版本: 不处理逻辑删除" $J "s/ AND \(\(t2\._logical_delete IS NULL\) OR \(t2\._logical_delete <> '1'::text\)\)//"
+run "状态表: 读了原始表(全部版本,不取最新)" $J 's/FROM factory_current_product_master AS t1/FROM product_events AS t1/'
+run "状态表的筛选: 丢掉了键上的条件(属于)" $J 's/\n\s+AND \(\(coalesce\(cardinality\(\$2::text\[\]\), 0\) = 0\) OR \(t2\.product_code = ANY\(\$2::text\[\]\)\)\)//'
 NK=gen/db/catalog.list-product-labels.sql.go
-run "可以为空的键: 丢掉键为空的行(以前的工厂)"   $NK 's/WHERE \(NOT \(t2\.product_code IS NULL\)\)/WHERE (NOT (t2.product_code IS NULL)) AND (NOT (t2.label_code IS NULL))/'
-run "输出改名: 取错了来源的列"               $NK 's/t4\.text AS display_text/t4.label_code AS display_text/'
-run "可以为空的键: 空值和空字符串合成一组"       $NK 's/t2\.label_code COLLATE "C"/coalesce(t2.label_code, \x27\x27) COLLATE "C"/g'
+run "可以为空的键: 丢掉键为空的行(以前的工厂)" $NK 's/AND \(NOT \(t2\.product_code IS NULL\)\)/AND (NOT (t2.product_code IS NULL)) AND (NOT (t2.label_code IS NULL))/'
+run "输出改名: 取错了来源的列" $NK 's/t3\.text AS display_text/t3.label_code AS display_text/'
 EV=gen/db/catalog.list-recent-label-changes.sql.go
 run "外壳列: 从 JSON 里取(没有这个键)"          $EV 's/t1\.registered_at AS updated_at/((t1.data ->> \x27updated_at\x27)::timestamptz) AS updated_at/'
-run "外壳列: 取了最早的版本的时间"              $EV 's/t1\.registered_at AS updated_at/min(t1.registered_at) OVER (PARTITION BY t1.data ->> \x27product_code\x27, t1.data ->> \x27label_code\x27) AS updated_at/'
-run "外壳列: 筛选 >= 写成 >"                 $EV 's/t4\.updated_at >= \$2/t4.updated_at > \$2/'
-run "排序: 第二列的方向跟着第一列(以前的工厂)"   $EV 's/ORDER BY t5\.changed_at DESC, t5\.label_code COLLATE "C"/ORDER BY t5.changed_at DESC, t5.label_code COLLATE "C" DESC/'
+run "外壳列: 筛选 >= 写成 >" $EV 's/t2\.updated_at >= \$2/t2.updated_at > \$2/'
+run "排序: 第二列的方向跟着第一列(以前的工厂)" $EV 's/ORDER BY t4\.changed_at DESC, t4\.label_code COLLATE "C"/ORDER BY t4.changed_at DESC, t4.label_code COLLATE "C" DESC/'
 CP=gen/db/sales.list-current-prices.sql.go
 run "一览+每组取一条: 取了最早的"              $CP 's/t1\.valid_from DESC\n/t1.valid_from\n/'
 run "一览+每组取一条: 没有每组取一条"          $CP 's/SELECT DISTINCT ON \(t1\.store_code, t1\.product_code COLLATE "C"\) /SELECT /'
@@ -151,18 +148,27 @@ run "now: 读了系统时钟(不是请求开始的时刻)"      $SJH 's/FactoryN
 PM=gen/db/sales.list-prev-month-sales.sql.go
 run "月的加法: 月末没有截到最后一天"              $PM 's/\(\(\$2::date \+ make_interval\(months => \(-1\)\)\)::date\)/((date_trunc(\x27month\x27, \$2::date) + make_interval(months => (-1)))::date + (extract(day from \$2::date)::int - 1))/'
 run "派生参数: 前月の末日を含まない(<= → <)"      $PM 's/t1\.sales_date <= \(\(date_trunc/t1.sales_date < ((date_trunc/'
+# 当前状态表(docs/design/current-state.md): 生成的触发器(db/schema/zz_factory_current.sql)。服务器不变,验收用改过的表结构的库
+ST=db/schema/zz_factory_current.sql
+run "状态表: 写入不更新状态表(触发器什么也不做)"     $ST 's/(FUNCTION factory_current_product_master_ins\(\) RETURNS trigger LANGUAGE plpgsql AS \$factory\$\nBEGIN\n)/${1}RETURN NULL;\n/'
+run "状态表: 新的版本不覆盖旧的(DO NOTHING)"        $ST 's/(FUNCTION factory_current_product_master_ins\(\).*?)DO UPDATE SET [^\n]*\n\s*WHERE [^\n]*;/${1}DO NOTHING;/s'
+run "状态表: 登记顺序比较反了(取了最旧的版本)"      $ST 's/(FUNCTION factory_current_product_master_ins\(\).*?)EXCLUDED\.registered_at > s\.registered_at/${1}EXCLUDED.registered_at < s.registered_at/s'
+run "状态表: 删除没有反映(删除的版本不进状态表)"    $ST 's/(FUNCTION factory_current_product_master_ins\(\).*?)FROM factory_new AS t1/${1}FROM (SELECT * FROM factory_new WHERE action_type <> 1) AS t1/s'
+run "状态表: 逻辑删除没有反映"                      $ST 's/(FUNCTION factory_current_product_master_ins\(\).*?)FROM factory_new AS t1/${1}FROM (SELECT * FROM factory_new WHERE data ->> \x27deleted\x27 IS DISTINCT FROM \x271\x27) AS t1/s'
+run "状态表: 可以为空的键的空值和空字符串合成一组"  $ST 's/(FUNCTION factory_current_product_label_ins\(\).*?)t3\.label_code AS _k_label_code/${1}coalesce(t3.label_code, \x27\x27) AS _k_label_code/s'
+run "状态表: 关联的对方(分类)的状态表是空的"      $ST 's/(FUNCTION factory_current_category_master_ins\(\).*?)FROM factory_new AS t1/${1}FROM (SELECT * FROM factory_new WHERE FALSE) AS t1/s'
+run "外壳列: 取了最早的版本的时间(状态表的更新没换外壳列)" $ST 's/(FUNCTION factory_current_product_label_ins\(\).*?)registered_at = EXCLUDED\.registered_at/${1}registered_at = s.registered_at/s'
 # R2.5 T1: 关联 / 嵌套 / 子聚合的对方是逻辑表(JSON版本)
 LP=gen/db/catalog.list-labels-with-product.sql.go
-run "逻辑表の关联: 取了最旧的版本"                $LP 's/t6\._o_registered_at DESC, t6\._o_id DESC/t6._o_registered_at ASC, t6._o_id ASC/'
-run "逻辑表の关联: 不处理删除"                    $LP 's/\(t7\._action <> 1::int4\) AND //'
-run "逻辑表の链: 末端不处理逻辑删除"              $LP "s/ AND \(\(t11\._logical_delete IS NULL\) OR \(t11\._logical_delete <> '1'::text\)\)//"
-run "逻辑表の关联: 按物理表的行(不取最新)"       $LP 's/SELECT DISTINCT ON \(t6\.product_code COLLATE "C"\) /SELECT /'
+run "逻辑表の关联: 不处理删除" $LP 's/\(t5\._action <> 1::int4\) AND //'
+run "逻辑表の链: 末端不处理逻辑删除" $LP "s/ AND \(\(t8\._logical_delete IS NULL\) OR \(t8\._logical_delete <> '1'::text\)\)//"
+run "逻辑表の关联: 按物理表的行(不取最新)" $LP 's/FROM factory_current_product_master AS t4/FROM product_events AS t4/'
 # 筛选越过关联下推(core/pushdown.go): 键の条件はラベルの取最新の前へ。外部结合(keep)の側に入れると効かない
-run "关联の下推: 键の条件を落とした"                  $LP 's/\n\s+AND \(t2\.product_code = ANY\(\$1::text\[\]\)\)//'
-run "关联の下推: keep の关联(カテゴリ)の条件に入れた" $LP 's/\n\s+AND \(t2\.product_code = ANY\(\$1::text\[\]\)\)//; s/AND \(t10\.category = t8\.category\)/AND (t10.category = t8.category) AND (t4.product_code = ANY(\$1::text[]))/'
+run "关联の下推: 键の条件を落とした" $LP 's/\n\s+AND \(t2\.product_code = ANY\(\$1::text\[\]\)\)//'
+run "关联の下推: keep の关联(カテゴリ)の条件に入れた" $LP 's/\n\s+AND \(t2\.product_code = ANY\(\$1::text\[\]\)\)//; s/AND \(t8\.category = t6\.category\)/AND (t8.category = t6.category) AND (t3.product_code = ANY(\$1::text[]))/'
 CP2=gen/db/catalog.list-category-products.sql.go
-run "逻辑表の嵌套: 子行取了最旧的版本"            $CP2 's/t10\._o_registered_at DESC, t10\._o_id DESC/t10._o_registered_at ASC, t10._o_id ASC/'
-run "逻辑表の子聚合: 删除的子行也数"              $CP2 's/\(t17\._action <> 1::int4\) AND //'
+run "逻辑表の嵌套: 子行读了原始表(全部版本)" $CP2 's/FROM factory_current_product_label AS t7/FROM product_label_events AS t7/'
+run "逻辑表の子聚合: 删除的子行也数" $CP2 's/\(t13\._action <> 1::int4\) AND //'
 # R2.5 T2: 分组 / 排名之后的筛选
 RT=gen/db/receipts.list-store-ranking-top-n.sql.go
 run "名次 ≤ N: RANK 写成 ROW_NUMBER(并列被截断)" $RT 's/rank\(\) OVER/row_number() OVER/'
@@ -210,33 +216,33 @@ run "随父: 保留写成丢弃(LEFT JOIN → JOIN)"           $PN 's/LEFT JOIN 
 run "随父: 别の店舗の DB を引く(店舗コード + 1)"      $PNH 's/h\.at\(int64\(m\.GetStoreCode\(\)\)\)/h.at(int64(m.GetStoreCode())+2)/'
 # R2.7 H1/H2: 逻辑表への按日期的关联 + 整数编码的日期(YYYYMMDD)+ 对方的列 = 常量
 PC=gen/db/catalog.list-product-costs.sql.go
-run "YMD按日期: 开始の不正な日付を検査しない"        $PC 's/\n\s+AND \(CASE WHEN t8\.valid_from BETWEEN[^\n]*END\)//'
-run "YMD按日期: 不正な最終日を無期限扱い"            $PC 's/ AND \(CASE WHEN t8\.valid_to BETWEEN[^\n]*?ELSE FALSE END\)\)\)/))/'
-run "按日期(逻辑表): 最終日を含まない(<= → <)"      $PC 's/\x27YYYYMMDD\x27\)\)::int4 <= t8\.valid_to/\x27YYYYMMDD\x27))::int4 < t8.valid_to/'
-run "按日期(逻辑表): 一番古い改定を取る"             $PC 's/ORDER BY t8\.valid_from DESC/ORDER BY t8.valid_from/'
-run "对方的列 = 常量(逻辑表): 区分を見ない"          $PC 's/WHERE \(t8\.cost_kind = \x27STD\x27::text\)\n\s+AND /WHERE /'
-run "按日期(逻辑表): 版を取らない(DISTINCT ON なし)"  $PC 's/SELECT DISTINCT ON \(t6\.product_code COLLATE "C", t6\.cost_kind COLLATE "C", t6\.valid_from\) /SELECT /'
+run "YMD按日期: 开始の不正な日付を検査しない" $PC 's/\n\s+AND \(CASE WHEN t6\.valid_from BETWEEN[^\n]*END\)//'
+run "YMD按日期: 不正な最終日を無期限扱い" $PC 's/ AND \(CASE WHEN t6\.valid_to BETWEEN[^\n]*?ELSE FALSE END\)\)\)/))/'
+run "按日期(逻辑表): 最終日を含まない(<= → <)" $PC 's/\x27YYYYMMDD\x27\)\)::int4 <= t6\.valid_to/\x27YYYYMMDD\x27))::int4 < t6.valid_to/'
+run "按日期(逻辑表): 一番古い改定を取る" $PC 's/ORDER BY t6\.valid_from DESC/ORDER BY t6.valid_from/'
+run "对方的列 = 常量(逻辑表): 区分を見ない" $PC 's/WHERE \(t6\.cost_kind = \x27STD\x27::text\)\n\s+AND /WHERE /'
+run "按日期(逻辑表): 读了原始表(全部版本)" $PC 's/FROM factory_current_product_cost AS t4/FROM product_cost_events AS t4/'
 run "按日期(逻辑表・今天): UTC の日付"               $PC 's/AT TIME ZONE \x27Asia\/Tokyo\x27/AT TIME ZONE \x27UTC\x27/g'
 # R2.7 H1: 嵌套里的关联(子表・对方が逻辑表)
 CS=gen/db/catalog.list-category-shelf-labels.sql.go
-run "嵌套里的关联(逻辑表): 保留写成丢弃"             $CS 's/\) AS t8\n(\s+)LEFT JOIN LATERAL/) AS t8\n${1}JOIN LATERAL/'
-run "嵌套里的关联(逻辑表): 棚札の区分を見ない"       $CS 's/WHERE \(t12\.label_code = \x27SHELF\x27::text\)/WHERE TRUE/'
-run "嵌套里的关联(逻辑表): 削除されたラベルも使う"   $CS 's/WHERE \(\(t11\._action <> 1::int4\) AND/WHERE ((TRUE) AND/'
-run "嵌套(逻辑表的子表+关联): 削除された商品も出す"  $CS 's/WHERE \(\(t7\._action <> 1::int4\) AND/WHERE ((TRUE) AND/'
+run "嵌套里的关联(逻辑表): 保留写成丢弃" $CS 's/\) AS t6\n(\s+)LEFT JOIN LATERAL/) AS t6\n${1}JOIN LATERAL/'
+run "嵌套里的关联(逻辑表): 棚札の区分を見ない" $CS 's/WHERE \(t9\.label_code = \x27SHELF\x27::text\)/WHERE TRUE/'
+run "嵌套里的关联(逻辑表): 削除されたラベルも使う" $CS 's/WHERE \(\(t8\._action <> 1::int4\) AND/WHERE ((TRUE) AND/'
+run "嵌套(逻辑表的子表+关联): 削除された商品も出す" $CS 's/WHERE \(\(t5\._action <> 1::int4\) AND/WHERE ((TRUE) AND/'
 # R2.7 H3: 分库: 随父 の逻辑表への关联
 PL=gen/db/sales.list-store-price-local-names.sql.go
 PLH=internal/handler/sales/list_store_price_local_names_gen.go
 run "随父(逻辑表): 别の店舗の DB を引く"             $PLH 's/h\.at\(int64\(m\.GetStoreCode\(\)\)\)/h.at(int64(m.GetStoreCode())+2)/'
-run "随父(逻辑表): 削除された商品名も使う"           $PL 's/WHERE \(\(t4\._action <> 1::int4\) AND/WHERE ((TRUE) AND/'
-run "随父(逻辑表): 古い版の商品名を使う"             $PL 's/t3\._o_registered_at DESC, t3\._o_id DESC/t3._o_registered_at, t3._o_id/'
+run "随父(逻辑表): 削除された商品名も使う" $PL 's/WHERE \(\(t3\._action <> 1::int4\) AND/WHERE ((TRUE) AND/'
+run "随父(逻辑表): 读了原始表(全部版本)" $PL 's/FROM factory_current_store_product_names AS t2/FROM store_product_name_events AS t2/'
 # R2.7 H4: 入力が分库キーだけの 前N条 1(逻辑表)
 GN=gen/db/sales.get-latest-store-notice.sql.go
 GNH=internal/handler/sales/get_latest_store_notice_gen.go
-run "最新のお知らせ: 削除を見ない"                   $GN 's/WHERE \(\(t3\._action <> 1::int4\) AND/WHERE ((TRUE) AND/'
-run "最新のお知らせ: 論理削除を見ない"               $GN 's/OR \(t3\._logical_delete <> \x271\x27::text\)/OR TRUE/'
-run "最新のお知らせ: 同じ日は番号の小さい方"         $GN 's/t5\.notice_no DESC/t5.notice_no/'
+run "最新のお知らせ: 削除を見ない" $GN 's/WHERE \(\(t2\._action <> 1::int4\) AND/WHERE ((TRUE) AND/'
+run "最新のお知らせ: 論理削除を見ない" $GN 's/OR \(t2\._logical_delete <> \x271\x27::text\)/OR TRUE/'
+run "最新のお知らせ: 同じ日は番号の小さい方" $GN 's/t4\.notice_no DESC/t4.notice_no/'
 run "最新のお知らせ: 今天 を UTC で"                 $GN 's/AT TIME ZONE \x27Asia\/Tokyo\x27/AT TIME ZONE \x27UTC\x27/'
-run "最新のお知らせ: 今日の掲載を含まない(<= → <)"  $GN 's/\(t4\.posted_ymd <= \(to_char/(t4.posted_ymd < (to_char/'
+run "最新のお知らせ: 今日の掲載を含まない(<= → <)" $GN 's/\(t2\.posted_ymd <= \(to_char/(t2.posted_ymd < (to_char/'
 # 索引的键(core/keyindex.go): 整数の键の条件は表达式索引と同じ式(不正な値は NULL)。文本での比较は ' +7 '・'07' の版を落とす
 run "索引的键: 整数を文本で比较"                    $GN 's/WHERE \(\(CASE WHEN \(t1\.data ->> \x27store_code\x27\) ~ [^\n]*= \$1::int4\)/WHERE ((t1.data ->> \x27store_code\x27) = \$1::int4::text)/'
 run "索引的键: 前后の空白・符号を许さない"          $GN 's/(WHERE \(\(CASE WHEN \(t1\.data ->> \x27store_code\x27\) ~ )\x27[^\x27]*\x27/$1\x27^[0-9]+\$\x27/'

@@ -8,28 +8,24 @@ import (
 )
 
 const listStorePriceLocalNames = `-- name: ListStorePriceLocalNames :many
-SELECT t6.product_code, t6.product_name, t6.valid_from, t6.valid_to, t6.price
+SELECT t5.product_code, t5.product_name, t5.valid_from, t5.valid_to, t5.price
 FROM (
-    SELECT t1.product_code AS product_code, t5.name AS product_name, t1.valid_from AS valid_from, t1.valid_to AS valid_to, t1.price AS price
+    SELECT t1.product_code AS product_code, t4.name AS product_name, t1.valid_from AS valid_from, t1.valid_to AS valid_to, t1.price AS price
     FROM store_prices AS t1
     LEFT JOIN LATERAL (
-        SELECT t4.product_code AS product_code, t4.name AS name
+        SELECT t3.product_code AS product_code, t3.name AS name
         FROM (
-            SELECT DISTINCT ON (t3.product_code COLLATE "C") t3.product_code, t3.name, t3._action, t3._o_registered_at, t3._o_id, t3._logical_delete
-            FROM (
-                SELECT ((t2.data ->> 'product_code')::text) AS product_code, ((t2.data ->> 'name')::text) AS name, t2.action_type AS _action, t2.registered_at AS _o_registered_at, t2.id AS _o_id, ((t2.data ->> 'deleted')::text) AS _logical_delete
-                FROM store_product_name_events AS t2
-            ) AS t3
-            WHERE (NOT (t3.product_code IS NULL))
-              AND (t3.product_code = t1.product_code)
-            ORDER BY t3.product_code COLLATE "C", t3._o_registered_at DESC, t3._o_id DESC
-        ) AS t4
-        WHERE ((t4._action <> 1::int4) AND ((t4._logical_delete IS NULL) OR (t4._logical_delete <> '1'::text)))
-    ) AS t5 ON TRUE
+            SELECT ((t2.data ->> 'product_code')::text) AS product_code, ((t2.data ->> 'name')::text) AS name, t2.action_type AS _action, t2.registered_at AS _o_registered_at, t2.id AS _o_id, ((t2.data ->> 'deleted')::text) AS _logical_delete
+            FROM factory_current_store_product_names AS t2
+        ) AS t3
+        WHERE ((t3._action <> 1::int4) AND ((t3._logical_delete IS NULL) OR (t3._logical_delete <> '1'::text)))
+          AND (t3.product_code = t1.product_code)
+          AND (NOT (t3.product_code IS NULL))
+    ) AS t4 ON TRUE
     WHERE (t1.store_code = $1::int4)
       AND (($2::text IS NULL) OR (t1.product_code LIKE replace(replace(replace($2::text, '\', '\\'), '%', '\%'), '_', '\_') || '%'))
-) AS t6
-ORDER BY t6.product_code COLLATE "C", t6.valid_from DESC
+) AS t5
+ORDER BY t5.product_code COLLATE "C", t5.valid_from DESC
 LIMIT 301
 `
 

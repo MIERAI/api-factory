@@ -117,6 +117,8 @@ func main() {
 		err = cmdSystem(args)
 	case "version":
 		err = cmdVersion(args)
+	case "state-migration":
+		err = cmdStateMigration(args)
 	case "upgrade":
 		err = cmdUpgrade(args)
 	default:

@@ -49,6 +49,8 @@ type Storage struct {
 	OrderBy       []string       `yaml:"order_by"`      // [registered_at, id](登记的先后,后面的赢)
 	LogicalDelete *LogicalDelete `yaml:"logical_delete,omitempty"`
 	Fields        []StorageField `yaml:"fields"` // 逻辑列(顺序 = 视图的列顺序)
+	// State: 当前状态表(每键最新的物化,触发器维护;docs/design/current-state.md)。空 = 没有(当前状态表: 否)
+	State string `yaml:"state,omitempty"`
 }
 
 type LogicalDelete struct {

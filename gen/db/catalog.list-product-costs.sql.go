@@ -8,77 +8,65 @@ import (
 )
 
 const listProductCosts = `-- name: ListProductCosts :many
-SELECT t15.product_code, t15.name, t15.launched_on, t15.launch_cost, t15.current_cost, t15.current_from
+SELECT t12.product_code, t12.name, t12.launched_on, t12.launch_cost, t12.current_cost, t12.current_from
 FROM (
-    SELECT t4.product_code AS product_code, t4.name AS name, t4.launched_on AS launched_on, t9.cost AS launch_cost, t14.cost AS current_cost, t14.valid_from AS current_from
+    SELECT t3.product_code AS product_code, t3.name AS name, t3.launched_on AS launched_on, t7.cost AS launch_cost, t11.cost AS current_cost, t11.valid_from AS current_from
     FROM (
-        SELECT t3.product_code AS product_code, t3.name AS name, t3.category AS category, t3.price AS price, t3.launched_on AS launched_on, t3.maker_zip AS maker_zip
+        SELECT t2.product_code AS product_code, t2.name AS name, t2.category AS category, t2.price AS price, t2.launched_on AS launched_on, t2.maker_zip AS maker_zip
         FROM (
-            SELECT DISTINCT ON (t2.product_code COLLATE "C") t2.product_code, t2.name, t2.category, t2.price, t2.launched_on, t2.maker_zip, t2._action, t2._o_registered_at, t2._o_id, t2._logical_delete
-            FROM (
-                SELECT ((t1.data ->> 'product_code')::text) AS product_code, ((t1.data ->> 'name')::text) AS name, ((t1.data ->> 'category')::text) AS category, ((CASE WHEN (t1.data ->> 'price') ~ '^[ \t\n\r\f\v]*[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)[ \t\n\r\f\v]*$' THEN (t1.data ->> 'price') ELSE '✗' || (t1.data ->> 'price') END)::numeric) AS price, ((CASE WHEN (t1.data ->> 'launched_on') ~ '^[ \t\n\r\f\v]*[0-9]{4}-[0-9]{2}-[0-9]{2}[ \t\n\r\f\v]*$' THEN (t1.data ->> 'launched_on') ELSE '✗' || (t1.data ->> 'launched_on') END)::date) AS launched_on, ((t1.data ->> 'maker_zip')::text) AS maker_zip, t1.action_type AS _action, t1.registered_at AS _o_registered_at, t1.id AS _o_id, ((t1.data ->> 'deleted')::text) AS _logical_delete
-                FROM product_events AS t1
-            ) AS t2
-            WHERE (NOT (t2.product_code IS NULL))
-            ORDER BY t2.product_code COLLATE "C", t2._o_registered_at DESC, t2._o_id DESC
-        ) AS t3
-        WHERE ((t3._action <> 1::int4) AND ((t3._logical_delete IS NULL) OR (t3._logical_delete <> '1'::text)))
-    ) AS t4
+            SELECT ((t1.data ->> 'product_code')::text) AS product_code, ((t1.data ->> 'name')::text) AS name, ((t1.data ->> 'category')::text) AS category, ((CASE WHEN (t1.data ->> 'price') ~ '^[ \t\n\r\f\v]*[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)[ \t\n\r\f\v]*$' THEN (t1.data ->> 'price') ELSE '✗' || (t1.data ->> 'price') END)::numeric) AS price, ((CASE WHEN (t1.data ->> 'launched_on') ~ '^[ \t\n\r\f\v]*[0-9]{4}-[0-9]{2}-[0-9]{2}[ \t\n\r\f\v]*$' THEN (t1.data ->> 'launched_on') ELSE '✗' || (t1.data ->> 'launched_on') END)::date) AS launched_on, ((t1.data ->> 'maker_zip')::text) AS maker_zip, t1.action_type AS _action, t1.registered_at AS _o_registered_at, t1.id AS _o_id, ((t1.data ->> 'deleted')::text) AS _logical_delete
+            FROM factory_current_product_master AS t1
+        ) AS t2
+        WHERE ((t2._action <> 1::int4) AND ((t2._logical_delete IS NULL) OR (t2._logical_delete <> '1'::text)))
+          AND (t2.category = $1::text)
+          AND (NOT (t2.product_code IS NULL))
+    ) AS t3
     LEFT JOIN LATERAL (
-        SELECT t8.cost
+        SELECT t6.cost
         FROM (
-            SELECT t7.product_code AS product_code, t7.cost_kind AS cost_kind, t7.valid_from AS valid_from, t7.valid_to AS valid_to, t7.cost AS cost
+            SELECT t5.product_code AS product_code, t5.cost_kind AS cost_kind, t5.valid_from AS valid_from, t5.valid_to AS valid_to, t5.cost AS cost
             FROM (
-                SELECT DISTINCT ON (t6.product_code COLLATE "C", t6.cost_kind COLLATE "C", t6.valid_from) t6.product_code, t6.cost_kind, t6.valid_from, t6.valid_to, t6.cost, t6._action, t6._o_registered_at, t6._o_id, t6._logical_delete
-                FROM (
-                    SELECT ((t5.data ->> 'product_code')::text) AS product_code, ((t5.data ->> 'cost_kind')::text) AS cost_kind, ((CASE WHEN (t5.data ->> 'valid_from') ~ '^[ \t\n\r\f\v]*[+-]?[0-9]+[ \t\n\r\f\v]*$' THEN (t5.data ->> 'valid_from') ELSE '✗' || (t5.data ->> 'valid_from') END)::int4) AS valid_from, ((CASE WHEN (t5.data ->> 'valid_to') ~ '^[ \t\n\r\f\v]*[+-]?[0-9]+[ \t\n\r\f\v]*$' THEN (t5.data ->> 'valid_to') ELSE '✗' || (t5.data ->> 'valid_to') END)::int4) AS valid_to, ((CASE WHEN (t5.data ->> 'cost') ~ '^[ \t\n\r\f\v]*[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)[ \t\n\r\f\v]*$' THEN (t5.data ->> 'cost') ELSE '✗' || (t5.data ->> 'cost') END)::numeric) AS cost, t5.action_type AS _action, t5.registered_at AS _o_registered_at, t5.id AS _o_id, ((t5.data ->> 'deleted')::text) AS _logical_delete
-                    FROM product_cost_events AS t5
-                ) AS t6
-                WHERE ((NOT (t6.product_code IS NULL)) AND (NOT (t6.cost_kind IS NULL)) AND (NOT (t6.valid_from IS NULL)))
-                  AND (t6.product_code = t4.product_code)
-                ORDER BY t6.product_code COLLATE "C", t6.cost_kind COLLATE "C", t6.valid_from, t6._o_registered_at DESC, t6._o_id DESC
-            ) AS t7
-            WHERE ((t7._action <> 1::int4) AND ((t7._logical_delete IS NULL) OR (t7._logical_delete <> '1'::text)))
-        ) AS t8
-        WHERE (t8.cost_kind = 'STD'::text)
-          AND t8.valid_from <= (to_char(t4.launched_on, 'YYYYMMDD'))::int4
-          AND (CASE WHEN t8.valid_from BETWEEN 10000101 AND 99991231 AND t8.valid_from / 100 % 100 BETWEEN 1 AND 12 THEN t8.valid_from % 100 BETWEEN 1 AND extract(day from make_date((t8.valid_from / 10000)::int4, (t8.valid_from / 100 % 100)::int4, 1) + interval '1 month' - interval '1 day')::int4 ELSE FALSE END)
-          AND (t8.valid_to IS NULL OR ((to_char(t4.launched_on, 'YYYYMMDD'))::int4 <= t8.valid_to AND (CASE WHEN t8.valid_to BETWEEN 10000101 AND 99991231 AND t8.valid_to / 100 % 100 BETWEEN 1 AND 12 THEN t8.valid_to % 100 BETWEEN 1 AND extract(day from make_date((t8.valid_to / 10000)::int4, (t8.valid_to / 100 % 100)::int4, 1) + interval '1 month' - interval '1 day')::int4 ELSE FALSE END)))
-        ORDER BY t8.valid_from DESC
+                SELECT ((t4.data ->> 'product_code')::text) AS product_code, ((t4.data ->> 'cost_kind')::text) AS cost_kind, ((CASE WHEN (t4.data ->> 'valid_from') ~ '^[ \t\n\r\f\v]*[+-]?[0-9]+[ \t\n\r\f\v]*$' THEN (t4.data ->> 'valid_from') ELSE '✗' || (t4.data ->> 'valid_from') END)::int4) AS valid_from, ((CASE WHEN (t4.data ->> 'valid_to') ~ '^[ \t\n\r\f\v]*[+-]?[0-9]+[ \t\n\r\f\v]*$' THEN (t4.data ->> 'valid_to') ELSE '✗' || (t4.data ->> 'valid_to') END)::int4) AS valid_to, ((CASE WHEN (t4.data ->> 'cost') ~ '^[ \t\n\r\f\v]*[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)[ \t\n\r\f\v]*$' THEN (t4.data ->> 'cost') ELSE '✗' || (t4.data ->> 'cost') END)::numeric) AS cost, t4.action_type AS _action, t4.registered_at AS _o_registered_at, t4.id AS _o_id, ((t4.data ->> 'deleted')::text) AS _logical_delete
+                FROM factory_current_product_cost AS t4
+            ) AS t5
+            WHERE ((t5._action <> 1::int4) AND ((t5._logical_delete IS NULL) OR (t5._logical_delete <> '1'::text)))
+              AND (t5.product_code = t3.product_code)
+              AND ((NOT (t5.product_code IS NULL)) AND (NOT (t5.cost_kind IS NULL)) AND (NOT (t5.valid_from IS NULL)))
+        ) AS t6
+        WHERE (t6.cost_kind = 'STD'::text)
+          AND t6.valid_from <= (to_char(t3.launched_on, 'YYYYMMDD'))::int4
+          AND (CASE WHEN t6.valid_from BETWEEN 10000101 AND 99991231 AND t6.valid_from / 100 % 100 BETWEEN 1 AND 12 THEN t6.valid_from % 100 BETWEEN 1 AND extract(day from make_date((t6.valid_from / 10000)::int4, (t6.valid_from / 100 % 100)::int4, 1) + interval '1 month' - interval '1 day')::int4 ELSE FALSE END)
+          AND (t6.valid_to IS NULL OR ((to_char(t3.launched_on, 'YYYYMMDD'))::int4 <= t6.valid_to AND (CASE WHEN t6.valid_to BETWEEN 10000101 AND 99991231 AND t6.valid_to / 100 % 100 BETWEEN 1 AND 12 THEN t6.valid_to % 100 BETWEEN 1 AND extract(day from make_date((t6.valid_to / 10000)::int4, (t6.valid_to / 100 % 100)::int4, 1) + interval '1 month' - interval '1 day')::int4 ELSE FALSE END)))
+        ORDER BY t6.valid_from DESC
         LIMIT 1
-    ) AS t9 ON TRUE
+    ) AS t7 ON TRUE
     LEFT JOIN LATERAL (
-        SELECT t13.cost, t13.valid_from
+        SELECT t10.cost, t10.valid_from
         FROM (
-            SELECT t12.product_code AS product_code, t12.cost_kind AS cost_kind, t12.valid_from AS valid_from, t12.valid_to AS valid_to, t12.cost AS cost
+            SELECT t9.product_code AS product_code, t9.cost_kind AS cost_kind, t9.valid_from AS valid_from, t9.valid_to AS valid_to, t9.cost AS cost
             FROM (
-                SELECT DISTINCT ON (t11.product_code COLLATE "C", t11.cost_kind COLLATE "C", t11.valid_from) t11.product_code, t11.cost_kind, t11.valid_from, t11.valid_to, t11.cost, t11._action, t11._o_registered_at, t11._o_id, t11._logical_delete
-                FROM (
-                    SELECT ((t10.data ->> 'product_code')::text) AS product_code, ((t10.data ->> 'cost_kind')::text) AS cost_kind, ((CASE WHEN (t10.data ->> 'valid_from') ~ '^[ \t\n\r\f\v]*[+-]?[0-9]+[ \t\n\r\f\v]*$' THEN (t10.data ->> 'valid_from') ELSE '✗' || (t10.data ->> 'valid_from') END)::int4) AS valid_from, ((CASE WHEN (t10.data ->> 'valid_to') ~ '^[ \t\n\r\f\v]*[+-]?[0-9]+[ \t\n\r\f\v]*$' THEN (t10.data ->> 'valid_to') ELSE '✗' || (t10.data ->> 'valid_to') END)::int4) AS valid_to, ((CASE WHEN (t10.data ->> 'cost') ~ '^[ \t\n\r\f\v]*[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)[ \t\n\r\f\v]*$' THEN (t10.data ->> 'cost') ELSE '✗' || (t10.data ->> 'cost') END)::numeric) AS cost, t10.action_type AS _action, t10.registered_at AS _o_registered_at, t10.id AS _o_id, ((t10.data ->> 'deleted')::text) AS _logical_delete
-                    FROM product_cost_events AS t10
-                ) AS t11
-                WHERE ((NOT (t11.product_code IS NULL)) AND (NOT (t11.cost_kind IS NULL)) AND (NOT (t11.valid_from IS NULL)))
-                  AND (t11.product_code = t4.product_code)
-                ORDER BY t11.product_code COLLATE "C", t11.cost_kind COLLATE "C", t11.valid_from, t11._o_registered_at DESC, t11._o_id DESC
-            ) AS t12
-            WHERE ((t12._action <> 1::int4) AND ((t12._logical_delete IS NULL) OR (t12._logical_delete <> '1'::text)))
-        ) AS t13
-        WHERE (t13.cost_kind = 'STD'::text)
-          AND t13.valid_from <= (to_char((($1::timestamptz AT TIME ZONE 'Asia/Tokyo')::date), 'YYYYMMDD'))::int4
-          AND (CASE WHEN t13.valid_from BETWEEN 10000101 AND 99991231 AND t13.valid_from / 100 % 100 BETWEEN 1 AND 12 THEN t13.valid_from % 100 BETWEEN 1 AND extract(day from make_date((t13.valid_from / 10000)::int4, (t13.valid_from / 100 % 100)::int4, 1) + interval '1 month' - interval '1 day')::int4 ELSE FALSE END)
-          AND (t13.valid_to IS NULL OR ((to_char((($1::timestamptz AT TIME ZONE 'Asia/Tokyo')::date), 'YYYYMMDD'))::int4 <= t13.valid_to AND (CASE WHEN t13.valid_to BETWEEN 10000101 AND 99991231 AND t13.valid_to / 100 % 100 BETWEEN 1 AND 12 THEN t13.valid_to % 100 BETWEEN 1 AND extract(day from make_date((t13.valid_to / 10000)::int4, (t13.valid_to / 100 % 100)::int4, 1) + interval '1 month' - interval '1 day')::int4 ELSE FALSE END)))
-        ORDER BY t13.valid_from DESC
+                SELECT ((t8.data ->> 'product_code')::text) AS product_code, ((t8.data ->> 'cost_kind')::text) AS cost_kind, ((CASE WHEN (t8.data ->> 'valid_from') ~ '^[ \t\n\r\f\v]*[+-]?[0-9]+[ \t\n\r\f\v]*$' THEN (t8.data ->> 'valid_from') ELSE '✗' || (t8.data ->> 'valid_from') END)::int4) AS valid_from, ((CASE WHEN (t8.data ->> 'valid_to') ~ '^[ \t\n\r\f\v]*[+-]?[0-9]+[ \t\n\r\f\v]*$' THEN (t8.data ->> 'valid_to') ELSE '✗' || (t8.data ->> 'valid_to') END)::int4) AS valid_to, ((CASE WHEN (t8.data ->> 'cost') ~ '^[ \t\n\r\f\v]*[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)[ \t\n\r\f\v]*$' THEN (t8.data ->> 'cost') ELSE '✗' || (t8.data ->> 'cost') END)::numeric) AS cost, t8.action_type AS _action, t8.registered_at AS _o_registered_at, t8.id AS _o_id, ((t8.data ->> 'deleted')::text) AS _logical_delete
+                FROM factory_current_product_cost AS t8
+            ) AS t9
+            WHERE ((t9._action <> 1::int4) AND ((t9._logical_delete IS NULL) OR (t9._logical_delete <> '1'::text)))
+              AND (t9.product_code = t3.product_code)
+              AND ((NOT (t9.product_code IS NULL)) AND (NOT (t9.cost_kind IS NULL)) AND (NOT (t9.valid_from IS NULL)))
+        ) AS t10
+        WHERE (t10.cost_kind = 'STD'::text)
+          AND t10.valid_from <= (to_char((($2::timestamptz AT TIME ZONE 'Asia/Tokyo')::date), 'YYYYMMDD'))::int4
+          AND (CASE WHEN t10.valid_from BETWEEN 10000101 AND 99991231 AND t10.valid_from / 100 % 100 BETWEEN 1 AND 12 THEN t10.valid_from % 100 BETWEEN 1 AND extract(day from make_date((t10.valid_from / 10000)::int4, (t10.valid_from / 100 % 100)::int4, 1) + interval '1 month' - interval '1 day')::int4 ELSE FALSE END)
+          AND (t10.valid_to IS NULL OR ((to_char((($2::timestamptz AT TIME ZONE 'Asia/Tokyo')::date), 'YYYYMMDD'))::int4 <= t10.valid_to AND (CASE WHEN t10.valid_to BETWEEN 10000101 AND 99991231 AND t10.valid_to / 100 % 100 BETWEEN 1 AND 12 THEN t10.valid_to % 100 BETWEEN 1 AND extract(day from make_date((t10.valid_to / 10000)::int4, (t10.valid_to / 100 % 100)::int4, 1) + interval '1 month' - interval '1 day')::int4 ELSE FALSE END)))
+        ORDER BY t10.valid_from DESC
         LIMIT 1
-    ) AS t14 ON TRUE
-    WHERE (t4.category = $2::text)
-) AS t15
-ORDER BY t15.product_code COLLATE "C"
+    ) AS t11 ON TRUE
+) AS t12
+ORDER BY t12.product_code COLLATE "C"
 LIMIT 201
 `
 
 type ListProductCostsParams struct {
-	FactoryNow time.Time
 	Category   string
+	FactoryNow time.Time
 }
 
 type ListProductCostsRow struct {
@@ -91,7 +79,7 @@ type ListProductCostsRow struct {
 }
 
 func (q *Queries) ListProductCosts(ctx context.Context, arg ListProductCostsParams) ([]ListProductCostsRow, error) {
-	rows, err := q.db.Query(ctx, listProductCosts, arg.FactoryNow, arg.Category)
+	rows, err := q.db.Query(ctx, listProductCosts, arg.Category, arg.FactoryNow)
 	if err != nil {
 		return nil, err
 	}

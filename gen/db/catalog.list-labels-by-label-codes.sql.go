@@ -7,25 +7,22 @@ import (
 )
 
 const listLabelsByLabelCodes = `-- name: ListLabelsByLabelCodes :many
-SELECT t5.product_code, t5.label_code, t5.text
+SELECT t4.product_code, t4.label_code, t4.text
 FROM (
-    SELECT t4.product_code AS product_code, t4.label_code AS label_code, t4.text AS text
+    SELECT t3.product_code AS product_code, t3.label_code AS label_code, t3.text AS text
     FROM (
-        SELECT t3.product_code AS product_code, t3.label_code AS label_code, t3.text AS text, t3.updated_at AS updated_at
+        SELECT t2.product_code AS product_code, t2.label_code AS label_code, t2.text AS text, t2.updated_at AS updated_at
         FROM (
-            SELECT DISTINCT ON (t2.product_code COLLATE "C", t2.label_code COLLATE "C") t2.product_code, t2.label_code, t2.text, t2.updated_at, t2._action, t2._o_registered_at, t2._o_id
-            FROM (
-                SELECT ((t1.data ->> 'product_code')::text) AS product_code, ((t1.data ->> 'label_code')::text) AS label_code, ((t1.data ->> 'text')::text) AS text, t1.registered_at AS updated_at, t1.action_type AS _action, t1.registered_at AS _o_registered_at, t1.id AS _o_id
-                FROM product_label_events AS t1
-            ) AS t2
-            WHERE (NOT (t2.product_code IS NULL))
-              AND ((t2.label_code = ANY($1::text[])) AND (($2::text IS NULL) OR (t2.product_code LIKE replace(replace(replace($2::text, '\', '\\'), '%', '\%'), '_', '\_') || '%')))
-            ORDER BY t2.product_code COLLATE "C", t2.label_code COLLATE "C", t2._o_registered_at DESC, t2._o_id DESC
-        ) AS t3
-        WHERE ((t3._action <> 1::int4) AND ((NULL::text IS NULL) OR (NULL::text <> ''::text)))
-    ) AS t4
-) AS t5
-ORDER BY t5.product_code COLLATE "C", t5.label_code COLLATE "C"
+            SELECT ((t1.data ->> 'product_code')::text) AS product_code, ((t1.data ->> 'label_code')::text) AS label_code, ((t1.data ->> 'text')::text) AS text, t1.registered_at AS updated_at, t1.action_type AS _action, t1.registered_at AS _o_registered_at, t1.id AS _o_id
+            FROM factory_current_product_label AS t1
+        ) AS t2
+        WHERE ((t2._action <> 1::int4) AND ((NULL::text IS NULL) OR (NULL::text <> ''::text)))
+          AND (t2.label_code = ANY($1::text[]))
+          AND (($2::text IS NULL) OR (t2.product_code LIKE replace(replace(replace($2::text, '\', '\\'), '%', '\%'), '_', '\_') || '%'))
+          AND (NOT (t2.product_code IS NULL))
+    ) AS t3
+) AS t4
+ORDER BY t4.product_code COLLATE "C", t4.label_code COLLATE "C"
 LIMIT 501
 `
 
