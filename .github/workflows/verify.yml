@@ -94,7 +94,7 @@ jobs:
       # 结果缓存(scripts/margincache.py,内容寻址: 工厂 / 生成物 / 式样书一变就不命中)。PR 读得到 main 的缓存,
       # PR 写的缓存只有这个 PR 自己读得到(GitHub 的缓存按分支隔离)
       - if: steps.scope.outputs.code == '1'
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: .factory/margin-cache
           key: margin-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -110,7 +110,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with: { name: "margin-${{ matrix.shard }}", path: .factory/margin.txt, if-no-files-found: ignore, retention-days: 14 }
       - if: always() && steps.scope.outputs.code == '1'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: .factory/margin-cache
           key: margin-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
