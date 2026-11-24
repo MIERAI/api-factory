@@ -24,7 +24,7 @@ os.chdir(ROOT)
 
 C = "factory/core/"
 S, E, A, P, K, JK = C + "sql.go", C + "eval.go", C + "agg.go", C + "pushdown.go", C + "keyindex.go", C + "expr_json_key.go"
-LK, NEST, REL = C + "prim_lookup.go", C + "prim_nest.go", C + "relation.go"
+LK, NEST, REL, ST = C + "prim_lookup.go", C + "prim_nest.go", C + "relation.go", C + "state.go"
 
 
 def m(name, file, *edits, within=None):
@@ -114,6 +114,14 @@ MUTANTS = [
        """return fmt.Sprintf("(%s %s (to_char(%s, 'YYYYMMDD'))::int4)", x, e.Name, v), nil""")),
     m("SQL: ymd 的改写在 not 之下也做", C + "expr_cmp.go", ('if pos && len(e.Args) == 2 && e.Args[0].Op == "ymd" {', 'if len(e.Args) == 2 && e.Args[0].Op == "ymd" {')),
     m("参考: ymd 按日历进位", C + "expr_ymd.go", ("return YMDDate(x.(int64), e.Loose), nil", "return YMDDate(x.(int64), true), nil")),
+    # ---- 当前状态表(state.go;docs/design/current-state.md)
+    m("状态表: 新的版本不覆盖旧的(DO NOTHING)", ST, ("ON CONFLICT (%s) DO UPDATE SET %s\\nWHERE %s", "ON CONFLICT (%s) DO NOTHING%.0s%.0s")),
+    m("状态表: 登记顺序比较反了", ST, ('OR %s > %s)", a, b, ca, cb)', 'OR %s < %s)", a, b, ca, cb)')),
+    m("状态表: UPDATE 原始表只重算旧的键", ST, ('fn("upd", recompute(fromOld, fromNew))', 'fn("upd", recompute(fromOld))')),
+    m("状态表: DELETE 原始表没有反映", ST, ('fn("del", recompute(fromOld))', 'fn("del", "NULL;")')),
+    m("状态表: TRUNCATE 原始表没有清空", ST, ('fn("trunc", fmt.Sprintf("TRUNCATE %s;", q(S)))', 'fn("trunc", "NULL;")')),
+    m("状态表: 没有回填", ST, ('w("-- 回填(已有的数据;幂等)\\n%s;\\n", upsert(fromRaw))', 'w("-- 回填\\n")')),
+    m("状态表: 键为空的行也进状态表", ST, ("steps = append(steps, source[2:k]...)", "_ = k")),
     # ---- 筛选越过关联下推(pushdown.go)/ 索引的键(keyindex.go、expr_json_key.go)
     m("下推: 非键的条件也移到取最新之前", P, ("n, ok := name[e.Name]", "n, ok := name[e.Name]\n\t\t\tif !ok {\n\t\t\t\tn, ok = e.Name, true\n\t\t\t}")),
     m("下推: 越过任何步骤(不只 lookup)", P, ('if st.Kind == "lookup" {', 'if st.Kind != "filter" {')),
