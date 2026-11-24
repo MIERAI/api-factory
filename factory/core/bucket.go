@@ -187,6 +187,19 @@ BEGIN
             hit := false;
         END;
         IF NOT hit THEN
+            -- 够的桶都被别人锁着(同时的请求比桶多): 排队等随机的那一个桶(同样在子事务里: 等到之后不够 → 回滚,不留锁)
+            hit := true;
+            BEGIN
+                PERFORM 1 FROM %[5]s WHERE %[7]s AND bucket = b AND %[2]s >= -d FOR UPDATE;
+                IF NOT FOUND THEN
+                    RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'factory: bucket miss';
+                END IF;
+                UPDATE %[5]s SET %[2]s = %[2]s + d%[6]s WHERE %[7]s AND bucket = b;
+            EXCEPTION WHEN raise_exception THEN
+                hit := false;
+            END;
+        END IF;
+        IF NOT hit THEN
             -- 回退: 表的这一行当互斥(FOR NO KEY UPDATE: 不挡外键检查;热路径不碰它),再按桶的顺序锁住这个键的全部桶,
             -- 合计够才扣(不够 = 不更新)。热路径的事务只锁一个桶、锁到之后不再等别的;回退一次只有一个 → 没有死锁
             PERFORM 1 FROM %[14]s WHERE %[7]s FOR NO KEY UPDATE;

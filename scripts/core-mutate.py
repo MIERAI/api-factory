@@ -127,7 +127,8 @@ MUTANTS = [
     m("分桶: 回退不检查合计(不够也扣)", BK, ("IF coalesce(total, 0) < -d THEN", "IF FALSE THEN")),
     # 不列: "回退没有互斥(表的这一行的 FOR NO KEY UPDATE)" —— 热路径没取到时回滚子事务之后,回退按桶的顺序加锁,认证的并发里
     # 测不出死锁(留着互斥是防御: PostgreSQL 的 ORDER BY … FOR UPDATE 在 EvalPlanQual 时可能不按顺序)
-    m("分桶: 还加到了全部的桶", BK, ("UPDATE %[5]s SET %[2]s = %[2]s + d%[6]s WHERE %[7]s AND bucket = b;", "UPDATE %[5]s SET %[2]s = %[2]s + d%[6]s WHERE %[7]s AND b = b;")),
+    m("分桶: 还加到了全部的桶", BK, ("ELSIF d > 0 THEN\n        UPDATE %[5]s SET %[2]s = %[2]s + d%[6]s WHERE %[7]s AND bucket = b;",
+                                   "ELSIF d > 0 THEN\n        UPDATE %[5]s SET %[2]s = %[2]s + d%[6]s WHERE %[7]s AND b = b;")),
     m("分桶: 视图不合计(最大的桶)", BK, ("sum(b.%s) AS q", "max(b.%s) AS q")),
     m("分桶: 合计设成负数不报错", BK, ("IF NEW.%[3]s < 0 THEN", "IF FALSE THEN")),
     m("分桶: 删除不删桶", BK, ('fn(s.BucketTable+"_del", fmt.Sprintf("BEGIN\\n    DELETE FROM %s WHERE %s;', 'fn(s.BucketTable+"_del", fmt.Sprintf("BEGIN\\n    PERFORM 1%.0s%.0s;')),
