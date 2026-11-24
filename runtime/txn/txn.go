@@ -20,7 +20,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/MIERAI/api-factory/runtime/anomaly"
+	"github.com/MIERAI/api-factory/runtime/tracing"
 )
 
 // Kind: 写操作的种类。
@@ -165,12 +169,38 @@ func (e *Executor) Run(ctx context.Context, ops ...Op) error {
 //   - fn 返回错误 → 回滚,原样返回这个错误
 //   - 序列化失败 / 死锁(fn 里或提交时)→ 整个事务重来,fn 会被再调用(最多 MaxAttempts 次),所以 fn 除了 tx 以外不能有副作用
 //   - 测试的故障注入(WithFault: 第 k 个写操作之后失败)按整个事务计数: RunIn 的每个操作和 AfterWrite 各算一个
+//
+// 追踪打开时(tracing)整个 InTx 是一个 span "txn"(里面每条 SQL、BEGIN / COMMIT 是 pgx 的子 span),
+// 序列化失败 / 死锁的重来是它的事件 txn.retry。
 func (e *Executor) InTx(ctx context.Context, fn func(ctx context.Context, tx pgx.Tx) error) error {
+	if !tracing.Enabled() {
+		return e.inTx(ctx, fn, nil)
+	}
+	ctx, span := tracing.Start(ctx, "txn", trace.SpanKindInternal)
+	defer span.End()
+	err := e.inTx(ctx, fn, span)
+	if err != nil && span.IsRecording() {
+		r := ReasonOf(err)
+		span.SetAttributes(attribute.String("txn.reason", r.String()))
+		if r == None || r == Retry { // 平台的错误 / 重试用尽;业务的原因(不存在、冲突、条件不成立…)不算 span 的错误
+			tracing.Fail(span, err)
+		}
+	}
+	return err
+}
+
+func (e *Executor) inTx(ctx context.Context, fn func(ctx context.Context, tx pgx.Tx) error, span trace.Span) error {
 	var err error
 	for attempt := 1; attempt <= MaxAttempts; attempt++ {
 		err = e.once(ctx, fn)
 		if !retryable(err) {
+			if span != nil && span.IsRecording() {
+				span.SetAttributes(attribute.Int("txn.attempts", attempt))
+			}
 			return err
+		}
+		if span != nil && span.IsRecording() {
+			span.AddEvent("txn.retry", trace.WithAttributes(attribute.Int("txn.attempt", attempt), attribute.String("error", err.Error())))
 		}
 	}
 	var pe *pgconn.PgError

@@ -30,12 +30,16 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/MIERAI/api-factory/runtime/broker"
 	"github.com/MIERAI/api-factory/runtime/clock"
 	"github.com/MIERAI/api-factory/runtime/message"
 	"github.com/MIERAI/api-factory/runtime/metrics"
 	"github.com/MIERAI/api-factory/runtime/topology"
+	"github.com/MIERAI/api-factory/runtime/tracing"
 	"github.com/MIERAI/api-factory/runtime/txn"
 )
 
@@ -191,15 +195,50 @@ func (c *Consumer) accepts(env message.Envelope) bool {
 
 // Process: 一条消息的判定 + 数据库事务(去重 + 处理器),不碰 RabbitMQ。Run 按结果 ack / 重试 / 进 DLQ;
 // 进程内的测试驱动直接调用它(ack / nack 自己记)。结果计入 factory_messages_total。
+//
+// 追踪打开时一条消息一个 span "process <队列>"(SpanKindConsumer),父 = AMQP header 的 traceparent(中继发布的 span;
+// 没有 header 时用 envelope 的),处理器的事务、发出的消息都在它下面。
 func (c *Consumer) Process(ctx context.Context, d Delivery) Result {
 	c.defaults()
+	var span trace.Span
+	if tracing.Enabled() {
+		ctx, span = c.startSpan(ctx, d)
+		defer span.End()
+	}
 	res := c.process(ctx, d)
 	outcome := res.Outcome.String()
 	if res.Outcome == OK && res.Business != "" {
 		outcome = "business"
 	}
 	metrics.Message(c.Name, outcome)
+	if span != nil && span.IsRecording() {
+		span.SetAttributes(attribute.String("factory.message.outcome", outcome), attribute.String("factory.message.type", res.Envelope.Type),
+			attribute.Int("factory.message.attempt", res.Attempt))
+		if res.Business != "" {
+			span.SetAttributes(attribute.String("factory.message.business", res.Business))
+		}
+		if res.Err != nil {
+			span.RecordError(res.Err)
+			span.SetStatus(codes.Error, outcome)
+		}
+	}
 	return res
+}
+
+func (c *Consumer) startSpan(ctx context.Context, d Delivery) (context.Context, trace.Span) {
+	tp := message.HeaderString(d.Headers, message.HeaderTraceparent)
+	if tp == "" {
+		if env, err := message.Decode(d.Body); err == nil {
+			tp = env.Traceparent
+		}
+	}
+	ctx, span := tracing.Start(tracing.WithRemote(ctx, tp), "process "+c.Queue, trace.SpanKindConsumer)
+	if span.IsRecording() {
+		span.SetAttributes(attribute.String("messaging.system", "rabbitmq"), attribute.String("messaging.operation.type", "process"),
+			attribute.String("messaging.destination.name", c.Queue), attribute.String("messaging.consumer.group.name", c.Name),
+			attribute.String("messaging.message.id", d.MessageID))
+	}
+	return ctx, span
 }
 
 func (c *Consumer) process(ctx context.Context, d Delivery) Result {
@@ -286,8 +325,10 @@ func (c *Consumer) context(ctx context.Context, d Delivery, env message.Envelope
 		return ctx, err
 	}
 	ctx = clock.With(ctx, now)
-	if tp := message.ChildTraceparent(env.Traceparent); tp != "" {
-		ctx = message.WithTraceparent(ctx, tp)
+	if !tracing.Enabled() { // 打开时 ctx 里已经有 process 的 span(Process)
+		if tp := message.ChildTraceparent(env.Traceparent); tp != "" {
+			ctx = message.WithTraceparent(ctx, tp)
+		}
 	}
 	k, err := txn.FaultFromHeader(headerView(d.Headers, message.HeaderFailAfter, txn.FaultHeader), txn.TestFaultsEnabled())
 	if err != nil {

@@ -16,6 +16,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/MIERAI/api-factory/runtime/tracing"
 )
 
 // Key: 任务名 → advisory lock 的键(64 位 FNV-1a;名字带 "factory." 前缀,避免和项目自己的 advisory lock 撞)。
@@ -48,7 +52,7 @@ func Run(ctx context.Context, pool *pgxpool.Pool, name string, opts Options, fn 
 	}
 	key := Key(name)
 	for {
-		err := term(ctx, pool, key, opts, fn)
+		err := term(ctx, pool, name, key, opts, fn)
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -65,7 +69,7 @@ func Run(ctx context.Context, pool *pgxpool.Pool, name string, opts Options, fn 
 
 var errNotLeader = errors.New("leader: lock held by another instance")
 
-func term(ctx context.Context, pool *pgxpool.Pool, key int64, opts Options, fn func(ctx context.Context, conn *pgx.Conn) error) (err error) {
+func term(ctx context.Context, pool *pgxpool.Pool, name string, key int64, opts Options, fn func(ctx context.Context, conn *pgx.Conn) error) (err error) {
 	c, err := pool.Acquire(ctx)
 	if err != nil {
 		return err
@@ -82,9 +86,16 @@ func term(ctx context.Context, pool *pgxpool.Pool, key int64, opts Options, fn f
 	if opts.OnChange != nil {
 		opts.OnChange(true)
 	}
+	elected := time.Now()
+	event(ctx, name, "leader.acquired", nil, 0)
 	defer func() {
 		if opts.OnChange != nil {
 			opts.OnChange(false)
+		}
+		if ctx.Err() != nil || err == nil {
+			event(ctx, name, "leader.released", nil, time.Since(elected))
+		} else {
+			event(ctx, name, "leader.lost", err, time.Since(elected))
 		}
 		// 正常结束: 解锁后还回连接池。出错 / 解锁失败: 销毁连接(会话结束 = 锁一定释放),不把持锁的会话还回池里
 		if err == nil || ctx.Err() != nil {
@@ -102,4 +113,26 @@ func term(ctx context.Context, pool *pgxpool.Pool, key int64, opts Options, fn f
 		_ = c.Hijack().Close(context.WithoutCancel(ctx))
 	}()
 	return fn(ctx, c.Conn())
+}
+
+// event: 追踪打开时,当选 / 下台各一个短 span "leader <任务>"(新的 trace),事件 leader.acquired / leader.released /
+// leader.lost(带这一任期的长度和错误)。待命的副本每次没拿到锁不记(每 5 秒一次,全是噪音)。
+func event(ctx context.Context, task, what string, err error, term time.Duration) {
+	if !tracing.Enabled() {
+		return
+	}
+	_, span := tracing.StartRoot(context.WithoutCancel(ctx), "leader "+task, trace.SpanKindInternal)
+	defer span.End()
+	if !span.IsRecording() {
+		return
+	}
+	attrs := []attribute.KeyValue{attribute.String("leader.task", task)}
+	if term > 0 {
+		attrs = append(attrs, attribute.Float64("leader.term_seconds", term.Seconds()))
+	}
+	if err != nil {
+		attrs = append(attrs, attribute.String("error", err.Error()))
+	}
+	span.SetAttributes(attribute.String("leader.task", task))
+	span.AddEvent(what, trace.WithAttributes(attrs...))
 }

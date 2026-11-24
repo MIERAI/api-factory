@@ -223,7 +223,7 @@ func genTransition(g *genCtx, base *ir.API, m *ir.Machine, r ir.MachineReceive, 
 	fmt.Fprintf(&b, "\t\t}\n\t\tsm.Rejected(%q, \"impossible\") // 不可能的消息(某处有 bug)\n\t\treturn consume.Poison(fmt.Errorf(%q, r1.%s))\n",
 		m.Name, m.Name+": "+r.Type+" cannot happen in state %d", goCamelCase(m.State.Name))
 	fmt.Fprintf(&b, "\tcase txn.NotFound: // 实体不存在 → 拒绝\n\t\tsm.Rejected(%q, \"not_found\")\n\t\treturn consume.Poison(err)\n\tdefault:\n\t\t_, err := handlerResult(err)\n\t\treturn err\n\t}\n", m.Name)
-	fmt.Fprintf(&b, "\tsm.Transition(%q, %q, %q, %q)\n", m.Name, tr.From, tr.To, r.Type)
+	fmt.Fprintf(&b, "\tsm.Transitioned(ctx, %q, %q, %q, %q)\n", m.Name, tr.From, tr.To, r.Type) // ctx: 追踪的事件 sm.transition
 	if to.Final && m.Created != "" {
 		g.use(runtimeModule+"/clock", "")
 		fmt.Fprintf(&b, "\tsm.Completed(%q, %q, r1.%s, clock.Now(ctx))\n", m.Name, to.Name, goCamelCase(m.Created))

@@ -11,12 +11,16 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/MIERAI/api-factory/runtime/broker"
 	"github.com/MIERAI/api-factory/runtime/leader"
 	"github.com/MIERAI/api-factory/runtime/message"
 	"github.com/MIERAI/api-factory/runtime/metrics"
 	"github.com/MIERAI/api-factory/runtime/topology"
+	"github.com/MIERAI/api-factory/runtime/tracing"
 )
 
 // LockName: 中继的 advisory lock(leader.Key(LockName)),每个数据库一个工作中的中继。
@@ -26,7 +30,8 @@ const LockName = "factory.outbox.relay"
 //
 // 一轮:
 //  1. SELECT 未发送的行 ORDER BY seq LIMIT Batch(在持锁的连接上;不加行锁,不在事务里做网络 IO)
-//  2. 在 confirm 模式的 channel 上逐条发布: 持久化;message_id = envelope.id,type / traceparent 也放进 AMQP 属性;
+//  2. 在 confirm 模式的 channel 上逐条发布: 持久化;message_id = envelope.id,type / traceparent 也放进 AMQP 属性
+//     (追踪打开时 header 的 traceparent = 这次发布的 span,它的父 = envelope 的 traceparent);
 //     都开 mandatory(没有队列接收 → RabbitMQ 退回):
 //     - 命令: 退回 = 配置错误,当作失败留在 outbox 里(按退避再试,队列声明之后就发出去)
 //     - 事件: 退回 = 没有任何订阅队列(系统级的拓扑没有声明,或者真的没人订阅)。标成已发送(不堵 outbox:
@@ -256,6 +261,12 @@ WHERE published_at IS NULL AND seq <> ALL($2::bigint[]) ORDER BY seq LIMIT $1`, 
 
 	confirms := make([]*amqp.DeferredConfirmation, len(batch))
 	failed := map[int64]string{}
+	unroutable := map[int64]string{} // 退回的事件: 标成已发送,记下 last_error
+	var spans []trace.Span           // 追踪打开时: 每条一个 publish span(父 = envelope 的 traceparent),确认之后结束
+	if tracing.Enabled() {
+		spans = make([]trace.Span, len(batch))
+		defer endPublishSpans(spans, batch, failed, unroutable) // 提前返回的路径(channel 坏了)
+	}
 	var pubErr error
 	for i, x := range batch {
 		ex, err := r.Exchanges.For(x.kind)
@@ -266,6 +277,18 @@ WHERE published_at IS NULL AND seq <> ALL($2::bigint[]) ORDER BY seq LIMIT $1`, 
 		var tp string
 		if env, err := message.Decode([]byte(x.envelope)); err == nil {
 			tp = env.Traceparent
+		}
+		if spans != nil {
+			sctx, span := tracing.Start(tracing.WithRemote(bctx, tp), "publish "+x.typ, trace.SpanKindProducer)
+			spans[i] = span
+			if span.IsRecording() {
+				span.SetAttributes(attribute.String("messaging.system", "rabbitmq"), attribute.String("messaging.operation.type", "send"),
+					attribute.String("messaging.destination.name", ex), attribute.String("messaging.rabbitmq.destination.routing_key", x.typ),
+					attribute.String("messaging.message.id", x.id))
+			}
+			if t := tracing.Current(sctx); t != "" {
+				tp = t // 消费者的 span 接在发布的 span 下面
+			}
 		}
 		pub := amqp.Publishing{
 			ContentType:  message.ContentType,
@@ -319,8 +342,7 @@ WHERE published_at IS NULL AND seq <> ALL($2::bigint[]) ORDER BY seq LIMIT $1`, 
 			metrics.OutboxPublishError("nack", 1)
 		}
 	}
-	unroutable := map[int64]string{} // 退回的事件: 标成已发送,记下 last_error
-	for done := false; !done; {      // 退回的(mandatory: 没有队列接收)
+	for done := false; !done; { // 退回的(mandatory: 没有队列接收)
 		select {
 		case ret := <-returns:
 			for _, x := range batch {
@@ -343,6 +365,7 @@ WHERE published_at IS NULL AND seq <> ALL($2::bigint[]) ORDER BY seq LIMIT $1`, 
 			done = true
 		}
 	}
+	endPublishSpans(spans, batch, failed, unroutable) // 确认 / 退回都知道了: 发布的 span 到此为止(不含之后的标记)
 	if r.crash.point == CrashAfterConfirm && r.batches == r.crash.batch {
 		exit()
 	}
@@ -374,6 +397,23 @@ WHERE published_at IS NULL AND seq <> ALL($2::bigint[]) ORDER BY seq LIMIT $1`, 
 		return len(batch), errBroker{brokerErr}
 	}
 	return len(batch), nil
+}
+
+// endPublishSpans: 一批的 publish span 按结果结束: 失败(nack / 超时 / 退回的命令 / channel 坏了)= Error,
+// 退回的事件 = 事件 unroutable。
+func endPublishSpans(spans []trace.Span, batch []row, failed, unroutable map[int64]string) {
+	for i, span := range spans {
+		if span == nil {
+			continue
+		}
+		spans[i] = nil // 只结束一次(显式调用之后,defer 的那次什么都不做)
+		if why, bad := failed[batch[i].seq]; bad && span.IsRecording() {
+			span.SetStatus(codes.Error, why)
+		} else if why, bad := unroutable[batch[i].seq]; bad && span.IsRecording() {
+			span.AddEvent("unroutable", trace.WithAttributes(attribute.String("reason", why)))
+		}
+		span.End()
+	}
 }
 
 // markFailed: attempts + 1、last_error;这一行在内存里按 attempts 退避。

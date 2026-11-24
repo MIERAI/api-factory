@@ -1,7 +1,9 @@
 package message
 
-// 追踪的传递(W3C traceparent)。运行时不依赖追踪库: 只把 traceparent 从入口(HTTP 请求头 / 收到的消息)带到
-// 发出的消息里。收到消息时取它的 traceparent 生成一个子 span id(同一个 trace),处理中发出的消息带这个子 span。
+// 追踪的传递(W3C traceparent): 把 traceparent 从入口(HTTP 请求头 / 收到的消息)带到发出的消息里。
+//   - 追踪关闭(tracing 包,默认): 只传字符串。收到消息时取它的 traceparent 生成一个子 span id(同一个 trace),
+//     处理中发出的消息带这个子 span
+//   - 追踪打开: ctx 里有 OpenTelemetry 的 span,Traceparent(ctx) 就是那个 span(outbox.write),链条由真的 span 组成
 
 import (
 	"context"
@@ -9,6 +11,8 @@ import (
 	"encoding/hex"
 
 	"connectrpc.com/connect"
+
+	"github.com/MIERAI/api-factory/runtime/tracing"
 )
 
 type traceKey struct{}
@@ -22,7 +26,11 @@ func WithTraceparent(ctx context.Context, tp string) context.Context {
 }
 
 // Traceparent: ctx 里的 traceparent(没有 → "")。outbox.Write 把它写进 envelope。
+// ctx 里有 OpenTelemetry 的 span(追踪打开时)→ 那个 span;否则 WithTraceparent 放进去的字符串。
 func Traceparent(ctx context.Context) string {
+	if tp := tracing.Current(ctx); tp != "" {
+		return tp
+	}
 	tp, _ := ctx.Value(traceKey{}).(string)
 	return tp
 }

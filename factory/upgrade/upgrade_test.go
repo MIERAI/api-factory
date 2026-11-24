@@ -139,3 +139,33 @@ func TestUpgradeNotARuntimeProject(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+// Between releases: --runtime / FACTORY_RUNTIME pins a pseudo-version (check agrees with it); older than the factory = error.
+func TestUpgradePinsAPseudoVersion(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, map[string]string{"go.mod": "module m\n\ngo 1.27.4\n\nrequire github.com/MIERAI/api-factory/runtime " + version.Runtime + "\n"})
+	pseudo := version.Runtime[:len(version.Runtime)-1] + "9-0.20261124000000-0123456789ab"
+	t.Setenv(RuntimeEnv, "")
+	if _, err := Run(dir, Options{Check: true, NoBuild: true, Runtime: pseudo}); err == nil {
+		t.Fatal("check passed before pinning")
+	}
+	if res, err := Run(dir, Options{NoBuild: true, Runtime: pseudo}); err != nil || !res.Changed || res.ToVersion != pseudo {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if !strings.Contains(read(t, filepath.Join(dir, "go.mod")), pseudo) {
+		t.Fatal("go.mod not pinned")
+	}
+	t.Setenv(RuntimeEnv, pseudo)
+	if _, err := Run(dir, Options{Check: true, NoBuild: true}); err != nil {
+		t.Fatalf("check with FACTORY_RUNTIME: %v", err)
+	}
+	t.Setenv(RuntimeEnv, "")
+	if _, err := Run(dir, Options{Check: true, NoBuild: true}); err == nil {
+		t.Fatal("check against the release passed for a pinned pseudo-version")
+	}
+	for _, bad := range []string{"v0.0.1", "latest", "0.6.0"} {
+		if _, err := Run(dir, Options{NoBuild: true, Runtime: bad}); err == nil {
+			t.Errorf("runtime %q accepted", bad)
+		}
+	}
+}
