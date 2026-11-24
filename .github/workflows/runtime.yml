@@ -35,7 +35,7 @@ jobs:
     defaults: { run: { working-directory: runtime } }
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with: { go-version-file: runtime/go.mod, cache-dependency-path: runtime/go.sum }
       - run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - run: go vet ./...
@@ -62,7 +62,7 @@ jobs:
     defaults: { run: { working-directory: runtime } }
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with: { go-version-file: runtime/go.mod, cache-dependency-path: runtime/go.sum }
       - name: performance gate
         run: |
@@ -78,7 +78,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with: { go-version-file: go.mod }
       - run: go test ./factory/version ./factory/upgrade ./factory/adapters/golang
       - run: scripts/release.sh check
