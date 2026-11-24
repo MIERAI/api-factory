@@ -509,6 +509,27 @@ func (s *Spec) PatternKind() string {
 	return s.Pattern.Kind
 }
 
+// SharedQuantities: 共享数量的读改写(按键更新里 列: "列 ± …";docs/design/hotspots.md §2)的 表.列。
+// 和 command.SharedQuantity 同一个判断(那边看 IR 的表达式;这里给审查看式样书)。
+func (s *Spec) SharedQuantities() []string {
+	var out []string
+	if s.Pattern.Command == nil {
+		return nil
+	}
+	for _, op := range s.Pattern.Command.Ops {
+		if op.Kind != "update" {
+			continue
+		}
+		for _, v := range op.Values {
+			e := strings.TrimSpace(v.Expr)
+			if rest, ok := strings.CutPrefix(e, v.Column); ok && (strings.HasPrefix(strings.TrimSpace(rest), "+") || strings.HasPrefix(strings.TrimSpace(rest), "-")) {
+				out = append(out, op.Table+"."+v.Column)
+			}
+		}
+	}
+	return out
+}
+
 // AIWrites: 这个 API 是否有 AI 负责的部分。
 func (s *Spec) AIWrites() bool {
 	k := s.PatternKind()

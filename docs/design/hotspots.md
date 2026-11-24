@@ -90,22 +90,27 @@
 | 不超卖、不"假的不够" | 验收: `同时抢: 是` 的 API 同一个键 32 个请求同时取 × 3(每个键 16~23 个):成功次数 = 串行执行的成功次数、之后的状态 = 串行执行那么多次的状态;元件认证: 32 个连接同时取 / 还(同一个事务里还写有外键的表),没有死锁、合计 = 参考、桶都 ≥ 0 |
 | 变异 | 认证的变异 6 个(热路径不看够不够 / 回退不检查合计 / 还加到全部的桶 / 视图不合计 / 负数不报错 / 删除不删桶);margin 的表结构变异 5 个(每个 ≥ 3 个差分用例) |
 
-## 5. 热键监控(`不确定`)
+## 5. 热键监控(`不确定` / 没回答)
 
-- 运行时的指标(生成的 handler 每次写入时记录键;只给 `不确定` 的 API):
-  - `factory_write_key_top_share{api}`: 最近的写入里最热的键占的比例(滑动窗口,Space-Saving top-k;键本身不进标签)
-  - `factory_write_key_top_n{api,k}`: 前 k 个键(k = 1, 3)合计占的比例
-  - `factory_write_lock_wait_seconds{api}`: 这个 API 的写操作的耗时直方图(等行锁的时间在里面)
-- 告警规则(`gen/observability/hotkeys.rules.yaml`,Prometheus 的规则;平台的 Prometheus 照常抓 /metrics):
-  前 3 个键占 80% 以上且持续 10 分钟 → ticket,消息里是建议: 「ConsumeJobQuota: 3 个键 = 80% 的写入 → 改成分桶:
-  在设计书里把 `同时抢: 不确定` 改成 `同时抢: 是`」
-- 以后(没有做): `factory observe` 从生产的指标读出分布,自动写回 `负载:` / 建议的回答(§7)
+- 生成的 handler: 共享数量的更新的键都是请求的字段时,开头一行 `defer metrics.HotKey("<API>", fmt.Sprint(键…), time.Now())`
+  (每项 / 引用前面的操作的键: 不监控)。IR: `API.HotKeys`
+- 运行时的指标(`runtime/metrics/hotkey.go`,最近 1000 次写入的滑动窗口;键本身不进标签):
+  - `factory_hotkey_window_writes{api}`: 窗口里的写入数
+  - `factory_hotkey_top_share{api,top="1"|"3"}`: 最热的 1 / 3 个键占的比例
+  - `factory_hotkey_write_seconds{api}`: 一次写入(请求)的用时直方图,等行锁的时间在里面
+- 告警规则 `gen/observability/hotkeys.rules.yaml`(`factory prepare` 生成;Prometheus 的规则文件,平台照常抓 /metrics):
+  - `FactoryHotKeySkew`: 前 3 个键 ≥ 80% 且窗口写满,持续 10 分钟 → ticket
+  - `FactoryHotKeyLockWait`: 写入的 p99 > 0.5s 且一半以上在同一个键上,持续 10 分钟 → ticket
+  - 消息就是建议:「<API>: 最热的 3 个键占了 87% 的写入 … 把 同时抢: 不确定 改成 同时抢: 是」
+- 平台的接入(把规则文件放进 GitOps 的 PrometheusRule)是平台仓库的事,不在这个 PR(§8)
 
 ## 6. perf 和 loadgen
 
-- 单键探针(信息,不失败): 按键更新的 API,8 路都打同一个键,报告"同一键约 N/s"。`同时抢: 是` 的 API 看到的是分桶之后的数字
-- api-perf 的并发检查: 有 `负载.键分布` 用它,没有用默认(上表);共享数量的读改写 + `同时抢: 是` 默认 hot:1
-- loadgen: `--skew` 的默认 = 声明的分布(`负载.键分布`,或者上表的默认);命令行写了就用命令行
+- 单键探针(信息,不失败;⚖️ H6): 按键更新的 API(状态机的转移不算),8 路都打同一个键,报告「同一键的吞吐上限约 N/s」;
+  共享数量的读改写另外写建议(会被同时抢 → 同时抢: 是)
+- api-perf 的并发检查: 用 API 的键分布(`负载.键分布`;没写 = 平台的默认: `同时抢: 是` → hot:1,其他 uniform)。
+  分桶的表 + 热键时,先给每个桶加足够多的量(否则几百个请求就把一个键取光,量的是"不够"而不是热路径)
+- loadgen: 不写 `--skew` = 每个 API 声明的分布(同上);写了就用命令行的
 
 ## 7. 决定
 
@@ -120,3 +125,13 @@
 | H6 | 单键探针 | 只报告,不失败 | 单键的上限是物理的(行锁),只能告诉人,不能"修好" |
 | H7 | 默认的 QPS / p99 | 按 API 种类的平台默认 | 和 slo-platform 的默认 SLO 一致;专家可以改 |
 | H8 | factory observe(生产数据 → 建议) | 设计,不在这个 PR | 需要生产的 Prometheus 的接口约定;先有指标和告警 |
+
+## 8. 以后: factory observe(设计,没有做)
+
+生产的数据 → 建议,闭环:
+1. 读生产的 Prometheus(只读的 API,项目配置里写地址):每个共享数量的读改写 API 的 `factory_hotkey_top_share`、写入的 p99、QPS
+2. 和设计书比较: `不确定` 的 API 真实数据偏斜(前 3 个键 ≥ 80%)→ 建议 `同时抢: 是`(附数据);`是` 的 API 长期不偏斜 →
+   可以回答 `否`(省掉分桶的复杂度);实际 QPS / p99 和平台默认差很多 → 建议写 `负载`
+3. 输出 = 一个 PR(改设计书的那一行 + 数据作为理由),走正常的审查和闸门
+
+需要先定: 生产 Prometheus 的访问方式(只读令牌)、哪些数据可以离开生产(只聚合的比例和分位数,不含键)。

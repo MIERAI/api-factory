@@ -466,8 +466,14 @@ func existingRows(ctx context.Context, conn *pgx.Conn, ws writeSpec, tables map[
 	if len(pk) == 0 {
 		pk = []string{"p.ctid::text"}
 	}
+	from := t.name
+	for _, op := range ws.ops { // 分桶的表: 行从视图读(数量 = 桶的合计;docs/design/hotspots.md)
+		if op.Table == t.name && op.WriteTo != "" {
+			from = op.WriteTo
+		}
+	}
 	q := fmt.Sprintf("SELECT concat_ws('|', %s), %s FROM %s AS p WHERE %s ORDER BY hashtext(concat_ws('|', %s)) LIMIT 400000",
-		strings.Join(pk, ", "), strings.Join(sel, ", "), pgx.Identifier{t.name}.Sanitize(), strings.Join(conds, " AND "), strings.Join(pk, ", "))
+		strings.Join(pk, ", "), strings.Join(sel, ", "), pgx.Identifier{from}.Sanitize(), strings.Join(conds, " AND "), strings.Join(pk, ", "))
 	rows, err := conn.Query(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("%w\n%s", err, q)

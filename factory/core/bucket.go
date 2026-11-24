@@ -224,6 +224,12 @@ END`, s.Type, Q, keySame, quoteLit(s.Table), B, perSet("NEW"), match("", "OLD.")
 	trig(s.BucketTable+"_trunc", "AFTER TRUNCATE", T, s.BucketTable+"_trunc")
 	trig(s.View+"_upd", "INSTEAD OF UPDATE", V, s.View+"_upd")
 	trig(s.View+"_del", "INSTEAD OF DELETE", V, s.View+"_del")
+	// 迁移的 Down(factory state-migration): 触发器删掉之后、桶表删掉之前,把合计写回表本身
+	restore := []string{fmt.Sprintf("%s = t.%s + coalesce((SELECT sum(b.%s) FROM %s AS b WHERE %s), 0)", Q, Q, Q, B, match("b.", "t."))}
+	for _, c := range s.PerBucket {
+		restore = append(restore, fmt.Sprintf("%s = greatest(t.%s, (SELECT max(b.%s) FROM %s AS b WHERE %s))", q(c), q(c), q(c), B, match("b.", "t.")))
+	}
+	w("-- factory:down-restore UPDATE %s AS t SET %s;\n", T, strings.Join(restore, ", "))
 	// 已有的行分到桶里(幂等: 只动还没有桶的行)
 	w("-- 已有的行分到桶里(幂等: 还没有桶的行)\nUPDATE %s AS t SET %s = t.%s WHERE NOT EXISTS (SELECT 1 FROM %s AS b WHERE %s);\n", T, Q, Q, B, match("b.", "t."))
 	return b.String()

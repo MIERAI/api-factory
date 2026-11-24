@@ -116,5 +116,6 @@ CREATE OR REPLACE TRIGGER factory_bucket_job_quotas_del AFTER DELETE ON job_quot
 CREATE OR REPLACE TRIGGER factory_bucket_job_quotas_trunc AFTER TRUNCATE ON job_quotas FOR EACH STATEMENT EXECUTE FUNCTION factory_bucket_job_quotas_trunc();
 CREATE OR REPLACE TRIGGER factory_hot_job_quotas_upd INSTEAD OF UPDATE ON factory_hot_job_quotas FOR EACH ROW EXECUTE FUNCTION factory_hot_job_quotas_upd();
 CREATE OR REPLACE TRIGGER factory_hot_job_quotas_del INSTEAD OF DELETE ON factory_hot_job_quotas FOR EACH ROW EXECUTE FUNCTION factory_hot_job_quotas_del();
+-- factory:down-restore UPDATE job_quotas AS t SET remaining = t.remaining + coalesce((SELECT sum(b.remaining) FROM factory_bucket_job_quotas AS b WHERE b.job_type = t.job_type), 0), updated_at = greatest(t.updated_at, (SELECT max(b.updated_at) FROM factory_bucket_job_quotas AS b WHERE b.job_type = t.job_type));
 -- 已有的行分到桶里(幂等: 还没有桶的行)
 UPDATE job_quotas AS t SET remaining = t.remaining WHERE NOT EXISTS (SELECT 1 FROM factory_bucket_job_quotas AS b WHERE b.job_type = t.job_type);

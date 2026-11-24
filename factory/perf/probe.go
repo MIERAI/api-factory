@@ -15,8 +15,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// updatesByKey: 请求里有按键的更新(状态机的转移也算)。
+// updatesByKey: 请求里有按键的更新(状态机的转移不算: 同一个实体只能转移一次,打同一个键量的是拒绝)。
 func updatesByKey(ws writeSpec) bool {
+	if ws.api.Command.IsMachine() {
+		return false
+	}
 	for _, op := range ws.ops {
 		if op.Kind == "update" && len(op.Key) > 0 {
 			return true
@@ -74,5 +77,12 @@ func singleKeyProbe(ctx context.Context, conn *pgx.Conn, ws writeSpec, tables ma
 	r.Ms = 1000 * sec / float64(n*m)
 	r.Rows = int(okN.Load())
 	r.Plan = fmt.Sprintf("同一键约 %.0f 请求/秒(%d 路 × %d;成功 %d / 业务结果 %d / 错误 %d)", float64(n*m)/sec, n, m, okN.Load(), bizN.Load(), errN.Load())
-	return info("同一键的吞吐上限约 %.0f/s(共享数量的读改写: 同时抢 = 是 → 分桶的生产线;docs/design/hotspots.md)", float64(n*m)/sec)
+	advice := ""
+	switch {
+	case len(ws.api.Shared) > 0 && ws.api.Hot == "yes":
+		advice = "(分桶之后)"
+	case len(ws.api.Shared) > 0:
+		advice = "(共享数量的读改写: 会被很多人同时抢的话回答 同时抢: 是 → 分桶的生产线;docs/design/hotspots.md)"
+	}
+	return info("同一键的吞吐上限约 %.0f/s%s", float64(n*m)/sec, advice)
 }

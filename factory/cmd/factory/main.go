@@ -567,6 +567,8 @@ func cmdReviewPrompt(args []string) error {
 	data["Answers"] = answers
 	data["Round"], data["Previous"], data["AIWrites"] = len(cycle)+1, prev, s.AIWrites()
 	data["Command"] = s.Pattern.Command != nil
+	data["SharedQuantity"] = strings.Join(s.SharedQuantities(), ", ") // 负载与热点(docs/design/hotspots.md)
+	data["HotAnswered"] = s.API.Hot != ""
 	data["RelationForms"], data["ConstraintForms"] = constraints.RelationForms(), constraints.Forms()
 	var exitKeys []string
 	if ex, ok := exits.ByKind(s.PatternKind()); ok {

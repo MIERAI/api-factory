@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"apifactory/factory/command"
 	"apifactory/factory/ir"
 )
 
@@ -38,6 +39,17 @@ func checkWrites(ctx context.Context, conn *pgx.Conn, plan *ir.Plan, tables map[
 				continue
 			}
 			o.Pick = pick
+			// 分桶的表(同时抢: 是)+ 热键: 造的数据的数量有限,几百个请求打同一个键会取光(之后量的是"不够"和回退的等锁,
+			// 不是热路径)。每个桶加足够多(直接写桶表: 不经过设合计的触发器)
+			for _, b := range plan.Buckets {
+				if !writesTable(api, b.Table) {
+					continue
+				}
+				q := pgx.Identifier{b.Column}.Sanitize()
+				if _, err := conn.Exec(ctx, fmt.Sprintf("UPDATE %s SET %s = %s + 1000000", pgx.Identifier{b.BucketTable}.Sanitize(), q, q)); err != nil {
+					out = append(out, Report{API: api.ID, Variant: "分桶的数据", Fail: []string{err.Error()}})
+				}
+			}
 		}
 		for _, ws := range specs {
 			rs, err := explainWrite(ctx, conn, ws, tables, opt, seq)
@@ -270,4 +282,14 @@ func commandOps(c *ir.Command) []ir.CommandOp {
 		return c.Ops
 	}
 	return []ir.CommandOp{{Kind: c.Op, Table: c.Table}}
+}
+
+// writesTable: API 的写操作里有表 t。
+func writesTable(api *ir.API, t string) bool {
+	for _, op := range command.OpsOf(api.Command) {
+		if op.Table == t {
+			return true
+		}
+	}
+	return false
 }
