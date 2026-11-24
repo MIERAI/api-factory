@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0, ref: "${{ inputs.ref }}" }
       - name: 只改了式样书?
         id: scope
@@ -42,7 +42,7 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U factory" --health-interval 2s --health-timeout 5s --health-retries 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0, ref: "${{ inputs.ref }}" }
       - name: 只改了式样书?
         id: scope
@@ -62,7 +62,7 @@ jobs:
       matrix:
         seed: [default, s1, s2]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0, ref: "${{ inputs.ref }}" }
       - name: 只改了式样书?
         id: scope
@@ -82,7 +82,7 @@ jobs:
       matrix:
         shard: [0, 1, 2, 3]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0, ref: "${{ inputs.ref }}" }
       - name: 只改了式样书?
         id: scope
@@ -118,7 +118,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0, ref: "${{ inputs.ref }}" }
       - name: 只改了式样书?
         id: scope

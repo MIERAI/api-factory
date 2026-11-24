@@ -15,7 +15,7 @@ jobs:
     runs-on: [self-hosted, laptop]
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
       - uses: ./.github/actions/setup
       # 审查的历史(.factory/reviews): 轮次 / 迟到 / 重复提问 的规则和"输入没变就沿用"都要上一轮的记录。

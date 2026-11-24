@@ -34,7 +34,7 @@ jobs:
       RUNTIME_TEST_AMQP: amqp://guest:guest@localhost:5672/
     defaults: { run: { working-directory: runtime } }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with: { go-version-file: runtime/go.mod, cache-dependency-path: runtime/go.sum }
       - run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
@@ -61,7 +61,7 @@ jobs:
       RUNTIME_PERF: "1"
     defaults: { run: { working-directory: runtime } }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with: { go-version-file: runtime/go.mod, cache-dependency-path: runtime/go.sum }
       - name: performance gate
@@ -77,7 +77,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with: { go-version-file: go.mod }
       - run: go test ./factory/version ./factory/upgrade ./factory/adapters/golang
