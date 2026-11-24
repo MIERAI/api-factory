@@ -1,6 +1,7 @@
 // Package server 是运行时模板的启动部分。所有生成出来的服务共用,AI 不可修改。
 //
-// 提供: 配置读取 / DB 连接池 / 拦截器链(日志→错误清洗→超时→请求开始的时刻→校验) / livez・readyz・healthz / 优雅停机
+// 提供: 配置读取 / DB 连接池 / 拦截器链([追踪→]日志→错误清洗→超时→请求开始的时刻→校验) / livez・readyz・healthz /
+// 优雅停机 / 分布式追踪(OTEL_* 环境变量,见 tracing 包;没设置 = 关闭)
 package server
 
 import (
@@ -31,6 +32,7 @@ import (
 	"github.com/MIERAI/api-factory/runtime/metrics"
 	"github.com/MIERAI/api-factory/runtime/paging"
 	"github.com/MIERAI/api-factory/runtime/shard"
+	"github.com/MIERAI/api-factory/runtime/tracing"
 	"github.com/MIERAI/api-factory/runtime/txn"
 )
 
@@ -127,6 +129,17 @@ func run(log *slog.Logger, build Builder) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// 追踪(OTEL_* 环境变量;没有 endpoint = 关闭)。停机时把缓冲里的 span 发完,最多 2s(收集端连不上也不拖住停机)
+	shutdownTracing, err := tracing.Setup(ctx, tracing.Config{ServiceName: envOr("SERVICE_NAME", "api-factory-service"), Version: os.Getenv("APP_VERSION"), Log: log})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		tctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = shutdownTracing(tctx)
+	}()
+
 	poolCfg, err := pgxpool.ParseConfig(cfg.databaseURL)
 	if err != nil {
 		return fmt.Errorf("db config: %w", err)
@@ -136,6 +149,9 @@ func run(log *slog.Logger, build Builder) error {
 	// 命名预编译语句在执行若干次后可能切换成通用计划,游标就不再是索引条件(深页退化成 OFFSET)。
 	// 一次往返,PgBouncer 事务模式下也可用。
 	poolCfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
+	if tracing.Enabled() {
+		poolCfg.ConnConfig.Tracer = tracing.PGX{} // 每条 SQL 一个子 span(只在请求 / 事务 / 消息的 span 下面)
+	}
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		return fmt.Errorf("db pool: %w", err)
@@ -152,19 +168,26 @@ func run(log *slog.Logger, build Builder) error {
 			return nil, err
 		}
 		c.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
+		if tracing.Enabled() {
+			c.ConnConfig.Tracer = tracing.PGX{}
+		}
 		return pgxpool.NewWithConfig(ctx, c)
 	})
 	defer shards.Close()
 
-	opts := connect.WithInterceptors(
+	interceptors := []connect.Interceptor{
 		newLoggingInterceptor(log),
 		apierr.NewSanitizeInterceptor(log),
 		newTimeoutInterceptor(cfg.requestTimeout),
 		clock.NewInterceptor(),        // 查询里的 now(): 请求开始的时刻(FACTORY_TEST_CLOCK=1 时由请求头 X-Factory-Now 固定)
-		message.NewTraceInterceptor(), // 请求头 traceparent → 写操作发出的消息(R4)
+		message.NewTraceInterceptor(), // 请求头 traceparent → 写操作发出的消息(R4;追踪打开时由 span 代替)
 		txn.NewInterceptor(),          // 写操作的故障注入: 只在 FACTORY_TEST_FAULTS=1 时认请求头 X-Factory-Fail-After
 		validate.NewInterceptor(),
-	)
+	}
+	if tracing.Enabled() { // 最外层: 日志(带 trace_id)、超时、校验、处理都在 server span 里
+		interceptors = append([]connect.Interceptor{tracing.NewInterceptor()}, interceptors...)
+	}
+	opts := connect.WithInterceptors(interceptors...)
 
 	mux := http.NewServeMux()
 	if os.Getenv("PAGE_TOKEN_KEY") == "" {
@@ -300,6 +323,13 @@ func newLoggingInterceptor(log *slog.Logger) connect.UnaryInterceptorFunc {
 				code = connect.CodeOf(err).String()
 			}
 			metrics.Observe(req.Spec().Procedure, code, time.Since(start))
+			if tracing.Enabled() { // trace_id: Grafana 从日志跳到 Tempo 的 trace
+				if id := tracing.TraceID(ctx); id != "" {
+					log.InfoContext(ctx, "rpc", "procedure", req.Spec().Procedure, "code", code,
+						"duration_ms", time.Since(start).Milliseconds(), "trace_id", id)
+					return res, err
+				}
+			}
 			log.InfoContext(ctx, "rpc",
 				"procedure", req.Spec().Procedure,
 				"code", code,

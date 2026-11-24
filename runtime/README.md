@@ -42,7 +42,35 @@ License: Apache-2.0 (`LICENSE` in this directory; the rest of the repository is 
 | `broker` | The process's RabbitMQ connection (reconnects on demand) |
 | `leader` | "One active instance per database" background tasks (Postgres advisory lock): the outbox relay, the state machines' timeout scanner |
 | `sm` | State machines (R5): the timeout scanner (`Scanner`: generated `Due` / `Fire` / `Stats`, one transaction per instance with optimistic-lock retries, one active scanner per database, a round every 5s), its test entry (`POST /factory.test/timeouts`) and the state machine metrics |
+| `tracing` | Distributed tracing (OpenTelemetry, OTLP/HTTP), configured by the standard `OTEL_*` variables and **off unless an endpoint is set**: Connect server spans, write transactions and their SQL, outbox write → relay publish → consume across RabbitMQ (one order = one trace), state-machine transitions, leader election events |
 | `cmd/factory-runtime` | Operations CLI: `factory-runtime dlq {list\|requeue\|drop} --queue <queue>`; `factory-runtime topology apply --file topology.json` |
+
+## Tracing (v0.6.1)
+
+`server.Run` sets it up from the environment (`tracing.Setup`); generated services need no code. Off by default:
+without `OTEL_EXPORTER_OTLP_ENDPOINT` (or `…_TRACES_ENDPOINT`) nothing is created, every hook is one atomic load and
+allocates nothing (`tracing/off_test.go`), and behaviour is byte-for-byte the old one (message traceparents are still
+passed through as strings). `OTEL_SDK_DISABLED=true` / `OTEL_TRACES_EXPORTER=none` force it off. A wrong setting
+(`OTEL_EXPORTER_OTLP_PROTOCOL=grpc`, an unknown sampler, a ratio outside 0–1) stops the server at start-up.
+
+| Span | Where | Parent |
+|---|---|---|
+| `<package>.<Service>/<Method>` (server) | every Connect request (`tracing.NewInterceptor`, outermost) | the request's `traceparent` header |
+| `txn` | `txn.Executor.InTx`; serialization-failure retries are events `txn.retry`; `txn.reason` on failure | the request / message span |
+| `<VERB> <table>` (client) | every SQL statement incl. `BEGIN` / `COMMIT` (`tracing.PGX` on the pool) — only under a recording span, so the relay's and scanners' polling never starts traces | the transaction / request |
+| `outbox.write <type>` (producer) | `outbox.Writer.Write`; the envelope's `traceparent` is this span | the transaction |
+| `publish <type>` (producer) | the relay, one per message, ended at its publisher confirm (error on nack / timeout / unroutable command); the AMQP header `traceparent` is this span | the envelope's `traceparent` |
+| `process <queue>` (consumer) | `consume.Consumer.Process`: outcome, attempt, business result; error on retry / DLQ / poison | the AMQP header `traceparent` |
+| event `sm.transition` | `sm.Transitioned(ctx, …)` (generated transition handlers) on the handler's transaction span | — |
+| `sm.timeout <machine>` | the timeout scanner, one per fired entity (a new trace), event `sm.transition` | — |
+| `leader <task>` | one short span per election change, events `leader.acquired` / `leader.released` / `leader.lost` | — (new trace) |
+
+Sampling: `OTEL_TRACES_SAMPLER=parentbased_traceidratio` + `OTEL_TRACES_SAMPLER_ARG=0.1` keeps 10% of new traces and
+every service follows the first one's decision (the flag travels in `traceparent`), so an order is kept or dropped as
+a whole. Export is batched in the background (`OTEL_BSP_*`): a collector that is down drops spans, never blocks a
+request; its errors are logged at most once a minute. RPC log lines carry `trace_id` while tracing is on. The
+performance gate runs every check with tracing off and on (ratio 0.1, exporting to an in-process OTLP collector), and
+checks ⑤ the off path costs ≤ 1% of a commit and ⑥ tracing on keeps ≥ 0.7 of the commit throughput.
 
 ## Messaging (R4, v0.4.0)
 
