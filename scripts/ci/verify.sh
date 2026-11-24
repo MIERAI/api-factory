@@ -14,6 +14,10 @@ uptodate() {
 }
 stage "② 生成物是最新的" uptodate
 stage "②' 迁移(编号递增 / Up+Down / 只追加 / 和 db/schema 无漂移)" scripts/ci/migrations-check.sh
+# 元件认证 + 认证的变异: CI 上是另外的 job(verify.yml 的 core,自己的 Postgres 服务);本地模拟不设 SKIP_CORE 时在这里跑
+if [[ -z ${SKIP_CORE:-} ]]; then
+  stage "②'' 元件认证 + 认证的变异(make core)" make --no-print-directory core
+fi
 # 验收: CI 上是另外的并行 job(scripts/ci/accept.sh,每个种子一个);本地模拟(sim.sh)不设 SKIP_ACCEPT 时在这里跑 3 个种子
 if [[ -n ${SKIP_ACCEPT:-} ]]; then
   stage "③ 编译 + 单元测试(验收按种子分成并行 job)" make --no-print-directory build test
