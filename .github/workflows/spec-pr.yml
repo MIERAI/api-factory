@@ -22,7 +22,7 @@ jobs:
       # checkout 会清掉工作区 → 按 PR 分支存到 Actions 的缓存(以前每次都是第 1 轮,收敛的规则不起作用)。
       # 本地跑的轮次在提交的轮次记录里(design/<领域>/X.审查轮次.jsonl),两边合起来 = 一份历史(factory/review/rounds.go)
       - name: 审查的历史(恢复)
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             .factory/reviews
@@ -40,7 +40,7 @@ jobs:
         run: rm -f .factory/ci-summary.md && scripts/ci/spec-review.sh
       - name: 审查的历史(保存)
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: |
             .factory/reviews
