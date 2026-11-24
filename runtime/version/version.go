@@ -3,4 +3,4 @@
 package version
 
 // Version: the runtime's version (= the git tag runtime/<Version>).
-const Version = "v0.6.0"
+const Version = "v0.7.0"
