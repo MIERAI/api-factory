@@ -26,7 +26,34 @@ jobs:
         uses: ./.github/actions/setup
       - if: steps.scope.outputs.code == '1'
         run: scripts/ci/verify.sh
-        env: { SKIP_MARGIN: "1", SKIP_ACCEPT: "1" }
+        env: { SKIP_MARGIN: "1", SKIP_ACCEPT: "1", SKIP_CORE: "1" }
+  core:            # 元件认证(factory/core 的 SQL 后端 = 参考求值器,真的 Postgres)+ 认证的变异(scripts/core-mutate.py)= make core
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:     # 自己的 Postgres(和 make db-up 一样: ICU 排序规则;认证的表用非字节序的 en-US-x-icu)
+        image: mirror.gcr.io/library/postgres:16-alpine
+        env:
+          POSTGRES_USER: factory
+          POSTGRES_PASSWORD: factory
+          POSTGRES_DB: factory
+          POSTGRES_INITDB_ARGS: "--locale-provider=icu --icu-locale=en-US"
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U factory" --health-interval 2s --health-timeout 5s --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, ref: "${{ inputs.ref }}" }
+      - name: 只改了式样书?
+        id: scope
+        run: |
+          if [ "${{ github.event_name }}" != pull_request ]; then echo "code=1" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if git -c core.quotePath=false diff --name-only origin/${{ github.base_ref }}...HEAD | grep -qv '^design/'; then echo "code=1" >> "$GITHUB_OUTPUT"; fi
+      - if: steps.scope.outputs.code == '1'
+        uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - if: steps.scope.outputs.code == '1'
+        run: make --no-print-directory core DB_URL='postgres://factory:factory@127.0.0.1:5432/factory?sslmode=disable'
   accept:          # 验收 3 个种子: 每个种子一个并行 job(以前在 verify 里串在一起,PR 的关键路径)
     runs-on: ubuntu-latest
     timeout-minutes: 50

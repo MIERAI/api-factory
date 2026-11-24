@@ -3,6 +3,7 @@ package server
 import (
 	"github.com/MIERAI/api-factory/runtime/clock"
 	"github.com/MIERAI/api-factory/runtime/outbox"
+	"github.com/MIERAI/api-factory/runtime/tracing"
 	"github.com/MIERAI/api-factory/runtime/txn"
 )
 
@@ -38,6 +39,15 @@ var Env = []EnvVar{
 	{"REQUEST_TIMEOUT_MS", "3000", EnvOptional, "per-request timeout"},
 	{"SHUTDOWN_TIMEOUT_MS", "15000", EnvOptional, "graceful shutdown limit for HTTP and for the background workers (each); keep it ≥ the message transaction timeout (10s)"},
 	{"APP_VERSION", "dev", EnvOptional, "returned in /healthz as X-App-Version (the image sets it from the build arg VERSION)"},
+	{tracing.EndpointEnv, "", EnvOptional, "OTLP/HTTP collector, e.g. `http://tempo:4318`: distributed tracing is on when this (or OTEL_EXPORTER_OTLP_TRACES_ENDPOINT) is set, off otherwise. The other standard OTEL_* variables apply (OTEL_BSP_*, OTEL_EXPORTER_OTLP_HEADERS / _TIMEOUT, …)"},
+	{tracing.TracesEndpointEnv, "", EnvOptional, "the collector's full traces URL (`…/v1/traces`); overrides OTEL_EXPORTER_OTLP_ENDPOINT"},
+	{tracing.ProtocolEnv, "http/protobuf", EnvOptional, "only `http/protobuf` (anything else: the server does not start)"},
+	{tracing.SamplerEnv, "parentbased_always_on", EnvOptional, "head sampling: `parentbased_traceidratio` with OTEL_TRACES_SAMPLER_ARG keeps that share of new traces and follows the caller's decision (one order = one trace, sampled or not as a whole)"},
+	{tracing.SamplerArgEnv, "1.0", EnvOptional, "the ratio of the *traceidratio samplers (0–1)"},
+	{tracing.ServiceNameEnv, "", EnvOptional, "service.name of the spans (default: SERVICE_NAME)"},
+	{tracing.ResourceEnv, "", EnvOptional, "more resource attributes, e.g. `k8s.namespace.name=shop-prod,deployment.environment.name=prod`"},
+	{tracing.DisabledEnv, "", EnvOptional, "`true`: tracing off whatever else is set"},
+	{tracing.ExporterEnv, "otlp", EnvOptional, "`none`: tracing off; only `otlp` otherwise"},
 	{"INSTANCE_ID", "", EnvTest, "echoed by /healthz (tests: which process answered)"},
 	{clock.TestClockEnv, "", EnvTest, "`1`: the request header X-Factory-Now sets now(); state machine timeouts are driven by the test entry"},
 	{txn.TestFaultsEnv, "", EnvTest, "`1`: fault injection headers and the in-process message test entry are honoured"},

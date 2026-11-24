@@ -15,7 +15,7 @@ SPEC    ?= specs/jobs/get-job-status/spec.yaml
 MODEL   ?= claude
 ACCEPT_SPECS ?= specs
 
-.PHONY: e2e projects perf hooks margin doctor mq-up mq-down accept-mq db-up db-down db-schema design check prepare build test guard accept loop review-local review-fetch
+.PHONY: core e2e projects perf hooks margin doctor mq-up mq-down accept-mq db-up db-down db-schema design check prepare build test guard accept loop review-local review-fetch
 
 # 排序规则用 ICU(en-US): Alpine 的 en_US.utf8 实际按字节排,和 C 一样,测不出"忘了 COLLATE C"(生产不是这样)
 hooks:            ## 安装 git 钩子(内容防护: 产品分支不能出现试用公司的内容)
@@ -23,6 +23,10 @@ hooks:            ## 安装 git 钩子(内容防护: 产品分支不能出现试
 
 perf:             ## 性能闸门: 本仓库 + examples/ 的项目,每表 20 万行 + EXPLAIN ANALYZE(独立的新 Postgres 容器;慢,不在 accept 里)
 	@PERF_ARGS='$(PERF_ARGS)' scripts/perf.sh $(PERF_DIRS)
+
+core:             ## 元件认证(factory/core 的 SQL 后端 = 参考求值器,真的 Postgres)+ 认证的变异(每个变异都必须改得到代码、被认证抓到)
+	@FACTORY_TEST_DB='$(DB_URL)' go test -count=1 ./factory/core/...
+	@FACTORY_TEST_DB='$(DB_URL)' python3 scripts/core-mutate.py
 
 margin:           ## 差分测试的余量: 换种子跑变异,每个变异 ≥3 个差分用例(并行: go build -overlay + 每个 worker 一套数据库)
 	@DB_URL='$(DB_URL)' PG_NAME=$(PG_NAME) scripts/margin.sh

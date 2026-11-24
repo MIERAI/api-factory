@@ -17,9 +17,12 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/MIERAI/api-factory/runtime/clock"
 	"github.com/MIERAI/api-factory/runtime/message"
+	"github.com/MIERAI/api-factory/runtime/tracing"
 	"github.com/MIERAI/api-factory/runtime/txn"
 )
 
@@ -71,6 +74,30 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, msgs ...Message) ([]messa
 	if w.Source == "" {
 		return nil, errors.New("outbox: Writer.Source (the service name) is empty")
 	}
+	if tracing.Enabled() { // 一个 span(所有消息共用): envelope 的 traceparent = 它,中继发布的 span 是它的子 span
+		name := "outbox.write"
+		if len(msgs) == 1 {
+			name += " " + msgs[0].Type
+		}
+		var span trace.Span
+		ctx, span = tracing.Start(ctx, name, trace.SpanKindProducer)
+		defer span.End()
+		if span.IsRecording() {
+			types := make([]string, len(msgs))
+			for i, m := range msgs {
+				types[i] = m.Type
+			}
+			span.SetAttributes(attribute.String("messaging.system", "rabbitmq"), attribute.String("messaging.operation.type", "create"),
+				attribute.Int("messaging.batch.message_count", len(msgs)), attribute.StringSlice("factory.message.types", types))
+		}
+		envs, err := w.write(ctx, tx, msgs)
+		tracing.Fail(span, err)
+		return envs, err
+	}
+	return w.write(ctx, tx, msgs)
+}
+
+func (w *Writer) write(ctx context.Context, tx pgx.Tx, msgs []Message) ([]message.Envelope, error) {
 	now := clock.Now(ctx)
 	tp := message.Traceparent(ctx)
 	envs := make([]message.Envelope, 0, len(msgs))

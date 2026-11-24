@@ -3,6 +3,11 @@
 // runtime, v0.6.0) and the version, in go.mod and in every import of the project's Go files; then go mod tidy and go
 // build ./... so a broken upgrade fails here, not in CI.
 //
+// Between releases (no tag on the factory's commit yet) a project can pin the runtime of that commit instead: its Go
+// pseudo-version (`go list -m github.com/MIERAI/api-factory/runtime@<commit>`, e.g. v0.6.1-0.20261124…-<sha12>), given
+// as Options.Runtime / --runtime or the environment variable FACTORY_RUNTIME (so `prepare`'s pairing warning agrees).
+// It must not be older than the factory's own version; the factory running must be that commit (the caller's pin).
+//
 // What it does not do: regenerate. Generated files (`*_gen.go`, README.md, Dockerfile) come from the factory: run
 // `factory --project DIR prepare` (or the project's generate script) with the same factory afterwards.
 package upgrade
@@ -32,6 +37,30 @@ type Options struct {
 	NoBuild bool      // skip go mod tidy / go build (tests; offline use)
 	Force   bool      // allow moving to an older runtime than the project has
 	Out     io.Writer // progress (nil: discard)
+	// Runtime: the runtime version to pin instead of version.Runtime (a pseudo-version of an untagged commit between
+	// releases). Empty: the environment variable RuntimeEnv, else version.Runtime.
+	Runtime string
+}
+
+// RuntimeEnv: the environment variable that pins the runtime between releases (Options.Runtime when that is empty).
+const RuntimeEnv = "FACTORY_RUNTIME"
+
+// Target: the runtime version a project should require (opt.Runtime, $FACTORY_RUNTIME, else the paired release).
+func Target(opt Options) (string, error) {
+	v := opt.Runtime
+	if v == "" {
+		v = strings.TrimSpace(os.Getenv(RuntimeEnv))
+	}
+	if v == "" {
+		return version.Runtime, nil
+	}
+	if !semver.IsValid(v) || semver.Canonical(v) != v {
+		return "", fmt.Errorf("runtime %q is not a canonical semantic version (a release vX.Y.Z or a Go pseudo-version)", v)
+	}
+	if semver.Compare(v, version.Runtime) < 0 {
+		return "", fmt.Errorf("runtime %s is older than this factory's %s", v, version.Runtime)
+	}
+	return v, nil
 }
 
 // Result: what Run found and changed.
@@ -64,7 +93,11 @@ func Run(dir string, opt Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	res := &Result{ToVersion: version.Runtime}
+	to, err := Target(opt)
+	if err != nil {
+		return nil, err
+	}
+	res := &Result{ToVersion: to}
 	for _, r := range f.Require {
 		if r.Mod.Path == version.RuntimeModule || (r.Mod.Path == version.OldRuntimeModule && res.FromModule == "") {
 			res.FromModule, res.FromVersion = r.Mod.Path, r.Mod.Version
@@ -77,16 +110,16 @@ func Run(dir string, opt Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	upToDate := res.FromModule == version.RuntimeModule && res.FromVersion == version.Runtime && !requires(f, version.OldRuntimeModule) && len(oldGo) == 0
+	upToDate := res.FromModule == version.RuntimeModule && res.FromVersion == to && !requires(f, version.OldRuntimeModule) && len(oldGo) == 0
 	if opt.Check {
 		if !upToDate {
 			return res, fmt.Errorf("%s: runtime %s %s, the factory pairs with %s %s (%d Go files import the old module): run factory upgrade",
-				dir, res.FromModule, res.FromVersion, version.RuntimeModule, version.Runtime, len(oldGo))
+				dir, res.FromModule, res.FromVersion, version.RuntimeModule, to, len(oldGo))
 		}
 		return res, nil
 	}
-	if res.FromModule == version.RuntimeModule && semver.Compare(res.FromVersion, version.Runtime) > 0 && !opt.Force {
-		return res, fmt.Errorf("%s: requires runtime %s, newer than this factory's %s (use the newer factory, or --force)", dir, res.FromVersion, version.Runtime)
+	if res.FromModule == version.RuntimeModule && semver.Compare(res.FromVersion, to) > 0 && !opt.Force {
+		return res, fmt.Errorf("%s: requires runtime %s, newer than this factory's %s (use the newer factory, or --force)", dir, res.FromVersion, to)
 	}
 
 	// go.mod: drop the old module (require + replace), require the new one at the paired version
@@ -103,7 +136,7 @@ func Run(dir string, opt Options) (*Result, error) {
 			}
 		}
 	}
-	if err := f.AddRequire(version.RuntimeModule, version.Runtime); err != nil {
+	if err := f.AddRequire(version.RuntimeModule, to); err != nil {
 		return nil, err
 	}
 	f.Cleanup()
@@ -116,7 +149,7 @@ func Run(dir string, opt Options) (*Result, error) {
 			return nil, err
 		}
 		res.Changed = true
-		fmt.Fprintf(out, "go.mod: %s %s → %s %s\n", res.FromModule, res.FromVersion, version.RuntimeModule, version.Runtime)
+		fmt.Fprintf(out, "go.mod: %s %s → %s %s\n", res.FromModule, res.FromVersion, version.RuntimeModule, to)
 	}
 
 	// Go files: the old import path → the new one (imports re-sorted by gofmt)
