@@ -4,7 +4,7 @@ go 1.27.4
 
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260825204119-511051f7f437.2
-	buf.build/go/protovalidate v1.4.0
+	buf.build/go/protovalidate v1.4.1
 	connectrpc.com/connect v1.21.1
 	github.com/MIERAI/api-factory/runtime v0.7.0
 	github.com/bmatcuk/doublestar/v4 v4.10.4
@@ -18,7 +18,7 @@ require (
 )
 
 require (
-	cel.dev/cel-go v0.32.0 // indirect
+	cel.dev/cel-go v0.33.2 // indirect
 	cel.dev/expr v0.25.3 // indirect
 	connectrpc.com/connect/v2 v2.0.0 // indirect
 	connectrpc.com/validate v0.9.0 // indirect
