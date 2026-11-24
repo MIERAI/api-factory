@@ -184,7 +184,7 @@ func TestCertificationState(t *testing.T) {
 	rnd := rand.New(rand.NewSource(1))
 	id := int64(0)
 	keyA := []string{`1`, `2`, `" +2 "`, `"07"`, `7`, `4`, `null`, `3`} // " +2 " = 2、"07" = 7(同一个键的另一种合法写法)
-	keyB := []string{`"x"`, `"X"`, `""`, `null`, `"y"`, ``}           // `` = 没有这个键(= NULL,可以为空的键)
+	keyB := []string{`"x"`, `"X"`, `""`, `null`, `"y"`, ``}             // `` = 没有这个键(= NULL,可以为空的键)
 	version := func() (string, int64) {
 		var parts []string
 		parts = append(parts, `"a": `+keyA[rnd.Intn(len(keyA))])

@@ -78,6 +78,7 @@ func Write(w io.Writer) {
 		fmt.Fprintf(w, "rpc_request_duration_seconds_sum{procedure=%q} %g\n", p, h.sum)
 		fmt.Fprintf(w, "rpc_request_duration_seconds_count{procedure=%q} %d\n", p, h.n)
 	}
+	writeHotKeys(w) // 热键监控(hotkey.go;没有记录过 = 什么都不输出)
 }
 
 func reset() { // 测试用

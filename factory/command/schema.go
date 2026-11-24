@@ -50,6 +50,8 @@ type Table struct {
 	RefBy   []FK       // 别的表引用本表(Name = 引用方的表 + 列,RefTable = 引用方的表)
 	// Bounds: CHECK 约束里 "列 比较 整数" 的形状(held >= 0 …)。别的 CHECK 模型不重现(输入的约束覆盖,G4)
 	Bounds []Bound
+	// ReadFrom: 读行的时候读这个(分桶的表: 视图 factory_hot_<表>,数量 = 桶的合计;docs/design/hotspots.md)
+	ReadFrom string
 }
 
 // Bound: CHECK (列 Op N)。
@@ -102,6 +104,11 @@ func LoadTable(ctx context.Context, conn *pgx.Conn, name string) (*Table, error)
 	}
 	if len(t.Cols) == 0 {
 		return nil, fmt.Errorf("table %s: no columns", name)
+	}
+	// 分桶的表(docs/design/hotspots.md): 行从视图读(数量 = 桶的合计)
+	var view *string
+	if err := conn.QueryRow(ctx, `SELECT to_regclass($1)::text`, "factory_hot_"+name).Scan(&view); err == nil && view != nil {
+		t.ReadFrom = *view
 	}
 	rows, err = conn.Query(ctx, `SELECT i.indisprimary, array_agg(a.attname ORDER BY k.n)
 		FROM pg_index i CROSS JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS k(attnum, n)
@@ -227,7 +234,11 @@ func ReadRows(ctx context.Context, conn *pgx.Conn, t *Table) ([]Row, error) {
 			order = append(order, fmt.Sprint(i+1))
 		}
 	}
-	rows, err := conn.Query(ctx, "SELECT "+strings.Join(sel, ", ")+" FROM "+pgx.Identifier{t.Name}.Sanitize()+" ORDER BY "+strings.Join(order, ", "))
+	from := t.Name
+	if t.ReadFrom != "" {
+		from = t.ReadFrom
+	}
+	rows, err := conn.Query(ctx, "SELECT "+strings.Join(sel, ", ")+" FROM "+pgx.Identifier{from}.Sanitize()+" ORDER BY "+strings.Join(order, ", "))
 	if err != nil {
 		return nil, err
 	}

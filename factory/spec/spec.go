@@ -46,6 +46,19 @@ type API struct {
 	Owner       string `yaml:"owner"`
 	RiskLevel   string `yaml:"risk_level"`
 	Description string `yaml:"description"` // 可选: proto 注释之外的背景说明
+	// Hot: 共享数量的读改写的业务问题「会不会被很多人同时抢」的回答(yes / no / unsure;空 = 没回答 = unsure)。
+	// docs/design/hotspots.md
+	Hot string `yaml:"hot,omitempty"`
+	// Load: 高级(可选): 专家写的负载(QPS / p99 / 键分布 / 桶数)。没有 = 平台按 API 种类的默认
+	Load *LoadDecl `yaml:"load,omitempty"`
+}
+
+// LoadDecl: 设计书的 负载(高级,可选)。
+type LoadDecl struct {
+	QPS     int    `yaml:"qps,omitempty"`
+	P99     string `yaml:"p99,omitempty"`     // 例: 200ms
+	Skew    string `yaml:"skew,omitempty"`    // uniform | zipf:s | hot:N
+	Buckets int    `yaml:"buckets,omitempty"` // 分桶的生产线的桶数(默认 16)
 }
 
 type ReviewDecision struct {
@@ -494,6 +507,27 @@ func (s *Spec) PatternKind() string {
 		return "custom"
 	}
 	return s.Pattern.Kind
+}
+
+// SharedQuantities: 共享数量的读改写(按键更新里 列: "列 ± …";docs/design/hotspots.md §2)的 表.列。
+// 和 command.SharedQuantity 同一个判断(那边看 IR 的表达式;这里给审查看式样书)。
+func (s *Spec) SharedQuantities() []string {
+	var out []string
+	if s.Pattern.Command == nil {
+		return nil
+	}
+	for _, op := range s.Pattern.Command.Ops {
+		if op.Kind != "update" {
+			continue
+		}
+		for _, v := range op.Values {
+			e := strings.TrimSpace(v.Expr)
+			if rest, ok := strings.CutPrefix(e, v.Column); ok && (strings.HasPrefix(strings.TrimSpace(rest), "+") || strings.HasPrefix(strings.TrimSpace(rest), "-")) {
+				out = append(out, op.Table+"."+v.Column)
+			}
+		}
+	}
+	return out
 }
 
 // AIWrites: 这个 API 是否有 AI 负责的部分。

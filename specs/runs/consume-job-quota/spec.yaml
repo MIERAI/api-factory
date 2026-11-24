@@ -6,6 +6,7 @@ api:
     owner: platform-team
     risk_level: medium
     description: 批量提交任务的一方先按件数扣额度,扣成功了才提交。额度不能变成负数,两个提交方同时扣同一个任务类型时也不能超额
+    hot: "yes"
 pattern:
     kind: command
     not_found_message: ""

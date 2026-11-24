@@ -374,7 +374,7 @@ func (c *ctx) compileMachine(a *API) (*spec.Spec, error) {
 
 	// ---- 机器用的式样书
 	s := &spec.Spec{SpecVersion: spec.Version}
-	s.API = spec.API{RPC: c.pkg + "." + c.handlerService() + "/" + a.Name, Owner: a.Owner, RiskLevel: a.Risk, Description: a.Background}
+	s.API = spec.API{RPC: c.pkg + "." + c.handlerService() + "/" + a.Name, Owner: a.Owner, RiskLevel: a.Risk, Description: a.Background, Hot: a.Hot, Load: a.Load}
 	s.Pattern = a.Pattern
 	s.Pattern.Kind = a.Kind
 	for _, r := range a.Rules {

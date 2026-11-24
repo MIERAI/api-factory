@@ -11,6 +11,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/MIERAI/api-factory/runtime/clock"
 	"github.com/MIERAI/api-factory/runtime/conv"
+	"github.com/MIERAI/api-factory/runtime/metrics"
 	"github.com/MIERAI/api-factory/runtime/txn"
 
 	runsv1 "apifactory/gen/factory/runs/v1"
@@ -19,7 +20,8 @@ import (
 // StartJobRun 开始一次任务的执行。扣一次这个任务类型的额度,新建执行记录(执行中),写第一条日志。三件事一起成功或者一起不做
 func (h *Handler) StartJobRun(ctx context.Context, req *connect.Request[runsv1.StartJobRunRequest]) (*connect.Response[runsv1.StartJobRunResponse], error) {
 	m := req.Msg
-	var r1 struct { // 额度(job_quotas)的返回值
+	defer metrics.HotKey("runs.start-job-run", fmt.Sprint(m.GetJobType()), time.Now()) // 热键监控: 同时抢 = 不确定(写入集中度 → 告警 → 建议分桶)
+	var r1 struct {                                                                    // 额度(job_quotas)的返回值
 		JobType   string
 		Remaining int32
 	}
@@ -34,7 +36,7 @@ func (h *Handler) StartJobRun(ctx context.Context, req *connect.Request[runsv1.S
 	if err := h.tx.Run(ctx,
 		txn.Op{ // 额度
 			Kind:  txn.Update,
-			Table: "job_quotas",
+			Table: "factory_hot_job_quotas",
 			Values: []txn.Col{
 				{Name: "remaining", Expr: txn.Sub(txn.C("remaining"), txn.V(int32(1)))},
 				{Name: "updated_at", Value: clock.Now(ctx)},

@@ -740,7 +740,7 @@ func (c *ctx) compileAPI(a *API) (*spec.Spec, string, error) {
 
 	// ---- 机器用的式样书
 	s := &spec.Spec{SpecVersion: spec.Version}
-	s.API = spec.API{RPC: c.pkg + "." + c.service + "/" + a.Name, Owner: a.Owner, RiskLevel: a.Risk, Description: a.Background}
+	s.API = spec.API{RPC: c.pkg + "." + c.service + "/" + a.Name, Owner: a.Owner, RiskLevel: a.Risk, Description: a.Background, Hot: a.Hot, Load: a.Load}
 	if a.Kind == "message" {
 		s.API.RPC = c.pkg + "." + c.handlerService() + "/" + a.Name
 	}

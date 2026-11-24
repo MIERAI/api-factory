@@ -478,7 +478,7 @@ func OpsOf(c *ir.Command) []ir.CommandOp {
 	if c.Op == "command" || c.Op == "message" {
 		return c.Ops
 	}
-	op := ir.CommandOp{Name: c.Op, Kind: c.Op, Table: c.Table, NotFound: c.NotFound, Returning: c.Returning}
+	op := ir.CommandOp{Name: c.Op, Kind: c.Op, Table: c.Table, NotFound: c.NotFound, Returning: c.Returning, WriteTo: c.WriteTo}
 	in := func(b ir.CommandCol) ir.CommandVal {
 		return ir.CommandVal{Column: b.Column, Type: b.Type, NotNull: b.NotNull, Expr: &ir.CmdExpr{Op: "input", Name: b.Field, Type: b.Type}}
 	}

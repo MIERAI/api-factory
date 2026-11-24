@@ -158,6 +158,13 @@ run "状态表: 逻辑删除没有反映"                      $ST 's/(FUNCTION 
 run "状态表: 可以为空的键的空值和空字符串合成一组"  $ST 's/(FUNCTION factory_current_product_label_ins\(\).*?)t3\.label_code AS _k_label_code/${1}coalesce(t3.label_code, \x27\x27) AS _k_label_code/s'
 run "状态表: 关联的对方(分类)的状态表是空的"      $ST 's/(FUNCTION factory_current_category_master_ins\(\).*?)FROM factory_new AS t1/${1}FROM (SELECT * FROM factory_new WHERE FALSE) AS t1/s'
 run "外壳列: 取了最早的版本的时间(状态表的更新没换外壳列)" $ST 's/(FUNCTION factory_current_product_label_ins\(\).*?)registered_at = EXCLUDED\.registered_at/${1}registered_at = s.registered_at/s'
+# 分桶的生产线(docs/design/hotspots.md §4;ConsumeJobQuota 同时抢: 是): 生成的 db/schema/zz_factory_buckets.sql
+BK=db/schema/zz_factory_buckets.sql
+run "分桶: 视图不合计桶(只看表本身)"            $BK 's/\(t\.remaining \+ coalesce\(x\.q, 0\)\)/(t.remaining + 0)/'
+run "分桶: 回退不检查合计(不够也扣)"            $BK 's/IF coalesce\(total, 0\) < -d THEN/IF FALSE THEN/'
+run "分桶: 热路径不看桶够不够"                  $BK 's/ AND remaining >= -d ORDER BY/ ORDER BY/'
+run "分桶: 设合计时丢了余数"                    $BK 's/CASE WHEN i < NEW\.remaining % 16 THEN 1 ELSE 0 END/0/'
+run "分桶: 取的时候按桶记的列没更新"            $BK 's/, updated_at = NEW\.updated_at WHERE job_type = OLD\.job_type AND bucket = bb;/ WHERE job_type = OLD.job_type AND bucket = bb;/'
 # R2.5 T1: 关联 / 嵌套 / 子聚合的对方是逻辑表(JSON版本)
 LP=gen/db/catalog.list-labels-with-product.sql.go
 run "逻辑表の关联: 不处理删除" $LP 's/\(t5\._action <> 1::int4\) AND //'
@@ -271,7 +278,8 @@ run "条件更新: >= 写成 >(边界)"                 $CQ 's/txn\.Cmp\(">=", t
 run "条件更新: 业务原因码写错"                   $CQ 's/Unmet:(\s+)"QUOTA_EXHAUSTED"/Unmet:${1}"QUOTA_EMPTY"/'
 run "条件更新: 设置成请求的值(不是减去)"          $CQ 's/Expr: txn\.Sub\(txn\.C\("remaining"\), txn\.V\(m\.GetCount\(\)\)\)/Expr: txn.V(m.GetCount())/'
 run "条件更新: 条件不满足的错误码写错(→ ABORTED)" $RE 's/(case txn\.Unmet:[^\n]*\n\s+ce := connect\.NewError\()connect\.CodeFailedPrecondition/${1}connect.CodeAborted/'
-run "条件更新: 条件和设置不一致(扣 1 检查 >= 0)"  $SR 's/txn\.Cmp\(">=", txn\.C\("remaining"\), txn\.V\(int32\(1\)\)\)/txn.Cmp(">=", txn.C("remaining"), txn.V(int32(0)))/'
+# "条件更新: 条件和设置不一致" 以前在 StartJobRun(扣 1 检查 >= 0): job_quotas 分桶之后(ConsumeJobQuota 同时抢: 是)数据库自己保证
+# 不扣成负数(桶的 CHECK + 合计不够不更新),这个变异等价了 → 换到不分桶的 DebitAccounts(下面)
 run "组合命令: 事务提前提交(拆成两个事务)"        $SR 's/\n(\t+)\},\n(\t+)txn\.Op\{ \/\/ 执行/\n${1}}); err != nil {\n\t\treturn nil, writeError(err)\n\t}\n\tif err := h.tx.Run(ctx,\n${2}txn.Op{ \/\/ 执行/'
 run "组合命令: 引用了错误的返回值(日志指向别的执行)" $SR 's/return r2\.Id \}\)/return r2.Id + 1 })/'
 run "组合命令: 输出取错操作的值"                 $SR 's/LogId:(\s+)r3\.Id,/LogId:${1}r2.Id,/'
@@ -281,6 +289,7 @@ run "幂等新建: 命中时返回请求的值(不是已有的行)"   $SQ 's/Job
 # R4: 消息(发出 / 消息处理器 / 每项 / 仅当 / 跳过 / 墓碑 / 死信)
 OA=internal/handler/ledger/open_account_gen.go
 DA=internal/handler/ledger/debit_accounts_gen.go
+run "条件更新: 条件和设置不一致(扣 x 检查 >= x - 1)" $DA 's/txn\.Cmp\(">=", txn\.C\("balance"\), txn\.V\(it\.GetAmount\(\)\)\)/txn.Cmp(">=", txn.C("balance"), txn.V(it.GetAmount() - 1))/'
 RA=internal/handler/ledger/record_account_opened_gen.go
 RV=internal/handler/ledger/reverse_debits_gen.go
 SD=internal/handler/ledger/settle_debits_gen.go

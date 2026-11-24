@@ -25,7 +25,9 @@ type Plan struct {
 	APIs     []API     `json:"apis"`
 	Enums    []Enum    `json:"enums"` // 领域层的 enum 映射(DB 值 ↔ proto enum)
 	Storages []Storage `json:"storages,omitempty"`
-	Shards   []Shard   `json:"shards,omitempty"` // 分库的表(验收把数据写进分库键对应的库)
+	// Buckets: 分桶的生产线(同时抢: 是;docs/design/hotspots.md): 数量列拆到桶表,写 / 读经过视图
+	Buckets []Bucket `json:"buckets,omitempty"`
+	Shards  []Shard  `json:"shards,omitempty"` // 分库的表(验收把数据写进分库键对应的库)
 	// ShardWithParent: 分库: 随父 的表(没有分库键的列;验收把行写进父行的库 / 每个库都写一份)
 	ShardWithParent []string `json:"shard_with_parent,omitempty"`
 }
@@ -64,6 +66,15 @@ type API struct {
 	ExitParams map[string]any `json:"exit_params,omitempty"`
 	Compute    *Compute       `json:"compute,omitempty"`
 	Command    *Command       `json:"command,omitempty"` // 命令工厂(写入): 没有 Query / Pipeline
+
+	// 负载与热点(docs/design/hotspots.md)。Shared: 共享数量的读改写(按键更新里 列 = 列 ± …;工厂自己判断);
+	// Hot: 「会不会被很多人同时抢」的回答(yes / no / unsure;共享数量的读改写没回答 = unsure;其他 API 空);
+	// Load: 负载(设计书的 负载,没写 = 平台按 API 种类的默认)
+	Shared []SharedQty `json:"shared,omitempty"`
+	Hot    string      `json:"hot,omitempty"`
+	Load   *LoadSpec   `json:"load,omitempty"`
+	// HotKeys: 热键监控(同时抢 = 不确定): 每次请求记录的键 = 这些请求字段(共享数量的更新的键;docs/design/hotspots.md §5)
+	HotKeys []string `json:"hot_keys,omitempty"`
 
 	// BaseRequest: 第一个 code: OK 的人写用例的请求(自动生成校验边界用例时作为"其他字段都合法"的基础)
 	BaseRequest map[string]any `json:"base_request,omitempty"`
@@ -177,6 +188,7 @@ type Command struct {
 	Set       []CommandSet `json:"set,omitempty"`   // 列 ← 固定值 / 请求开始的时刻
 	Returning []Column     `json:"returning"`       // 响应的字段 = 这些列(写之后的行)
 	NotFound  string       `json:"not_found,omitempty"`
+	WriteTo   string       `json:"write_to,omitempty"` // 单个操作的命令: 分桶的视图(见 CommandOp.WriteTo)
 	// 组合命令(R3-2,Op = command): 按顺序执行的写操作 + 响应字段的来源。上面的单个操作的字段不用
 	Ops     []CommandOp  `json:"ops,omitempty"`
 	Outputs []CommandOut `json:"outputs,omitempty"`
@@ -371,6 +383,16 @@ type CommandOp struct {
 	// 连续的同一个 Each 的操作是一个循环,后面的操作不能引用循环里的操作
 	Each    string   `json:"each,omitempty"`
 	EachKey []string `json:"each_key,omitempty"`
+	// WriteTo: 写的对象不是 Table 本身(分桶的视图,docs/design/hotspots.md)。模型 / 验收按 Table,生成的代码 / perf 写 WriteTo
+	WriteTo string `json:"write_to,omitempty"`
+}
+
+// Target: 生成的代码实际写的表(分桶的视图或者表本身)。
+func (op CommandOp) Target() string {
+	if op.WriteTo != "" {
+		return op.WriteTo
+	}
+	return op.Table
 }
 
 // CommandVal: 列 ← 表达式(Type / NotNull = 列的)。
@@ -379,6 +401,45 @@ type CommandVal struct {
 	Type    string   `json:"type"`
 	NotNull bool     `json:"not_null,omitempty"`
 	Expr    *CmdExpr `json:"expr"`
+}
+
+// SharedQty: 共享数量的读改写: 表 Table 的数量列 Column 由操作 Op 改成 列 ± 表达式。
+type SharedQty struct {
+	Table  string `json:"table"`
+	Column string `json:"column"`
+	Op     string `json:"op"`
+}
+
+// LoadSpec: 一个 API 的负载。Declared = 设计书写了 负载(否则是平台的默认)。
+type LoadSpec struct {
+	QPS      int    `json:"qps"`
+	P99Ms    int    `json:"p99_ms"`
+	Skew     string `json:"skew"` // uniform | zipf:s | hot:N
+	Declared bool   `json:"declared,omitempty"`
+}
+
+// Bucket: 分桶的生产线(docs/design/hotspots.md §4)。表 Table 的数量列 Column 拆成 N 个桶(BucketTable);
+// 写(更新 / 删除)和读经过视图 View;PerBucket = 取 / 还的操作同时设置的列(现在),每个桶各记一份,视图取最大。
+type Bucket struct {
+	Table       string   `json:"table"`
+	Column      string   `json:"column"`
+	Type        string   `json:"type"`
+	Key         []string `json:"key"`
+	View        string   `json:"view"`
+	BucketTable string   `json:"bucket_table"`
+	N           int      `json:"n"`
+	PerBucket   []string `json:"per_bucket,omitempty"`
+	APIs        []string `json:"apis"` // 回答了 同时抢: 是 的 API
+}
+
+// Bucket: 表 t 有没有分桶(没有 = nil)。
+func (p *Plan) Bucket(t string) *Bucket {
+	for i := range p.Buckets {
+		if p.Buckets[i].Table == t {
+			return &p.Buckets[i]
+		}
+	}
+	return nil
 }
 
 // CmdExpr: 组合命令的表达式(值 / 条件)。Op:
