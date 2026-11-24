@@ -8,7 +8,7 @@
 package version
 
 // Factory: this factory's version (scripts/release.sh bump vX.Y.Z changes it, with every go.mod below).
-const Factory = "v0.6.0"
+const Factory = "v0.7.0"
 
 // Runtime: the runtime version paired with this factory — always the same number.
 const Runtime = Factory
