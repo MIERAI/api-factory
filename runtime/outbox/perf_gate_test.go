@@ -121,8 +121,12 @@ func inMode(t *testing.T, mode string, f func(t *testing.T, traced bool)) {
 			return
 		}
 		snk, off := tracingOn(t)
+		// f 里 t.Skip / t.Fatal 会直接结束这个 goroutine,后面的 off() 不会执行,
+		// 追踪就一直开着,污染后面的测试(没有 RUNTIME_TEST_AMQP 时 ④ 会 Skip)。所以也登记成 Cleanup。
+		var once sync.Once
+		t.Cleanup(func() { once.Do(off) })
 		f(t, true)
-		off()
+		once.Do(off)
 		t.Logf("OTLP sink: %d requests, %d bytes", snk.requests.Load(), snk.bytes.Load())
 		if snk.requests.Load() == 0 {
 			t.Error("tracing on but nothing was exported")
