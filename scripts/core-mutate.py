@@ -162,7 +162,7 @@ def gotest(overlay=None, verbose=False):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--workers", type=int, default=max(2, (os.cpu_count() or 4) // 2))
+    ap.add_argument("--workers", type=int, default=os.cpu_count() or 4)  # 主要在等数据库: 每核一个
     ap.add_argument("--list", action="store_true", help="只检查每个变异都改得到(不需要数据库)")
     ap.add_argument("pattern", nargs="?")
     args = ap.parse_args()
