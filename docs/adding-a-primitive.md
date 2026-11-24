@@ -54,7 +54,9 @@
 ## 4. 测试(都要加)
 
 1. **元件认证** `factory/core/cert_<name>_test.go`(或加到 `cert_test.go`):同一数据上 SQL(真的 Postgres)和参考求值器
-   的结果逐条相同。覆盖 NULL、边界、文本的字节序、不合法的输入。`FACTORY_TEST_DB=… go test ./factory/core/...`
+   的结果逐条相同。覆盖 NULL、边界、文本的字节序、不合法的输入。`make core`(= `FACTORY_TEST_DB=… go test ./factory/core/...`
+   + 认证的变异 `scripts/core-mutate.py`;CI 的 `core` job,自己的 Postgres 服务)。往 `scripts/core-mutate.py` 加这个元件的
+   典型错误(字面替换;旧的文本必须正好出现约定的次数,改不到 = 失败,不会静默跳过)
 2. **检查** `check_<name>_test.go`:DRC 拒绝的每种写法各一条(错误信息里有 `at`)。
 3. **差分测试** `factory/accept/diff*.go`:随机数据要能落到这个元件的边界上;想得到的"错误实现"做成敏感度目标
    (参考求值器认的开关,例如 `Expr.Loose`、`Step.NullEq` / `Step.Mutant`,SQL 后端和 IR 里没有),每个要被 ≥ 3 个请求区分。
@@ -64,5 +66,5 @@
    `factory/accept/early.go`;漏了会在验收时报"早停的计数不一致")。随机数据只从 `rnd` 取,遍历 map 时先排序键
    (同一个种子要造出同样的用例)。
 
-全部闸门:`make check`、`make test`、`FACTORY_TEST_DB=… go test ./factory/...`、`make accept`、`scripts/projects.sh`、
+全部闸门:`make check`、`make test`、`make core`、`make accept`、`scripts/projects.sh`、
 `make margin`、`scripts/ci/migrations-check.sh`。
