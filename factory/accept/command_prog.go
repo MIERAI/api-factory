@@ -45,6 +45,7 @@ import (
 const (
 	progSamples   = 80 // 一个目标最多抽样几次
 	concurrentN   = 8  // 并发的请求数
+	hotN          = 32 // 同时抢: 是(分桶)的 API: 同一个请求同时发几个(docs/design/hotspots.md §4.3)
 	lockWorkers   = 4  // 乐观锁的循环: 几个并发的写入方
 	lockSuccesses = 2  // 每个写入方要成功几次
 )
@@ -1207,6 +1208,25 @@ func (e *progEnv) concurrency() []Result {
 	if scenarios == 0 {
 		results = append(results, e.burst("并发: 同一个请求", progAim{-1, command.OK}, false))
 	}
+	// 同时抢: 是(分桶的生产线): 同一个键 32 个请求同时取,一部分成功、一部分不够: 不超卖(成功 ≤ 串行的上限、之后的数量 =
+	// 串行执行成功次数之后的)、不"假的不够"(没有冲突错误时成功 = 串行的上限: 桶不够时回退到合计)
+	if e.api.Hot == "yes" && hasCond >= 0 {
+		if b := e.plan.Bucket(e.ops[hasCond].Table); b != nil { // 每个键 16~23 个(写进表 = 合计设成这个值,平分到桶)
+			q := pgx.Identifier{b.Column}.Sanitize()
+			if _, err := e.conn.Exec(e.ctx, fmt.Sprintf("UPDATE %s SET %s = 16 + (hashtext(%s::text) & 7)", pgx.Identifier{b.Table}.Sanitize(), q,
+				pgx.Identifier{b.Key[0]}.Sanitize())); err != nil {
+				return append(results, diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: "并发: 同时抢 准备", Passed: false, Detail: err.Error()}))
+			}
+			db, err := e.readState()
+			if err != nil {
+				return append(results, diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: "并发: 同时抢 准备", Passed: false, Detail: err.Error()}))
+			}
+			e.syncState(db)
+		}
+		for rep := 1; rep <= 3; rep++ {
+			results = append(results, e.burstN(fmt.Sprintf("并发: 同时抢(分桶,%s)#%d", e.ops[hasCond].Name, rep), progAim{-1, command.OK}, true, hotN))
+		}
+	}
 	return results
 }
 
@@ -1227,6 +1247,11 @@ func (e *progEnv) serial(req map[string]any, n int) ([]command.ProgResult, []*co
 
 // burst: 同一个请求同时发 concurrentN 个。spread = 选串行成功次数在中间的请求(条件更新: 一部分成功、一部分不满足)。
 func (e *progEnv) burst(name string, aim progAim, spread bool) Result {
+	return e.burstN(name, aim, spread, concurrentN)
+}
+
+// burstN: burst 的并发数 = n。
+func (e *progEnv) burstN(name string, aim progAim, spread bool, concurrentN int) Result {
 	fail := func(f string, a ...any) Result {
 		return diffResult(Result{Spec: e.api.ID, Suite: "diff", Case: name, Passed: false, Detail: fmt.Sprintf(f, a...)})
 	}
@@ -1267,6 +1292,9 @@ func (e *progEnv) burst(name string, aim progAim, spread bool) Result {
 	}
 	sMax := len(snaps) - 1
 	allowed := map[string]bool{"ABORTED": true} // 并发冲突重试之后仍然失败(序列化失败 / 死锁)
+	if concurrentN > 8 {
+		allowed["UNAVAILABLE"] = true // 同时抢: 测试服务器的连接池(4)排队超时 = 过载时的回答,不是错的结果
+	}
 	for _, r := range rs {
 		if r.Outcome != command.OK {
 			allowed[r.Code()] = true
@@ -1307,7 +1335,7 @@ func (e *progEnv) burst(name string, aim progAim, spread bool) Result {
 		case !allowed[r.code]:
 			problems = append(problems, fmt.Sprintf("错误码 %s(%s)不是串行执行时会出现的", r.code, r.msg))
 		}
-		if r.code == "ABORTED" {
+		if r.code == "ABORTED" || r.code == "UNAVAILABLE" {
 			aborted++
 		}
 	}

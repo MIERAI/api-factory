@@ -144,6 +144,10 @@ func Compile(specs []*spec.Spec) (*ir.Plan, error) {
 		apis[i] = api
 		final[s.ID()] = queryFile(s, sql)
 	}
+	// 负载与热点: 共享数量的读改写 / 同时抢 / 默认的负载;同时抢: 是 → 分桶(db/schema/zz_factory_buckets.sql,表名换成视图)
+	if plan.Buckets, err = hotIR(specs, apis, cat, keys, final); err != nil {
+		return nil, err
+	}
 	// 当前状态表的 DDL(db/schema/zz_factory_current.sql): 下面的 sqlc 分析要看得到状态表
 	if err := writeStateSQL(specs, apis, cat, lib); err != nil {
 		return nil, err

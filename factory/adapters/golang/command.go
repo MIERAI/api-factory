@@ -117,7 +117,11 @@ func genCommand(g *genCtx) (string, error) {
 	}
 
 	var op []string
-	op = append(op, "Kind: "+txnKinds[cmd.Op]+",", fmt.Sprintf("Table: %q,", cmd.Table))
+	table := cmd.Table
+	if cmd.WriteTo != "" { // 分桶的视图(docs/design/hotspots.md)
+		table = cmd.WriteTo
+	}
+	op = append(op, "Kind: "+txnKinds[cmd.Op]+",", fmt.Sprintf("Table: %q,", table))
 	if cmd.Op != "delete" {
 		op = append(op, "Values: values,")
 	}

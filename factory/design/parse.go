@@ -354,6 +354,8 @@ type API struct {
 	Cases      []*yaml.Node
 	LogicCases []*yaml.Node
 	Reviewed   []QA        // X.审查.yaml
+	Hot        string      // 同时抢: yes / no / unsure / ""(没回答)
+	Load       *spec.LoadDecl // 负载(高级,可选)
 	Lookups    []*Lookup   // 关联(多对一查找),按书写顺序
 	Nests      []*Nest     // 嵌套(一对多: 子行的列表)
 	ChildAggs  []*ChildAgg // 子聚合(按父行聚合)
@@ -509,6 +511,7 @@ func loadAPI(path string) (*API, error) {
 	if a.Risk, ok = risks[str(root, "风险")]; !ok {
 		e.add(root.Line, "风险 只能是 低 / 中 / 高")
 	}
+	a.Hot, a.Load = parseHot(e, root)
 	a.Lookups = parseLookups(e, get(root, "关联"), "关联")
 	for _, p := range pairs(get(root, "嵌套")) {
 		checkKeys(e, p.Val, "嵌套 "+p.Key, NestKeys()...)
@@ -779,7 +782,7 @@ func (r tableReader) Encoding(line int, name, enc string) {
 // TopKeys: 设计稿顶层的键(所有种类共用;各种类另外的键在出口的注册表里)。
 func TopKeys() []string {
 	return []string{"API", "说明", "背景", "负责人", "风险", "种类", "数据来源", "关联", "嵌套", "子聚合", "输入", "输入之间的规则", "固定条件", "派生参数",
-		"输出", "输出行名", "输出列表名", "业务规则", "例子", "计算例子"}
+		"输出", "输出行名", "输出列表名", "业务规则", "例子", "计算例子", "同时抢", "负载"}
 }
 
 // OutputKeys: 输出的一列可以写的键。

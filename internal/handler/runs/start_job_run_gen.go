@@ -34,7 +34,7 @@ func (h *Handler) StartJobRun(ctx context.Context, req *connect.Request[runsv1.S
 	if err := h.tx.Run(ctx,
 		txn.Op{ // 额度
 			Kind:  txn.Update,
-			Table: "job_quotas",
+			Table: "factory_hot_job_quotas",
 			Values: []txn.Col{
 				{Name: "remaining", Expr: txn.Sub(txn.C("remaining"), txn.V(int32(1)))},
 				{Name: "updated_at", Value: clock.Now(ctx)},

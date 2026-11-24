@@ -169,7 +169,7 @@ func (cg *cmdGen) col(v ir.CommandVal) (string, error) {
 func (cg *cmdGen) op(op ir.CommandOp, n int) (lit string, vars, pre []string, err error) {
 	g, in := cg.g, &cg.g.api.Request
 	var lines []string
-	lines = append(lines, "Kind: "+compositeKinds[op.Kind]+",", fmt.Sprintf("Table: %q,", op.Table))
+	lines = append(lines, "Kind: "+compositeKinds[op.Kind]+",", fmt.Sprintf("Table: %q,", op.Target()))
 	if len(op.Values) > 0 || op.Lock != nil {
 		var cs, optional []string
 		for _, v := range op.Values {

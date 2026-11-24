@@ -8,6 +8,7 @@ API: ConsumeJobQuota
 风险: 中
 
 种类: 组合命令
+同时抢: 是        # 很多提交方同时扣同一个任务类型的额度(批量提交的高峰)→ 分桶的生产线(docs/design/hotspots.md)
 
 输入:
   job_type: { 类型: 文本,   必填: 是, 长度: 1~64, 说明: 任务类型 }

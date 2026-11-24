@@ -27,7 +27,7 @@ func (h *Handler) ConsumeJobQuota(ctx context.Context, req *connect.Request[runs
 	if err := h.tx.Run(ctx,
 		txn.Op{ // 扣减
 			Kind:  txn.Update,
-			Table: "job_quotas",
+			Table: "factory_hot_job_quotas",
 			Values: []txn.Col{
 				{Name: "remaining", Expr: txn.Sub(txn.C("remaining"), txn.V(m.GetCount()))},
 				{Name: "updated_at", Value: clock.Now(ctx)},

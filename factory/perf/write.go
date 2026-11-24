@@ -749,7 +749,7 @@ func (r *runner) col(v ir.CommandVal) (txn.Col, error) {
 var opKinds = map[string]txn.Kind{"insert": txn.Insert, "insert_idempotent": txn.Insert, "update": txn.Update, "delete": txn.Delete}
 
 func (r *runner) op(op ir.CommandOp) (txn.Op, error) {
-	o := txn.Op{Kind: opKinds[op.Kind], Table: op.Table, Conflict: op.Conflict, NotFound: op.NotFound}
+	o := txn.Op{Kind: opKinds[op.Kind], Table: op.Target(), Conflict: op.Conflict, NotFound: op.NotFound}
 	for _, v := range op.Values {
 		c, err := r.col(v)
 		if err != nil {
