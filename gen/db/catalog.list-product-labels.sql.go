@@ -7,25 +7,21 @@ import (
 )
 
 const listProductLabels = `-- name: ListProductLabels :many
-SELECT t5.product_code, t5.label, t5.display_text
+SELECT t4.product_code, t4.label, t4.display_text
 FROM (
-    SELECT t4.product_code AS product_code, t4.label_code AS label, t4.text AS display_text
+    SELECT t3.product_code AS product_code, t3.label_code AS label, t3.text AS display_text
     FROM (
-        SELECT t3.product_code AS product_code, t3.label_code AS label_code, t3.text AS text, t3.updated_at AS updated_at
+        SELECT t2.product_code AS product_code, t2.label_code AS label_code, t2.text AS text, t2.updated_at AS updated_at
         FROM (
-            SELECT DISTINCT ON (t2.product_code COLLATE "C", t2.label_code COLLATE "C") t2.product_code, t2.label_code, t2.text, t2.updated_at, t2._action, t2._o_registered_at, t2._o_id
-            FROM (
-                SELECT ((t1.data ->> 'product_code')::text) AS product_code, ((t1.data ->> 'label_code')::text) AS label_code, ((t1.data ->> 'text')::text) AS text, t1.registered_at AS updated_at, t1.action_type AS _action, t1.registered_at AS _o_registered_at, t1.id AS _o_id
-                FROM product_label_events AS t1
-            ) AS t2
-            WHERE (NOT (t2.product_code IS NULL))
-              AND (t2.product_code = $1::text)
-            ORDER BY t2.product_code COLLATE "C", t2.label_code COLLATE "C", t2._o_registered_at DESC, t2._o_id DESC
-        ) AS t3
-        WHERE ((t3._action <> 1::int4) AND ((NULL::text IS NULL) OR (NULL::text <> ''::text)))
-    ) AS t4
-) AS t5
-ORDER BY t5.label COLLATE "C"
+            SELECT ((t1.data ->> 'product_code')::text) AS product_code, ((t1.data ->> 'label_code')::text) AS label_code, ((t1.data ->> 'text')::text) AS text, t1.registered_at AS updated_at, t1.action_type AS _action, t1.registered_at AS _o_registered_at, t1.id AS _o_id
+            FROM factory_current_product_label AS t1
+        ) AS t2
+        WHERE ((t2._action <> 1::int4) AND ((NULL::text IS NULL) OR (NULL::text <> ''::text)))
+          AND (t2.product_code = $1::text)
+          AND (NOT (t2.product_code IS NULL))
+    ) AS t3
+) AS t4
+ORDER BY t4.label COLLATE "C"
 LIMIT 101
 `
 

@@ -220,7 +220,7 @@ func (g *sqlGen) sourceSQL(st Step, lv *sqlLevel) (string, error) {
 	default:
 		steps = append(steps, Step{Kind: "filter", Pred: And(conds...), From: "关联条件"})
 	}
-	sub := &Pipeline{Steps: steps, Params: g.p.Params}
+	sub := stateRead(&Pipeline{Steps: steps, Params: g.p.Params}) // 关联条件也提到展开的后面(用状态表的索引)
 	for i := 0; i < len(sub.Steps); i++ {
 		q := pushdown(sub)
 		if q == sub {

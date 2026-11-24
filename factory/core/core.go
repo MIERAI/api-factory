@@ -176,6 +176,8 @@ type Step struct {
 	// (Aggs / As 见上: child_agg 的聚合、nest 的列名)
 	// Source: 对方是逻辑表时,对方的行 = 这条子流水线的结果(见上)
 	Source []Step `json:"source,omitempty"`
+	// State: pick_per_key 的当前状态表(state.go): SQL 后端从这张表读每键最新(触发器维护),参考求值器照常取最新
+	State string `json:"state,omitempty"`
 	// Mutant: 只给差分测试的"错误实现"用(参考求值器认,SQL 后端和 IR 里没有):
 	// nest: empty_null(空列表 → NULL);child_agg: sum_empty_null(空集合的 sum → NULL)/ count_outer(空集合的 count = 1,
 	// LEFT JOIN + GROUP BY 的 count(*))

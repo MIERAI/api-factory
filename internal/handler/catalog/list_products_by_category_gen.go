@@ -18,8 +18,8 @@ import (
 func (h *Handler) ListProductsByCategory(ctx context.Context, req *connect.Request[catalogv1.ListProductsByCategoryRequest]) (*connect.Response[catalogv1.ListProductsByCategoryResponse], error) {
 	m := req.Msg
 	rows, err := h.q.ListProductsByCategory(ctx, db.ListProductsByCategoryParams{
-		Category: m.GetCategory(),
 		MinPrice: m.MinPrice,
+		Category: m.GetCategory(),
 	})
 	if err != nil {
 		return nil, err

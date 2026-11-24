@@ -19,8 +19,8 @@ import (
 func (h *Handler) ListProductCosts(ctx context.Context, req *connect.Request[catalogv1.ListProductCostsRequest]) (*connect.Response[catalogv1.ListProductCostsResponse], error) {
 	m := req.Msg
 	rows, err := h.q.ListProductCosts(ctx, db.ListProductCostsParams{
-		FactoryNow: clock.Now(ctx),
 		Category:   m.GetCategory(),
+		FactoryNow: clock.Now(ctx),
 	})
 	if err != nil {
 		return nil, err

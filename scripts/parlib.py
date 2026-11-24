@@ -36,9 +36,11 @@ def _sql_files(d):
 class Workers:
     """n 套数据库。with workers.take() as (url, shards): …"""
 
-    def __init__(self, kind, n):
+    def __init__(self, kind, n, override=None):
+        """override: {db/schema 的文件(相对路径): 内容}(margin 的 schema 变异: 这些库每次重建,不沿用以前的)。"""
         tag = hashlib.sha1(ROOT.encode()).hexdigest()[:6]
-        schema = "".join(open(f, encoding="utf-8").read() + "\n" for f in _sql_files("db/schema"))
+        override = {os.path.join(ROOT, k): v for k, v in (override or {}).items()}
+        schema = "".join((override.get(f) or open(f, encoding="utf-8").read()) + "\n" for f in _sql_files("db/schema"))
         views = "".join(open(f, encoding="utf-8").read() + "\n" for f in _sql_files("db/views"))
         chk = sh(["docker", "exec", PG, "psql", "-U", "factory", "-d", "factory", "-tAc", "SELECT datname FROM pg_database"])
         have = set(chk.stdout.split())
@@ -47,6 +49,9 @@ class Workers:
         for w in range(n):
             names = [f"{kind}_{tag}_{w}", f"{kind}_{tag}_{w}_a", f"{kind}_{tag}_{w}_b"]
             for db, sql in zip(names, (schema + views, schema, schema)):
+                if override and db in have:
+                    _psql("factory", f"DROP DATABASE {db} WITH (FORCE);")
+                    have.discard(db)
                 if db not in have:
                     r = _psql("factory", f"CREATE DATABASE {db};")
                     if r.returncode and "already exists" not in r.stderr:

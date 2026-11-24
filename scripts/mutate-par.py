@@ -59,6 +59,8 @@ parlib.build_factory()
 # 变异改的文件 → 受影响的式样书目录(只验收这一部分;推不出来时验收全部)。
 # 变异只影响用到这个文件的 API,判定(抓到几次)和验收全部时一样,时间不随 API 的总数增长。
 def scope(path):
+    if is_schema(path):  # 表结构的变异(生成的触发器等): 全部的式样书
+        return None
     m = re.match(r"gen/db/(\w+)\.([\w-]+)\.sql\.go$", path)
     if m:
         d = f"specs/{m.group(1)}/{m.group(2)}"
@@ -69,6 +71,11 @@ def scope(path):
     else:
         return None
     return d if os.path.isdir(os.path.join(ROOT, d)) else None
+
+
+def is_schema(path):
+    """db/schema 的变异(当前状态表的触发器 zz_factory_current.sql 等): 服务器不变,验收用一套表结构改过的库(parlib.Workers override)。"""
+    return path.startswith("db/schema/") and path.endswith(".sql")
 
 
 # ---- 1. 每个变异: 改出临时文件 → 编译 + 生成的单元测试(和种子无关,每个变异只做一次)
@@ -131,7 +138,7 @@ if os.environ.get("SCHEMATA") != "0" and live:
     tb = time.time()
     sdir = os.path.join(work, "schemata")
     os.makedirs(sdir, exist_ok=True)
-    spec = [{"id": str(i), "path": muts[i][1], "mutated": prepared[i]["file"]} for i in live]
+    spec = [{"id": str(i), "path": muts[i][1], "mutated": prepared[i]["file"]} for i in live if not is_schema(muts[i][1])]
     r = parlib.sh(["go", "run", "./factory/cmd/mutant-schemata", ROOT, sdir], input=json.dumps(spec))
     sch = json.loads(r.stdout) if r.returncode == 0 else None
     server = os.path.join(sdir, "server")
@@ -184,6 +191,20 @@ jobs = [(s, i) for s in seeds for i in range(len(muts)) if (s, i) not in cached]
 workers = parlib.Workers("mut", args.workers) if jobs else None
 
 
+# 表结构的变异: 每个变异一套自己的库(表结构 = 改过的文件),几个种子共用(按顺序)
+import threading  # noqa: E402
+schema_workers, schema_lock = {}, threading.Lock()
+
+
+def workers_for(i):
+    if not is_schema(muts[i][1]):
+        return workers
+    with schema_lock:
+        if i not in schema_workers:
+            schema_workers[i] = parlib.Workers(f"ms{i}", 1, {muts[i][1]: open(prepared[i]["file"], encoding="utf-8").read()})
+        return schema_workers[i]
+
+
 # ---- 3. (种子 × 变异)的验收
 def accept(job):
     seed, i = job
@@ -191,7 +212,11 @@ def accept(job):
     if "skip" in p:
         return p["skip"]
     ta = time.time()
-    out = parlib.accept(workers, p["server"], seed, scope(muts[i][1]), STOP, p.get("env"))
+    try:
+        w = workers_for(i)
+    except SystemExit as e:  # 改过的表结构执行不了: 变异写错了(不是抓到)
+        return f"  ? {muts[i][0]}: 表结构执行失败 — {str(e).splitlines()[0] if str(e) else ''}"
+    out = parlib.accept(w, p["server"], seed, scope(muts[i][1]), STOP, p.get("env"))
     name = muts[i][0]
     if STATS is not None:
         res = [l for l in out.splitlines() if l.startswith("  ✓ [") or l.startswith("  ✗ [")]

@@ -83,6 +83,12 @@ func ToSQL(p *Pipeline, opt Options) (*SQL, error) {
 	if err != nil {
 		return nil, err
 	}
+	if q := stateRead(p); q != p { // 取最新从当前状态表读: state.go
+		if _, err := Check(q); err != nil {
+			return nil, fmt.Errorf("当前状态表的改写之后的流水线不合法(工厂的 bug): %w", err)
+		}
+		p = q
+	}
 	for i := 0; i < len(p.Steps); i++ { // 反复下推到不变: 越过 API 的每组取一条之后,还能再越过来源的取最新(键是自然键的一部分时)
 		q := pushdown(p)
 		if q == p {
