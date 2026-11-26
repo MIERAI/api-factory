@@ -30,6 +30,7 @@ import (
 	"apifactory/factory/accept"
 	"apifactory/factory/acceptgen"
 	"apifactory/factory/adapter"
+	"apifactory/factory/export"
 	_ "apifactory/factory/adapters/golang" // 适配器: 在 init 里登记(adapter.Register)
 	"apifactory/factory/ai"
 	"apifactory/factory/answer"
@@ -95,6 +96,8 @@ func main() {
 		err = cmdReviewSync(args)
 	case "stats":
 		err = cmdStats(args)
+	case "export":
+		err = cmdExport(args)
 	case "serve-test":
 		err = cmdServeTest(args)
 	case "ai":
@@ -639,6 +642,29 @@ func cmdStats(args []string) error {
 		fmt.Printf("  手写: %s\n", f)
 	}
 	return nil
+}
+
+// cmdExport 输出 API 清单(factory.api-manifest/v1, JSON): 来源、业务规则和例子的位置、生成的文件、逃生层。
+//
+//	factory [--project DIR] export [--out FILE] [specs 目录]
+func cmdExport(args []string) error {
+	fs := flag.NewFlagSet("export", flag.ExitOnError)
+	out := fs.String("out", "", "写到这个文件(默认标准输出)")
+	_ = fs.Parse(args)
+	m, err := export.Build(specsDir(fs.Args()))
+	if err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return err
+	}
+	b = append(b, '\n')
+	if *out == "" {
+		_, err = os.Stdout.Write(b)
+		return err
+	}
+	return os.WriteFile(*out, b, 0o644) //nolint:gosec // 清单是仓库内容的索引,不含秘密
 }
 
 // readSchema: db/schema/*.sql 全部拼起来(每个领域一个文件)。
