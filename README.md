@@ -17,6 +17,7 @@
 外部 API 调用、流式、算法类逻辑(→ `custom`,AI 辅助人开发)。
 逃生口的使用比例(**逃生率**)由 `factory stats` 显示: 逃生率高说明范围选错了或者缺模式。
 每个 API 的来源、业务规则和例子的位置、生成的文件和逃生层由 `factory export` 输出成 JSON 清单(给外部工具用,见 [docs/api-manifest.md](docs/api-manifest.md))。
+改了哪些文件以后工厂还接受不接受、哪些用例通过 / 失败,由 `factory try --changes FILE` 在临时副本里跑完整条流水线(不调用 AI,自己的 Postgres)回答(见 [docs/try.md](docs/try.md))。
 
 ```
 ① 式样书闸门 → ② 确定性生成 → ③ AI 实现 → ④ 路径闸门 → ⑤ 编译 + 验收 → ⑥ 部署(镜像 → 新版本 → 检查 → 切换)

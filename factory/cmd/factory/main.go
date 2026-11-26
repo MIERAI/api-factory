@@ -6,6 +6,8 @@
 //	factory guard   [specs-dir]                  路径闸门(检查 git 工作区的改动)
 //	factory accept  --server bin/server --db URL [specs-dir]  验收执行器
 //	factory system  <dir> [--check]              跨项目的消息契约检查 + 系统级的拓扑清单(<契约目录>/topology.json)
+//	factory try --changes FILE [--api ID]... [--base REV] [--out FILE] [--keep]
+//	                                             这些文件改了以后工厂还接受吗(临时副本里 设计→生成→编译→测试→验收,JSON)
 //	factory version                              工厂的版本 + 配套的运行时(github.com/MIERAI/api-factory/runtime)
 //	factory upgrade [--project DIR] [--check]    项目的运行时依赖 → 配套的版本(go.mod + import),go mod tidy + build
 package main
@@ -13,14 +15,17 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"text/template"
 	"time"
 
@@ -30,7 +35,6 @@ import (
 	"apifactory/factory/accept"
 	"apifactory/factory/acceptgen"
 	"apifactory/factory/adapter"
-	"apifactory/factory/export"
 	_ "apifactory/factory/adapters/golang" // 适配器: 在 init 里登记(adapter.Register)
 	"apifactory/factory/ai"
 	"apifactory/factory/answer"
@@ -38,6 +42,7 @@ import (
 	"apifactory/factory/constraints"
 	"apifactory/factory/design"
 	"apifactory/factory/exits"
+	"apifactory/factory/export"
 	"apifactory/factory/guard"
 	"apifactory/factory/ir"
 	"apifactory/factory/perf"
@@ -47,6 +52,7 @@ import (
 	"apifactory/factory/review"
 	"apifactory/factory/spec"
 	"apifactory/factory/testenv"
+	"apifactory/factory/try"
 	"apifactory/factory/upgrade"
 )
 
@@ -98,6 +104,8 @@ func main() {
 		err = cmdStats(args)
 	case "export":
 		err = cmdExport(args)
+	case "try":
+		err = cmdTry(args)
 	case "serve-test":
 		err = cmdServeTest(args)
 	case "ai":
@@ -400,6 +408,7 @@ func cmdAccept(args []string) error {
 	fs := flag.NewFlagSet("accept", flag.ExitOnError)
 	baseURL := fs.String("url", os.Getenv("BASE_URL"), "被测 API 的 URL(factory serve-test 会设置 BASE_URL)")
 	db := fs.String("db", os.Getenv("DATABASE_URL"), "灌 fixture 用的 DB")
+	resultsOut := fs.String("results", "", "每个用例的结果另外写成 JSON(factory try 用)")
 	_ = fs.Parse(args)
 	if *baseURL == "" {
 		return fmt.Errorf("accept: --url (or BASE_URL) is required; start the server with factory serve-test")
@@ -415,6 +424,11 @@ func cmdAccept(args []string) error {
 	results, err := accept.Run(context.Background(), *baseURL, *db, plan, specs)
 	if err != nil {
 		return err
+	}
+	if *resultsOut != "" {
+		if err := writeAcceptResults(*resultsOut, results); err != nil {
+			return err
+		}
 	}
 	failed, human, auto, diff := 0, 0, 0, 0
 	for _, r := range results {
@@ -444,6 +458,27 @@ func cmdAccept(args []string) error {
 	}
 	fmt.Printf("✓ acceptance passed (%d case(s): 人写 %d / 自动 %d / 差分 %d)\n", len(results), human, auto, diff)
 	return nil
+}
+
+// writeAcceptResults: 用例的结果(JSON 数组: spec / suite / case / passed / detail)。suite: 空 = 人写的例子,
+// auto:* = 自动生成,diff = 差分(和终端输出的分类一样)。
+func writeAcceptResults(path string, results []accept.Result) error {
+	type row struct {
+		Spec   string `json:"spec"`
+		Suite  string `json:"suite"`
+		Case   string `json:"case"`
+		Passed bool   `json:"passed"`
+		Detail string `json:"detail"`
+	}
+	rows := make([]row, 0, len(results))
+	for _, r := range results {
+		rows = append(rows, row{Spec: r.Spec, Suite: r.Suite, Case: r.Case, Passed: r.Passed, Detail: r.Detail})
+	}
+	b, err := json.Marshal(rows)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, b, 0o600)
 }
 
 // cmdAIPaths 列出式样书允许 AI 编辑的路径(试验脚本用来重置到 AI 动手前的状态)。
@@ -666,6 +701,88 @@ func cmdExport(args []string) error {
 	}
 	return os.WriteFile(*out, b, 0o644) //nolint:gosec // 清单是仓库内容的索引,不含秘密
 }
+
+// cmdTry: 在基准提交的临时副本里应用改动,跑 设计 → 生成 → 编译 → 单元测试 → 验收,输出每个用例的结果
+// (factory.try-result/v1, JSON;docs/try.md)。跑出了结论(包括用例失败、闸门不通过)= 退出码 0;
+// 用法错误 = 2;基础设施的错误(docker 没有等)= 1(结果照样输出,status error)。
+//
+//	factory [--project DIR] try --changes FILE [--api ID]... [--base REV] [--out FILE] [--keep]
+func cmdTry(args []string) error {
+	fs := flag.NewFlagSet("try", flag.ExitOnError)
+	changes := fs.String("changes", "", "改动的清单(factory.try-request/v1, JSON;- = 标准输入)")
+	var apis multiFlag
+	fs.Var(&apis, "api", "只验收这个 API(可以多次;默认 = 改动涉及的 API,一个都不涉及 = 全部)")
+	base := fs.String("base", "HEAD", "基准的修订")
+	out := fs.String("out", "", "结果写到这个文件(权限 0600;默认标准输出)")
+	keep := fs.Bool("keep", false, "不删除临时目录(调查用;路径打印到标准错误)")
+	_ = fs.Parse(args)
+	usageErr := func(err error) error {
+		fmt.Fprintln(os.Stderr, "✗", err)
+		fmt.Fprintln(os.Stderr, "usage: factory [--project DIR] try --changes FILE [--api ID]... [--base REV] [--out FILE] [--keep]")
+		os.Exit(2)
+		return nil
+	}
+	if *changes == "" || fs.NArg() > 0 {
+		return usageErr(fmt.Errorf("try: --changes is required (no positional arguments)"))
+	}
+	var src *os.File
+	if *changes == "-" {
+		src = os.Stdin
+	} else {
+		f, err := os.Open(*changes)
+		if err != nil {
+			return usageErr(err)
+		}
+		defer func() { _ = f.Close() }()
+		src = f
+	}
+	req, err := try.ParseRequest(src)
+	if err != nil {
+		return usageErr(err)
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	res, err := try.Run(ctx, try.Options{Exe: exe, Home: proj.Home(), Project: wd, Request: req, APIs: apis,
+		Base: *base, Keep: *keep, Log: os.Stderr})
+	if err != nil {
+		var ue try.UsageError
+		if errors.As(err, &ue) {
+			return usageErr(err)
+		}
+		return err
+	}
+	b, err := json.MarshalIndent(res, "", "  ")
+	if err != nil {
+		return err
+	}
+	b = append(b, '\n')
+	if *out == "" {
+		_, err = os.Stdout.Write(b)
+	} else {
+		err = os.WriteFile(*out, b, 0o600)
+	}
+	if err != nil {
+		return err
+	}
+	if res.Status == try.StatusError {
+		return fmt.Errorf("try: %s", res.Message)
+	}
+	return nil
+}
+
+// multiFlag: 可以写多次的选项。
+type multiFlag []string
+
+func (m *multiFlag) String() string     { return strings.Join(*m, ",") }
+func (m *multiFlag) Set(v string) error { *m = append(*m, v); return nil }
 
 // readSchema: db/schema/*.sql 全部拼起来(每个领域一个文件)。
 func readSchema() ([]byte, error) {
