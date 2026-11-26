@@ -37,7 +37,7 @@ func TestBuildOnRepo(t *testing.T) {
 		}
 		return lines[p][n-1]
 	}
-	var rules, logic, sql int
+	var rules, logic, sql, logicTests int
 	for _, a := range m.APIs {
 		if a.SourceKind == "design" && !strings.HasPrefix(a.Source.Path, "design/") {
 			t.Errorf("%s: design source %s", a.ID, a.Source.Path)
@@ -57,6 +57,9 @@ func TestBuildOnRepo(t *testing.T) {
 			}
 		}
 		for _, g := range a.Generated {
+			if strings.HasSuffix(g, "_logic_examples_gen_test.go") { // 头是 "from X (logic_examples). DO NOT EDIT"
+				logicTests++
+			}
 			b, err := readHead(g)
 			if err != nil {
 				t.Fatal(err)
@@ -83,8 +86,8 @@ func TestBuildOnRepo(t *testing.T) {
 			t.Errorf("%s: compute API without a logic escape", a.ID)
 		}
 	}
-	if rules == 0 || logic == 0 || sql == 0 {
-		t.Fatalf("rules %d logic %d sql %d: the repo has all three", rules, logic, sql)
+	if rules == 0 || logic == 0 || sql == 0 || logicTests == 0 {
+		t.Fatalf("rules %d logic %d sql %d logic-example tests %d: the repo has all four", rules, logic, sql, logicTests)
 	}
 	again, err := Build("specs")
 	if err != nil {
