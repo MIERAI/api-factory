@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	jobSummarySLASeconds = 300.0
+	jobSummarySLASeconds = 600.0
 
 	jobHealthOK       = "OK"
 	jobHealthDegraded = "DEGRADED"
